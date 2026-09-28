@@ -8,7 +8,7 @@ The free [Marketing Toolkit](https://github.com/1610-advisory/mktkit) adds brand
 
 - **Claude Code:** `/plugin marketplace add 1610-advisory/mktkit` then `/plugin install ai-cmo@mktkit`
 - **Claude Desktop:** Customize → Plugins → add marketplace `1610-advisory/mktkit` → install **ai-cmo**
-- **Codex, Cursor, others:** `git clone https://github.com/1610-advisory/mktkit.git ~/os/tools/mktkit`, then read its `AGENTS.md` when doing marketing work here
+- **Codex, Cursor, others:** `git clone https://github.com/1610-advisory/mktkit.git ~/os/tools/mktkit`, then read its `CLAUDE.md` (the toolkit's rules) when doing marketing work here
 
 The toolkit is a shared tool. It lives in `~/os/tools/` or the plugin, never inside this company folder. Its outputs (plans, drafts, reports) live here.
 

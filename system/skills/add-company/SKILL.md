@@ -21,12 +21,13 @@ Ask which parts of the business they work in. Offer a list: marketing, finance, 
 
 1. Copy `system/company-template/` to `~/os/<slug>/`.
 2. Keep `core/` and `memory/` always. Keep `marketing/` and `finance/` only if chosen. For every other chosen function, copy `_function/` to `<function-slug>/`. Then delete `_function/` and any unchosen function folders from the new company.
-3. Replace placeholders in every file: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{FUNCTION_NAME}}`, `{{PERSON_NAME}}`, `{{ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD).
+3. Replace placeholders in every file: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{FUNCTION_NAME}}`, `{{PERSON_NAME}}`, `{{ROLE}}`, `{{ONE_LINER}}`, `{{DATE}}` (today, YYYY-MM-DD). `{{FUNCTIONS}}` in `company.md` becomes one bullet per function; in `AGENTS.md` it becomes a comma list of folder names.
+   Some agents ask permission before deleting a folder. That is expected; tell the person what you are removing and ask them to approve.
 4. Add the company to the "Companies" line in `~/os/AGENTS.md`.
 
 ## 4. Fill core knowledge (the interview)
 
-This is the part that makes the agent useful. Ask these, one at a time, and write the answers into `core/` as you go. Short answers are fine; the files grow over time.
+This is the part that makes the agent useful. For the main company, ask all of these. For a smaller one (a side business, a board seat), ask only the first two and the last, and tell them the rest can be filled in later. Ask one at a time, and write the answers into `core/` as you go. Short answers are fine; the files grow over time.
 
 | Question | File |
 |---|---|
@@ -34,7 +35,7 @@ This is the part that makes the agent useful. Ask these, one at a time, and writ
 | Who buys from you? What problem are they trying to solve? Who is your best customer? | `core/customers.md` |
 | What do you sell? Main products or services, rough prices, what people buy first. | `core/offers.md` |
 | How should the company sound when it writes? Any words you never use? Paste a few lines you like. | `core/voice.md` |
-| Who are the three to five people you work with most? Their role. | `core/people/<Name>.md` (one each, from `templates/Person.md`) |
+| Who are the three to five people you work with most? Their role. | `core/people/<Name>.md` (one each, from `templates/Person.md`; fill `company:` with `[[<Company Name>]]`, `role:`, and a one-line `summary:`) |
 | What are you working on this quarter? | `AGENTS.md` → "Right now" |
 
 Offer shortcuts: "If there is a website, I can read it and draft these for you to check." If the agent can browse, read the company website and draft `about.md`, `offers.md`, and `voice.md` from it, then ask them to correct it. Mark anything you guessed with `(check)`.

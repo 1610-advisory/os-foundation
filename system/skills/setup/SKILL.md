@@ -28,7 +28,7 @@ For the other companies from question 3, offer: "Want me to set those up now, or
 
 ## 3. Connect a tool (about 5 minutes, optional)
 
-Ask which tools they open every day for this company (email, calendar, docs, chat, books, CRM, store, email marketing). Write the list into `<company>/company.md` under "Tools".
+Ask which tools they open every day for this company (email, calendar, docs, chat, books, CRM, store, email marketing). Write the list into `<company>/company.md` under "Tools in use". Only tools that are actually connected go in the "Connected" table.
 
 Suggest connecting the one they use most, usually email and calendar. Follow `system/skills/connect-tool/SKILL.md`. One connection is enough today. Tell them they can connect more any time.
 
@@ -36,7 +36,7 @@ If they say no, that is fine. The OS works with files alone.
 
 ## 4. Toolkits
 
-If they chose a marketing function, tell them about the free Marketing Toolkit (brand voice, personas, content plans, performance tracking). Offer to install it. Follow the "Marketing Toolkit" section in `<company>/marketing/AGENTS.md`.
+If they chose a marketing function, tell them about the Marketing Toolkit: free and open source, adds brand voice, personas, content plans, and performance tracking. Say what installing it does (adds a plugin or downloads a folder to `~/os/tools/mktkit`) and ask before you install anything. If they say later, that is fine. Steps: the "Marketing Toolkit" section in `<company>/marketing/AGENTS.md`.
 
 ## 5. Obsidian (optional)
 

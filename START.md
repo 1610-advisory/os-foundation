@@ -20,7 +20,7 @@ Find out (by running commands where you can, not by asking):
 3. Whether `git` is installed (`git --version`).
 4. Whether `~/os` already exists.
 
-If `~/os` exists: look inside. If it is this starter already, skip to step 3. If it holds something else, ask where to put the new OS (suggest `~/os-work`). Use that path everywhere below where this file says `~/os`.
+If `~/os` exists: look inside. If it is this starter already, skip step 2 and go to step 3 below. If it holds something else, ask where to put the new OS (suggest `~/os-work`). Use that path everywhere below where this file says `~/os`.
 
 If they already use an Obsidian vault or notes folder, ask if they want to keep it separate (simplest) or move it into `~/os/wiki/` later. Do not move anything now.
 
@@ -36,6 +36,12 @@ git clone https://github.com/1610-advisory/os-starter.git ~/os
 
 Without git: download and unzip the zip link above into `~/os`.
 
-Then remove the starter's git history so the folder is theirs: delete `~/os/.git`. (Their company folders can become their own git repos later. See `system/skills/add-company/SKILL.md`.)
+## Step 3 — Make it theirs
+
+Always run this step, even if you skipped step 2. If `~/os/.git` exists and `git -C ~/os remote get-url origin` points at `os-starter`, delete `~/os/.git` so the folder is theirs and not a copy of the starter. (Their company folders can become their own git repos later. See `system/skills/add-company/SKILL.md`.)
+
+Some agents ask permission before deleting a folder. That is expected. Tell the person what you are deleting and why, and ask them to approve it.
+
+## Step 4 — Continue inside the folder
 
 From here on, read and follow the files inside `~/os`. The next steps live in `~/os/system/skills/setup/SKILL.md`. Read it now and continue there.

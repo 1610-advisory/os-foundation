@@ -10,9 +10,13 @@ created: {{DATE}}
 
 - {{FUNCTIONS}}
 
-## Tools
+## Tools in use
 
-<!-- One line per connection: tool — connector — agent — read-only/read-write — date. Never a secret. -->
+<!-- Every tool the company uses, connected or not. One bullet each. -->
+
+## Connected
+
+<!-- Only tools the agent can reach. Never a secret. -->
 | Tool | Connector | Agent | Access | Connected |
 |---|---|---|---|---|
 

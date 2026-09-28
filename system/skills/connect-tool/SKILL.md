@@ -19,7 +19,7 @@ One tool, one company, per run. Ask one question at a time.
 
 ## 1. Which tool, which company
 
-Ask which tool and confirm the company. Check `<company>/company.md` → "Tools" for what is already connected.
+Ask which tool and confirm the company. Check `<company>/company.md` → "Connected" for what is already connected.
 
 ## 2. Find the connector
 
@@ -27,7 +27,7 @@ Search, in this order:
 
 1. Your agent's built-in connector list (Claude: Settings → Connectors; Cursor: Settings → MCP; Codex: `codex mcp --help`).
 2. The vendor's own docs: search "<tool> MCP server".
-3. If nothing official exists, say so. Offer a fallback: export files (CSV, PDF) into `<company>/<function>/data/` and work from those.
+3. If nothing official exists, or you have no internet access to look it up, say so. Offer a fallback: export files (CSV, PDF) into `<company>/<function>/data/` and work from those.
 
 Common ones by function:
 
@@ -58,4 +58,4 @@ Make one **read-only** call and show the result: list the three newest emails (s
 
 ## 5. Record it
 
-In `<company>/company.md` → "Tools", add a line: tool, connector name, agent, read-only or read-write, date connected. No secrets. Then tell them one thing they can now ask, for example "What did customers email about this week?"
+In `<company>/company.md` → "Connected", add a row: tool, connector name, agent, read-only or read-write, date connected. No secrets. Then tell them one thing they can now ask, for example "What did customers email about this week?"
