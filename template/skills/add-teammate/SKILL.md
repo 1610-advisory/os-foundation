@@ -23,9 +23,25 @@ Two parts: **A** runs on the admin's computer, **B** on the teammate's. Ask one 
 5. **Invite.** For each repo the teammate gets: `gh api -X PUT repos/<org>/<repo>/collaborators/<username> -f permission=push`. Write access lets their agent open pull requests; the review rule stops changes going in without the admin.
 6. **The review rule.**
    - Add `.github/CODEOWNERS` with `* @<admin-username>` to each shared repo and commit.
-   - **Paid GitHub plan (Team or higher):** protect `main` on each repo: require a pull request with one approval from code owners. GitHub then enforces the rule.
+   - **Paid GitHub plan (Team or higher):** on each repo, protect both branches. GitHub then enforces the rules.
+     - `main`: a pull request with one approval from code owners. The admin can still commit directly.
+       ```
+       gh api -X PUT repos/<org>/<repo>/branches/main/protection --input - <<'JSON'
+       {"required_status_checks": null, "enforce_admins": false,
+        "required_pull_request_reviews": {"required_approving_review_count": 1, "require_code_owner_reviews": true},
+        "restrictions": null}
+       JSON
+       ```
+     - `logs`: no review, but no force-push and no deletion, so nobody can wipe the history.
+       ```
+       gh api -X PUT repos/<org>/<repo>/branches/logs/protection --input - <<'JSON'
+       {"required_status_checks": null, "enforce_admins": true,
+        "required_pull_request_reviews": null, "restrictions": null,
+        "allow_force_pushes": false, "allow_deletions": false}
+       JSON
+       ```
    - **Free plan:** GitHub cannot protect `main` on private repos. Tell the admin plainly: the rule is written in `AGENTS.md` and agents follow it, but GitHub does not enforce it.
-   - Protect only `main`. Session logs live on the `logs` branch, so they never need a pull request.
+   - Session logs live on the `logs` branch, so they never need a pull request.
 7. **Record it.** Add or update the teammate's note in `people/` (name, role, which areas). Commit.
 8. **Hand-off message.** Write a short message the admin can send: accept the GitHub invites, then paste this into their agent: "Set up my computer for the <Company> company OS. Read `skills/add-teammate/SKILL.md` part B in the repo <org>/<slug>-os and follow it." No secrets in the message.
 

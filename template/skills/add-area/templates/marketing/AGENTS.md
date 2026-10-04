@@ -16,7 +16,8 @@ Read these if your agent did not load them already:
 
 1. `../../AGENTS.md` — the company rules (layout, skills, memory, review).
 2. `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
-3. `../../company-profile.md`, and any other shared file the task needs (`customers.md`, `offers.md`, `voice.md`, `people/`).
+3. Recent work: if there is a GitHub remote, pull the logs here and at the company root (`git -C memory/logs pull -q`, `git -C ../../memory/logs pull -q`). Skim the last two or three days of logs here and in `../../memory/logs/`.
+4. `../../company-profile.md`, and any other shared file the task needs (`customers.md`, `offers.md`, `voice.md`, `people/`).
 
 ## What this area does
 

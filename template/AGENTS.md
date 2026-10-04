@@ -71,7 +71,7 @@ Memory holds facts about **how to work**. The other files hold facts about **the
 
 - Company memory: `memory/`. Area memory: `areas/<area>/memory/`. Each has a `MEMORY.md` index, one line per memory: `- [Title](file.md) — hook`.
 - One fact per file, with frontmatter `name`, `description`, `type: user | feedback | project | reference`. Update an existing file before you make a new one. Delete memories that turn out wrong. Use absolute dates.
-- Read `memory/MEMORY.md` at the start of a session.
+- **Start of a session:** read `memory/MEMORY.md`. If there is a GitHub remote, pull `memory/logs/` (`git -C memory/logs pull -q`). Then skim the logs from the last two or three days, so you know what the team did and what is open.
 - At the end of real work, append a short entry to `memory/logs/YYYY-MM-DD-<your-person-slug>.md` (in the area's `memory/logs/` for area work): what was done, what is open. One file per person per day, so teammates never edit the same file.
 - `memory/logs/` is the repo's `logs` branch, checked out as a folder. Commit and push logs there directly (`skills/logs-folder/` → "Write a log"). Curated memory stays on `main`.
 
