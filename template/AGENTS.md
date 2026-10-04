@@ -44,7 +44,7 @@ Areas: {{AREAS}}
 
 - Each area under `areas/` is its **own git repo**. The company folder's git ignores `areas/`. That is how access works: a person who should not see finance never gets the finance repo, so `areas/finance/` is not on their computer.
 - **Work starts in an area.** Marketing work: open your agent in `areas/marketing/`. General company questions: open it here, at the company root. A session here may read the areas on this computer: a person only has the areas they are allowed to see.
-- **Never copy area facts into shared files.** Pay, raw numbers, HR notes, and customer records stay in their area. Everyone with access to the company folder reads the shared files, including people without that area. Area facts reach shared files only when a person decides to share them.
+- **Sharing is a person's choice, never yours.** Everyone with access to the company folder reads the shared files, including people without that area. So when you write shared files on your own (ingest, meeting notes, summaries), leave out pay, raw financials, HR details, and customer records. When a person asks you to share something from an area, do it. If it looks sensitive, say so once, then follow their choice. A teammate's share goes to the admin as a pull request; that review is the check.
 - Folders organize work. Areas control access. A sub-folder inside an area is fine when the same people see all of it. A group of people with different access gets its own area.
 - `areas/apps/` holds software: one repo per app inside it (a customer portal goes at `areas/apps/portal/`).
 

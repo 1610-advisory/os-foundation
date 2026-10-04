@@ -5,7 +5,7 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 ## Must-have rules (every agent, every session)
 
 - **One company only.** Use only files inside `~/{{COMPANY_SLUG}}-os/`. Never read or copy from another company's folder.
-- **Area facts stay here.** Do not copy facts from this area into the shared company files (`../../`). Only a person decides to share them.
+- **Sharing is a person's choice.** Never move facts from this area into the shared company files (`../../`) on your own. When a person asks to share something, do it (say once if it looks sensitive); a teammate's share goes to the admin as a pull request.
 - **No secrets.** No passwords, API keys, or tokens in any file. Connections use each tool's own sign-in.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay, or delete anything outside this folder.

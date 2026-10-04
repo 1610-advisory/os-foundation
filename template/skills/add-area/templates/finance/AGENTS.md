@@ -5,7 +5,7 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 ## Must-have rules (every agent, every session)
 
 - **One company only.** Use only files inside `~/{{COMPANY_SLUG}}-os/`. Never read or copy from another company's folder.
-- **Area facts stay here.** Do not copy facts from this area into the shared company files (`../../`). Only a person decides to share them.
+- **Sharing is a person's choice.** Never move facts from this area into the shared company files (`../../`) on your own. When a person asks to share something, do it (say once if it looks sensitive); a teammate's share goes to the admin as a pull request.
 - **No secrets.** No passwords, API keys, or tokens in any file. Connections use each tool's own sign-in.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay, or delete anything outside this folder.
@@ -29,7 +29,7 @@ The numbers for {{COMPANY_NAME}}: books, cash, reports, invoices.
 - Every number you give has a source: a file in `data/`, a connected tool, or a formula you show. If you cannot trace it, say so.
 - Show your math for anything that feeds a decision.
 - Never move money, send an invoice, or change the books without showing the exact change and getting a yes.
-- Raw numbers stay in this area. A shared summary goes to the company files only when a person decides to share it.
+- Raw numbers stay in this area unless a person asks to share them. Then share what they chose (say once if it looks sensitive).
 
 Finance Toolkit: coming. Until then, these rules and the area skills are the method.
 

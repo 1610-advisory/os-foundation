@@ -24,7 +24,7 @@ Rules:
 - **This repo is public.** No real company, client, or person names, emails, prices, hosts, or account details. Examples use "Acme Co" and `acme`.
 - **No secrets**, ever.
 - **The company OS must work on its own** after setup: no file in `template/` may depend on this repo being present.
-- **Area facts stay in areas.** Keep the shared root (`template/`) free of any rule or file that would pull area data into it.
+- **Sharing is the person's choice.** Agents never move area facts into shared files on their own; a person may share anything, and a teammate's share goes through the admin's pull-request review. Keep the template consistent with that rule.
 - **Keep every `AGENTS.md` under 10,000 characters.** Put detail in skills.
 - **Plain words.** Short sentences, one instruction per sentence, active voice. Setup is read by people who are not technical.
 - **No telemetry.** Nothing in this repo reports back to 1610. The only count is fetches of the setup file.
