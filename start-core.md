@@ -79,6 +79,14 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
 1. **Get the template.**
    - If this repo is on disk (you are running inside a copy of os-foundation), use its `template/` folder.
    - Otherwise download it to a temporary folder: `git clone --depth 1 https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`. No git? Download and unzip `https://github.com/1610-advisory/os-foundation/archive/refs/heads/main.zip` instead.
+   - If both fail, get the template straight from 1610.sh into the new folder (this replaces step 2):
+     ```
+     mkdir -p ~/<slug>-os && cd ~/<slug>-os
+     curl -fsS https://1610.sh/os/files | grep '^template/' | while read -r f; do
+       t="${f#template/}"; mkdir -p "$(dirname "$t")"; curl -fsS "https://1610.sh/os/$f" -o "$t"
+     done
+     ```
+     No shell either? Read each `template/` file from `https://1610.sh/os/<path>` and write it into the folder yourself.
 2. **Copy** everything in `template/`, hidden files included, into `~/<slug>-os/` (for example `cp -R <temp>/os-foundation/template/. ~/<slug>-os/`). Copy only `template/`: their folder must not get the os-foundation git history or remote.
 3. **Fill the placeholders** you know now: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}`, `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
 4. **Start its history:** `git -C ~/<slug>-os init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `~/<slug>-os/skills/logs-folder/SKILL.md` → "Make it", from `~/<slug>-os`.
