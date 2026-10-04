@@ -32,7 +32,7 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 ├── customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/
 ├── inbox/                    drop anything here; the agent files it
-├── memory/                   what the agent learned about working here
+├── memory/                   what the agent learned about working here (session logs on their own branch)
 ├── skills/                   your SOPs, written down for the agent
 └── areas/                    one folder per area of the business
     ├── marketing/
@@ -60,6 +60,8 @@ Folders are yours. Toolkits are ours: free, open source, and kept current by 161
 
 - **[Marketing Toolkit](https://github.com/1610-advisory/mktkit)** — content plans, captions, video cuts, carousels, performance reports.
 - **Finance Toolkit** — coming.
+
+Claude installs toolkits as plugins. Other agents keep them in one folder, `~/toolkits/`, next to any other toolkits you use or build (1610's are named `1610-…`).
 
 ## Teams
 

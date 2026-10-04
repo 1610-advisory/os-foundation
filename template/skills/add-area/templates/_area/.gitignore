@@ -1,3 +1,6 @@
+# Session logs live on the `logs` branch, checked out here (skills/logs-folder).
+/memory/logs/
+
 .env
 .env.*
 *.pem

@@ -42,7 +42,9 @@ Check whether it is installed (Claude: the `ai-cmo` skills are listed). If not, 
 
 - **Claude Code:** `/plugin marketplace add 1610-advisory/mktkit`, then `/plugin install ai-cmo@mktkit`
 - **Claude Desktop / Cowork:** Customize → Plugins → add marketplace `1610-advisory/mktkit` → install **ai-cmo**
-- **Codex, Cursor, others:** `git clone https://github.com/1610-advisory/mktkit.git ~/1610/tools/mktkit`, then read its `CLAUDE.md` when you do marketing work here
+- **Codex, Cursor, others:** `git clone https://github.com/1610-advisory/mktkit.git ~/toolkits/1610-mktkit`, then read its `CLAUDE.md` when you do marketing work here. If its last update is more than 7 days old, run `git -C ~/toolkits/1610-mktkit pull` first.
+
+`~/toolkits/` is the one place on this computer for every toolkit: 1610's (named `1610-…`), others, and the company's own.
 
 ### Folders
 
@@ -52,7 +54,7 @@ Check whether it is installed (Claude: the `ai-cmo` skills are listed). If not, 
 
 ## Skills
 
-Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest): read and follow those files the same way.
+Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
 
 | Skill | Use when someone says |
 |---|---|
@@ -62,9 +64,9 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 - `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
 - `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`.
+- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`, on the `logs` branch (`../../skills/logs-folder/`).
 - `skills/` — this area's SOPs.
 
 ## Changes and review
 
-Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go straight to `main`.
+Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go on the `logs` branch in `memory/logs/`, committed directly.

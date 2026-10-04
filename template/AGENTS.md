@@ -31,7 +31,7 @@ This folder is the company OS for **{{COMPANY_NAME}}**: the shared memory of the
 | `decisions/` | One note per decision that should outlast a meeting | everyone |
 | `architecture.md` | Connected tools and apps (made when the first one is added) | everyone |
 | `inbox/` | Capture for shared items. Nothing lives here. | everyone |
-| `memory/` | How to work at this company. `logs/` holds session logs. | everyone |
+| `memory/` | How to work at this company. `memory/logs/` holds session logs (its own branch). | everyone |
 | `skills/` | Company skills (SOPs for the agent) | everyone |
 | `templates/` | Note templates | everyone |
 | `areas/<area>/` | One folder per area of the business. Each area is its own git repo. | only people with access to that area |
@@ -43,8 +43,8 @@ A note's meaning comes from its YAML `type:` and its `[[wiki-links]]`, not its f
 Areas: {{AREAS}}
 
 - Each area under `areas/` is its **own git repo**. The company folder's git ignores `areas/`. That is how access works: a person who should not see finance never gets the finance repo, so `areas/finance/` is not on their computer.
-- **Work starts in an area.** Marketing work: open your agent in `areas/marketing/`. General company questions: open it here, at the company root.
-- **A session at the company root never reads, quotes, or summarizes anything under `areas/`**, and never copies area facts (pay, raw numbers, HR notes, customer records) into a shared file. Everyone with access to the company folder can read shared files. Area facts reach shared files only when a person decides to share them.
+- **Work starts in an area.** Marketing work: open your agent in `areas/marketing/`. General company questions: open it here, at the company root. A session here may read the areas on this computer: a person only has the areas they are allowed to see.
+- **Never copy area facts into shared files.** Pay, raw numbers, HR notes, and customer records stay in their area. Everyone with access to the company folder reads the shared files, including people without that area. Area facts reach shared files only when a person decides to share them.
 - Folders organize work. Areas control access. A sub-folder inside an area is fine when the same people see all of it. A group of people with different access gets its own area.
 - `areas/apps/` holds software: one repo per app inside it (a customer portal goes at `areas/apps/portal/`).
 
@@ -61,6 +61,7 @@ Skills are SOPs in plain markdown. When a request matches one, read the file and
 | `skills/write-skill/` | "write this down", "make a skill for this", or you are told the same thing twice |
 | `skills/lint/` | "health check", "lint", weekly |
 | `skills/suggest/` | "I solved this", "send this idea to 1610", "suggest a fix" |
+| `skills/logs-folder/` | "the logs folder is missing" (setup and add-area use it too) |
 
 Each area can have its own skills in `areas/<area>/skills/`. Every time someone re-explains how they want something done, offer to write it as a skill. That is how the OS gets better.
 
@@ -72,12 +73,13 @@ Memory holds facts about **how to work**. The other files hold facts about **the
 - One fact per file, with frontmatter `name`, `description`, `type: user | feedback | project | reference`. Update an existing file before you make a new one. Delete memories that turn out wrong. Use absolute dates.
 - Read `memory/MEMORY.md` at the start of a session.
 - At the end of real work, append a short entry to `memory/logs/YYYY-MM-DD-<your-person-slug>.md` (in the area's `memory/logs/` for area work): what was done, what is open. One file per person per day, so teammates never edit the same file.
+- `memory/logs/` is the repo's `logs` branch, checked out as a folder. Commit and push logs there directly (`skills/logs-folder/` → "Write a log"). Curated memory stays on `main`.
 
 ## Changes and review
 
 - **The admin** may commit directly to `main`.
 - **Everyone else** opens a pull request for any change to shared files (knowledge, memory, skills, rules). The admin approves it. Make the branch and the PR for the person; they do not need to know git.
-- **Session logs** are the exception: commit them straight to `main`. If `main` is protected and the push is refused, keep the log commit and put it in the person's next pull request.
+- **Session logs** are the exception: they live on the `logs` branch (`memory/logs/`), which has no review rule. Commit and push them directly.
 - Commit after each piece of real work, with a one-line message that says what changed. Local git works with no GitHub account. GitHub is needed only when a teammate joins (`skills/add-teammate/`).
 
 ## Conventions

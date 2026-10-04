@@ -81,7 +81,7 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
    - Otherwise download it to a temporary folder: `git clone --depth 1 https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`. No git? Download and unzip `https://github.com/1610-advisory/os-foundation/archive/refs/heads/main.zip` instead.
 2. **Copy** everything in `template/`, hidden files included, into `~/<slug>-os/` (for example `cp -R <temp>/os-foundation/template/. ~/<slug>-os/`). Copy only `template/`: their folder must not get the os-foundation git history or remote.
 3. **Fill the placeholders** you know now: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}`, `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
-4. **Start its history:** `git -C ~/<slug>-os init -b main`, then commit everything: `Company OS: start`.
+4. **Start its history:** `git -C ~/<slug>-os init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `~/<slug>-os/skills/logs-folder/SKILL.md` → "Make it", from `~/<slug>-os`.
 5. **Claude Code only:** `mkdir -p ~/<slug>-os/.claude && ln -s ../skills ~/<slug>-os/.claude/skills`, so the skills show as slash commands. Skip if it fails.
 6. Delete the temporary download.
 7. Write what you have so far: a person note for the owner in `people/<Full Name>.md` (from `templates/person.md`), and the website in `company-profile.md`.
@@ -138,5 +138,5 @@ If you read their website, draft these from it and ask them to correct the draft
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
 3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `~/<slug>-os` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
 4. **Check your work.** No `{{...}}` left outside `skills/add-area/templates/`. Commit.
-5. **Log it.** Append to `memory/logs/YYYY-MM-DD-<owner-slug>.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit.
+5. **Log it.** Append to `memory/logs/YYYY-MM-DD-<owner-slug>.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit it on the logs branch (`skills/logs-folder/` → "Write a log").
 6. **Wrap up** in three to five lines: what they have now, and the single best next step.

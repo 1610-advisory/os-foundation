@@ -17,7 +17,7 @@ Check the folder you are in: the company root (shared files only, not `areas/`),
 6. **Area facts in shared files** (company root only). Pay, raw financial figures, HR notes, or customer records in a shared file. Report; do not move anything without asking.
 7. **Other companies.** Any mention of, or link to, another company's folder. Report.
 8. **Size.** Any `AGENTS.md` over 10,000 characters. Suggest what to move into a skill or memory file.
-9. **Git.** Uncommitted changes, and (if there is a GitHub remote) commits not yet pushed. Report.
+9. **Git.** Uncommitted changes, and (if there is a GitHub remote) commits not yet pushed, in the repo and in `memory/logs/`. Check that `memory/logs/` is on the `logs` branch; if not, use `skills/logs-folder/` → "Repair". Report.
 
 ## Output
 

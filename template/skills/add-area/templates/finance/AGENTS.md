@@ -40,7 +40,7 @@ Finance Toolkit: coming. Until then, these rules and the area skills are the met
 
 ## Skills
 
-Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest): read and follow those files the same way.
+Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
 
 | Skill | Use when someone says |
 |---|---|
@@ -50,9 +50,9 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 - `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
 - `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`.
+- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`, on the `logs` branch (`../../skills/logs-folder/`).
 - `skills/` — this area's SOPs.
 
 ## Changes and review
 
-Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go straight to `main`.
+Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go on the `logs` branch in `memory/logs/`, committed directly.

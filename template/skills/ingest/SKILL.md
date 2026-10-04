@@ -16,7 +16,7 @@ If the person named one item, process only that. Otherwise process everything. F
 
 ## Per item
 
-1. **Shared or one area?** Decide from the content. Pay, reviews, HR, raw financials, and customer records belong to an area. At the company root, do **not** read further into an item like that: tell the person which area it belongs to, and ask them to move it to that area's `inbox/` (or move it for them with one `mv`, with their OK). Then process it from the area.
+1. **Shared or one area?** Decide from the content. Pay, reviews, HR, raw financials, and customer records belong to an area. At the company root, never file an item like that into shared files: move it to that area's `inbox/` (with the person's OK) and process it there. If that area is not on this computer, leave it in the inbox and tell the person who should get it.
 2. **What is it?** Meeting, fact about a person or the company, idea, how-to, decision, task, or data file.
 3. **Audio?** Transcribe first. Use a local tool if one is installed (for example Whisper). If none is, ask how they want it handled.
 4. **File it:**

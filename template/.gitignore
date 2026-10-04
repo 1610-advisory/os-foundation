@@ -1,6 +1,9 @@
 # Each area is its own repo. The company repo never tracks them.
 /areas/
 
+# Session logs live on the `logs` branch, checked out here (skills/logs-folder).
+/memory/logs/
+
 # Secrets and machine files
 .env
 .env.*
