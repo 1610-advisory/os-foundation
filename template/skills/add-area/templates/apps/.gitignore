@@ -1,0 +1,10 @@
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+token*.json
+.claude/settings.local.json
+.DS_Store
+
+# App repos (one line per app)

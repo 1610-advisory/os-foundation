@@ -1,0 +1,13 @@
+# Each area is its own repo. The company repo never tracks them.
+/areas/
+
+# Secrets and machine files
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+token*.json
+.claude/settings.local.json
+.DS_Store
+.obsidian/workspace*.json

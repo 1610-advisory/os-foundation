@@ -1,60 +1,79 @@
-# OS Starter
+# os-foundation
 
-One folder for your work and your company, set up so an AI agent already knows how you work when you open it.
+A company OS: one folder on your computer that holds your company's memory, set up so any AI agent you open there already knows how your business works.
 
-It works with Claude (Code, Desktop, Cowork), Codex, Cursor, or any agent that can read files. Everything is plain markdown on your own computer.
+It works with Claude (Cowork, Desktop, Code), Codex, Cursor, and Grok. Everything is plain markdown, in a folder that is yours.
 
 ## Start
 
 Paste this into your agent:
 
 ```
-Set up my AI operating system. Read https://raw.githubusercontent.com/1610-advisory/os-starter/main/START.md and follow it step by step. Ask me one question at a time.
+Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question at a time.
 ```
 
-Or clone it yourself:
+The agent asks you some questions (about 15 minutes), builds `~/<your-company>-os/`, and shows you one useful thing it can do.
+
+| Agent | How to start |
+|---|---|
+| Claude Cowork / Desktop | Start a task, paste the prompt. It will ask you to choose a folder. |
+| Claude Code | Run `claude` in your home folder and paste the prompt. |
+| Codex | Run `codex` in your home folder and paste the prompt. |
+| Cursor | Open your home folder in Cursor and paste the prompt into the agent. |
+
+Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.git`, open the folder in your agent, and say "read START.md."
+
+## What you get
 
 ```
-git clone https://github.com/1610-advisory/os-starter.git ~/os
-cd ~/os
-claude        # or: codex, or open the folder in Cursor
-```
-
-Then say "run setup."
-
-Setup takes about 15 minutes. The agent interviews you, builds your company folder, and helps you connect the tools you already use.
-
-## What you end up with
-
-```
-~/os/
-├── AGENTS.md          the rules every agent reads first
-├── inbox/             drop anything here; the agent files it
-├── wiki/              people, notes, ideas (your personal knowledge)
-├── calendar/          meetings, reviews
-├── efforts/           personal projects
-├── tools/             shared toolkits (like the Marketing Toolkit)
-├── system/            agent memory and skills
-└── your-company/      one folder per company you work in
-    ├── AGENTS.md      what the company is, who you are there
-    ├── core/          shared knowledge: about, customers, offers, voice, people, meetings
-    ├── marketing/     one folder per function you work in
+~/acme-os/                    your company OS
+├── AGENTS.md                 the rules every agent reads first
+├── company-profile.md        what you do
+├── customers.md, offers.md, voice.md
+├── people/  meetings/  decisions/
+├── inbox/                    drop anything here; the agent files it
+├── memory/                   what the agent learned about working here
+├── skills/                   your SOPs, written down for the agent
+└── areas/                    one folder per area of the business
+    ├── marketing/
     ├── finance/
-    └── memory/        what the agent learned about working here
+    └── apps/
 ```
 
-## The three ideas
+**Shared knowledge at the top, areas below.** Everyone you give access to reads the shared files. Each area is its own git repo, so when your team grows you can give the bookkeeper finance and a contractor marketing, and neither sees the other.
 
-1. **Context, tools, skills.** Context is what the agent should already know (markdown files). Tools are the connections that let it act (email, calendar, books, CRM). Skills are your SOPs written down, so it does things your way every time.
-2. **One company, one folder.** Everything about a company lives in its folder. If you work in more than one, each is its own silo and the agent never mixes them.
-3. **Open the folder you are working in.** Doing marketing? Open `your-company/marketing/`. The agent reads the rules for your OS, then the company, then the function, and starts briefed.
+## Three ideas
 
-## Add more later
+1. **Context, tools, skills.** Context is what the agent should already know (these markdown files). Tools are the connections that let it act (email, calendar, books, CRM). Skills are your SOPs written down, so it does things your way every time.
+2. **Open the folder you are working in.** Marketing work? Open your agent in `areas/marketing/`. General questions? The company folder. The agent reads the rules and starts briefed.
+3. **Every time you re-explain something, make it a skill.** Say "write this down as a skill." That is how it gets better.
 
-- "Add a company" builds another company folder.
-- "Add a function" adds sales, operations, HR, or anything else to a company.
-- "Connect a tool" walks you through one connection.
-- "Process my inbox" and "lint the vault" keep it tidy.
+## Yours, not ours
+
+- **You own it.** Your company OS is your folder, on your computer and in your own GitHub if you add one. It does not depend on this repo after setup.
+- **Your privacy.** Your company folder stays on your computer and in your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords.
+- **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
+
+## Toolkits
+
+Folders are yours. Toolkits are ours: free, open source, and kept current by 1610. They plug into an area and add skills. They hold none of your data; their results stay in your folders.
+
+- **[Marketing Toolkit](https://github.com/1610-advisory/mktkit)** — content plans, captions, video cuts, carousels, performance reports.
+- **Finance Toolkit** — coming.
+
+## Teams
+
+When someone else should use it, say "add a teammate." The agent puts the company folder and only the areas they need on your company's GitHub as private repos, invites them, and sets up their computer. Changes they ask for come to you, the admin, as a pull request.
+
+The admin approval rule is enforced by GitHub on paid plans (GitHub Team). On the free plan it is a written rule that agents follow.
+
+## Improve it
+
+Solved something or built a useful skill? Say "suggest this." The agent removes your company's details, shows you the exact text, and only then opens an issue here. We feature the best ones.
+
+## Want it built for you?
+
+If nobody on your team will own this day to day, [1610 Advisory](https://1610advisory.com) installs it, connects your systems, and runs it until someone on your team can.
 
 ## License
 

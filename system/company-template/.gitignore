@@ -1,7 +1,0 @@
-.env
-.env.*
-*.pem
-*.key
-credentials*.json
-token*.json
-.DS_Store
