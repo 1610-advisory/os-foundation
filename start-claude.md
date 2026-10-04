@@ -7,7 +7,7 @@ Read `start-core.md` first. This file only adds Claude steps.
 Cowork and Desktop can only edit folders the person shares with you.
 
 - Before you build (right after question 4 in `start-core.md`), ask them to make an empty folder named `<slug>-os` in their home folder and choose it as the folder for this task. Then build inside it.
-- If you cannot run `git clone` or download the zip, read the template files one by one from `https://1610.sh/os/template/...` (the file list is in `https://github.com/1610-advisory/os-foundation/tree/main/template`) and write them into the folder.
+- If you cannot run `git clone` or download the zip, get the file list from `https://1610.sh/os/files`, then read each file under `template/` from `https://1610.sh/os/<path>` and write it into the folder (without the `template/` part of the path).
 - If `git` is not available, still build the folder. Tell them their history starts when git is installed; `add-teammate` will help later.
 
 ## First connection

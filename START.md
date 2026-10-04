@@ -19,7 +19,7 @@ You are helping the **owner of one business** build a **company OS**: a folder o
 
 3. Follow core plus the add-on. Where they differ, the add-on wins for connection and command steps only.
 
-**Where the files are.** If you have this repo on disk, they are next to this file. If you read this file from a URL, the others are at the same address: `https://1610.sh/os/start-core.md`, `https://1610.sh/os/start-claude.md`, and so on. The full repo is `https://github.com/1610-advisory/os-foundation`.
+**Where the files are.** If you have this repo on disk, they are next to this file. If you read this file from a URL, the others are at the same address: `https://1610.sh/os/start-core.md`, `https://1610.sh/os/start-claude.md`, and so on. `https://1610.sh/os/files` lists every file. The full repo is `https://github.com/1610-advisory/os-foundation`.
 
 ## If you cannot edit files
 
