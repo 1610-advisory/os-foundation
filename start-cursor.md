@@ -4,7 +4,7 @@ Read `start-core.md` first. This file only adds Cursor steps.
 
 ## Folder
 
-Cursor works in the folder that is open. After you build `~/<slug>-os/`, ask them to open it (File → Open Folder) so the company rules load. For area work they open the area folder.
+Cursor works in the folder that is open. After you build `~/{{COMPANY_SLUG}}-os/`, ask them to open it (File → Open Folder) so the company rules load. For area work they open the area folder.
 
 ## Connections
 
@@ -15,7 +15,7 @@ Cursor connects tools through MCP (Settings → MCP). After the tools question:
 
 ## Commands for "how to start each day"
 
-"Open Cursor, then File → Open Folder → `~/<slug>-os` (or `~/<slug>-os/areas/marketing` for marketing work)."
+"Open Cursor, then File → Open Folder → `~/{{COMPANY_SLUG}}-os` (or `~/{{COMPANY_SLUG}}-os/areas/marketing` for marketing work)."
 
 ## The paste prompt
 

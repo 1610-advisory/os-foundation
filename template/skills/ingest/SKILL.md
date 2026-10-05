@@ -8,7 +8,7 @@ description: Process the inbox into organized, linked notes — transcribe audio
 Process the inbox **of the folder you are in**:
 
 - At the company root: `inbox/` → shared files.
-- In an area: `areas/<area>/inbox/` → that area's files.
+- In an area: `areas/{{AREA_SLUG}}/inbox/` → that area's files.
 
 An item is done when its content is in the right place, linked, and committed. Then delete the inbox copy. Never leave duplicates.
 

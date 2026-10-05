@@ -9,18 +9,18 @@ A skill is an SOP for the agent: one markdown file that says exactly how to do o
 
 1. **Name the job** in two to four words: `weekly-sales-report`, `quote-follow-up`, `title-hooks`.
 2. **Decide where it lives.**
-   - Only for one area → `areas/<area>/skills/<name>/SKILL.md`, and add a row to the Skills table in that area's `AGENTS.md`.
-   - For the whole company → `skills/<name>/SKILL.md` at the company root, and add a row to the Skills table in the company `AGENTS.md`.
+   - Only for one area → `areas/{{AREA_SLUG}}/skills/{{SKILL_NAME}}/SKILL.md`, and add a row to the Skills table in that area's `AGENTS.md`.
+   - For the whole company → `skills/{{SKILL_NAME}}/SKILL.md` at the company root, and add a row to the Skills table in the company `AGENTS.md`.
    - A company skill holds no area facts (no pay, raw numbers, or customer records).
 3. **Write it** in this shape:
 
    ```
    ---
-   name: <name>
-   description: <what it does>. Use when someone says "<phrase>", "<phrase>".
+   name: {{SKILL_NAME}}
+   description: {{WHAT_IT_DOES}}. Use when someone says "{{PHRASE}}", "{{PHRASE}}".
    ---
 
-   # <Title>
+   # {{TITLE}}
 
    ## Inputs
    ## Steps

@@ -51,7 +51,7 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 - `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
 - `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`, on the `logs` branch (`../../skills/logs-folder/`).
+- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md`, on the `logs` branch (`../../skills/logs-folder/`).
 - `skills/` — this area's SOPs.
 
 ## Changes and review

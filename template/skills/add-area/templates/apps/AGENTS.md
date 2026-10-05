@@ -26,7 +26,7 @@ Software that {{COMPANY_NAME}} runs: automations, internal tools, integrations, 
 ### One repo per app
 
 - This folder is a repo for the small things: scripts, automations, and notes about the apps.
-- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/<app>/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
+- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/{{APP}}/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
 - Record each app in `apps.md`: name, what it does, where it runs, who has access. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
 - Code, config, and deploy notes live in the app's repo. Secrets never do.
 
@@ -42,7 +42,7 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 - `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
 - `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person-slug>.md`, on the `logs` branch (`../../skills/logs-folder/`).
+- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md`, on the `logs` branch (`../../skills/logs-folder/`).
 - `skills/` — this area's SOPs.
 
 ## Changes and review

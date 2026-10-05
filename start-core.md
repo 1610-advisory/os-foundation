@@ -43,7 +43,7 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 ## What you are building
 
 ```
-~/<company-slug>-os/          the company OS: shared knowledge at the root
+~/{{COMPANY_SLUG}}-os/        the company OS: shared knowledge at the root
 ├── AGENTS.md                 the rules every agent reads
 ├── company-profile.md, customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/  inbox/  memory/  skills/  templates/
@@ -78,23 +78,23 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
 
 1. **Get the template.**
    - If this repo is on disk (you are running inside a copy of os-foundation), use its `template/` folder.
-   - Otherwise download it to a temporary folder: `git clone --depth 1 https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`. No git? Download and unzip `https://github.com/1610-advisory/os-foundation/archive/refs/heads/main.zip` instead.
+   - Otherwise download it to a temporary folder: `git clone --depth 1 https://github.com/1610-advisory/os-foundation.git {{TEMP}}/os-foundation`. No git? Download and unzip `https://github.com/1610-advisory/os-foundation/archive/refs/heads/main.zip` instead.
    - If both fail, get the template straight from 1610.sh into the new folder (this replaces step 2):
      ```
-     mkdir -p ~/<slug>-os && cd ~/<slug>-os
+     mkdir -p ~/{{COMPANY_SLUG}}-os && cd ~/{{COMPANY_SLUG}}-os
      curl -fsS https://1610.sh/os/files | grep '^template/' | while read -r f; do
        t="${f#template/}"; mkdir -p "$(dirname "$t")"; curl -fsS "https://1610.sh/os/$f" -o "$t"
      done
      ```
-     No shell either? Read each `template/` file from `https://1610.sh/os/<path>` and write it into the folder yourself.
-2. **Copy** everything in `template/`, hidden files included, into `~/<slug>-os/` (for example `cp -R <temp>/os-foundation/template/. ~/<slug>-os/`). Copy only `template/`: their folder must not get the os-foundation git history or remote.
-3. **Fill the placeholders** you know now: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}`, `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
-4. **Start its history:** `git -C ~/<slug>-os init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `~/<slug>-os/skills/logs-folder/SKILL.md` → "Make it", from `~/<slug>-os`.
-5. **Claude Code only:** `mkdir -p ~/<slug>-os/.claude && ln -s ../skills ~/<slug>-os/.claude/skills`, so the skills show as slash commands. Skip if it fails.
+     No shell either? Read each `template/` file from `https://1610.sh/os/{{PATH}}` and write it into the folder yourself.
+2. **Copy** everything in `template/`, hidden files included, into `~/{{COMPANY_SLUG}}-os/` (for example `cp -R {{TEMP}}/os-foundation/template/. ~/{{COMPANY_SLUG}}-os/`). Copy only `template/`: their folder must not get the os-foundation git history or remote.
+3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}`, `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
+4. **Start its history:** `git -C ~/{{COMPANY_SLUG}}-os init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `~/{{COMPANY_SLUG}}-os/skills/logs-folder/SKILL.md` → "Make it", from `~/{{COMPANY_SLUG}}-os`.
+5. **Claude Code only:** `mkdir -p ~/{{COMPANY_SLUG}}-os/.claude && ln -s ../skills ~/{{COMPANY_SLUG}}-os/.claude/skills`, so the skills show as slash commands. Skip if it fails.
 6. Delete the temporary download.
-7. Write what you have so far: a person note for the owner in `people/<Full Name>.md` (from `templates/person.md`), and the website in `company-profile.md`.
+7. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`), and the website in `company-profile.md`.
 
-From here on, work inside `~/<slug>-os/` and follow its `AGENTS.md`. Commit after each phase.
+From here on, work inside `~/{{COMPANY_SLUG}}-os/` and follow its `AGENTS.md`. Commit after each phase.
 
 ## Phase B — First job
 
@@ -126,7 +126,7 @@ Using their name, role, and website, ask two to four sharp follow-ups. Fill the 
 | Who buys, what problem they solve, the best customer | `customers.md` |
 | What they sell, rough prices, what people buy first | `offers.md` |
 | How the company sounds; a few lines they like | `voice.md` |
-| The three to five people they work with most | `people/<Full Name>.md`, one each |
+| The three to five people they work with most | `people/{{FULL_NAME}}.md`, one each |
 
 If you read their website, draft these from it and ask them to correct the draft. Mark guesses with `(check)`. Never invent facts: leave a blank or `(unknown)`. Keep jargon out.
 
@@ -140,11 +140,11 @@ If you read their website, draft these from it and ask them to correct the draft
 ## Close out
 
 1. **How to start each day.** Tell them, in about this many words:
-   > Open your agent in the folder for the work you're doing. General company questions: `~/<slug>-os`. Marketing work: `~/<slug>-os/areas/marketing`. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
+   > Open your agent in the folder for the work you're doing. General company questions: `~/{{COMPANY_SLUG}}-os`. Marketing work: `~/{{COMPANY_SLUG}}-os/areas/marketing`. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
 
    Give the exact command or step for their agent (your add-on has it).
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
-3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `~/<slug>-os` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
-4. **Check your work.** No `{{...}}` left outside `skills/add-area/templates/`. Commit.
-5. **Log it.** Append to `memory/logs/YYYY-MM-DD-<owner-slug>.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit it on the logs branch (`skills/logs-folder/` → "Write a log").
+3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `~/{{COMPANY_SLUG}}-os` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
+4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) Commit.
+5. **Log it.** Append to `memory/logs/YYYY-MM-DD-{{OWNER_SLUG}}.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit it on the logs branch (`skills/logs-folder/` → "Write a log").
 6. **Wrap up** in three to five lines: what they have now, and the single best next step.

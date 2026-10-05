@@ -9,7 +9,7 @@ Every repo in the company OS (the company root, and each area) keeps its session
 
 Why: logs are written after every session. On their own branch they never need a pull request, while curated memory (`memory/MEMORY.md` and its fact files) stays on `main` under review. Same repo, so the same people can see them.
 
-Run every command from the repo's own folder: the company root, or `areas/<area>/`.
+Run every command from the repo's own folder: the company root, or `areas/{{AREA_SLUG}}/`.
 
 ## Make it (new repo, after its first commit)
 
@@ -28,7 +28,7 @@ git -C memory/logs rm -rfq .
 Then, either way:
 
 ```
-printf '# Session logs\n\nOne file per person per day: YYYY-MM-DD-<person-slug>.md\n' > memory/logs/README.md
+printf '# Session logs\n\nOne file per person per day: YYYY-MM-DD-{{PERSON_SLUG}}.md\n' > memory/logs/README.md
 git -C memory/logs add README.md
 git -C memory/logs commit -m "Logs: start"
 ```
@@ -50,8 +50,8 @@ git worktree add memory/logs logs
 
 ## Write a log
 
-1. Append to `memory/logs/YYYY-MM-DD-<person-slug>.md`: what was done, what is open.
-2. `git -C memory/logs add -A && git -C memory/logs commit -m "Log: <person> <date>"`
+1. Append to `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md`: what was done, what is open.
+2. `git -C memory/logs add -A && git -C memory/logs commit -m "Log: {{PERSON_SLUG}} YYYY-MM-DD"`
 3. If the repo has a GitHub remote: `git -C memory/logs pull --rebase -q && git -C memory/logs push -q`.
 
 ## Repair

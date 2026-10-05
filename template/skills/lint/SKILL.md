@@ -13,7 +13,7 @@ Check the folder you are in: the company root (shared files only, not `areas/`),
 2. **Broken links.** Every `[[target]]` that matches no file (ignore `#heading` and `|alias`; match by file name, any case). Do not create pages. List the most-linked missing ones.
 3. **Meetings.** Meeting notes with an empty `summary:` or no attendees. Fill from the note body if you can; otherwise list.
 4. **Inbox age.** Items older than 14 days. Report the count and the oldest five. Do not process them (that is `ingest`).
-5. **Placeholders.** Any `{{...}}` left outside `skills/add-area/templates/`. Fill it if the answer is in the files; otherwise list.
+5. **Placeholders.** Any `{{...}}` left outside `skills/` folders (a skill's `{{...}}` is filled when it runs). Fill it if the answer is in the files; otherwise list.
 6. **Sensitive facts in shared files** (company root only). Pay, raw financial figures, HR notes, or customer records in a shared file. List them so the admin can confirm each one was meant to be shared. Do not move or delete anything.
 7. **Other companies.** Any mention of, or link to, another company's folder. Report.
 8. **Size.** Any `AGENTS.md` over 10,000 characters. Suggest what to move into a skill or memory file.

@@ -29,7 +29,7 @@ Check `architecture.md` → "Connections" for what is already connected.
 ## 2. Find the connector
 
 1. Your agent's built-in connectors (Claude: Settings → Connectors; Cursor: Settings → MCP; Codex: `codex mcp --help`).
-2. The vendor's docs: search "<tool> MCP server".
+2. The vendor's docs: search "{{TOOL}} MCP server".
 3. Nothing official, or no internet to look? Say so. Offer a fallback: export files (CSV, PDF) into the area's `data/` folder and work from those.
 
 ## 3. Install it where it belongs

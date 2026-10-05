@@ -12,7 +12,7 @@ Paste this into your agent:
 Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question at a time.
 ```
 
-The agent asks you some questions (about 15 minutes), builds `~/<your-company>-os/`, and shows you one useful thing it can do.
+The agent asks you some questions (about 15 minutes), builds `~/{{COMPANY_SLUG}}-os/`, and shows you one useful thing it can do.
 
 | Agent | How to start |
 |---|---|

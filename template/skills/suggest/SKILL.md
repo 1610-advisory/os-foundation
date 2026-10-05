@@ -22,14 +22,14 @@ Ask what they want to share (a skill, a fix, an idea) and decide where it goes:
 Write the suggestion so it would help **any** business:
 
 - No company name, people's names, customers, emails, addresses, prices, figures, or account details. Replace them with neutral examples ("Acme Co", "a customer").
-- No file paths that name the company (`~/acme-os/` → `~/<company>-os/`).
+- No file paths that name the company (`~/acme-os/` → `~/{{COMPANY_SLUG}}-os/`).
 - No secrets, ever.
 
 ## 3. Show, then send
 
 1. Show the person the **full text** exactly as it will be sent: title and body. Say plainly that it will be public.
 2. Send only after a clear yes. Changes → edit and show again.
-3. Send it as a GitHub issue: `gh issue create --repo <repo> --title "<title>" --body-file <file>`. No `gh`, or no GitHub account? Give them the text and the link `https://github.com/<repo>/issues/new` to paste it themselves.
+3. Send it as a GitHub issue: `gh issue create --repo {{REPO}} --title "{{TITLE}}" --body-file {{FILE}}`. No `gh`, or no GitHub account? Give them the text and the link `https://github.com/{{REPO}}/issues/new` to paste it themselves.
 4. For a skill they want to give, put the clean skill text in the issue. 1610 picks what becomes a featured skill or plugin.
 
 ## 4. Record it

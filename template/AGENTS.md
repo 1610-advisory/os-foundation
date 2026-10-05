@@ -34,7 +34,7 @@ This folder is the company OS for **{{COMPANY_NAME}}**: the shared memory of the
 | `memory/` | How to work at this company. `memory/logs/` holds session logs (its own branch). | everyone |
 | `skills/` | Company skills (SOPs for the agent) | everyone |
 | `templates/` | Note templates | everyone |
-| `areas/<area>/` | One folder per area of the business. Each area is its own git repo. | only people with access to that area |
+| `areas/{{AREA_SLUG}}/` | One folder per area of the business. Each area is its own git repo. | only people with access to that area |
 
 A note's meaning comes from its YAML `type:` and its `[[wiki-links]]`, not its folder.
 
@@ -57,22 +57,22 @@ Skills are SOPs in plain markdown. When a request matches one, read the file and
 | `skills/ingest/` | "process the inbox", "file this", "here's a meeting recording" |
 | `skills/add-area/` | "add sales / operations / HR", "set up an area for ..." |
 | `skills/connect-tool/` | "connect email / calendar / QuickBooks / Slack / CRM ..." |
-| `skills/add-teammate/` | "give <person> access", "share this with my team" |
+| `skills/add-teammate/` | "give {{PERSON}} access", "share this with my team" |
 | `skills/write-skill/` | "write this down", "make a skill for this", or you are told the same thing twice |
 | `skills/lint/` | "health check", "lint", weekly |
 | `skills/suggest/` | "I solved this", "send this idea to 1610", "suggest a fix" |
 | `skills/logs-folder/` | "the logs folder is missing" (setup and add-area use it too) |
 
-Each area can have its own skills in `areas/<area>/skills/`. Every time someone re-explains how they want something done, offer to write it as a skill. That is how the OS gets better.
+Each area can have its own skills in `areas/{{AREA_SLUG}}/skills/`. Every time someone re-explains how they want something done, offer to write it as a skill. That is how the OS gets better.
 
 ## Memory
 
 Memory holds facts about **how to work**. The other files hold facts about **the company**.
 
-- Company memory: `memory/`. Area memory: `areas/<area>/memory/`. Each has a `MEMORY.md` index, one line per memory: `- [Title](file.md) — hook`.
+- Company memory: `memory/`. Area memory: `areas/{{AREA_SLUG}}/memory/`. Each has a `MEMORY.md` index, one line per memory: `- [Title](file.md) — hook`.
 - One fact per file, with frontmatter `name`, `description`, `type: user | feedback | project | reference`. Update an existing file before you make a new one. Delete memories that turn out wrong. Use absolute dates.
 - **Start of a session:** read `memory/MEMORY.md`. If there is a GitHub remote, pull `memory/logs/` (`git -C memory/logs pull -q`). Then skim the logs from the last two or three days, so you know what the team did and what is open.
-- At the end of real work, append a short entry to `memory/logs/YYYY-MM-DD-<your-person-slug>.md` (in the area's `memory/logs/` for area work): what was done, what is open. One file per person per day, so teammates never edit the same file.
+- At the end of real work, append a short entry to `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md` (in the area's `memory/logs/` for area work): what was done, what is open. One file per person per day, so teammates never edit the same file.
 - `memory/logs/` is the repo's `logs` branch, checked out as a folder. Commit and push logs there directly (`skills/logs-folder/` → "Write a log"). Curated memory stays on `main`.
 
 ## Changes and review

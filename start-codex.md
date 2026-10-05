@@ -12,7 +12,7 @@ Codex may not have Gmail or Calendar connectors on their computer. After the too
 
 ## Commands for "how to start each day"
 
-`cd ~/<slug>-os && codex` (or `cd ~/<slug>-os/areas/marketing && codex` for marketing work).
+`cd ~/{{COMPANY_SLUG}}-os && codex` (or `cd ~/{{COMPANY_SLUG}}-os/areas/marketing && codex` for marketing work).
 
 ## The paste prompt
 

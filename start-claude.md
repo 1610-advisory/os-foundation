@@ -6,8 +6,8 @@ Read `start-core.md` first. This file only adds Claude steps.
 
 Cowork and Desktop can only edit folders the person shares with you.
 
-- Before you build (right after question 4 in `start-core.md`), ask them to make an empty folder named `<slug>-os` in their home folder and choose it as the folder for this task. Then build inside it.
-- If you cannot run `git clone` or download the zip, get the file list from `https://1610.sh/os/files`, then read each file under `template/` from `https://1610.sh/os/<path>` and write it into the folder (without the `template/` part of the path).
+- Before you build (right after question 4 in `start-core.md`), ask them to make an empty folder named `{{COMPANY_SLUG}}-os` in their home folder and choose it as the folder for this task. Then build inside it.
+- If you cannot run `git clone` or download the zip, get the file list from `https://1610.sh/os/files`, then read each file under `template/` from `https://1610.sh/os/{{PATH}}` and write it into the folder (without the `template/` part of the path).
 - If `git` is not available, still build the folder. Tell them their history starts when git is installed; `add-teammate` will help later.
 
 ## First connection
@@ -22,8 +22,8 @@ If the connector is not available in their plan or app, say so, and use a file w
 
 ## Commands for "how to start each day"
 
-- **Cowork / Desktop:** "Start a task and choose the folder `~/<slug>-os` (or `~/<slug>-os/areas/marketing` for marketing work)."
-- **Claude Code:** `cd ~/<slug>-os && claude` (or `cd ~/<slug>-os/areas/marketing && claude`).
+- **Cowork / Desktop:** "Start a task and choose the folder `~/{{COMPANY_SLUG}}-os` (or `~/{{COMPANY_SLUG}}-os/areas/marketing` for marketing work)."
+- **Claude Code:** `cd ~/{{COMPANY_SLUG}}-os && claude` (or `cd ~/{{COMPANY_SLUG}}-os/areas/marketing && claude`).
 
 ## The paste prompt (for the landing page)
 
