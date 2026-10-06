@@ -50,8 +50,9 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 
 ## Yours, not ours
 
-- **You own it.** Your company OS is your folder, on your computer and in your own GitHub if you add one. It does not depend on this repo after setup.
-- **Your privacy.** Your company folder stays on your computer and in your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords.
+- **You own it.** Your company OS is a folder on your computer. It does not depend on this repo after setup. If you already keep the company's knowledge in Notion, Drive, or a wiki, that stays the home. This folder does not replace it.
+- **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It is not a second copy of a wiki you already use.
+- **Your privacy.** The folder stays on your computer unless you choose to put it on your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords.
 - **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
 
 ## Toolkits

@@ -4,7 +4,7 @@ You already read `START.md`. This file is the whole setup: the voice, the interv
 
 One short message per turn. When you acknowledge an answer and ask the next question, put both in that same message, in two sentences.
 
-Before the first question, tell them in two or three sentences what will happen: you will ask some questions (about 15 minutes), build a folder for their company on their computer, and show them one useful thing it can do. It is theirs. The folder is local-first. A cloud session may commit to the repo already open, because that repo is theirs. Nothing goes to anyone else unless they connect a tool or choose to share something.
+Before the first question, tell them in two or three sentences what will happen: you will ask some questions (about 15 minutes), set up a small working folder the agent can read and write, and show them one useful thing it can do. It is theirs, on their computer. If they already have a home for the company's knowledge, that home stays.
 
 ## Voice
 
@@ -64,6 +64,7 @@ Store the company OS where they can open it again, in a folder this session can 
 
 - Shared knowledge lives at the company root. Everyone the owner gives access to can read it.
 - Areas hold the work of one part of the business. Start with the area their first job needs. More can come later with "add an area."
+- If they already keep the company's knowledge somewhere else, that place stays. This folder is the thin layer an agent reads and writes while it works.
 - Toolkits are optional plugs into areas. The **Marketing Toolkit** exists. The **Finance Toolkit** is coming. Do not push either.
 
 ## Step 0 — Check the ground
@@ -71,7 +72,7 @@ Store the company OS where they can open it again, in a folder this session can 
 Find out by running commands where you can, not by asking:
 
 1. Their operating system, and the folder this session is already in. You will suggest a place from that. Leave the account name out of the interview.
-2. Whether `git` is installed (`git --version`). If it is missing, offer to install it (on a Mac: `xcode-select --install` or `brew install git`). The company OS keeps its history with git. It works with no GitHub account.
+2. Whether `git` is installed (`git --version`). If it is missing, offer to install it (on a Mac: `xcode-select --install` or `brew install git`). Git keeps a local history of this folder's working files. It works with no GitHub account. Do not look up their GitHub login, orgs, or repos unless they ask to share with a teammate.
 3. Whether you can run commands and write files where `{{COMPANY_OS}}` will go. If not, see your add-on file.
 
 ## Phase A — Basics
@@ -98,7 +99,7 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
      No shell either? Read each `template/` file from `https://1610.sh/os/{{PATH}}` and write it into the folder yourself.
 2. **Copy** everything in `template/`, hidden files included, into `{{COMPANY_OS}}/` (for example `cp -R {{TEMP}}/os-foundation/template/. "{{COMPANY_OS}}/"`). Copy only `template/`: their folder must not get the os-foundation git history or remote. Do not invent a build script. Copy the template as written, then fill placeholders in the files.
 3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}` (the name they gave you), `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
-4. **Start its history.** If `{{COMPANY_OS}}` already has a `.git` folder, keep that history. Do not run `git init` again. If it has none, run `git -C "{{COMPANY_OS}}" init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `{{COMPANY_OS}}/skills/logs-folder/SKILL.md` → "Make it", from `{{COMPANY_OS}}`.
+4. **Start its history.** If `{{COMPANY_OS}}` already has a `.git` folder, keep that history. Do not run `git init` again. If it has none, run `git -C "{{COMPANY_OS}}" init -b main`, then commit everything: `Company OS: start`. This history is local. It is not a mirror of any system they already use, and it does not need GitHub. Then make the session-logs folder: follow `{{COMPANY_OS}}/skills/logs-folder/SKILL.md` → "Make it", from `{{COMPANY_OS}}`.
 5. **Claude Code only:** `mkdir -p "{{COMPANY_OS}}/.claude" && ln -s ../skills "{{COMPANY_OS}}/.claude/skills"`, so the skills show as slash commands. Skip if it fails.
 6. Delete the temporary download.
 7. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`), and the website in `company-profile.md`.
@@ -122,10 +123,12 @@ Write the first job into "Right now" in `AGENTS.md`.
 
 For A, a voice line is not the win. They paste one real email, note, or CSV snippet. File it with the company memory, the way ingest files that kind of thing. Then answer one question from what you filed.
 
-## Phase C — Tools and old notes
+## Phase C — Tools and existing knowledge
 
 6. **Tools** — the checklist from the samples. "Just email for now" is a great answer. Write the list into `company-profile.md` → "Tools we use." Nothing is connected yet.
-7. **Old notes** — any place that already holds company memory (Notion, a Drive folder, old AI chats, a notes app)? Write names and locations into `memory/existing-sources.md` (type `reference`) for later. Do not move a pile of old files today unless it is tiny and they insist.
+7. **Where knowledge already lives** — Notion, a Drive, a wiki, old chats? Write the name and location into `memory/existing-sources.md` (type `reference`). That place stays the source. Do not copy it into this folder or onto GitHub unless they ask, and then only the small piece this job needs.
+
+If they have one, say this in the same message, in their words. Their system stays the place the company already thinks. This folder is the thin layer an agent works from: how they sound, a skill, the job in front of them. Local git is only a history of these working files. A GitHub repo is worth it later, when a teammate needs a copy of the files they should see, or a change should come back for review. It is not a copy of their system. Then move on. Do not stop setup to migrate.
 
 ## Phase D — Pointed questions
 
