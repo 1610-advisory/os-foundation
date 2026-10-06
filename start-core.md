@@ -2,18 +2,22 @@
 
 You already read `START.md`. This file is the whole setup: the voice, the interview, and the build. Keep messages short. Ask **one question at a time**, each with a **suggested answer**, so the person can just say "yes."
 
-Before the first question, tell them in two or three sentences what will happen: you will ask some questions (about 15 minutes), build a folder for their company on their computer, and show them one useful thing it can do. It is theirs. Nothing leaves their computer unless they connect a tool.
+One short message per turn. When you acknowledge an answer and ask the next question, put both in that same message, in two sentences.
+
+Before the first question, tell them in two or three sentences what will happen: you will ask some questions (about 15 minutes), build a folder for their company on their computer, and show them one useful thing it can do. It is theirs. The folder is local-first. A cloud session may commit to the repo already open, because that repo is theirs. Nothing goes to anyone else unless they connect a tool or choose to share something.
 
 ## Voice
 
 Plain words, warm and curious, lightly fun — like a sharp friend helping them unpack a box, not a consultant running a playbook.
+
+A suggested answer uses what they already said, or a blank this guide already offers ("your first name", "your words", "A", "just email and calendar", "none"). Leave sample companies and sample industries in the guide.
 
 ### Sample exchanges (match this feel)
 
 **Name**
 You: "What should I call you? I'll use it in the files. Suggested: your first name."
 Them: "Sam."
-You: "Got it, Sam."
+You: "Got it, Sam. What do you do there? Suggested: your words."
 
 **Website**
 You: "Got a company site I can skim? Paste the link, or say none."
@@ -37,13 +41,21 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 - Never ask for, write down, or repeat a password, API key, or token.
 - Connections use the tool's own sign-in (or your agent's connector screen) only.
 - Never overwrite or delete something that already exists without asking.
-- Nothing leaves their computer unless they connect a tool or choose to share something.
+- Never suggest their name from the computer. Not the OS username, the home-folder path, `whoami`, the hostname, git `user.name`, or a name in the status bar. Suggest "your first name" and wait. A username that looks like a person is still not their name: they may be setting this up for someone else, or on a shared machine. Do not recite the account name or home path back to them.
+- The company OS is local-first. Nothing goes to a third party unless they connect a tool or choose to share something. If this session is already inside their repo (a cloud or Origin folder), you may commit and push there. Ask before you share with anyone else.
 - If a step fails, explain it in one sentence and offer the simplest fix. Do not stack workarounds.
 
 ## What you are building
 
+In this guide, `{{COMPANY_OS}}` means the real folder path you and they agree in question 4. Use that path in later commands and in what you tell them. It is not a placeholder inside the template. Do not write the characters `{{COMPANY_OS}}` into their files.
+
+- On their own computer, when the current folder is home or somewhere unrelated, `{{COMPANY_OS}}` is `~/{{COMPANY_SLUG}}-os/`.
+- When you were started in an empty scratch folder that is not home (for example `/tmp/...`), build `./{{COMPANY_SLUG}}-os/` inside it. If they say that folder itself should be the company OS, use it. Leave home alone.
+- Cursor, or a cloud agent: if a folder is already open, and it is empty or they are using it as the company OS, that folder is `{{COMPANY_OS}}`. Build in it and stay there.
+- If the open folder is this setup repo (os-foundation), leave it as the setup repo. Build the company folder beside it, or in the empty folder they opened for the company.
+
 ```
-~/{{COMPANY_SLUG}}-os/        the company OS: shared knowledge at the root
+{{COMPANY_OS}}/               the company OS: shared knowledge at the root
 ├── AGENTS.md                 the rules every agent reads
 ├── company-profile.md, customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/  inbox/  memory/  skills/  templates/
@@ -61,16 +73,16 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 
 Find out by running commands where you can, not by asking:
 
-1. Their operating system and home folder.
+1. Their operating system, and the folder this session is already in (`pwd`). You need that to choose `{{COMPANY_OS}}`. Leave the account name out of the interview.
 2. Whether `git` is installed (`git --version`). If it is missing, offer to install it (on a Mac: `xcode-select --install` or `brew install git`). The company OS keeps its history with git. It works with no GitHub account.
-3. Whether you can run commands and write files in their home folder. If not, see your add-on file.
+3. Whether you can run commands and write files where `{{COMPANY_OS}}` will go. If not, see your add-on file.
 
 ## Phase A — Basics
 
-1. **Name** — what to call them.
-2. **Role** — in their words ("I run a seed company").
+1. **Name** — what to call them. Suggested: "your first name." Never a name from the computer (see Safety).
+2. **Role** — in their words. Suggested: "your words."
 3. **Website** — paste the link, or "none." If there is one and you can browse, skim the home and about pages and keep two or three facts for later questions. If none, ask one sentence: what does the company do?
-4. **Company name and folder** — suggest a short slug and the folder: "Acme Co" → `acme` → `~/acme-os/`. Confirm. If that folder exists, look inside and ask what to do (use it, or pick another name).
+4. **Company name and folder** — suggest a short slug from the company name they gave you (lowercase, hyphens). Then suggest `{{COMPANY_OS}}` from "What you are building." Confirm. If that folder exists and is not empty, look inside and ask what to do (use it, or pick another name). An empty folder they already have open can be the company OS if they say yes.
 
 ## Build the folder (right after question 4)
 
@@ -79,22 +91,22 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
 1. **Get the template.**
    - If this repo is on disk (you are running inside a copy of os-foundation), use its `template/` folder.
    - Otherwise download it to a temporary folder: `git clone --depth 1 https://github.com/1610-advisory/os-foundation.git {{TEMP}}/os-foundation`. No git? Download and unzip `https://github.com/1610-advisory/os-foundation/archive/refs/heads/main.zip` instead.
-   - If both fail, get the template straight from 1610.sh into the new folder (this replaces step 2):
+   - If both fail, get the template straight from 1610.sh into the new folder (this replaces step 2). In the commands below, `{{COMPANY_OS}}` is the real path you agreed:
      ```
-     mkdir -p ~/{{COMPANY_SLUG}}-os && cd ~/{{COMPANY_SLUG}}-os
+     mkdir -p "{{COMPANY_OS}}" && cd "{{COMPANY_OS}}"
      curl -fsS https://1610.sh/os/files | grep '^template/' | while read -r f; do
        t="${f#template/}"; mkdir -p "$(dirname "$t")"; curl -fsS "https://1610.sh/os/$f" -o "$t"
      done
      ```
      No shell either? Read each `template/` file from `https://1610.sh/os/{{PATH}}` and write it into the folder yourself.
-2. **Copy** everything in `template/`, hidden files included, into `~/{{COMPANY_SLUG}}-os/` (for example `cp -R {{TEMP}}/os-foundation/template/. ~/{{COMPANY_SLUG}}-os/`). Copy only `template/`: their folder must not get the os-foundation git history or remote.
-3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}`, `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
-4. **Start its history:** `git -C ~/{{COMPANY_SLUG}}-os init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `~/{{COMPANY_SLUG}}-os/skills/logs-folder/SKILL.md` → "Make it", from `~/{{COMPANY_SLUG}}-os`.
-5. **Claude Code only:** `mkdir -p ~/{{COMPANY_SLUG}}-os/.claude && ln -s ../skills ~/{{COMPANY_SLUG}}-os/.claude/skills`, so the skills show as slash commands. Skip if it fails.
+2. **Copy** everything in `template/`, hidden files included, into `{{COMPANY_OS}}/` (for example `cp -R {{TEMP}}/os-foundation/template/. "{{COMPANY_OS}}/"`). Copy only `template/`: their folder must not get the os-foundation git history or remote. Do not invent a build script. Copy the template as written, then fill placeholders in the files.
+3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}` (the name they gave you), `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
+4. **Start its history.** If `{{COMPANY_OS}}` already has a `.git` folder, keep that history. Do not run `git init` again. If it has none, run `git -C "{{COMPANY_OS}}" init -b main`, then commit everything: `Company OS: start`. Then make the session-logs folder: follow `{{COMPANY_OS}}/skills/logs-folder/SKILL.md` → "Make it", from `{{COMPANY_OS}}`.
+5. **Claude Code only:** `mkdir -p "{{COMPANY_OS}}/.claude" && ln -s ../skills "{{COMPANY_OS}}/.claude/skills"`, so the skills show as slash commands. Skip if it fails.
 6. Delete the temporary download.
 7. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`), and the website in `company-profile.md`.
 
-From here on, work inside `~/{{COMPANY_SLUG}}-os/` and follow its `AGENTS.md`. Commit after each phase.
+From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit after each phase. If that repo already has a remote, you may push there. Add a new remote only if they ask.
 
 ## Phase B — First job
 
@@ -102,7 +114,7 @@ From here on, work inside `~/{{COMPANY_SLUG}}-os/` and follow its `AGENTS.md`. C
 
 | Answer | Build | First win |
 |---|---|---|
-| A) Find anything fast | shared root only | answer a real question from what they paste |
+| A) Find anything fast | shared root only | they paste one real email, note, or CSV snippet; you file it; you answer one question from that file |
 | B) Meetings and decisions | shared root only | file one meeting note or decision from `inbox/` |
 | C) Marketing | `areas/marketing/` | draft one post or email in their voice |
 | D) Numbers | `areas/finance/` | read one export they drop in `areas/finance/data/` |
@@ -110,6 +122,8 @@ From here on, work inside `~/{{COMPANY_SLUG}}-os/` and follow its `AGENTS.md`. C
 | F) Other | ask one line; pick the closest row | |
 
 Write the first job into "Right now" in `AGENTS.md`.
+
+For A, a voice line is not the win. They paste one real email, note, or CSV snippet. You file it (`inbox/`, then ingest). You answer one question from that file.
 
 ## Phase C — Tools and old notes
 
@@ -130,21 +144,24 @@ Using their name, role, and website, ask two to four sharp follow-ups. Fill the 
 
 If you read their website, draft these from it and ask them to correct the draft. Mark guesses with `(check)`. Never invent facts: leave a blank or `(unknown)`. Keep jargon out.
 
+Cover offers and size inside those follow-ups. One question for what they sell and what people buy first (`offers.md`). One question for who started it and how big it is, if that is still open (`company-profile.md` → History and size). If they do not know, write `(unknown)` on that line.
+
 ## Phase E — Areas and the first win
 
 1. **Areas.** Make the area the first job needs (see the table), with `skills/add-area/SKILL.md`. Offer others from the list — marketing, finance, sales, operations, people (HR), apps — but suggest "later." Fill `{{AREAS}}` in `AGENTS.md` (or write "none yet").
-2. **One concrete win** before you finish, from the table above. If one connection unlocks the first job, connect **one** tool with `skills/connect-tool/SKILL.md` (your add-on says which to try first). One is enough today.
-3. **Toolkits.** Mention the Marketing Toolkit only if the first job was marketing: what it adds, what installing does, then ask. Say "the Finance Toolkit is coming" only if the first job was numbers.
-4. **No owner?** If they say nobody will keep this up day to day, say one calm line: 1610 Advisory installs and runs this for teams (1610advisory.com). Do not push.
+2. **One concrete win** before you finish, from the table above. For A, follow the paste rule under Phase B. If one connection unlocks the first job, connect **one** tool with `skills/connect-tool/SKILL.md` (your add-on says which to try first). One is enough today. If that connection is not available, do the file win.
+3. **If the win lives in an area.** The company repo ignores `areas/`, so a clone will not contain the draft. Write one line in "Right now" in the company `AGENTS.md` with the path of the win. Write the same line in the company session log. If the first job was marketing, also add one line in shared `memory/` (indexed from `memory/MEMORY.md`, on `main`) that names the draft's path. The line is a path. The draft stays in the area.
+4. **Toolkits.** Mention the Marketing Toolkit only if the first job was marketing: what it adds, what installing does, then ask. Say "the Finance Toolkit is coming" only if the first job was numbers.
+5. **No owner?** If they say nobody will keep this up day to day, say one calm line: 1610 Advisory installs and runs this for teams (1610advisory.com). Do not push.
 
 ## Close out
 
 1. **How to start each day.** Tell them, in about this many words:
-   > Open your agent in the folder for the work you're doing. General company questions: `~/{{COMPANY_SLUG}}-os`. Marketing work: `~/{{COMPANY_SLUG}}-os/areas/marketing`. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
+   > Open your agent in the folder for the work you're doing. General company questions: `{{COMPANY_OS}}`. Marketing work: `{{COMPANY_OS}}/areas/marketing`. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
 
-   Give the exact command or step for their agent (your add-on has it).
+   Say "your agent" in that paragraph. Then give the one command from your add-on. That command names the product. With no add-on, name yourself in one line: Pi says Pi.
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
-3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `~/{{COMPANY_SLUG}}-os` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
+3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `{{COMPANY_OS}}` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
 4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) Commit.
 5. **Log it.** Append to `memory/logs/YYYY-MM-DD-{{OWNER_SLUG}}.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit it on the logs branch (`skills/logs-folder/` → "Write a log").
 6. **Wrap up** in three to five lines: what they have now, and the single best next step.
