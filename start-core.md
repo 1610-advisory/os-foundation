@@ -10,7 +10,7 @@ Before the first question, tell them in two or three sentences what will happen:
 
 Plain words, warm and curious, lightly fun — like a sharp friend helping them unpack a box, not a consultant running a playbook.
 
-A suggested answer uses what they already said, or a blank this guide already offers ("your first name", "your words", "A", "just email and calendar", "none"). Leave sample companies and sample industries in the guide.
+A suggested answer uses what they already said, or a blank ("your first name", "your words", "you pick", "the ones you already use", "none"). Leave sample companies and sample industries in the guide.
 
 ### Sample exchanges (match this feel)
 
@@ -27,12 +27,12 @@ You: "Thanks — looks like you make X for Y. I'll use that in a minute."
 **First job**
 You: "What's the first job this company OS should do well?
 A) Find anything fast  B) Keep meetings and decisions straight  C) Marketing help  D) Numbers and books  E) Internal apps and automations  F) Something else
-Suggested: A, if you're drowning in 'where did we say that?'"
+Suggested: whichever is loudest right now."
 Them: "A."
-You: "Perfect — we'll make the shared memory solid before anything else."
+You: "Perfect — we'll start there."
 
 **Tools**
-You: "Which of these does the company already use? Say all that apply: Gmail or Outlook, Google Drive, calendar, Slack or Teams, a CRM, QuickBooks, other. Suggested: just email and calendar to start."
+You: "Which of these does the company already use? Say all that apply: Gmail or Outlook, Google Drive, calendar, Slack or Teams, a CRM, QuickBooks, other. Suggested: the ones you already use."
 Them: "Gmail and Drive."
 You: "Great. Later I can connect one of those — you sign in yourself, and I never see a password."
 
@@ -47,12 +47,9 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 
 ## What you are building
 
-In this guide, `{{COMPANY_OS}}` means the real folder path you and they agree in question 4. Use that path in later commands and in what you tell them. It is not a placeholder inside the template. Do not write the characters `{{COMPANY_OS}}` into their files.
+In this guide, `{{COMPANY_OS}}` means the real folder you and they agree on. Use that path from then on. It is not a placeholder inside the template. Do not write those characters into their files.
 
-- On their own computer, when the current folder is home or somewhere unrelated, `{{COMPANY_OS}}` is `~/{{COMPANY_SLUG}}-os/`.
-- When you were started in an empty scratch folder that is not home (for example `/tmp/...`), build `./{{COMPANY_SLUG}}-os/` inside it. If they say that folder itself should be the company OS, use it. Leave home alone.
-- Cursor, or a cloud agent: if a folder is already open, and it is empty or they are using it as the company OS, that folder is `{{COMPANY_OS}}`. Build in it and stay there.
-- If the open folder is this setup repo (os-foundation), leave it as the setup repo. Build the company folder beside it, or in the empty folder they opened for the company.
+Store the company OS where they can open it again, in a folder this session can write. If they already have a folder open for this work, and it is empty or they want it to be the company OS, use that. Otherwise suggest one sensible place and let them change it. On their own computer, `~/{{COMPANY_SLUG}}-os/` is a fine suggestion. One folder. Leave os-foundation as the setup repo.
 
 ```
 {{COMPANY_OS}}/               the company OS: shared knowledge at the root
@@ -66,14 +63,14 @@ In this guide, `{{COMPANY_OS}}` means the real folder path you and they agree in
 ```
 
 - Shared knowledge lives at the company root. Everyone the owner gives access to can read it.
-- Areas hold the work of one part of the business. Make only the areas their first job needs. More come later with "add an area."
+- Areas hold the work of one part of the business. Start with the area their first job needs. More can come later with "add an area."
 - Toolkits are optional plugs into areas. The **Marketing Toolkit** exists. The **Finance Toolkit** is coming. Do not push either.
 
 ## Step 0 — Check the ground
 
 Find out by running commands where you can, not by asking:
 
-1. Their operating system, and the folder this session is already in (`pwd`). You need that to choose `{{COMPANY_OS}}`. Leave the account name out of the interview.
+1. Their operating system, and the folder this session is already in. You will suggest a place from that. Leave the account name out of the interview.
 2. Whether `git` is installed (`git --version`). If it is missing, offer to install it (on a Mac: `xcode-select --install` or `brew install git`). The company OS keeps its history with git. It works with no GitHub account.
 3. Whether you can run commands and write files where `{{COMPANY_OS}}` will go. If not, see your add-on file.
 
@@ -82,7 +79,7 @@ Find out by running commands where you can, not by asking:
 1. **Name** — what to call them. Suggested: "your first name." Never a name from the computer (see Safety).
 2. **Role** — in their words. Suggested: "your words."
 3. **Website** — paste the link, or "none." If there is one and you can browse, skim the home and about pages and keep two or three facts for later questions. If none, ask one sentence: what does the company do?
-4. **Company name and folder** — suggest a short slug from the company name they gave you (lowercase, hyphens). Then suggest `{{COMPANY_OS}}` from "What you are building." Confirm. If that folder exists and is not empty, look inside and ask what to do (use it, or pick another name). An empty folder they already have open can be the company OS if they say yes.
+4. **Company name and folder** — suggest a short slug from the company name they gave you. Suggest one folder, from "What you are building." Confirm. If it already has files, look inside and ask before you write.
 
 ## Build the folder (right after question 4)
 
@@ -114,7 +111,7 @@ From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit a
 
 | Answer | Build | First win |
 |---|---|---|
-| A) Find anything fast | shared root only | they paste one real email, note, or CSV snippet; you file it; you answer one question from that file |
+| A) Find anything fast | shared root only | they paste one real thing; you file it with the shared memory; you answer one question from it |
 | B) Meetings and decisions | shared root only | file one meeting note or decision from `inbox/` |
 | C) Marketing | `areas/marketing/` | draft one post or email in their voice |
 | D) Numbers | `areas/finance/` | read one export they drop in `areas/finance/data/` |
@@ -123,7 +120,7 @@ From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit a
 
 Write the first job into "Right now" in `AGENTS.md`.
 
-For A, a voice line is not the win. They paste one real email, note, or CSV snippet. You file it (`inbox/`, then ingest). You answer one question from that file.
+For A, a voice line is not the win. They paste one real email, note, or CSV snippet. File it with the company memory, the way ingest files that kind of thing. Then answer one question from what you filed.
 
 ## Phase C — Tools and old notes
 
@@ -132,7 +129,7 @@ For A, a voice line is not the win. They paste one real email, note, or CSV snip
 
 ## Phase D — Pointed questions
 
-Using their name, role, and website, ask two to four sharp follow-ups. Fill the shared files as you learn:
+Using their name, role, and website, fill the shared files. One question at a time.
 
 | Ask about | File |
 |---|---|
@@ -140,24 +137,24 @@ Using their name, role, and website, ask two to four sharp follow-ups. Fill the 
 | Who buys, what problem they solve, the best customer | `customers.md` |
 | What they sell, rough prices, what people buy first | `offers.md` |
 | How the company sounds; a few lines they like | `voice.md` |
-| The three to five people they work with most | `people/{{FULL_NAME}}.md`, one each |
+| The people they work with most | `people/{{FULL_NAME}}.md`, one each |
 
 If you read their website, draft these from it and ask them to correct the draft. Mark guesses with `(check)`. Never invent facts: leave a blank or `(unknown)`. Keep jargon out.
 
-Cover offers and size inside those follow-ups. One question for what they sell and what people buy first (`offers.md`). One question for who started it and how big it is, if that is still open (`company-profile.md` → History and size). If they do not know, write `(unknown)` on that line.
+Ask what those files still need. Include what they sell and what people buy first, and who started it and how big it is, when that is still open. If they do not know, write `(unknown)` on that line.
 
 ## Phase E — Areas and the first win
 
-1. **Areas.** Make the area the first job needs (see the table), with `skills/add-area/SKILL.md`. Offer others from the list — marketing, finance, sales, operations, people (HR), apps — but suggest "later." Fill `{{AREAS}}` in `AGENTS.md` (or write "none yet").
-2. **One concrete win** before you finish, from the table above. For A, follow the paste rule under Phase B. If one connection unlocks the first job, connect **one** tool with `skills/connect-tool/SKILL.md` (your add-on says which to try first). One is enough today. If that connection is not available, do the file win.
-3. **If the win lives in an area.** The company repo ignores `areas/`, so a clone will not contain the draft. Write one line in "Right now" in the company `AGENTS.md` with the path of the win. Write the same line in the company session log. If the first job was marketing, also add one line in shared `memory/` (indexed from `memory/MEMORY.md`, on `main`) that names the draft's path. The line is a path. The draft stays in the area.
+1. **Areas.** Make the area the first job needs, with `skills/add-area/SKILL.md`. They can add others when they want. Fill `{{AREAS}}` in `AGENTS.md` (or write "none yet").
+2. **One concrete win** before you finish, from the table above. For A, follow the paste rule under Phase B. If a connection unlocks the first job, connect that one tool with `skills/connect-tool/SKILL.md` (your add-on says which to try first). One is plenty today. If it is not available, do the file win.
+3. **If the win lives in an area.** The company repo does not keep area files. Leave the draft in the area. Also leave one pointer in a shared file the company repo does keep, so the win is still findable. "Right now" in `AGENTS.md` is a natural spot. One pointer is enough.
 4. **Toolkits.** Mention the Marketing Toolkit only if the first job was marketing: what it adds, what installing does, then ask. Say "the Finance Toolkit is coming" only if the first job was numbers.
 5. **No owner?** If they say nobody will keep this up day to day, say one calm line: 1610 Advisory installs and runs this for teams (1610advisory.com). Do not push.
 
 ## Close out
 
 1. **How to start each day.** Tell them, in about this many words:
-   > Open your agent in the folder for the work you're doing. General company questions: `{{COMPANY_OS}}`. Marketing work: `{{COMPANY_OS}}/areas/marketing`. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
+   > Open your agent in the folder for the work you're doing. General company questions: `{{COMPANY_OS}}`. Area work: the area folder you set up. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
 
    Say "your agent" in that paragraph. Then give the one command from your add-on. That command names the product. With no add-on, name yourself in one line: Pi says Pi.
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.

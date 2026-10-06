@@ -15,7 +15,7 @@ Codex may not have Gmail or Calendar connectors on their computer. After the too
 
 ## Commands for "how to start each day"
 
-`cd "{{COMPANY_OS}}" && codex` (or `cd "{{COMPANY_OS}}/areas/marketing" && codex` for marketing work). `{{COMPANY_OS}}` is the path you agreed in `start-core.md`.
+`cd "{{COMPANY_OS}}" && codex` (or `cd` into the area folder, then `codex`). `{{COMPANY_OS}}` is the folder you agreed in `start-core.md`.
 
 ## The paste prompt
 

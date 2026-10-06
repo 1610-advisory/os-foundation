@@ -1,6 +1,6 @@
 # os-foundation — rules for any AI agent in this repo
 
-This repo is **os-foundation**: the setup files and the template for a company OS. It is not anyone's company OS. A company OS is built **from** it, in its own folder. The path is `{{COMPANY_OS}}` from `start-core.md`: usually `~/{{COMPANY_SLUG}}-os/`, or the empty folder already open.
+This repo is **os-foundation**: the setup files and the template for a company OS. It is not anyone's company OS. A company OS is built **from** it, in its own folder. The path is whatever they agree in `start-core.md`.
 
 `CLAUDE.md` imports this file.
 

@@ -15,7 +15,7 @@ This folder is the company OS for **{{COMPANY_NAME}}**: the shared memory of the
 
 ## Right now
 
-<!-- What the company is focused on this quarter. Five lines at most. If the first win lives in an area, name that file's path here. The company repo does not track areas/. -->
+<!-- What the company is focused on this quarter. Five lines at most. If the first win lives in an area, a path here keeps it findable. -->
 - (setup fills this in)
 
 ## The layout

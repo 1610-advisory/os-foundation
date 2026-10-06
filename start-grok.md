@@ -12,7 +12,7 @@ Grok often reaches Gmail, Calendar, or Drive through apps the person already con
 
 ## Commands for "how to start each day"
 
-"Open Grok with the folder `{{COMPANY_OS}}` as the working folder (or `{{COMPANY_OS}}/areas/marketing` for marketing work)."
+"Open Grok with `{{COMPANY_OS}}` as the working folder (or the area folder, when the work lives there)."
 
 ## The paste prompt
 
