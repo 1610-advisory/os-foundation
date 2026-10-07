@@ -23,6 +23,10 @@ Read these if your agent did not load them already:
 
 Software that {{COMPANY_NAME}} runs: automations, internal tools, integrations, and apps (a customer portal goes at `portal/`).
 
+### Before building or hosting
+
+Read `../../skills/app-setup/SKILL.md` when planning an app, automation, hosting or software choice. It explains local vs hosted use, compares existing tools, Cloudflare, a self-managed VPS and other services, and gets approval for costs and external changes before deployment. Keep the decision and operating notes in this area or the app's own repo.
+
 ### One repo per app
 
 - This folder is a repo for the small things: scripts, automations, and notes about the apps.
@@ -32,11 +36,11 @@ Software that {{COMPANY_NAME}} runs: automations, internal tools, integrations, 
 
 ## Skills
 
-Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
+Area skills live in `skills/` here. Company skills live in `../../skills/` (app-setup, ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
 
 | Skill | Use when someone says |
 |---|---|
-| (none yet) | |
+| `../../skills/app-setup/` (company skill) | "build an app", "make a portal", "host this", "use a VPS / Cloudflare", "which software should I use" |
 
 ## Folders
 

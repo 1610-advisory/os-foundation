@@ -66,6 +66,12 @@ Folders are yours. Toolkits are ours: free, open source, and kept current by 161
 
 Claude installs toolkits as plugins. Other agents keep them in one folder, `~/toolkits/`, next to any other toolkits you use or build (1610's are named `1610-…`).
 
+## Apps and hosting
+
+Say "build an app", "automate this", or "where should this run?" The [app-setup skill](template/skills/app-setup/SKILL.md) checks your existing tools first, explains local versus hosted use, and helps choose the smallest suitable set of programs. Cloudflare is the preferred starting point when it fits: Workers can host the app, D1 can keep database records, and R2 can store files on one platform. Use only the pieces you need. A self-managed VPS or another managed service may suit you better.
+
+You approve hosting, recurring costs, access and data handling before anything is provisioned or published. Setup does not require a hosting subscription, and installing these instructions does not create a server or grant deployment access. The skill also plans maintenance, backups and how to move your app later.
+
 ## Teams
 
 When someone else should use it, say "add a teammate." The agent puts the company folder and only the areas they need on your company's GitHub as private repos, invites them, and sets up their computer. Changes they ask for come to you, the admin, as a pull request.
