@@ -46,6 +46,21 @@ class SetupCopyTests(unittest.TestCase):
             self.assertIn("scheduled sync", text)
         self.assertLess(len(rules), 10000)
 
+    def test_existing_material_can_move_by_choice(self):
+        core = (ROOT / "start-core.md").read_text()
+        self.assertIn("moving your content isn't required", core)
+        self.assertIn("choose to move selected material", core)
+        self.assertIn("do not delete the original without approval", core)
+        self.assertNotIn("Nothing goes to a third party unless", core)
+
+    def test_upstream_test_run_fixes_survive_merge(self):
+        core = (ROOT / "start-core.md").read_text()
+        self.assertIn("Never suggest their name from the computer", core)
+        self.assertIn("Do not invent a build script", core)
+        self.assertIn("Do not run `git init` again", core)
+        self.assertIn("{{COMPANY_OS}}", core)
+        self.assertIn("For A, a voice line is not the win", core)
+
     def test_readme_explains_where_to_paste_without_universal_support_claim(self):
         readme = (ROOT / "README.md").read_text()
         self.assertIn("file-capable", readme)

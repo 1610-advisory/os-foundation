@@ -1,10 +1,14 @@
 # start-cursor — add-on for Cursor
 
-Read `start-core.md` first. This file only adds Cursor steps.
+Read `start-core.md` first. This file only adds Cursor steps. You are Cursor. In the close-out, say Cursor.
 
 ## Folder
 
-Cursor works in the folder that is open. After you build `~/{{COMPANY_SLUG}}-os/`, ask them to open it (File → Open Folder) so the company rules load. For area work they open the area folder.
+Cursor works in the folder that is already open. Agree `{{COMPANY_OS}}` in `start-core.md`, then stay there. If nothing is open yet, build the folder they agreed and ask them to open it (File → Open Folder).
+
+- If the open folder already has git, keep that history. Run `git init` only when there is no `.git`.
+- A cloud or Origin session may commit and push to the open repo. That repo is theirs. Share it with someone else only when they ask.
+- Area files stay in the area. One pointer in a shared file is enough for a clone to see the win (`start-core.md`).
 
 ## Connections
 
@@ -15,7 +19,7 @@ Cursor connects tools through MCP (Settings → MCP). After the tools question:
 
 ## Commands for "how to start each day"
 
-"Open Cursor, then File → Open Folder → `~/{{COMPANY_SLUG}}-os` (or `~/{{COMPANY_SLUG}}-os/areas/marketing` for marketing work)."
+"Open Cursor in `{{COMPANY_OS}}` (or the area folder, when the work lives there). If that folder is already open, stay there."
 
 ## The paste prompt
 

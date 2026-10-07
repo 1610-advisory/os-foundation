@@ -14,7 +14,7 @@ Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question
 
 The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
 
-Already have a Notion workspace, Drive folder, or brand guide? Keep it. Setup records where your existing knowledge lives and how to access it. It does not require a migration or a daily sync.
+Already have a Notion workspace, Drive folder, or brand guide? Setup helps you choose what stays there and what, if anything, you'd like to move. It records where the authoritative material lives and how to access it. Migration and daily sync aren't required.
 
 | Agent | How to start |
 |---|---|
@@ -52,7 +52,8 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 
 ## Yours, not ours
 
-- **You own it.** Your company OS is your folder, on your computer and in your own GitHub if you add one. It does not depend on this repo after setup.
+- **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki; the folder doesn't have to replace it.
+- **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It is not a second copy of a wiki you already use.
 - **Your privacy.** os-foundation does not upload your company content to 1610. Your AI provider may receive prompts and files for processing under its own settings and policies. Local storage does not mean local-only AI. Connections use each tool's own sign-in; never paste passwords or tokens into chat.
 - **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
 

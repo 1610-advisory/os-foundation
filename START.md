@@ -15,9 +15,10 @@ You are helping the **owner of one business** build a **company OS**: a folder o
 | Codex | `start-codex.md` |
 | Cursor | `start-cursor.md` |
 | Grok | `start-grok.md` |
+| Pi | Core only. You are Pi. |
 | Something else | Core only. Find out which tools you can really connect on their computer. |
 
-3. Follow core plus the add-on. Where they differ, the add-on wins for connection and command steps only.
+3. Follow core plus your own add-on. Read that one file, not the other add-ons. Where they differ, the add-on wins for connection and command steps only. In the close-out, name the agent you are. Pi says Pi. Grok's line stays in `start-grok.md`.
 
 **Where the files are.** If you have this repo on disk, they are next to this file. If you read this file from a URL, the others are at the same address: `https://1610.sh/os/start-core.md`, `https://1610.sh/os/start-claude.md`, and so on. `https://1610.sh/os/files` lists every file. The full repo is `https://github.com/1610-advisory/os-foundation`.
 
