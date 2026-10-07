@@ -1,0 +1,121 @@
+{
+  "repository": "https://github.com/anthropics/skills",
+  "revision": "683bc88e56f3e09ba94f7055977f3d3aa499f202",
+  "path": "skills/skill-creator",
+  "license": "Apache-2.0",
+  "imported_on": "2026-10-07",
+  "changes": {
+    "SKILL.md": "Add prominent Foundation integration notice and prerequisite guide link; preserve upstream workflow and metadata.",
+    "assets/eval_review.html": "Remove remote font requests for offline/private review.",
+    "eval-viewer/viewer.html": "Remove remote fonts and spreadsheet JavaScript; preserve local downloads with an explicit unavailable-preview message.",
+    "scripts/generate_report.py": "Remove remote font requests from generated reports.",
+    "eval-viewer/generate_review.py": "Leave unrelated port owners alone; safely escape embedded output JSON to prevent closing the script element."
+  },
+  "foundation_additions": [
+    "FOUNDATION.md",
+    "UPSTREAM.json"
+  ],
+  "notices": "UPSTREAM_NOTICES.md retains upstream root THIRD_PARTY_NOTICES.md; it does not mean all listed software is installed.",
+  "files": [
+    {
+      "path": "LICENSE.txt",
+      "git_blob": "4f881c52d1f72f4cfb720e339e2d35c3058d01a9",
+      "sha256": "bc6b3af2f331cbc7fb0da1344efb2cbe5877a31498b4d70dbc7000f3405a1362"
+    },
+    {
+      "path": "SKILL.md",
+      "git_blob": "65b3a402dbd09b8e83f9d637c6b553875189085c",
+      "sha256": "dcd4803e61e913e6fc27294184cd3a71f09f5e924ff20c8a9a20173e7b3c2bcf",
+      "installed_sha256": "328a03fcd7480720cb6c6abbe6e6a4a6ecdb71bdb3fefc39b1311ad7145a89a5"
+    },
+    {
+      "path": "agents/analyzer.md",
+      "git_blob": "14e41d6068635f4dd3fb878fd1626312395dda63",
+      "sha256": "bf68f4cac5a56c673a928c2e6d619586c5b93ea364026ab37547772cb45a663a"
+    },
+    {
+      "path": "agents/comparator.md",
+      "git_blob": "80e00eb45db3ee53a132fc2ba97fd59a7339e563",
+      "sha256": "fe1fc9787c495d864c5d6eada47396478572325fde1b33a96d78bf4b849b7a3e"
+    },
+    {
+      "path": "agents/grader.md",
+      "git_blob": "558ab05c0a9a8bb062ef4c51823d4d76c3acf7c4",
+      "sha256": "57134da0c1a4eea33fbd74a1c9c44aa814f07d6bc64de303edb586f941e5d21a"
+    },
+    {
+      "path": "assets/eval_review.html",
+      "git_blob": "938ff32aed9bffabf723bd5492d720f4736c8e4d",
+      "sha256": "ce477dcc74dc1c0d1d3352646a79167b5a63634e936b1019160025065974e452",
+      "installed_sha256": "dfbc7e625ab695e3f7a23b744c4efefad621a564ee3ababf3d551e20c7766aa8"
+    },
+    {
+      "path": "eval-viewer/generate_review.py",
+      "git_blob": "7fa5978631fed1ed545591dbb2b0eb21ce3f3d08",
+      "sha256": "fc9d1b9243fe5ab6012ebd579bd76d0035de1b79fd3b969de114defab26478fb",
+      "installed_sha256": "376fbb220d80a72d045bfe92d1f79b4a64600a14fce62553a7410e246c820ace"
+    },
+    {
+      "path": "eval-viewer/viewer.html",
+      "git_blob": "6d8e96348a02e66c3363d2ff3b3ae58ac11e6382",
+      "sha256": "a53213426ee1100441d701a3a0d49cda7a842f992d2c36463f4d3cc0258575fa",
+      "installed_sha256": "1a509b3309c58a9e9d11df3d1d5d0936af4995ef46655a00b629e793f990166d"
+    },
+    {
+      "path": "references/schemas.md",
+      "git_blob": "b6eeaa2d4a34c1653069585c6c5603da39a5bdbe",
+      "sha256": "8e8876180a8989b406a4d3edddf875b04cdfd5805cc8616686d552b11ce4455f"
+    },
+    {
+      "path": "scripts/__init__.py",
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "scripts/aggregate_benchmark.py",
+      "git_blob": "3e66e8c105be9bab9f0e9c61f0d1482619401580",
+      "sha256": "123ef128ea5ccc01a4b1ac212ef5567f21e9c13d3d240609780beeb3200c49aa"
+    },
+    {
+      "path": "scripts/generate_report.py",
+      "git_blob": "959e30a0014ec165c41a2bb7420b7dfe1416bbac",
+      "sha256": "13df7118a3c50c83c4c3250a606d5f2b20b25a3d44cbc392b3d669ec75281453",
+      "installed_sha256": "424cf372c8adc40b0f44fc59a9686b03d0788b762a82f3a219bf47cee95141b1"
+    },
+    {
+      "path": "scripts/improve_description.py",
+      "git_blob": "06bcec76122446986e3610c20a39c466de36f495",
+      "sha256": "87d864570220b699fac52da309d2d6efdb060647bfebc74f768128e646accf80"
+    },
+    {
+      "path": "scripts/package_skill.py",
+      "git_blob": "f48eac444656ddc41204aac1760a217951ce609e",
+      "sha256": "1a33059b0db1ef73375d46d513e5ea81369d2e8838c970597b0d52ddef8d1c0f"
+    },
+    {
+      "path": "scripts/quick_validate.py",
+      "git_blob": "ed8e1dddce77b16af13c6f36b3fe86c4ac7c590c",
+      "sha256": "67cf5703402013936c8fb75ad6a1afecd8841d45cc5e606b634eb05825fde365"
+    },
+    {
+      "path": "scripts/run_eval.py",
+      "git_blob": "e58c70bea39d5b252a1e819f242bbdcdf20e8b87",
+      "sha256": "43e3b8f80dbf69c343967ba77e268fae991d9fa3ed68b32a0ff02532cd48657f"
+    },
+    {
+      "path": "scripts/run_loop.py",
+      "git_blob": "30a263d674ef19de11c756d6f7537f91a421909e",
+      "sha256": "7bd6f674203168520517eec94c55f493c0d154339b061b4d7c0f0dad187d0f21"
+    },
+    {
+      "path": "scripts/utils.py",
+      "git_blob": "51b6a07dd57174197a937034b7eecebd5768ff8a",
+      "sha256": "3af8ae62c40c73ab712207436a0d9a981e845f25c5a7040229eb189cc8e45bb1"
+    },
+    {
+      "path": "UPSTREAM_NOTICES.md",
+      "source_path": "THIRD_PARTY_NOTICES.md",
+      "sha256": "a8ff7a84dee9dfb42ab448de281784387ceafdf63881b7c070ee2de7f6ed865c"
+    }
+  ]
+}

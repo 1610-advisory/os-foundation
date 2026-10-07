@@ -59,12 +59,15 @@ Skills are SOPs in plain markdown. When a request matches one, read the file and
 | `skills/connect-tool/` | "connect email / calendar / QuickBooks / Slack / CRM ..." |
 | `skills/app-setup/` | "build an app", "make a portal", "automate this", "host this", "use Cloudflare / a VPS", "which software should I use" |
 | `skills/add-teammate/` | "give {{PERSON}} access", "share this with my team" |
-| `skills/write-skill/` | "write this down", "make a skill for this", or you are told the same thing twice |
+| `skills/write-skill/` | "write this down", "make a skill for this", or you are told the same thing twice; company placement/review wrapper |
+| `skills/skill-creator/` | "create / improve / test a skill"; bundled Anthropic creator, read FOUNDATION.md first |
 | `skills/lint/` | "health check", "lint", weekly |
 | `skills/suggest/` | "I solved this", "send this idea to 1610", "suggest a fix" |
 | `skills/logs-folder/` | "the logs folder is missing" (setup and add-area use it too) |
 
 Each area can have its own skills in `areas/{{AREA_SLUG}}/skills/`. Every time someone re-explains how they want something done, offer to write it as a skill. That is how the OS gets better.
+
+For the bundled Anthropic creator, read `skills/skill-creator/FOUNDATION.md` before its workflow. Company privacy and approval rules take priority: evaluations need approved capabilities, costs, inputs and delegation. Installing a skill does not grant tools or authorize outside models. Other skill collections are references, not automatic installs; see `memory/skill-resources.md`.
 
 ## Memory
 

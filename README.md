@@ -2,7 +2,7 @@
 
 A company OS: one folder you own with company knowledge, instructions for AI agents, and saved ways of working.
 
-Use it with a file-capable agent that can read and write the folder. Setup guides cover Claude, Codex, Cursor, and Grok; folder access and available connections differ by app and plan. Everything is plain markdown.
+Use it with a file-capable agent that can read and write the folder. Setup guides cover Claude, Codex, Cursor, and Grok; folder access and available connections differ by app and plan. Instructions are plain markdown; some skills also include scripts and review templates.
 
 ## Start
 
@@ -50,6 +50,14 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 2. **Open the folder you are working in.** Marketing work? Open your agent in `areas/marketing/`. General questions? The company folder. The agent reads the rules and starts briefed.
 3. **Every time you re-explain something, make it a skill.** Say "write this down as a skill." That is how it gets better.
 
+## Make your own skills
+
+Anthropic's official [skill-creator](template/skills/skill-creator/SKILL.md) is included by default, with its helper scripts, references, review templates, license and notices. Say "make this a skill", "improve this skill", or "test this skill". Foundation's `write-skill` flow handles company placement and review; Anthropic's creator supplies the authoring and testing workflow.
+
+The bundle is pinned to an upstream version, with documented company-integration/privacy changes. Drafting does not require installing a whole collection. Advanced testing needs compatible tools and your approval for data, costs and delegation; those capabilities aren't installed automatically. The [Foundation guide](template/skills/skill-creator/FOUNDATION.md) explains the limits.
+
+Other [Anthropic skills](https://github.com/anthropics/skills) are available to explore when a job needs them, not automatically installed. Check each skill's license and requirements. New setups receive these defaults; existing company folders are not silently updated.
+
 ## Yours, not ours
 
 - **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki; the folder doesn't have to replace it.
@@ -88,4 +96,4 @@ If nobody on your team will own this day to day, [1610 Advisory](https://1610adv
 
 ## License
 
-MIT. Built by [1610 Advisory](https://1610advisory.com).
+Foundation's original files are MIT. Vendored Anthropic skill-creator files retain their Apache-2.0 license and upstream notices; local modifications are marked and listed in the source manifest. Built by [1610 Advisory](https://1610advisory.com).

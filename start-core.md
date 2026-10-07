@@ -171,6 +171,7 @@ Ask what those files still need. Include what they sell and what people buy firs
    > Open your agent in the folder for the work you're doing. General company questions: `{{COMPANY_OS}}`. Area work: the area folder you set up. Drop anything you capture into `inbox/` and ask me to process it when you have a minute. When I do something your way after you explain it, tell me to "write it down as a skill."
 
    Say "your agent" in that paragraph. Then give the one command from your add-on. That command names the product. With no add-on, name yourself in one line: Pi says Pi.
+   - If they ask how to make or improve skills, explain that Anthropic's creator is already included at `skills/skill-creator/`; `skills/write-skill/` handles company placement/review. Point to `memory/skill-resources.md`. No need to install a whole collection or run evaluations during setup.
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
 3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `{{COMPANY_OS}}` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
 4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) Commit.
