@@ -2,7 +2,11 @@
 
 You already read `START.md`. This file is the whole setup: the voice, the interview, and the build. Keep messages short. Ask **one question at a time**, each with a **suggested answer**, so the person can just say "yes."
 
-Before the first question, tell them in two or three sentences what will happen: you will ask some questions (about 15 minutes), build a folder for their company on their computer, and show them one useful thing it can do. It is theirs. Nothing leaves their computer unless they connect a tool.
+Before the first question, explain the destination in plain words, for example:
+
+> We'll build a folder you own that gives file-capable AI agents your company knowledge and rules for doing work. If you already use Notion or Drive, I'll help you choose what stays there and what, if anything, you'd like to move; moving your content isn't required. I'll ask one question at a time, save your answers, and help with one real task.
+
+Then give the privacy note: os-foundation does not upload company content to 1610. Your AI provider may receive prompts and files for processing under its own settings and policies. Local files do not mean local-only AI. Do not promise a setup time; connections and folder access can take longer.
 
 ## Voice
 
@@ -37,7 +41,7 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 - Never ask for, write down, or repeat a password, API key, or token.
 - Connections use the tool's own sign-in (or your agent's connector screen) only.
 - Never overwrite or delete something that already exists without asking.
-- Nothing leaves their computer unless they connect a tool or choose to share something.
+- Explain storage separately from processing. The folder is theirs; a hosted AI provider may process the content the agent reads. Connected tools and any chosen sync service have their own data policies. Do not claim everything stays on the computer.
 - If a step fails, explain it in one sentence and offer the simplest fix. Do not stack workarounds.
 
 ## What you are building
@@ -114,11 +118,16 @@ Write the first job into "Right now" in `AGENTS.md`.
 ## Phase C — Tools and old notes
 
 6. **Tools** — the checklist from the samples. "Just email for now" is a great answer. Write the list into `company-profile.md` → "Tools we use." Nothing is connected yet.
-7. **Old notes** — any place that already holds company memory (Notion, a Drive folder, old AI chats, a notes app)? Write names and locations into `memory/existing-sources.md` (type `reference`) for later. Do not move a pile of old files today unless it is tiny and they insist.
+7. **Existing knowledge** — ask: "Where do you already keep company knowledge, such as a Notion home page, Drive folder, brand guide, or old notes? Suggested: keep it there and give me the main link or location."
+   - Use `memory/existing-sources.md` as an index, not a copy of the content. Record the source, what it holds, its link or path, who maintains it if known, and how the agent can access it. Keep the entry in `memory/MEMORY.md` so later sessions can find it.
+   - Keep the existing system as the source of truth for that material. Do not propose migration, bulk export, duplicate markdown copies, or scheduled sync unless the person explicitly asks. A connector does not create a sync job.
+   - A pasted link is not proof that you can read the source. Record access as not checked, unavailable, or verified on an absolute date. Do not request public sharing of private pages. If access is unavailable, use a small excerpt they choose to share for today's task.
+   - If the index would expose restricted information, follow the company's sharing rules and keep that source entry in the relevant area instead.
+   - Explain: "Notion can keep your docs and brand assets. This folder gives the agent instructions, saved ways of working, and work records. It can point to what you already have." Then continue the first job; do not turn setup into an integration project.
 
 ## Phase D — Pointed questions
 
-Using their name, role, and website, ask two to four sharp follow-ups. Fill the shared files as you learn:
+Using their name, role, and website, ask two to four sharp follow-ups. First consult relevant existing sources that you have permission and verified access to read. Do not interview them again for information you can already confirm there. For material maintained elsewhere, put a source pointer in the corresponding shared file instead of making another full copy. Save a short dated summary only when useful and approved; label it as a summary and link the original. Never claim a summary stays up to date automatically. Fill the shared files as you learn:
 
 | Ask about | File |
 |---|---|

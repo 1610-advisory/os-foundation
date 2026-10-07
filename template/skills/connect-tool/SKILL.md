@@ -51,4 +51,6 @@ Make one **read-only** call and show the result: the three newest email subjects
 
 In `architecture.md` at the company root (create it if missing, with `type: architecture` frontmatter and a "Connections" table), add a row: tool, connector, agent, folder, read-only or read-write, date. No secrets, no account numbers. Commit.
 
+For a knowledge source such as Notion or Drive, also update `memory/existing-sources.md` (or the area's index for restricted material): what it holds, its location, the access method, and the date of the successful read-only check. Keep its entry in the corresponding `memory/MEMORY.md`. Record no credentials. The source stays authoritative; connecting it does not authorize migration, bulk copies, or a scheduled sync.
+
 Then tell them one thing they can now ask, for example "What did customers email about this week?"

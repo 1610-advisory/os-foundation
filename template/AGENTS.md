@@ -75,6 +75,13 @@ Memory holds facts about **how to work**. The other files hold facts about **the
 - At the end of real work, append a short entry to `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md` (in the area's `memory/logs/` for area work): what was done, what is open. One file per person per day, so teammates never edit the same file.
 - `memory/logs/` is the repo's `logs` branch, checked out as a folder. Commit and push logs there directly (`skills/logs-folder/` → "Write a log"). Curated memory stays on `main`.
 
+## Existing knowledge
+
+- Read `memory/existing-sources.md` when a task needs company knowledge kept elsewhere. It indexes Notion, Drive, brand assets, or other sources; it does not copy their content or grant access.
+- Keep the existing system as the source of truth for the material it maintains. Verify access and read the relevant source when needed. If access fails, say so; use a chosen excerpt or mark the information unknown.
+- Do not propose migration, bulk copies, or a scheduled sync unless explicitly asked. A connection is not a sync job. Short approved summaries must link the original and state when they were checked.
+- Update the index when a location or access method changes. No credentials. Restricted source entries belong in the relevant area's memory under the same sharing rules as its other files.
+
 ## Changes and review
 
 - **The admin** may commit directly to `main`.
@@ -87,12 +94,12 @@ Memory holds facts about **how to work**. The other files hold facts about **the
 1. `[[Wiki-links]]` everywhere. Link people, meetings, and decisions each time you mention them.
 2. Meeting notes: `YYYY-MM-DD Title.md`. Shared meetings in `meetings/`. Area-only meetings in that area's `meetings/`.
 3. Folder names: lowercase-kebab-case, no emoji.
-4. Markdown is the source. HTML, PDFs, and slides are outputs made from markdown. No fact lives only in an output.
+4. Markdown is the source for work maintained in this folder. Material maintained in Notion or another existing system stays authoritative there; link it rather than silently duplicating it. HTML, PDFs, and slides made here are outputs, not the only record of a fact.
 5. Never invent facts. Leave a blank or write `(unknown)`. Mark a guess with `(check)`.
 
 ## Safety
 
-- **One company only.** Use only files inside this company folder. Never read, compare, or copy from another company's folder (another `~/*-os/`). Do not mention that other companies exist.
+- **One company only.** Use only this company folder and this company's approved existing sources or connections. Never read, compare, or copy from another company's folder (another `~/*-os/`) or external workspace. Do not mention that other companies exist.
 - **No passwords, API keys, or tokens** in any file, ever. Connections use each tool's own sign-in. If you find a secret in a file, stop and tell the person.
 - **Never run destructive git at the company root** (`git clean -x`, `git reset --hard`, `git rm -r` across `areas/`). Run git only inside the one repo you mean.
 - Before you send, post, publish, pay, or delete anything outside this folder, show it and ask.
