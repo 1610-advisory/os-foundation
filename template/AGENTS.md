@@ -57,6 +57,7 @@ Skills are SOPs in plain markdown. When a request matches one, read the file and
 | `skills/ingest/` | "process the inbox", "file this", "here's a meeting recording" |
 | `skills/add-area/` | "add sales / operations / HR", "set up an area for ..." |
 | `skills/connect-tool/` | "connect email / calendar / QuickBooks / Slack / CRM ..." |
+| `skills/app-setup/` | "build an app", "make a portal", "automate this", "host this", "use Cloudflare / a VPS", "which software should I use" |
 | `skills/add-teammate/` | "give {{PERSON}} access", "share this with my team" |
 | `skills/write-skill/` | "write this down", "make a skill for this", or you are told the same thing twice |
 | `skills/lint/` | "health check", "lint", weekly |
