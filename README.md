@@ -1,18 +1,20 @@
 # os-foundation
 
-A company OS: one folder on your computer that holds your company's memory, set up so any AI agent you open there already knows how your business works.
+A company OS: one folder you own with company knowledge, instructions for AI agents, and saved ways of working.
 
-It works with Claude (Cowork, Desktop, Code), Codex, Cursor, and Grok. Everything is plain markdown, in a folder that is yours.
+Use it with a file-capable agent that can read and write the folder. Setup guides cover Claude, Codex, Cursor, and Grok; folder access and available connections differ by app and plan. Everything is plain markdown.
 
 ## Start
 
-Paste this into your agent:
+Copy the prompt below. Open a task or agent session in your file-capable AI app, such as Claude Cowork or Claude Code, and paste it into the chat. Copying alone does not start setup:
 
 ```
 Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question at a time.
 ```
 
-The agent asks you some questions (about 15 minutes), builds `~/{{COMPANY_SLUG}}-os/`, and shows you one useful thing it can do.
+The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
+
+Already have a Notion workspace, Drive folder, or brand guide? Setup helps you choose what stays there and what, if anything, you'd like to move. It records where the authoritative material lives and how to access it. Migration and daily sync aren't required.
 
 | Agent | How to start |
 |---|---|
@@ -50,9 +52,9 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 
 ## Yours, not ours
 
-- **You own it.** Your company OS is a folder on your computer. It does not depend on this repo after setup. If you already keep the company's knowledge in Notion, Drive, or a wiki, that stays the home. This folder does not replace it.
+- **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki; the folder doesn't have to replace it.
 - **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It is not a second copy of a wiki you already use.
-- **Your privacy.** The folder stays on your computer unless you choose to put it on your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords.
+- **Your privacy.** os-foundation does not upload your company content to 1610. Your AI provider may receive prompts and files for processing under its own settings and policies. Local storage does not mean local-only AI. Connections use each tool's own sign-in; never paste passwords or tokens into chat.
 - **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
 
 ## Toolkits
