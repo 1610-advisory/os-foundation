@@ -96,7 +96,8 @@ raise SystemExit(0 if data.get("loggedIn") else 1)'
 }
 
 pi_signed_in() {
-  pi auth check --provider xai --model grok-4.5 --json 2>/dev/null | python3 -c 'import json,sys
+  local model="${OSF_ACME_PI_MODEL:-xai/grok-4.5}"
+  pi auth check --model "$model" --json 2>/dev/null | python3 -c 'import json,sys
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -104,8 +105,25 @@ except Exception:
 raise SystemExit(0 if data.get("status") == "ready" else 1)'
 }
 
+# status can say Logged in while cursor-agent -p still rejects the session.
 cursor_signed_in() {
-  cursor-agent status 2>&1 | grep -q "Logged in"
+  local raw clean
+  raw=$(mktemp)
+  clean=$(mktemp)
+  chmod 600 "$raw" "$clean"
+  set +e
+  cursor-agent --list-models >"$raw" 2>&1
+  set -e
+  if ! python3 "$here/lib/scrub.py" --secrets-dir "$(osf_acme_cache)" --out "$clean" "$raw"; then
+    cp "$raw" "$clean"
+  fi
+  rm -f "$raw"
+  if grep -q "Authentication required" "$clean"; then
+    rm -f "$clean"
+    return 1
+  fi
+  rm -f "$clean"
+  return 0
 }
 
 codex_signed_in() {
@@ -208,7 +226,7 @@ run_engine() {
   case "$engine" in
     claude)
       claude -p \
-        --model haiku \
+        --model "${OSF_ACME_CLAUDE_MODEL:-haiku}" \
         --output-format text \
         --no-session-persistence \
         --max-budget-usd 0.50 \
@@ -218,7 +236,7 @@ run_engine() {
       ;;
     pi)
       pi -p \
-        --model xai/grok-4.5 \
+        --model "${OSF_ACME_PI_MODEL:-xai/grok-4.5}" \
         --thinking off \
         --no-session \
         --no-extensions \
@@ -295,6 +313,11 @@ if [ -f "$rcfile" ]; then
 fi
 python3 "$lib/scrub.py" --secrets-dir "$(osf_acme_cache)" --out "$clean" "$raw"
 rm -f "$raw"
+
+if [ "$engine" = "cursor" ] && grep -q "Authentication required" "$clean"; then
+  token=""
+  blocked "not signed in: cursor-agent"
+fi
 
 if [ "$rc" -ne 0 ]; then
   token=""

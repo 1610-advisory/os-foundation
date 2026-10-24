@@ -44,6 +44,17 @@ tests/acme/seat.sh member-d prompt.txt --cwd <clone>
 
 A missing engine or sign-in prints `BLOCKED: <seat> <reason>` and exits 3. The vendor login stays the one already on the computer. Each seat gets its own git name, host token, and `XDG_CONFIG_HOME`.
 
+Cursor sign-in is checked with a real command, not the status line. If that command says authentication is required, the seat is BLOCKED.
+
+Model overrides, when a scenario needs a stronger model:
+
+| Variable | Default |
+|---|---|
+| `OSF_ACME_CLAUDE_MODEL` | `haiku` |
+| `OSF_ACME_PI_MODEL` | `xai/grok-4.5` |
+
+The Pi seat allows the `bash` tool. That tool is not limited to the sandbox folder. The seat's host token is in the engine process environment. The test writes the prompt. Tier B runs each seat in a container.
+
 ## Tokens
 
 Tokens are not in this repo and are not printed. The site admin login is `osf-admin`. It is not an Acme seat.

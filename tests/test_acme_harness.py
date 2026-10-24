@@ -87,6 +87,9 @@ class RepoHygieneTests(unittest.TestCase):
         self.assertIn("~/.cache/os-foundation/forgejo/tokens/<user>", text)
         self.assertIn("~/.cache/os-foundation/forgejo/admin-token", text)
         self.assertIn("ubuntu-latest", text)
+        self.assertIn("OSF_ACME_CLAUDE_MODEL", text)
+        self.assertIn("OSF_ACME_PI_MODEL", text)
+        self.assertIn("not limited to the sandbox folder", text)
 
 
 class ScrubTests(unittest.TestCase):
