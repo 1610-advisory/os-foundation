@@ -1,3 +1,5 @@
+> v1 in progress, not released; use `1610.sh/os`.
+
 # os-foundation
 
 A company OS: one folder you own with company knowledge, instructions for AI agents, and saved ways of working.
@@ -29,13 +31,16 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 
 ```
 ~/acme-os/                    your company OS
-├── AGENTS.md                 the rules every agent reads first
-├── company-profile.md        what you do
+├── AGENTS.md, CLAUDE.md      the rules every agent reads first
+├── company-profile.md        what you do, plus your level and switches
+├── privacy.md                every place a copy of your data sits
 ├── customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/
 ├── inbox/                    drop anything here; the agent files it
-├── memory/                   what the agent learned about working here, plus per-person session logs
+├── memory/                   what the agent learned about working here
+│   └── logs/                 one short log per person per day
 ├── skills/                   your SOPs, written down for the agent
+├── .agents/skills, .claude/skills   links to skills/, so every agent finds them
 └── areas/                    one folder per area of the business
     ├── marketing/
     ├── finance/
@@ -62,7 +67,7 @@ Other [Anthropic skills](https://github.com/anthropics/skills) are available to 
 
 - **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki; the folder doesn't have to replace it.
 - **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It is not a second copy of a wiki you already use.
-- **Your privacy.** os-foundation does not upload your company content to 1610. Your AI provider may receive prompts and files for processing under its own settings and policies. Local storage does not mean local-only AI. Connections use each tool's own sign-in; never paste passwords or tokens into chat.
+- **Your privacy.** Your company folder stays on your computer and in your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords. Your AI provider still receives prompts and files for processing under its own settings and policies: local storage does not mean local-only AI. `privacy.md` in your folder lists every place a copy sits, and only the places that are on.
 - **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
 
 ## Toolkits
@@ -82,9 +87,22 @@ You approve hosting, recurring costs, access and data handling before anything i
 
 ## Teams
 
-When someone else should use it, say "add a teammate." The agent puts the company folder and only the areas they need on your company's GitHub as private repos, invites them, and sets up their computer. Changes they ask for come to you, the admin, as a pull request.
+Solo needs no GitHub. Your folder and each area are local git repos from day one.
 
-The admin approval rule is enforced by GitHub on paid plans (GitHub Team). On the free plan it is a written rule that agents follow.
+When someone else should use it, say "add a teammate." One run turns on the team level:
+
+- Your company folder, each area and one private workspace per person go to your company's GitHub as private repos, with their history.
+- Nobody writes to `main`, the admin included. Each night, each computer pushes that person's work to their own branch and one standing pull request. Notes merge by themselves when the checks pass.
+- The checks: a secret scan, `lint`, and a review by a second AI model. Rules files also need their owner's approval (`CODEOWNERS`).
+- On each computer, small OS jobs pull every 15 minutes and push each night. The nightly check holds any file that breaks the rules, and the next session says why.
+- On the admin's computer: a nightly review, a daily "to decide" list and a weekly report.
+- `remove-teammate`, plus a helper that deletes the company folder from a computer after that person's access is removed. Each person accepts the delete promise in `joining-terms.md` when they join.
+
+**A team needs a GitHub organization on the Team plan (paid).** That plan is what makes GitHub enforce review, checks and auto-merge on private repos. The free plan cannot. A self-run Forgejo also works.
+
+**The review model.** `add-teammate` asks for one key from a second AI vendor, used only for the review check, on only the diff under review. With no key, the check uses a different model from your own vendor and says plainly that the review is weaker.
+
+**Off until you turn them on:** bots, traces, hand-off to cloud agents, MDX reports, benchmarks. Large-company switches and the 5,000-staff case are in `scale.md`.
 
 ## Improve it
 
