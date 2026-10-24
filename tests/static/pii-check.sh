@@ -7,14 +7,16 @@ usage() {
 Usage: pii-check.sh [--base REF] [--all] [--paths FILE...] [--allow-unconfigured] [--root DIR]
 
 Checks added lines (default) or whole files for forbidden terms, home-folder
-paths, token prefixes, and email addresses. Prints a count per check and
-file:line:check for each hit. Never prints the matched text.
+paths, token prefixes, and email addresses. Also checks path names in scope.
+--base also checks commit messages. Prints a count per check and
+file:line:check, path:name, or commit:sha:check. Never prints the matched text.
 
   --base REF   added lines in git diff REF...HEAD, plus added lines versus
-               HEAD, plus untracked files that are not ignored.
+               HEAD, plus untracked files that are not ignored. Also changed
+               and renamed paths, and commit messages in REF..HEAD.
                Default REF is origin/next/v1.
-  --all        every tracked file
-  --paths FILE these files only
+  --all        every tracked file, and every tracked path name
+  --paths FILE these files only, and their path names
   --allow-unconfigured
                do not exit 3 when the term lists are unset; run the generic checks
   --root DIR   git repo to scan (default: this repo)
@@ -102,12 +104,14 @@ hits_file=$(mktemp)
 awk_file=$(mktemp)
 diff_tmp=$(mktemp)
 wt_tmp=$(mktemp)
-chmod 600 "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp"
+names_tmp=$(mktemp)
+msg_tmp=$(mktemp)
+chmod 600 "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp"
 
 # Invoked by trap, not by a direct call.
 # shellcheck disable=SC2329
 cleanup() {
-  rm -f "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp"
+  rm -f "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp"
 }
 trap cleanup EXIT
 
@@ -139,9 +143,13 @@ add_term() {
 }
 
 if [[ "$configured" -eq 1 ]]; then
+  # Only folder names, or links to folders. Skip hidden entries and plain files.
   while IFS= read -r -d '' entry; do
     [[ -n "$entry" ]] || continue
-    add_term "$(basename "$entry")"
+    name=$(basename "$entry")
+    [[ "$name" == .* ]] && continue
+    [[ -d "$entry" ]] || continue
+    add_term "$name"
   done < <(find "$PII_SLUG_DIR" -mindepth 1 -maxdepth 1 -print0)
 
   while IFS= read -r term || [[ -n "$term" ]]; do
@@ -259,6 +267,32 @@ function emit(file, lineno, check) {
   printf "%s:%d:%s\n", file, lineno, check
 }
 
+function note(kind) {
+  if (kind == "term") c_term = 1
+  else if (kind == "path") c_path = 1
+  else if (kind == "token") c_token = 1
+  else if (kind == "email") c_email = 1
+}
+
+function inspect(line,    i, hit) {
+  gsub(/\r/, "", line)
+  hit = 0
+  for (i = 1; i <= nterms; i++) {
+    if (has_term(line, lows[i], kinds[i])) { hit = 1; break }
+  }
+  if (hit) note("term")
+  if (has_home(line, users_re, users_prefix, 0) || has_home(line, home_re, home_prefix, 1)) note("path")
+  if (has_token(line)) note("token")
+  if (has_bad_email(line)) note("email")
+}
+
+function has_any_term(line,    i) {
+  for (i = 1; i <= nterms; i++) {
+    if (has_term(line, lows[i], kinds[i])) return 1
+  }
+  return 0
+}
+
 function check(file, lineno, line,    i, hit) {
   if (file == "") return
   gsub(/\r/, "", line)
@@ -313,10 +347,24 @@ BEGIN {
   curfile = ""
   in_hunk = 0
   newln = 0
+  c_term = 0
+  c_path = 0
+  c_token = 0
+  c_email = 0
 }
 
 mode == "file" {
   check(FILENAME, FNR, $0)
+  next
+}
+
+mode == "name" {
+  if ($0 != "" && has_any_term($0)) printf "%s:name\n", $0
+  next
+}
+
+mode == "commit" {
+  inspect($0)
   next
 }
 
@@ -346,6 +394,15 @@ mode == "diff" {
     next
   }
   next
+}
+
+END {
+  if (mode == "commit") {
+    if (c_term) printf "%s:term\n", label
+    if (c_path) printf "%s:path\n", label
+    if (c_token) printf "%s:token\n", label
+    if (c_email) printf "%s:email\n", label
+  }
 }
 EOF
 
@@ -428,8 +485,70 @@ scan_repo_files() {
   ) >> "$hits_file"
 }
 
+record_name() {
+  [[ -n "$1" ]] || return 0
+  printf '%s\n' "$1" >> "$names_tmp"
+}
+
+flush_names() {
+  local sorted
+  [[ -s "$names_tmp" ]] || return 0
+  sorted=$(mktemp)
+  chmod 600 "$sorted"
+  sort -u "$names_tmp" > "$sorted"
+  awk -f "$awk_file" \
+    -v mode=name \
+    -v terms_file="$terms_tmp" \
+    -v pat_file="$pat_tmp" \
+    -v users_prefix="$users_prefix" \
+    -v home_prefix="$home_prefix" \
+    "$sorted" >> "$hits_file"
+  rm -f "$sorted"
+}
+
+append_status_paths() {
+  local status old new path
+  while IFS= read -r -d '' status; do
+    [[ -n "$status" ]] || continue
+    case "$status" in
+      R*|C*)
+        IFS= read -r -d '' old || break
+        IFS= read -r -d '' new || break
+        record_name "$old"
+        record_name "$new"
+        ;;
+      *)
+        IFS= read -r -d '' path || break
+        record_name "$path"
+        ;;
+    esac
+  done
+  return 0
+}
+
+scan_commit_messages() {
+  local full short
+  while read -r full short; do
+    [[ -n "$full" && -n "$short" ]] || continue
+    git -C "$root" log -1 --format=%B "$full" > "$msg_tmp"
+    awk -f "$awk_file" \
+      -v mode=commit \
+      -v label="commit:$short" \
+      -v terms_file="$terms_tmp" \
+      -v pat_file="$pat_tmp" \
+      -v users_prefix="$users_prefix" \
+      -v home_prefix="$home_prefix" \
+      "$msg_tmp" >> "$hits_file"
+  done < <(git -C "$root" log --format='%H %h' "${base}..HEAD")
+  return 0
+}
+
 if [[ "$scope" == "paths" ]]; then
   scan_given_files "${paths[@]}"
+  for path in "${paths[@]}"; do
+    record_name "$path"
+  done
+  flush_names
 elif [[ "$scope" == "all" ]]; then
   if ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "pii-check: not a git repo" >&2
@@ -442,7 +561,11 @@ elif [[ "$scope" == "all" ]]; then
   done < <(git -C "$root" ls-files -z)
   if [[ ${#rels[@]} -gt 0 ]]; then
     scan_repo_files "${rels[@]}"
+    for rel in "${rels[@]}"; do
+      record_name "$rel"
+    done
   fi
+  flush_names
 else
   if ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "pii-check: not a git repo" >&2
@@ -468,17 +591,29 @@ else
   done < <(git -C "$root" ls-files --others --exclude-standard -z)
   if [[ ${#rels[@]} -gt 0 ]]; then
     scan_repo_files "${rels[@]}"
+    for rel in "${rels[@]}"; do
+      record_name "$rel"
+    done
   fi
+  git -C "$root" diff --name-status --find-renames -z "${base}...HEAD" | append_status_paths
+  if git -C "$root" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    git -C "$root" diff --name-status --find-renames -z HEAD | append_status_paths
+  fi
+  flush_names
+  scan_commit_messages
 fi
 
 term_n=$(grep -c ':term$' "$hits_file" || true)
+name_n=$(grep -c ':name$' "$hits_file" || true)
 path_n=$(grep -c ':path$' "$hits_file" || true)
 token_n=$(grep -c ':token$' "$hits_file" || true)
 email_n=$(grep -c ':email$' "$hits_file" || true)
 term_n=${term_n:-0}
+name_n=${name_n:-0}
 path_n=${path_n:-0}
 token_n=${token_n:-0}
 email_n=${email_n:-0}
+term_n=$((term_n + name_n))
 total=$((term_n + path_n + token_n + email_n))
 
 if [[ "$total" -eq 0 ]]; then

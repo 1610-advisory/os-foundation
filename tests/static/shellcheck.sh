@@ -55,9 +55,17 @@ is_bash_shebang() {
   esac
 }
 
+# Links and folders are not scripts. Reading one prints "Is a directory".
+skip_link_or_folder() {
+  [[ -L "$1" || -d "$1" || ! -f "$1" ]]
+}
+
 files=()
 while IFS= read -r -d '' rel; do
   [[ -n "$rel" ]] || continue
+  if skip_link_or_folder "$root/$rel"; then
+    continue
+  fi
   case "$rel" in
     *.sh)
       files+=("$rel")

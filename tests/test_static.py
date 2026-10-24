@@ -366,6 +366,88 @@ class PiiTests(unittest.TestCase):
         self.assertIn(":term", dirty.stdout)
         self.assertNotIn("zebra-co", dirty.stdout.lower())
 
+    def test_hidden_and_plain_slug_entries_are_not_terms(self):
+        hidden = "." + "DS_Store"
+        plain = "notes.txt"
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir = tmp / "slugs"
+            slug_dir.mkdir()
+            (slug_dir / hidden).write_text("x\n")
+            (slug_dir / plain).write_text("x\n")
+            (slug_dir / "zebra-co").mkdir()
+            real = slug_dir / "real-co"
+            real.mkdir()
+            (slug_dir / "link-co").symlink_to(real, target_is_directory=True)
+            terms = tmp / "terms.txt"
+            terms.write_text("\n")
+            hit = tmp / "hit.txt"
+            hit.write_text(hidden + " and " + plain + "\n")
+            skipped = run(
+                "pii-check.sh",
+                ["--paths", str(hit)],
+                env=pii_env(slug_dir, terms),
+            )
+            linked = tmp / "link.txt"
+            linked.write_text("see link-co today\n")
+            kept = run(
+                "pii-check.sh",
+                ["--paths", str(linked)],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(skipped.returncode, 0, skipped.stdout + skipped.stderr)
+        self.assertEqual(skipped.stdout.strip(), "pii-check: OK")
+        self.assertEqual(kept.returncode, 1, kept.stdout + kept.stderr)
+        self.assertIn(":term", kept.stdout)
+        self.assertNotIn("link-co", kept.stdout)
+
+    def test_file_name_hit(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            hit = tmp / "zebra-co.txt"
+            hit.write_text("clean text\n")
+            result = run(
+                "pii-check.sh",
+                ["--paths", str(hit)],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("term 1\n", result.stdout)
+        self.assertIn(str(hit) + ":name", result.stdout)
+        self.assertNotIn("clean text", result.stdout)
+        self.assertNotIn(":term", result.stdout)
+
+    def test_commit_message_hit(self):
+        env = git_env()
+        message = "note about zebra-co today"
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            note = tmp / "note.md"
+            note.write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            note.write_text("still clean\n")
+            commit_all(tmp, env, message)
+            short = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("commit:" + short + ":term", result.stdout)
+        self.assertNotIn(message, result.stdout)
+        self.assertNotIn(message, result.stderr)
+        self.assertNotIn("zebra-co", result.stdout)
+        self.assertNotIn("zebra-co", result.stderr)
+
 
 class ShellcheckTests(unittest.TestCase):
     def test_no_scripts_passes(self):
@@ -392,6 +474,20 @@ class ShellcheckTests(unittest.TestCase):
         result = run("shellcheck.sh")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stdout.strip(), r"^OK [1-9][0-9]* files$")
+
+    def test_skips_directory_links(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            (tmp / "template").mkdir()
+            (tmp / "template" / "real").mkdir()
+            (tmp / "template" / "skills").symlink_to("real", target_is_directory=True)
+            init_repo(tmp, env)
+            result = run("shellcheck.sh", ["--root", str(tmp)], env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Is a directory", result.stderr)
+        self.assertNotIn("read error", result.stderr)
+        self.assertEqual(result.stdout.strip(), "OK 0 files")
 
 
 if __name__ == "__main__":
