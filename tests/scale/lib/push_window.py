@@ -179,6 +179,12 @@ def main() -> int:
                 results.append(item)
                 if len(results) % 25 == 0:
                     print(f"pushes {len(results)}", flush=True)
+                if len(results) % 200 == 0:
+                    partial = push_path().with_name("push-partial.json")
+                    partial.write_text(
+                        json.dumps({"pushes": len(results), "ok": sum(1 for row in results if row["ok"])}) + "\n",
+                        encoding="utf-8",
+                    )
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = []
