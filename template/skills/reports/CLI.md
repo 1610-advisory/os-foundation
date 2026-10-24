@@ -32,7 +32,15 @@ Week labels are ISO weeks, Monday start, such as `2026-W43`.
 
 The daily file lists flags for that area, rules branches not merged into `main`, and `The review did not run.` when the digest says so. It does not list another area's flags.
 
-The weekly area file is "what happened": per person, actions and results, then plain counts. People are in slug order, not by how much they did. Counts are commits merged, people with actions, and log files. No scores. No ranking.
+The weekly area file is "what happened". Sections, in this order:
+
+- Per person: actions and results. People are in slug order, not by how much they did.
+- New facts and skill changes: paths added or changed that week, as links, plus a count. Not the note text.
+- Stuck work: a project file under `projects/` whose status is fail. If none, one line that says so.
+- Contradictions: review flags whose summary says the notes disagree. Path and summary only. If none, one line that says so.
+- Counts: commits merged, people with actions, and log files.
+
+These come from git and the review digest. Counts and links only. No workspace content. No scores. No ranking.
 
 The company page has plain counts per area. It does not copy area sentences into the company repo.
 

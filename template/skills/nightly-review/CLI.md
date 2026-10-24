@@ -51,14 +51,17 @@ date: 2026-10-24
 range: <from>..<to>
 
 commits:
-<sha> <subject>
+<sha> <author-slug> <subject>
+
+files:
+<path on main>
 
 diff:
 <unified diff, at most 200000 characters>
 ---END---
 ```
 
-`repo` is `.` for the company root. If the diff is cut, the last diff line is `diff truncated`.
+`repo` is `.` for the company root. `author-slug` is the commit author matched to a `people/` page by email or name. It is `-` when there is no match. The script does not guess a slug from a log file name. `files:` lists paths on `main` so a link target can be checked. It skips `users/`, `profile/` and `traces/`. At most 400 paths. If the list is cut, the last line is `files truncated`. If the diff is cut, the last diff line is `diff truncated`.
 
 If `review-prompt.md` is missing, the review does not run.
 
@@ -92,7 +95,7 @@ Review call, one line:
 | `kind` | `clear-error` or `judgment` |
 | `path` | relative path, no leading slash, no `..` |
 | `summary` | one plain sentence |
-| `author` | person slug, or `""` |
+| `author` | person slug, or `""`. The script does not fill it from a log file name. |
 | `fix` | only on `clear-error` |
 | `fix.action` | `replace` or `write` |
 | `fix.old` / `fix.new` | one line each; `old` must match once |
@@ -107,6 +110,8 @@ Fold call, one line:
 ## What it does with findings
 
 `clear-error` on a note, log, or link: apply the fix. A rules file is never edited. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, or `.claude/`. A clear error on a rules file becomes a flag to the approver.
+
+A finding whose `summary` starts with `Possible leak:` goes to the admin, not the author. Its fix is never applied, even when the model sends one. The admin runs `remove-leak`. An edit does not remove a leak from history.
 
 `judgment`: do not edit. Flag the last author first. The approver is the area director from `people/` (the admin if none). Company-root flags go to the admin. If the same flag is still open on a later day, the digest goes to the approver.
 
