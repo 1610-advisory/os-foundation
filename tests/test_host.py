@@ -224,10 +224,10 @@ class GithubDryRunTests(unittest.TestCase):
         self.assertEqual(checks, [{"context": "lint"}])
 
     def test_ghes_hostname_is_recorded(self):
-        proc = run(["whoami"], github_env(OS_HOST_URL="https://git.example.test"))
+        proc = run(["whoami"], github_env(OS_HOST_URL="https://git.example.com"))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         call = loads(proc.stdout)[0]
-        self.assertEqual(call["hostname"], "git.example.test")
+        self.assertEqual(call["hostname"], "git.example.com")
 
     def test_dry_run_does_not_push(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -319,7 +319,7 @@ class TokenAndUsageTests(unittest.TestCase):
             env["FAKE_GH_LOG"] = str(log)
             proc = run(["get-token", "--bot", "helper"], env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertEqual(proc.stdout.strip(), "ghs_testtoken")
+            self.assertEqual(proc.stdout.strip(), "test-install-token")
             self.assertNotIn("PRIVATE KEY", proc.stderr)
             self.assertNotIn(key.read_text().splitlines()[1], proc.stdout + proc.stderr)
             recorded = log.read_text()

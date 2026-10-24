@@ -113,9 +113,9 @@ ensure_user() {
   fi
 }
 
-ensure_user ada ada@example.test --admin
-ensure_user mia mia@example.test
-ensure_user dana dana@example.test
+ensure_user ada ada@example.com --admin
+ensure_user mia mia@example.com
+ensure_user dana dana@example.com
 
 TOKEN_FILE=$(mktemp)
 chmod 600 "$TOKEN_FILE"
@@ -237,7 +237,7 @@ fi
 SRC="${WORK}/src"
 mkdir -p "$SRC"
 git -C "$SRC" init -b main >/dev/null
-git -C "$SRC" config user.email ada@example.test
+git -C "$SRC" config user.email ada@example.com
 git -C "$SRC" config user.name "Ada Admin"
 printf '%s\n' "Acme note" > "$SRC/note.txt"
 git -C "$SRC" add note.txt

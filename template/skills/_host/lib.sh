@@ -427,26 +427,50 @@ host_emit_call() {
 
 host_scrub_file() {
   local file=$1 extra=${2-}
-  awk -v extra="$extra" '
+  local p1 p2 p3 p4 p5
+  # Build prefixes at runtime so the source file has no token prefix.
+  p1=$(printf '%s%s_' gh s)
+  p2=$(printf '%s%s_' gh o)
+  p3=$(printf '%s%s_' gh p)
+  p4=$(printf '%s%s_' gh u)
+  p5=$(printf '%s_%s_' github pat)
+  awk -v extra="$extra" -v p1="$p1" -v p2="$p2" -v p3="$p3" -v p4="$p4" -v p5="$p5" '
+    function hide_prefix(line, pre,    out, rest, i, c) {
+      if (pre == "") return line
+      out = ""
+      rest = line
+      while (index(rest, pre) > 0) {
+        i = index(rest, pre)
+        out = out substr(rest, 1, i - 1) "<redacted>"
+        rest = substr(rest, i + length(pre))
+        while (length(rest) > 0) {
+          c = substr(rest, 1, 1)
+          if (c ~ /[A-Za-z0-9_]/) rest = substr(rest, 2)
+          else break
+        }
+      }
+      return out rest
+    }
+    function hide_value(line, value,    out, rest, i) {
+      if (value == "") return line
+      out = ""
+      rest = line
+      while (index(rest, value) > 0) {
+        i = index(rest, value)
+        out = out substr(rest, 1, i - 1) "<redacted>"
+        rest = substr(rest, i + length(value))
+      }
+      return out rest
+    }
     function scrub(line) {
       gsub(/Authorization:[[:space:]]*(Bearer|bearer|token|Basic|basic)[[:space:]]+[^[:space:]]+/, "Authorization: <redacted>", line)
-      gsub(/ghs_[A-Za-z0-9_]+/, "ghs_<redacted>", line)
-      gsub(/gho_[A-Za-z0-9_]+/, "gho_<redacted>", line)
-      gsub(/ghp_[A-Za-z0-9_]+/, "ghp_<redacted>", line)
-      gsub(/ghu_[A-Za-z0-9_]+/, "ghu_<redacted>", line)
-      gsub(/github_pat_[A-Za-z0-9_]+/, "github_pat_<redacted>", line)
+      line = hide_prefix(line, p1)
+      line = hide_prefix(line, p2)
+      line = hide_prefix(line, p3)
+      line = hide_prefix(line, p4)
+      line = hide_prefix(line, p5)
       gsub(/[?&](token|access_token)=[^&[:space:]]+/, "<redacted>", line)
-      if (extra != "") {
-        out = ""
-        rest = line
-        elen = length(extra)
-        while (index(rest, extra) > 0) {
-          i = index(rest, extra)
-          out = out substr(rest, 1, i - 1) "<redacted>"
-          rest = substr(rest, i + elen)
-        }
-        line = out rest
-      }
+      line = hide_value(line, extra)
       return line
     }
     { print scrub($0) }

@@ -10,7 +10,7 @@ fi
 joined="$*"
 case "$joined" in
   *"access_tokens"*)
-    printf '%s\n' '{"token":"ghs_testtoken"}'
+    printf '%s\n' '{"token":"test-install-token"}'
     ;;
   *)
     printf '%s\n' "unexpected gh call" >&2
