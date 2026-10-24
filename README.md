@@ -100,7 +100,7 @@ When someone else should use it, say "add a teammate." One run turns on the team
 
 **A team needs a GitHub organization on the Team plan (paid).** That plan is what makes GitHub enforce review, checks and auto-merge on private repos. The free plan cannot. A self-run Forgejo also works.
 
-**The review model.** `add-teammate` asks for one key from a second AI vendor, used only for the review check, on only the diff under review. With no key, the check uses a different model from your own vendor and says plainly that the review is weaker.
+**The review model.** `add-teammate` asks for one key from a second AI vendor, used only for the review check, on only the pull request under review (its title, body and diff). With no second-vendor key, it asks for a key from your own AI vendor; the check then uses a different model from that vendor and says plainly that the review is weaker. With no key at all, the check fails and says how to add one.
 
 **Off until you turn them on:** bots, traces, hand-off to cloud agents, MDX reports, benchmarks. Large-company switches and the 5,000-staff case are in `scale.md`.
 
