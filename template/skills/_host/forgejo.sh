@@ -43,8 +43,12 @@ host_require_bin jq
 FJ_HTTP=""
 FJ_BODY=""
 
+fj_drop() {
+  rm -f "$@"
+}
+
 fj_call() {
-  local method=$1 path=$2 body=${3-} secret=${4-}
+  local method=$1 path=$2 body=${3-} secret_file=${4-}
   local token url out err http code cfg bodyfile
   token=$(host_forgejo_token)
   url="${OS_HOST_URL%/}/api/v1${path}"
@@ -56,6 +60,7 @@ fj_call() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   cfg=$(host_mktemp)
+  bodyfile=""
   chmod 600 "$cfg" "$out"
   {
     printf '%s\n' "header = \"Authorization: token ${token}\""
@@ -82,34 +87,37 @@ fj_call() {
   code=$?
   set -e
   if [ "$code" -ne 0 ] || [ "$http" = "000" ] || [ -z "$http" ]; then
-    host_scrub_file "$err" "$secret" >&2
+    host_scrub_file "$err" "$secret_file" >&2
     FJ_HTTP=0
     FJ_BODY=""
+    fj_drop "$cfg" "$out" "$err" "$bodyfile"
     return 5
   fi
   if [ -s "$err" ]; then
-    host_scrub_file "$err" "$secret" >&2
+    host_scrub_file "$err" "$secret_file" >&2
   fi
   FJ_HTTP=$http
   FJ_BODY=$(cat "$out")
+  fj_drop "$cfg" "$out" "$err" "$bodyfile"
   return 0
 }
 
 fj_message() {
-  local secret=${1-} msg
+  local secret_file=${1-} msg
   msg=$(printf '%s' "$FJ_BODY" | jq -r '.message // empty' 2>/dev/null || true)
-  if [ -n "$secret" ] && [ -n "$msg" ]; then
+  if [ -n "$secret_file" ] && [ -f "$secret_file" ] && [ -n "$msg" ]; then
     local tmp
     tmp=$(host_mktemp)
     printf '%s\n' "$msg" > "$tmp"
-    msg=$(host_scrub_file "$tmp" "$secret")
+    msg=$(host_scrub_file "$tmp" "$secret_file")
+    rm -f "$tmp"
   fi
   printf '%s' "$msg"
 }
 
 fj_fail() {
-  local secret=${1-} msg
-  msg=$(fj_message "$secret")
+  local secret_file=${1-} msg
+  msg=$(fj_message "$secret_file")
   case "$FJ_HTTP" in
     401) host_die 4 "auth failed" ;;
     403|404) host_die 2 "not found or no access" ;;
@@ -202,6 +210,7 @@ fj_protect_body() {
 
 fj_team_id() {
   local name=$1 id page=1 n
+  FJ_TEAM_ID=""
   while true; do
     if ! fj_call GET "/orgs/${OS_ORG}/teams?limit=50&page=${page}"; then
       fj_offline
@@ -209,7 +218,7 @@ fj_team_id() {
     fj_ok
     id=$(printf '%s' "$FJ_BODY" | jq -r --arg name "$name" '.[] | select(.name==$name) | .id' | head -n 1)
     if [ -n "$id" ]; then
-      printf '%s' "$id"
+      FJ_TEAM_ID=$id
       return 0
     fi
     n=$(printf '%s' "$FJ_BODY" | jq 'length')
@@ -379,7 +388,8 @@ cmd_team_create() {
   fi
   if [ "$FJ_HTTP" = "409" ] || [ "$FJ_HTTP" = "422" ]; then
     local id
-    id=$(fj_team_id "$team")
+    fj_team_id "$team"
+    id=$FJ_TEAM_ID
     [ -n "$id" ] || host_die 3 "team exists but was not listed"
     jq -nc --arg name "$team" --arg id "$id" '{name:$name, id:($id|tonumber)}'
     return 0
@@ -398,7 +408,8 @@ cmd_team_add() {
   host_require_org
   team=$POS1
   user=$POS2
-  id=$(fj_team_id "$team")
+  fj_team_id "$team"
+  id=$FJ_TEAM_ID
   [ -n "$id" ] || host_die 2 "not found or no access"
   if ! fj_call PUT "/teams/${id}/members/${user}"; then
     fj_offline
@@ -417,7 +428,8 @@ cmd_team_remove() {
   host_require_org
   team=$POS1
   user=$POS2
-  id=$(fj_team_id "$team")
+  fj_team_id "$team"
+  id=$FJ_TEAM_ID
   [ -n "$id" ] || host_die 2 "not found or no access"
   if ! fj_call DELETE "/teams/${id}/members/${user}"; then
     fj_offline
@@ -444,7 +456,8 @@ cmd_grant() {
     fi
   else
     local id applied
-    id=$(fj_team_id "$GRANT_WHO")
+    fj_team_id "$GRANT_WHO"
+    id=$FJ_TEAM_ID
     [ -n "$id" ] || host_die 2 "not found or no access"
     applied=$(fj_team_permission "$GRANT_WHO")
     if [ "$applied" != "$perm" ]; then
@@ -587,7 +600,7 @@ cmd_auto_merge() {
 }
 
 cmd_pr_status() {
-  local name number pr sha reviews statuses
+  local name number pr sha reviews statuses page n
   host_need_number
   name=$POS1
   number=$POS2
@@ -598,11 +611,20 @@ cmd_pr_status() {
   pr=$FJ_BODY
   sha=$(printf '%s' "$pr" | jq -r '.head.sha // empty')
   [ -n "$sha" ] || host_die 3 "pull request has no head"
-  if ! fj_call GET "$(host_repo "$name")/pulls/${number}/reviews"; then
-    fj_offline
-  fi
-  fj_ok
-  reviews=$FJ_BODY
+  reviews='[]'
+  page=1
+  while true; do
+    if ! fj_call GET "$(host_repo "$name")/pulls/${number}/reviews?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    reviews=$(jq -n --argjson a "$reviews" --argjson b "$FJ_BODY" '$a + $b')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
   if ! fj_call GET "$(host_repo "$name")/commits/${sha}/status"; then
     fj_offline
   fi
@@ -633,7 +655,7 @@ cmd_pr_comment() {
 }
 
 cmd_set_secret() {
-  local name secret_file body secret
+  local name secret_file body
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
@@ -643,14 +665,13 @@ cmd_set_secret() {
   name=$POS1
   secret_file=$(host_mktemp)
   cat > "$secret_file"
-  secret=$(cat "$secret_file")
   body=$(jq -nc --rawfile data "$secret_file" '{data:$data}')
-  if ! fj_call PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body" "$secret"; then
+  if ! fj_call PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body" "$secret_file"; then
     host_die 5 "host is offline"
   fi
   case "$FJ_HTTP" in
     201|204) jq -nc --arg name "$name" '{ok:true, name:$name}' ;;
-    *) fj_fail "$secret" ;;
+    *) fj_fail "$secret_file" ;;
   esac
 }
 

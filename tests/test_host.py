@@ -434,6 +434,40 @@ class TokenAndUsageTests(unittest.TestCase):
             self.assertNotIn(secret, argv)
             self.assertNotIn(token, argv)
 
+    def test_team_lookup_and_failed_secret_leave_no_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            private = root / "tmp"
+            private.mkdir()
+            log = root / "argv.log"
+            curl = root / "curl"
+            awk = root / "awk"
+            curl.write_text((ROOT / "tests" / "host" / "fake-curl.sh").read_text())
+            awk.write_text((ROOT / "tests" / "host" / "fake-awk.sh").read_text())
+            curl.chmod(0o755)
+            awk.chmod(0o755)
+            token = "fj-argv-token-value"
+            secret = "secret-value-not-in-argv"
+            env = {
+                "OS_HOST": "forgejo",
+                "OS_HOST_URL": "http://127.0.0.1:9",
+                "OS_ORG": "acme",
+                "OS_SLUG": "acme",
+                "FORGEJO_TOKEN": token,
+                "TMPDIR": str(private),
+                "PATH": str(root) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_CURL_LOG": str(log),
+                "FAKE_ARGV_LOG": str(log),
+            }
+            looked = run(["team-add", "writers", "ada"], env)
+            self.assertNotEqual(looked.returncode, 0)
+            hidden = run(["set-secret", "OS_REVIEW_KEY"], env, stdin=secret)
+            self.assertNotEqual(hidden.returncode, 0)
+            self.assertEqual(list(private.iterdir()), [])
+            argv = log.read_text()
+            self.assertNotIn(secret, argv)
+            self.assertNotIn(token, argv)
+
 
 if __name__ == "__main__":
     unittest.main()

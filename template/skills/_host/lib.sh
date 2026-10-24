@@ -440,15 +440,16 @@ host_emit_call() {
 }
 
 host_scrub_file() {
-  local file=$1 extra=${2-}
+  local file=$1 extra_file=${2-}
   local p1 p2 p3 p4 p5
   # Build prefixes at runtime so the source file has no token prefix.
+  # The value to hide is read from a file. It is not an awk argument.
   p1=$(printf '%s%s_' gh s)
   p2=$(printf '%s%s_' gh o)
   p3=$(printf '%s%s_' gh p)
   p4=$(printf '%s%s_' gh u)
   p5=$(printf '%s_%s_' github pat)
-  awk -v extra="$extra" -v p1="$p1" -v p2="$p2" -v p3="$p3" -v p4="$p4" -v p5="$p5" '
+  awk -v extrafile="$extra_file" -v p1="$p1" -v p2="$p2" -v p3="$p3" -v p4="$p4" -v p5="$p5" '
     function hide_prefix(line, pre,    out, rest, i, c) {
       if (pre == "") return line
       out = ""
@@ -486,6 +487,16 @@ host_scrub_file() {
       gsub(/[?&](token|access_token)=[^&[:space:]]+/, "<redacted>", line)
       line = hide_value(line, extra)
       return line
+    }
+    BEGIN {
+      extra = ""
+      if (extrafile != "") {
+        while ((getline line < extrafile) > 0) {
+          if (extra != "") extra = extra "\n"
+          extra = extra line
+        }
+        close(extrafile)
+      }
     }
     { print scrub($0) }
   ' "$file"

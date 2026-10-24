@@ -656,7 +656,7 @@ cmd_set_secret() {
   code=$?
   set -e
   if [ "$code" -ne 0 ]; then
-    host_scrub_file "$err" "$(cat "$secret_file")" >&2
+    host_scrub_file "$err" "$secret_file" >&2
     GH_STATUS=$(host_classify_gh "$err" "$code")
     exit "$GH_STATUS"
   fi
@@ -694,7 +694,9 @@ cmd_get_token() {
     code=$?
     set -e
     if [ "$code" -ne 0 ]; then
-      host_scrub_file "$err" "$jwt" >&2
+      jwt_file=$(host_mktemp)
+      printf '%s' "$jwt" > "$jwt_file"
+      host_scrub_file "$err" "$jwt_file" >&2
       GH_STATUS=$(host_classify_gh "$err" "$code")
       exit "$GH_STATUS"
     fi
