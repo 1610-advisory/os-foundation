@@ -16,7 +16,7 @@ Read these if your agent did not load them already:
 
 1. `../../AGENTS.md` — the company rules (layout, skills, memory, review).
 2. `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
-3. Recent work: if there is a GitHub remote, pull the logs here and at the company root (`git -C memory/logs pull -q`, `git -C ../../memory/logs pull -q`). Skim the last two or three days of logs here and in `../../memory/logs/`.
+3. Recent work: skim the last two or three days of logs here and in `../../memory/logs/`.
 4. `../../company-profile.md`, and any other shared file the task needs (`customers.md`, `offers.md`, `voice.md`, `people/`).
 
 ## What this area does
@@ -41,7 +41,7 @@ Finance Toolkit: coming. Until then, these rules and the area skills are the met
 
 ## Skills
 
-Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
+Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest): read and follow those files the same way.
 
 | Skill | Use when someone says |
 |---|---|
@@ -51,9 +51,9 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 - `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
 - `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md`, on the `logs` branch (`../../skills/logs-folder/`).
+- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-<person>.md`, committed like any file.
 - `skills/` — this area's SOPs.
 
 ## Changes and review
 
-Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go on the `logs` branch in `memory/logs/`, committed directly.
+Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs in `memory/logs/` are committed like any file.
