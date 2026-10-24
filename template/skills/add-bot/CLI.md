@@ -69,6 +69,14 @@ If `skills/add-bot/templates/BOT.md` exists, its body sections are kept and the 
 
 On the bot's box (`box=yes`) it writes `<config>/<slug>-os/me` (the bot slug) and `<config>/<slug>-os/root` (the company folder). It runs `skills/sync/sync.sh install-jobs --bot`. It points each local granted repo at `git-credential-os-bot`.
 
+`add-bot.sh` does not commit `BOT.md`. That page is a rules file. The nightly push will not put it on the standing pull request. After add-bot, on the admin's computer, while `me` is still the admin, run:
+
+```
+skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/<routine>.md
+```
+
+Pass only files that exist. Do not pass a glob that the shell left unexpanded. `sync.sh propose` is defined in `skills/sync/CLI.md`. It opens `rules/<me>/add-bot-<bot>`. It checks that `host.sh whoami` matches the `github:` field of the person page for `me`. The bot slug is not a person, so do not run propose on the bot box after `box=yes` has replaced `me`. Run propose first, from the admin computer. The script prints this command as `propose:`.
+
 ## git-credential-os-bot
 
 ```
@@ -108,6 +116,10 @@ The script makes a `Run-Id` of `YYYYMMDD-HHMMSS` plus 8 hex characters. `OS_NOW`
 Before the engine, each granted local repo is put on `sync/<bot>` from `origin/main`. After the engine, the script runs `skills/sync/sync.sh push`. That push owns the standing pull request and auto-merge. This script does not open that pull request itself.
 
 Exit codes: `0` ok, `1` usage, `2` refused, `3` engine, sync, or hand-off caller missing.
+
+## Conflict
+
+`undo-run.sh` reverts each repo on its own. If a revert conflicts, that repo is reset to `origin/main` and left unchanged. The script prints `conflict:` for that repo and continues with the other repos. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
 
 ## undo-run.sh
 

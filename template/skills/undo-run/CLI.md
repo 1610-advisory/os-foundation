@@ -22,6 +22,8 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 5. Ask for auto-merge through `host.sh auto-merge`. Merge commit, not squash.
 6. Print the repo, the reverted commit ids, the revert commit, and the pull request URL.
 
+Each repo is separate. If a revert conflicts, the script resets that repo to `origin/main`, prints `conflict:`, and continues with the other repos. It does not leave a conflict in the working copy. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
+
 The revert commit does not reuse the original `Run-Id`. Its message is:
 
 ```
@@ -41,7 +43,7 @@ The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call i
 | 0 | the revert pull requests are open |
 | 1 | usage |
 | 2 | refused, or no commit has that run id |
-| 3 | host or git error |
+| 3 | host or git error, or a revert conflict in at least one repo |
 | 4 | auth failed |
 
 ## Related
