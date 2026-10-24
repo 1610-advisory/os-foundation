@@ -57,8 +57,14 @@ Tell the person in one line: "Paste this into your local agent in the company fo
 
 Upload this skill once to each chat vendor account the company uses (Claude, ChatGPT, Grok). It does not change when the company's skills change, so one upload is enough.
 
-1. Fill `{{COMPANY_NAME}}`, `{{GITHUB_ORG}}` and `{{COMPANY_SLUG}}` in a copy of this folder. Never edit the company's own copy.
-2. Upload the copy in the vendor's skills settings.
+The admin's local agent makes the upload copy. No script does it.
+1. Copy this folder to a temporary folder outside the company folder. Never edit the company's own copy.
+2. In the copy, fill the three names from `company-profile.md`:
+   - `{{GITHUB_ORG}}`: the `org:` value (`skills/_host/profile.sh org`).
+   - `{{COMPANY_SLUG}}`: the `company_slug:` value (`skills/_host/profile.sh company_slug`).
+   - `{{COMPANY_NAME}}`: the title line at the top of `company-profile.md`.
+3. Check that no `{{` is left in the copy. Delete the "For the admin" section from the copy.
+4. Upload the copy in the vendor's skills settings. Then delete the temporary folder.
 3. Each person who uses that chat app connects GitHub in it, with their own account.
 
 GitHub only. A company on Forgejo has no chat connector: those people use a local agent.
