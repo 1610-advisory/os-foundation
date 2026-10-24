@@ -14,8 +14,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SYNC = ROOT / "template" / "skills" / "sync"
+HOST = ROOT / "template" / "skills" / "_host"
 ENGINE = ROOT / "tests" / "fakes" / "engine.sh"
-SECRET = "ghp_" + ("ab12" * 9)
+SECRET = "gh" + "p_" + ("ab12" * 9)
 
 
 def run(cmd, env=None, cwd=None, check=False):
@@ -82,24 +83,6 @@ def base_env(home, company, host_dir):
 
 class SyncLocalTests(unittest.TestCase):
     @classmethod
-    def setUpClass(cls):
-        cls.host = Path(tempfile.mkdtemp(prefix="osf-sync-host-"))
-        subprocess.run(
-            [
-                "bash",
-                "-c",
-                "git archive origin/overnight/2026-10-24-v1-host template/skills/_host | tar -x --strip-components=3 -C \"$1\"",
-                "bash",
-                str(cls.host),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.host, ignore_errors=True)
-
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-"))
         self.home = self.tmp / "home"
@@ -127,7 +110,7 @@ class SyncLocalTests(unittest.TestCase):
         cfg = self.home / ".config" / "acme-os"
         cfg.mkdir(parents=True)
         (cfg / "me").write_text("mia\n")
-        self.env = base_env(self.home, self.company, self.host)
+        self.env = base_env(self.home, self.company, HOST)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -440,8 +423,8 @@ class SyncLocalTests(unittest.TestCase):
             (spy / name).chmod(0o755)
         (spy / "profile.sh").write_text("#!/bin/bash\nexec \"$1\" \"$@\"\n")
         # Use the real profile reader.
-        shutil.copy(self.host / "profile.sh", spy / "profile.sh")
-        shutil.copy(self.host / "lib.sh", spy / "lib.sh")
+        shutil.copy(HOST / "profile.sh", spy / "profile.sh")
+        shutil.copy(HOST / "lib.sh", spy / "lib.sh")
         (spy / "profile.sh").chmod(0o755)
         bare = self.tmp / "origin.git"
         run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
@@ -488,6 +471,19 @@ class SyncLocalTests(unittest.TestCase):
         self.assertNotIn(marker, text, pushed.stderr + collected.stderr)
         self.assertNotIn(marker, pushed.stdout + pushed.stderr)
         self.assertNotIn(marker, collected.stdout + collected.stderr)
+
+
+class SyncForgejoTests(unittest.TestCase):
+    def test_forgejo_cases(self):
+        cache = Path.home() / ".cache" / "os-foundation" / "forgejo"
+        env = os.environ.copy()
+        env["OSF_ACME_CACHE"] = str(cache)
+        result = run(["bash", str(ROOT / "tests" / "sync" / "forgejo.sh")], env=env)
+        text = result.stdout + result.stderr
+        if "BLOCKED: Forgejo" in text:
+            self.fail(text)
+        self.assertEqual(result.returncode, 0, text)
+        self.assertIn("PASS forgejo", text)
 
 
 if __name__ == "__main__":

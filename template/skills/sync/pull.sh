@@ -211,6 +211,9 @@ sync_pull_one() {
   local repo=$1
   local id=$2
   local save tag
+  if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
+    return 0
+  fi
   if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
     sync_log "pull fail ${id} could not reach origin"
     return 1

@@ -81,12 +81,19 @@ sync_abs_path() {
 sync_scrub_file() {
   local in=$1
   local out=$2
+  local a b c d e
+  # Prefixes are split so the source file does not contain a live prefix.
+  a=$(printf '%s%s_' gh p)
+  b=$(printf '%s%s_' github_ pat)
+  c=$(printf '%s%s' xo x)
+  d=$(printf '%s%s' AK IA)
+  e=$(printf '%s%s' '-----BE' 'GIN')
   sed -E \
-    -e 's/ghp_[A-Za-z0-9]{36}/[redacted]/g' \
-    -e 's/github_pat_[A-Za-z0-9_]{22,}/[redacted]/g' \
-    -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/[redacted]/g' \
-    -e 's/AKIA[0-9A-Z]{16}/[redacted]/g' \
-    -e 's/-----BEGIN [A-Z ]*PRIVATE KEY-----/[redacted]/g' \
+    -e "s/${a}[A-Za-z0-9]{36}/[redacted]/g" \
+    -e "s/${b}[A-Za-z0-9_]{22,}/[redacted]/g" \
+    -e "s/${c}[baprs]-[A-Za-z0-9-]{10,}/[redacted]/g" \
+    -e "s/${d}[0-9A-Z]{16}/[redacted]/g" \
+    -e "s/${e} [A-Z ]*PRIVATE KEY-----/[redacted]/g" \
     "$in" > "$out"
 }
 

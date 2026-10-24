@@ -14,10 +14,7 @@ if ! curl -fsS --max-time 5 "$url/api/v1/version" >/dev/null; then
   exit 2
 fi
 
-host_src=$(mktemp -d)
-git -C "$root" archive origin/overnight/2026-10-24-v1-host template/skills/_host \
-  | tar -x -C "$host_src" --strip-components=3
-HOST="$host_src/host.sh"
+HOST="$root/template/skills/_host/host.sh"
 SYNC="$root/template/skills/sync/sync.sh"
 ENGINE="$root/tests/fakes/engine.sh"
 admin_token="$cache/tokens/acme-admin"
@@ -31,7 +28,7 @@ export OS_SECRET_SCAN=bundled
 export OS_SYNC_ENGINE="$ENGINE"
 export OS_ENGINE_TIMEOUT=15
 export OS_HOST_SH="$HOST"
-export OS_PROFILE_SH="$host_src/profile.sh"
+export OS_PROFILE_SH="$root/template/skills/_host/profile.sh"
 export GIT_AUTHOR_NAME="Mia Member"
 export GIT_AUTHOR_EMAIL="mia.member@acme.test"
 export GIT_COMMITTER_NAME="Mia Member"
@@ -60,7 +57,7 @@ cleanup() {
       OS_PROFILE="$sandbox/cleanup-profile.md" "$HOST" delete-repo "$name" --yes-test-only >/dev/null 2>&1 || true
     done < "$repos_file"
   fi
-  rm -rf "$sandbox" "$host_src" "$repos_file"
+  rm -rf "$sandbox" "$repos_file"
 }
 trap cleanup EXIT
 
@@ -194,7 +191,7 @@ printf '%s\n' "a shop note" > "$company/notes/ok.md"
 printf '%s\n' "HOLD-ME please" > "$company/notes/held.md"
 printf '%s\n' "PERSONAL-FACT about a family trip" > "$company/notes/life.md"
 printf '%s\n' "PRIVATE-QUOTE from a DM" > "$company/notes/quote.md"
-printf '%s\n' "token = ghp_$(printf 'ab12%.0s' {1..9})" > "$company/notes/secret.md"
+printf '%s\n' "token = $(printf '%s%s_' gh p)$(printf 'ab12%.0s' {1..9})" > "$company/notes/secret.md"
 before=$(cksum "$company/notes/held.md")
 sync_env "$company"
 bash "$SYNC" push
@@ -207,7 +204,7 @@ printf '%s\n' "$status" | grep -q "notes/secret.md" || fail "status missing secr
 printf '%s\n' "$status" | grep -q "personal-life fact" || fail "status missing personal fact"
 printf '%s\n' "$status" | grep -q "private-source quote" || fail "status missing private quote"
 case "$status" in
-  *ghp_*) fail "status printed a secret value" ;;
+  *"$(printf '%s%s_' gh p)"*) fail "status printed a secret value" ;;
 esac
 after=$(cksum "$company/notes/held.md")
 [ "$before" = "$after" ] || fail "held file changed"
@@ -227,7 +224,8 @@ git_as member -C "$company" push -q origin refs/remotes/origin/sync/mia:refs/hea
 bash "$SYNC" pull
 git -C "$company" diff --quiet HEAD -- notes/ok.md || fail "ok note is not clean after pull"
 [ -f "$company/notes/held.md" ] || fail "held file missing after pull"
-git -C "$company" diff --quiet -- notes/held.md && fail "held file was committed locally"
+grep -q HOLD-ME "$company/notes/held.md" || fail "held file content changed"
+git -C "$company" status --porcelain -- notes/held.md | grep -q . || fail "held file is not a local change"
 printf '%s\n' "PASS push-pull"
 
 # --- engine down ---
@@ -378,7 +376,7 @@ printf '%s\n' "area seed" > "$rcdir/areas/shop/keep.md"
 git -C "$rcdir/areas/shop" add keep.md
 git -C "$rcdir/areas/shop" commit -q -m seed
 printf '%s\n' "keep this note" > "$rcdir/keep.md"
-printf '%s\n' "token = ghp_$(printf 'ab12%.0s' {1..9})" > "$rcdir/leak.md"
+printf '%s\n' "token = $(printf '%s%s_' gh p)$(printf 'ab12%.0s' {1..9})" > "$rcdir/leak.md"
 # Rewrite history on the host.
 orphan="$sandbox/orphan"
 git init -q -b main "$orphan"

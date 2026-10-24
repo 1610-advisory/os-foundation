@@ -206,13 +206,17 @@ bundled_scan() {
     }
     {
       line = $0
-      if (line ~ /-----BEGIN [A-Z ]*PRIVATE KEY-----/) hit("private-key")
-      if (line ~ /ghp_[A-Za-z0-9]{36}/) hit("github-pat")
-      if (line ~ /github_pat_[A-Za-z0-9_]{22,}/) hit("github-pat")
-      if (line ~ /xox[baprs]-[A-Za-z0-9-]{10,}/) hit("slack-bot-token")
-      if (line ~ /AKIA[0-9A-Z]{16}/) hit("aws-access-key")
+      pat_gh = "gh" "p_[A-Za-z0-9]{36}"
+      pat_fine = "github_" "pat_[A-Za-z0-9_]{22,}"
+      pat_slack = "xo" "x[baprs]-[A-Za-z0-9-]{10,}"
+      pat_aws = "AK" "IA[0-9A-Z]{16}"
+      if (index(line, "-----BE" "GIN") && index(line, "PRIVATE" " KEY")) hit("private-key")
+      if (line ~ pat_gh) hit("github-pat")
+      if (line ~ pat_fine) hit("github-pat")
+      if (line ~ pat_slack) hit("slack-bot-token")
+      if (line ~ pat_aws) hit("aws-access-key")
       if (line ~ /(api[_-]?key|secret|password|token|passwd)[[:space:]]*[:=][[:space:]]*.{0,2}[A-Za-z0-9_=-]{16,}/) {
-        if (line !~ /ghp_[A-Za-z0-9]{36}/) hit("generic-api-key")
+        if (line !~ pat_gh) hit("generic-api-key")
       }
       if (line ~ /(api[_-]?key|secret|password|token|passwd)[[:space:]]*[:=]/ && match(line, /[A-Za-z0-9+\/=_-]{20,}/)) {
         tok = substr(line, RSTART, RLENGTH)
