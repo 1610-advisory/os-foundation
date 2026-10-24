@@ -1,0 +1,4 @@
+{"body":null,"method":"GET","path":"/repos/acme/acme-os/pulls/12"}
+{"body":null,"method":"GET","path":"/repos/acme/acme-os/pulls/12/reviews"}
+{"body":null,"method":"GET","path":"/repos/acme/acme-os/commits/{sha}/check-runs"}
+{"body":null,"method":"GET","path":"/repos/acme/acme-os/commits/{sha}/status"}
