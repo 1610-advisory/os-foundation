@@ -5,22 +5,22 @@ description: Undo everything one bot run changed, in one step, by its Run-Id. Ma
 
 # Undo a bot run
 
-Every commit a bot makes carries `Run-Id: <id>` and `Bot-Owner: <owner>`. This skill undoes all commits of one run at once. It works only when `bots` is in `switches:`.
+Every commit a bot makes carries `Run-Id: <id>` and `Bot-Owner: <owner>`. This skill undoes all commits of one run at once. It works only when `bots` is in `switches:`. The script refuses otherwise.
 
 Undo is a revert. History keeps the run and the undo. Nothing is deleted.
 
 ## Steps
 
-1. **Find the run.** Ask what went wrong and when. Look in `bots/<bot>/logs/` for that run's line, or search history for the trailer: `git log --grep 'Run-Id: '`. Show the person the run's date, its routine and the files it changed. Ask: "Undo this whole run?"
-2. **Run the script:** `skills/undo-run/undo-run.sh <run-id>`.
-3. It finds every commit with that `Run-Id` on `main`, in each repo on this computer.
-4. It makes **one** revert commit per repo, on its own branch, and opens a pull request with auto-merge on.
-5. Tell the person, in plain words: which repos, how many commits, which files. Give the pull request links.
+1. **Find the run.** Ask what went wrong and when. Search history for the trailer: `git log origin/main --grep 'Run-Id: '`. A run id starts with the run's date and time, then 8 random letters and digits. Show the person the run's date, its routine and the files it changed. Ask: "Undo this whole run?"
+2. **Run the script** from the company root: `skills/undo-run/undo-run.sh <run-id>`.
+3. It fetches `main` in the company repo and each area repo. It finds every commit with that `Run-Id`.
+4. Per repo, it makes **one** revert commit on the branch `undo/<run-id>`. The commit says `Reverts: <run-id>`. It opens a pull request with auto-merge on.
+5. Tell the person, in plain words: which repos, how many commits, and the pull request links. The script prints them.
 
 ## When it cannot finish
 
-- **A later change touched the same lines.** The script stops for that repo and changes nothing there. Tell the person which file. Offer to fix that file by hand as a normal change.
-- **Run-Id not found.** Check the id with the person. A run that has not merged yet is still on the bot's standing PR: the owner may close that PR instead.
+- **A later change touched the same lines.** The revert stops for that repo. Tell the person which file. Offer to fix that file by hand as a normal change.
+- **Run-Id not found.** Check the id with the person. A run that has not merged yet is still on the bot's standing PR. The owner may close that PR instead.
 - **No access to a repo.** Say which. The bot's owner or the admin runs the undo there.
 
 ## Rules

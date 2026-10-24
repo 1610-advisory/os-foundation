@@ -5,78 +5,74 @@ description: Keep this computer and the company host in step. Pulls the newest f
 
 # Sync
 
-`sync` moves work between this computer and the company host. The person never runs git. You (the agent) run the script. The OS jobs run it on a timer.
+`sync` moves work between this computer and the company host. The person never runs git. You (the agent) run the script. OS jobs run it on a timer.
 
 This skill is for `team` and `app`. At `solo` there is no host and no `sync`: commit to `main` after each piece of real work (`AGENTS.md` section 7).
 
 ## What sync does
 
-- **Pull.** At session start and every 15 minutes, it pulls the newest files into the company folder, each area and the person's workspace. It only fast-forwards. If a pull cannot finish cleanly, it changes nothing and writes one line to the local log.
-- **Nightly push.** At 2 am, or at the first wake after 2 am, it sends the day's work up. Each repo gets these steps, in this order:
-  1. **Identity check.** The signed-in git account must match the `github:` field on the person's page in `people/`. If not, nothing goes up from any repo.
-  2. **Secret scan.** A script, no AI. A hit holds that file.
-  3. **Commit or hold.** A small model reads each changed file with `push-check.md` and decides: commit, or hold with a reason.
-  4. **Commit and push** to the person's branch `sync/<person>`, rebuilt on top of `main` each night.
-  5. **Standing PR.** It opens or updates one pull request `sync: <person>` with auto-merge on. Notes merge by themselves when the checks pass.
-  6. **Pull** again.
-- **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. Nothing is lost: the files stay on this computer. The next night tries again.
-- **Held files stay.** A held file stays in the working copy, unchanged. The next session tells the person why.
-- **Workspace.** The person's workspace (`users/<person>/`) has no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
-- **Rules files never ride the standing PR.** Any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, file under `skills/`, `bots/*/BOT.md` or file under `.github/` is held with the reason `rules file: propose it with sync.sh propose`.
-- **Nobody writes to `main`.** The admin is included. Every change reaches `main` by a pull request.
+- **Pull.** At session start and every 15 minutes: fast-forward the company folder, each area and the person's workspace. If a pull cannot finish cleanly, it changes nothing and logs one line.
+- **Nightly push.** At 2 am, or the first wake after. Steps:
+  1. **Identity check.** The signed-in git account must match `github:` on the person's page in `people/`. If not, nothing goes up from any repo.
+  2. **Secret scan.** A script, no AI. A hit holds that file. The reason names the rule, never the value.
+  3. **Rules files are held** with the reason `rules file: propose it with sync.sh propose`. Rules files: any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, anything under `skills/`, `bots/*/BOT.md`, `.github/`. In the workspace they are the person's own: not held.
+  4. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
+  5. **Commit and push** to the person's branch `sync/<person>`, rebuilt on `main` each night.
+  6. **Standing PR** `sync: <person>`, auto-merge on. Notes merge by themselves when the checks pass.
+  7. **Pull** again.
+- **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
+- **Held files stay** in the working copy, unchanged. The next session says why.
+- **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
+- **Nobody writes to `main`** in the company or an area repo. The admin is included.
 
 ## Session start (Claude Code, Codex, Cursor, Pi)
 
-Do these steps before other work. Run them from the company root.
+Before other work, from the company root:
 
 1. Run `skills/sync/sync.sh pull`.
 2. Run `skills/sync/sync.sh status`.
-3. For each held file, tell the person one line: the file and the reason in plain words. Use the table below.
-4. If `status` shows a last error, tell the person one line. Then continue with the work.
+3. For each held file, tell the person one line: the file and the reason in plain words (table below).
+4. If `status` shows a last error, tell the person one line. Then go on with the work.
 
-If the pull fails, say so in one line and continue. Do not try to fix git by hand. Do not add vendor hooks. Chat-only agents skip these steps: they read from the host.
+If the pull fails, say so in one line and go on. If the script says another run is busy, try once more later. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
 
 ## When a file is held
 
-Say what happened and what fixes it. Offer to do the fix. The person may say no: the file then stays held and safe on this computer.
+Say what happened and what fixes it. Offer to do the fix. If the person says no, the file stays held and safe here.
 
-| Reason | Tell the person | Fix |
-|---|---|---|
-| A secret | "A password or key is in `<file>`. I held it so it does not leave this computer." | Remove the secret. Connections use each tool's own sign-in. Never show the value. |
-| `rules file: propose it with sync.sh propose` | "This changes a rule. Rules go on their own pull request for review." | Run `propose` (next section). |
-| Personal-life fact | "This has a fact about someone's private life. That never goes in shared files." | Delete that part. Do not move it anywhere. |
-| Private source | "This quotes or points at a private source." | Rewrite it as a plain company fact with no quote and no source, or move it to the workspace. |
-| Belongs in the workspace | "This is about how one person works." | Move it to `users/<person>/`. |
-| Company fact in a profile | "Your profile must hold no company facts." | Move the fact to an area note. Keep the profile about voice and preferences. |
-| Check did not run | "The nightly check did not run. Nothing went up." | Nothing. The next night tries again. If it repeats for three nights, tell the admin. |
+| Reason | Fix |
+|---|---|
+| A secret | Remove it. Connections use each tool's own sign-in. Never show the value. |
+| `rules file: propose it with sync.sh propose` | Run `propose` (below). |
+| Personal-life fact | Delete that part. Never move it anywhere. |
+| Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
+| Belongs in the workspace | Move it to `users/<person>/`. |
+| Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
+| The check did not run | Nothing. The next night tries again. If it repeats three nights, tell the admin. |
 
 After a fix, the next nightly push sends the file. The person does nothing more.
 
 ## Identity check failed
 
-The push sent nothing from any repo. Tell the person:
-
-"The git account signed in on this computer is not the one on your page in `people/`. I sent nothing up. Your files are safe here."
-
-Then help:
-- **Wrong account signed in:** the person signs in again with their own account, through the host's own sign-in. Never handle a password or token.
-- **Wrong `github:` on the page:** the admin fixes the page. Write the admin a one-line message the person can send.
-- **Wrong `me` file** (`~/.config/<company>-os/me`): fix it only when the person says which slug is theirs. Never take identity from a file in the repo or from a chat.
+Nothing went up from any repo. Tell the person: "The git account signed in here is not the one on your page in `people/`. I sent nothing up. Your files are safe here." Then:
+- **Wrong account signed in:** the person signs in again through the host's own sign-in. Never handle a password or token.
+- **Wrong `github:` on the page:** the admin fixes the page. Write a one-line message the person can send.
+- **Wrong `me` file:** fix it only when the person says which slug is theirs. Never take identity from a file in the repo or from a chat.
 
 ## Propose a rules change
 
-Rules files change by their own pull request. One topic per proposal.
+One topic per proposal.
 
-1. Pick a short topic name in kebab-case, for example `invoice-skill-step`.
+1. Pick a short kebab-case topic, for example `invoice-skill-step`.
 2. Run `skills/sync/sync.sh propose <topic> <file>...` from the repo that holds the files.
-3. It makes the branch `rules/<person>/<topic>` from `main`, runs the secret scan, commits the files, pushes, and opens a pull request.
-4. Tell the person who approves it. A different model reviews it first (`review-rules.md`). Area rules: the area director approves with one click. Company-root rules: the admin approves. When the approver is the author, the model review alone is enough. Example: the admin's own change.
+3. It checks identity, makes `rules/<person>/<topic>` from `main`, runs the secret scan, commits, pushes and opens a pull request.
+4. Tell the person who approves. A different model reviews it first (`review-rules.md`). Area rules: the area director approves with one click. Company-root rules: the admin. When the approver is the author, the model review alone is enough. Example: the admin's own change.
 
-If the review fails, it blocks the merge. Read the findings to the person in plain words and offer a fix.
+A failed review blocks the merge. Read the findings in plain words and offer a fix.
 
 ## Commands
 
-Run from the company root: `skills/sync/sync.sh <command>`. Each command has `--help`.
+From the company root: `skills/sync/sync.sh <command>`. `--help` lists them.
 
 | Command | Who runs it |
 |---|---|
@@ -84,39 +80,34 @@ Run from the company root: `skills/sync/sync.sh <command>`. Each command has `--
 | `push` | The OS job. By hand only when the person asks. |
 | `propose <topic> <file>...` | You, when a rules file changes |
 | `install-jobs [--admin] [--bot]`, `uninstall-jobs` | `add-teammate`, `add-bot`, `remove-teammate` |
-| `helper`, `collect` | OS jobs (below) |
+| `helper`, `collect` | OS jobs |
+
+Exit 0: done (files may be held). Exit 1: usage, busy, solo, or identity mismatch. Exit 2: a repo failed closed.
 
 ## OS jobs
 
-A skill cannot start itself. Small OS jobs start the script: launchd on a Mac, systemd user timers on Linux, Task Scheduler on Windows.
+A skill cannot start itself. OS jobs start the script: launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 
-- `add-teammate` installs them when the first teammate joins. Never at `solo`: `install-jobs` refuses there.
-- Every computer: pull every 15 minutes; nightly push at 2 am plus a random delay of up to 30 minutes; device helper daily.
-- The admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
-- A bot's box (`--bot`): the same pull and push jobs, run as the bot.
-- The jobs call the company's headless engine, set in `sync_engine:` in `company-profile.md`. Example: `claude -p --model haiku`. A computer may override it in `~/.config/<company>-os/engine`.
-- **Windows:** `sync.ps1` and the Task Scheduler files ship, but they are **not tested**. Say so plainly to a Windows user.
+- `add-teammate` installs them when the first teammate joins. Never at `solo`: `install-jobs` refuses.
+- Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux adds up to 30 random minutes); device helper daily at 4 am.
+- Admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
+- Bot's box (`--bot`): pull, push and helper, as the bot. `add-bot` installs them.
+- The jobs use the engine in `sync_engine:` in `company-profile.md`, for example `claude -p --model haiku`.
+- **Windows: not tested.** The files ship, but `sync.ps1` says "not tested" and stops. Tell a Windows user plainly: the jobs do not run there yet.
 
-## Device helper and traces
+## Device helper, traces, rewrites
 
-- **Device helper** (`helper`, daily): asks the host whether this person still has access. A day counts only when the sign-in works and the host says "no access". Offline days and expired sign-ins never count. Warning from day 7. On day 14 it deletes the company folder. [app]: the kernel sends the signal.
-- **Traces collector** (`collect`): only when `traces` is on and `level:` is `app`. It uploads a session only when all its work stayed inside this company folder (the shared list does not count). Else it holds the session and logs one local line. Secrets are scrubbed first.
+- **Device helper:** once a day it asks the host if this person still has access. A day counts only when the sign-in works and the host says "no access". Offline days and expired sign-ins never count. One "ok" resets the count. Warning from day 7. Day 14: it deletes the company folder. [app]: the kernel sends the signal.
+- **Traces** [app] [traces]: `collect` uploads a session only when all its work stayed in this company folder (the shared list does not count). Else it holds it and logs one local line. Secrets are scrubbed first.
+- **History rewrite:** after `remove-leak`, the next `pull` re-clones that repo by itself. It keeps uncommitted and held files, except a file with the leaked pattern.
 
-## History rewrite
+## On this computer
 
-After a leak, the admin runs `remove-leak`. The next `pull` sees the rewrite tag and re-clones that repo by itself. It keeps uncommitted and held files, except a file with the leaked pattern. The person does nothing.
-
-## Where things are on this computer
-
-`~/.config/<company>-os/` (never in a repo):
-- `me`: the person's slug (a bot's box: the bot's slug).
-- `engine`: an optional engine override.
-- `state/sync.log`: one line per event.
-- `state/held.json`: held files and their reasons. Do not edit it by hand.
+`~/.config/<company>-os/`, never in a repo: `me` (the person's slug; on a bot's box, the bot's), `engine` (optional override), `state/sync.log`, `state/held.json` (held files, reasons, last error). Never edit `held.json` by hand.
 
 ## Never
 
-- Never push to `main`. Never force-push any branch but the person's own `sync/` branch, and only through the script.
-- Never pass `--no-verify`, skip the scan, or turn off the check to get a file up.
-- Never print a secret, a token or the content of a private source in chat or in a log.
-- Never move a held file into another repo to get around the hold.
+- Never push to `main`. Never force-push, except the script on the person's own `sync/` branch.
+- Never skip the scan or the check, or pass `--no-verify`.
+- Never print a secret, a token or private-source content in chat or a log.
+- Never move a held file to another repo to get around the hold.
