@@ -55,6 +55,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("pull_request:", text)
         self.assertIn("issue_comment:", text)
         self.assertNotIn("OS_REVIEW_FAKE:", text)
+        self.assertNotIn("vars.OS_REVIEW_", text)
         self.assertIn("OS_REVIEW_FAKE is test-only", text)
 
     def test_app_is_a_comment_only(self):
@@ -77,7 +78,7 @@ class ModelReviewTests(unittest.TestCase):
         self.diff = self.root / "diff"
         self.out = self.root / "out"
 
-    def review(self, env):
+    def review(self, env, cwd=None):
         return run(
             [
                 "bash",
@@ -94,6 +95,7 @@ class ModelReviewTests(unittest.TestCase):
                 str(self.out),
             ],
             env=env,
+            cwd=cwd,
         )
 
     def test_fake_pass_and_fail(self):
@@ -118,10 +120,42 @@ class ModelReviewTests(unittest.TestCase):
 
     def test_no_key(self):
         self.diff.write_text("ok\n", encoding="utf-8")
-        result = self.review({})
+        result = self.review({"OS_REVIEW_VENDOR": "anthropic"})
         self.assertEqual(result.returncode, 1)
-        self.assertIn("add a review key: see add-teammate", result.stderr)
+        self.assertIn(
+            "no review key: every pull request fails the model review until you add one",
+            result.stderr,
+        )
+        self.assertNotIn("weaker review", result.stderr)
         self.assertNotIn(KEY, result.stdout + result.stderr)
+
+    def test_missing_conf_fails(self):
+        self.diff.write_text("ok\n", encoding="utf-8")
+        result = self.review({"OS_REVIEW_KEY": KEY})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("model review failed: .github/review.conf is missing", result.stderr)
+
+    def test_bad_vendor_fails(self):
+        conf_dir = self.root / ".github"
+        conf_dir.mkdir()
+        (conf_dir / "review.conf").write_text("vendor=other\nkind=second-vendor\n", encoding="utf-8")
+        self.diff.write_text("ok\n", encoding="utf-8")
+        result = self.review({"OS_REVIEW_KEY": KEY}, cwd=self.root)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("model review failed: vendor must be anthropic, openai, or xai", result.stderr)
+
+    def test_conf_same_vendor_label(self):
+        conf_dir = self.root / ".github"
+        conf_dir.mkdir()
+        (conf_dir / "review.conf").write_text(
+            "vendor=openai\nmodel=\nkind=same-vendor\n", encoding="utf-8"
+        )
+        verdicts = self.root / "verdicts"
+        verdicts.write_text("* PASS\n", encoding="utf-8")
+        self.diff.write_text("ok\n", encoding="utf-8")
+        result = self.review({"OS_REVIEW_FAKE": str(verdicts)}, cwd=self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("weaker review: same vendor", self.out.read_text(encoding="utf-8"))
 
     def test_key_not_in_argv(self):
         bin_dir = self.root / "bin"

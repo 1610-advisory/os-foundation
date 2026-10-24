@@ -2,10 +2,12 @@
 # Ask a model to review one pull request.
 # The 1610 review App is not in v1. There is no code path for it.
 #
-# Key order:
-# 1. A review key (OS_REVIEW_KEY) and a vendor (OS_REVIEW_VENDOR).
-# 2. OS_REVIEW_KIND=same-vendor adds the plain line "weaker review: same vendor".
-# 3. No key: fail with a plain message. Do not call a model.
+# The vendor, model and kind come from .github/review.conf.
+# vendor=anthropic|openai|xai, model= (blank uses the vendor default),
+# kind=second-vendor|same-vendor. OS_REVIEW_VENDOR, OS_REVIEW_MODEL and
+# OS_REVIEW_KIND override the file. A missing file or a bad vendor fails
+# the check. kind=same-vendor adds "weaker review: same vendor".
+# No key: fail with a plain message. Do not call a model.
 #
 # Test only: OS_REVIEW_FAKE is a path set in the runner environment.
 # This script does not read a verdict file from the repository.
@@ -23,9 +25,9 @@ usage() {
   cat << 'EOF'
 usage: model-review.sh --rules FILE --title-file FILE --body-file FILE --diff-file FILE --out FILE
 
-Review one pull request. Reads OS_REVIEW_KEY, OS_REVIEW_VENDOR, OS_REVIEW_MODEL
-and OS_REVIEW_KIND from the environment.
-OS_REVIEW_FAKE is test-only and must already be set in the environment.
+Review one pull request. Reads .github/review.conf for vendor, model and kind.
+OS_REVIEW_VENDOR, OS_REVIEW_MODEL and OS_REVIEW_KIND override that file.
+OS_REVIEW_KEY is the review key. OS_REVIEW_FAKE is test-only.
 Writes the review text to --out. Exits 0 on VERDICT: PASS, 1 on failure.
 Never prints the review key.
 EOF
@@ -164,26 +166,81 @@ default_model() {
   esac
 }
 
+load_review_settings() {
+  local file=".github/review.conf"
+  local line key val file_vendor="" file_model="" file_kind="" saw_file=0
+  if [ -f "$file" ]; then
+    saw_file=1
+    while IFS= read -r line || [ -n "$line" ]; do
+      line=$(ci_trim "$line")
+      case "$line" in
+        ""|\#*) continue ;;
+      esac
+      case "$line" in
+        *=*) ;;
+        *) fail "model review failed: .github/review.conf is not valid" ;;
+      esac
+      key=$(ci_trim "${line%%=*}")
+      val=$(ci_trim "${line#*=}")
+      case "$key" in
+        vendor) file_vendor=$val ;;
+        model) file_model=$val ;;
+        kind) file_kind=$val ;;
+        *) fail "model review failed: .github/review.conf is not valid" ;;
+      esac
+    done < "$file"
+  fi
+  if [ -n "${OS_REVIEW_VENDOR:-}" ]; then
+    vendor=$(ci_lower "$OS_REVIEW_VENDOR")
+  else
+    vendor=$(ci_lower "$file_vendor")
+  fi
+  if [ -n "${OS_REVIEW_MODEL:-}" ]; then
+    model=$OS_REVIEW_MODEL
+  else
+    model=$file_model
+  fi
+  if [ -n "${OS_REVIEW_KIND:-}" ]; then
+    file_kind=$OS_REVIEW_KIND
+  fi
+  case "$file_kind" in
+    ""|second-vendor) file_kind=second-vendor ;;
+    same-vendor) ;;
+    *) fail "model review failed: .github/review.conf is not valid" ;;
+  esac
+  if [ "$file_kind" = "same-vendor" ]; then
+    OS_REVIEW_KIND=same-vendor
+  else
+    OS_REVIEW_KIND=""
+  fi
+  export OS_REVIEW_KIND
+  if [ -n "${OS_REVIEW_FAKE:-}" ]; then
+    return 0
+  fi
+  if [ "$saw_file" -eq 0 ] && [ -z "${OS_REVIEW_VENDOR:-}" ]; then
+    fail "model review failed: .github/review.conf is missing"
+  fi
+  case "$vendor" in
+    anthropic|openai|xai) ;;
+    *) fail "model review failed: vendor must be anthropic, openai, or xai" ;;
+  esac
+}
+
+load_review_settings
+
 if [ -n "${OS_REVIEW_FAKE:-}" ]; then
   fake_review "$OS_REVIEW_FAKE"
 fi
 
 if [ -z "${OS_REVIEW_KEY:-}" ]; then
-  fail "add a review key: see add-teammate"
+  fail "no review key: every pull request fails the model review until you add one"
 fi
-
-vendor=$(ci_lower "${OS_REVIEW_VENDOR:-}")
-case "$vendor" in
-  anthropic|openai|xai) ;;
-  *) fail "model review failed: OS_REVIEW_VENDOR must be anthropic, openai, or xai" ;;
-esac
 
 if [ ! -f "$rules" ]; then
   fail "model review failed: review-rules.md is missing"
 fi
 
-model=${OS_REVIEW_MODEL:-}
-if [ -z "$model" ]; then
+if [ -z "${model:-}" ]; then
   model=$(default_model "$vendor")
 fi
 

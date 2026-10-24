@@ -59,9 +59,6 @@ jobs:
         env:
           JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OS_REVIEW_KEY: ${{ secrets.OS_REVIEW_KEY }}
-          OS_REVIEW_VENDOR: ${{ vars.OS_REVIEW_VENDOR }}
-          OS_REVIEW_MODEL: ${{ vars.OS_REVIEW_MODEL }}
-          OS_REVIEW_KIND: ${{ vars.OS_REVIEW_KIND }}
         run: |
           set -euo pipefail
           temp="${RUNNER_TEMP:-/tmp}"
