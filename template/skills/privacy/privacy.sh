@@ -196,6 +196,12 @@ load_profile() {
     LEVEL=solo
   fi
   LEVEL=$(printf '%s' "$LEVEL" | tr '[:upper:]' '[:lower:]')
+  case "$LEVEL" in
+    solo|team|app) ;;
+    *)
+      die "unknown level: ${LEVEL}"
+      ;;
+  esac
 }
 
 switch_on() {

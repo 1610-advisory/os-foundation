@@ -278,6 +278,38 @@ class PrivacyTests(unittest.TestCase):
         self.assertNotIn(CLOUD, text)
         self.assertEqual(result.stdout.decode(), "privacy.md: 14 places\n")
 
+    def test_unknown_level_fails(self):
+        text = "---\nlevel: tema\nswitches: []\n---\n"
+        root, script = self.make(profile_text=text)
+        (root / "privacy.md").write_text("keep\n")
+        result = run(script, root, "--root", str(root))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"unknown level: tema", result.stderr)
+        self.assertEqual((root / "privacy.md").read_text(), "keep\n")
+
+        stub = (
+            "#!/bin/bash\n"
+            'case "$1" in\n'
+            "  level) printf '%s\\n' \"tema\" ;;\n"
+            "  switches) exit 2 ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        root, script = self.make("solo", profile_sh=stub, dirname="stub-level")
+        result = run(script, root, "--root", str(root))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b"unknown level: tema", result.stderr)
+        self.assertFalse((root / "privacy.md").exists())
+
+        upper = "---\nlevel: Team\nswitches: []\n---\n"
+        root, script = self.make(profile_text=upper, dirname="upper")
+        result = run(script, root, "--root", str(root))
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(
+            (root / "privacy.md").read_bytes(),
+            (FIXTURES / "team" / "privacy.md").read_bytes(),
+        )
+
     def test_missing_profile_and_missing_level(self):
         root, script = self.make("solo")
         os.remove(root / "company-profile.md")
