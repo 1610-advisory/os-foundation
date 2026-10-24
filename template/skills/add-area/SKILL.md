@@ -24,7 +24,6 @@ Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` 
 3. Replace placeholders in every new file: `{{AREA_NAME}}` (for example "Marketing"), `{{AREA_SLUG}}`, `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{DATE}}` (today, YYYY-MM-DD).
 4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. Check with `git -C areas/{{AREA_SLUG}} rev-parse --show-toplevel` that the answer is the area folder, not the company folder.
 5. Logs need no setup: they are per-person files in the area's `memory/logs/`, committed like any file.
-6. Claude Code only: link the area's skills so they show as slash commands: in `areas/{{AREA_SLUG}}/`, make `.claude/` and run `ln -s ../skills .claude/skills`. If the link fails, skip it; the `AGENTS.md` table still works.
 
 ## 3. Three questions
 

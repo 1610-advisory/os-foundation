@@ -22,15 +22,7 @@ Two parts: **A** runs on the admin's computer, **B** on the teammate's. Ask one 
 5. **Invite.** For each repo the teammate gets: `gh api -X PUT repos/{{GITHUB_ORG}}/{{REPO}}/collaborators/{{USERNAME}} -f permission=push`. Write access lets their agent open pull requests; the review rule stops changes going in without the admin.
 6. **The review rule.**
    - Add `.github/CODEOWNERS` with `* @{{ADMIN_USERNAME}}` to each shared repo and commit.
-   - **Paid GitHub plan (Team or higher):** on each repo, protect `main`. GitHub then enforces the rules.
-     - `main`: a pull request with one approval from code owners. The admin can still commit directly.
-       ```
-       gh api -X PUT repos/{{GITHUB_ORG}}/{{REPO}}/branches/main/protection --input - <<'JSON'
-       {"required_status_checks": null, "enforce_admins": false,
-        "required_pull_request_reviews": {"required_approving_review_count": 1, "require_code_owner_reviews": true},
-        "restrictions": null}
-       JSON
-       ```
+   - Protection and review are set by the team scripts (`skills/_host/host.sh protect`). Nobody writes to `main`, the admin included: see `AGENTS.md` section 7.
    - **Free plan:** GitHub cannot protect `main` on private repos. Tell the admin plainly: the rule is written in `AGENTS.md` and agents follow it, but GitHub does not enforce it.
 7. **Record it.** Add or update the teammate's note in `people/` (name, role, which areas). Commit.
 8. **Hand-off message.** Write a short message the admin can send: accept the GitHub invites, then paste this into their agent: "Set up my computer for the {{COMPANY_NAME}} company OS. Read `skills/add-teammate/SKILL.md` part B in the repo {{GITHUB_ORG}}/{{COMPANY_SLUG}}-os and follow it." No secrets in the message.
@@ -41,6 +33,5 @@ Two parts: **A** runs on the admin's computer, **B** on the teammate's. Ask one 
 2. Clone the company repo: `gh repo clone {{GITHUB_ORG}}/{{COMPANY_SLUG}}-os ~/{{COMPANY_SLUG}}-os`.
 3. Clone only the areas they have access to: `gh repo clone {{GITHUB_ORG}}/{{COMPANY_SLUG}}-{{AREA_SLUG}} ~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}`. If a clone fails with "not found," they do not have access to that area. That is correct; skip it.
 4. Session logs need no setup: they are per-person files in `memory/logs/`, committed like any file.
-5. Claude Code only: in the company root and each area, `ln -s ../skills .claude/skills` (make `.claude/` first). Skip if it fails.
-6. Show them where to start: "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General questions: `~/{{COMPANY_SLUG}}-os/`." Tell them: changes they ask for go to the admin as a pull request; they do not need to know git.
-7. **Daily start:** `git pull` in the company root and each area. Their agent can do this at the start of each session.
+5. Show them where to start: "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General questions: `~/{{COMPANY_SLUG}}-os/`." Tell them: changes they ask for go to the admin as a pull request; they do not need to know git.
+6. **Daily start:** `git pull` in the company root and each area. Their agent can do this at the start of each session.

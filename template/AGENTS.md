@@ -1,6 +1,6 @@
 # {{COMPANY_NAME}} — company OS rules
 
-The shared memory of **{{COMPANY_NAME}}**. People capture, decide and ask. You (the agent) file, link, remember and do the work. Keep this file under 8,000 characters. Detail goes in `skills/`.
+The shared memory of **{{COMPANY_NAME}}**. People capture, decide and ask. You (the agent) file, link, remember and do the work. Keep this file under 9,000 characters. Detail goes in `skills/`.
 
 ## 1. Level first
 
@@ -10,15 +10,21 @@ Read `level:` and `switches:` in `company-profile.md` first. Rules for a higher 
 
 ## 2. Pull before work [team]
 
-At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh status`. Tell the person about each held file and its reason, one line each. If the pull fails, say so and continue. No vendor hooks.
+Claude Code, Codex, Cursor and Pi do this at session start:
+1. Run `skills/sync/sync.sh pull`.
+2. Run `skills/sync/sync.sh status`.
+3. Tell the person about each held file and its reason, one line each.
+
+If the pull fails, say so and continue. Do not add vendor hooks. Chat-only agents skip the pull: they read from the host.
 
 ## 3. What goes where
 
 | What | Where |
 |---|---|
 | Company or work facts (a customer prefers calls) | The area's notes (no area yet: the shared files) |
-| A better way to do a job | The skill or rules file, by its own PR (section 7) |
-| How the person works, drafts, sensitive work, private sources | [team] The person's workspace `users/<person>/`. Solo: `memory/` |
+| A better way to do a job | [team] The skill or rules file, by its own PR (section 7). Solo: edit the skill and commit. |
+| How the person works | [team] The person's workspace `users/<person>/`. Solo: `memory/` |
+| Drafts, sensitive work, private sources | [team] The person's workspace. Solo: keep them out of the repo. |
 | Voice, writing samples, preferences | [team] `users/<person>/profile/PROFILE.md`. No company facts there. |
 | Personal-life facts (health, family, home, beliefs) | Nowhere. Never write them. |
 
@@ -35,7 +41,7 @@ A private source is anything the readers of the target area could not already se
 
 ## 5. Learning step
 
-At the end of each task, write new company facts to the area (section 4 applies). If a skill was wrong or slow, propose the fix by PR (solo: edit it and commit). You may ask once "share this?" about a workspace note. Skipping the question is fine.
+At the end of each task, write new company facts to the area (section 4 applies). If a skill was wrong or slow, fix it. [team]: propose the fix with `skills/sync/sync.sh propose <topic> <file>...`. Solo: edit the skill and commit. You may ask once "share this?" about a workspace note. Skipping the question is fine.
 
 ## 6. Approval tiers [team]
 
@@ -55,8 +61,12 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 [team]:
 - Nobody writes to `main`. The admin is included.
 - Notes and logs go on your branch `sync/<person>`. The nightly `sync` push puts them on one standing PR. It merges by itself when the checks pass.
-- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `.github/**`) never go on the standing PR. Put each change on its own branch `rules/<person>/<topic>` with its own PR.
-- A rules PR gets a different-model review first (`review-rules.md`). Then the area director approves with one click. Company-root rules: the model review alone. The admin may override a failed review only with a written reason in the PR.
+- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `.github/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
+- Every rules PR gets a review by a different model first (`review-rules.md`).
+- Area rules: after the review, the area director approves with one click.
+- Company-root rules: after the review, the admin approves.
+- When the approver is the author, the model review alone is enough. Example: the admin's own change.
+- A failed review blocks the merge. Only the admin may override it. The admin must write the reason in the PR. The check logs it.
 - Make branches and PRs for the person. They need not know git.
 
 ## 8. Folder units
@@ -99,7 +109,10 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 - Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `memory/`, `skills/`, `templates/`.
 - `areas/<area>/`: each area is its **own git repo**, ignored by this one, so a person without an area does not have it. Area work starts in the area folder.
-- Skills: when a request matches one, read its `SKILL.md` and follow it. Company skills: `skills/ingest/` (file the inbox), `skills/add-area/`, `skills/connect-tool/`, `skills/app-setup/` (apps, automation, hosting), `skills/add-teammate/`, `skills/write-skill/` (write this down), `skills/skill-creator/` (read `FOUNDATION.md` first), `skills/lint/` (health check), `skills/suggest/` (send an idea to 1610). Area skills: `areas/<area>/skills/`.
+- Skills: when a request matches one, read its `SKILL.md` and follow it. Area skills: `areas/<area>/skills/`.
+  - Every level: `skills/ingest/` (file the inbox), `skills/add-area/`, `skills/connect-tool/`, `skills/app-setup/` (apps, hosting), `skills/write-skill/` (write this down), `skills/skill-creator/` (read `FOUNDATION.md` first), `skills/lint/` (health check), `skills/suggest/` (send an idea to 1610), `skills/privacy/` (writes `privacy.md`), `skills/add-teammate/`, `skills/upgrade/`.
+  - [team]: `sync`, `remove-teammate`, `remove-leak`, `company-skills`, `nightly-review`, `reports`.
+  - [bots]: `add-bot`, `undo-run`.
 - Company rules come before a skill's own steps. A skill grants no tools or outside models. Other collections: `memory/skill-resources.md`.
 
 ## Memory and logs

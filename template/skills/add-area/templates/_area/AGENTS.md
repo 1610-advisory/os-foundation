@@ -9,7 +9,8 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 - **Level first.** Read `level:` and `switches:` in `../../company-profile.md`. Skip rules for a higher level or a switch that is off. **[team]** marks a rule for `team` and `app`.
 - **One company only.** Use only this company's folder (`../../`). Never read or copy from another company's folder.
 - **No secrets.** No passwords, API keys or tokens in any file. Connections use each tool's own sign-in.
-- **No personal-life facts** in any file. Private sources (DMs, a personal mailbox, 1:1s, HR, pay) stay in the person's workspace. Only plain facts go here: no quotes, no "X said in a DM".
+- **No personal-life facts** in any file.
+- **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go here: no quotes, no "X said in a DM".
 - **Sharing up is a person's choice.** Move facts from this area into the shared company files (`../../`) only when a person asks.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay or delete anything outside this folder.
@@ -17,11 +18,12 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 
 ## Start of a session
 
-1. [team] Run `../../skills/sync/sync.sh pull`, then `../../skills/sync/sync.sh status`. Tell the person about each held file and its reason.
-2. Read `../../AGENTS.md` if your agent did not load it: the company rules.
-3. Read `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
-4. Skim the last three days of `memory/logs/` here and in `../../memory/logs/`.
-5. Read `../../company-profile.md` and any shared file the task needs.
+1. [team] Run `../../skills/sync/sync.sh pull`. (Claude Code, Codex, Cursor and Pi. Chat-only agents skip it.)
+2. [team] Run `../../skills/sync/sync.sh status`. Tell the person about each held file and its reason.
+3. Read `../../AGENTS.md` if your agent did not load it: the company rules.
+4. Read `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
+5. Skim the last three days of `memory/logs/` here and in `../../memory/logs/`.
+6. Read `../../company-profile.md` and any shared file the task needs.
 
 ## What this area does
 
@@ -53,4 +55,7 @@ The company table applies (`../../AGENTS.md`, section 6). This area may tighten 
 
 ## Changes and review
 
-Same as the company rules. Solo: commit to `main`, logs included. [team]: nobody writes to `main`. Notes and logs go on the standing PR through `sync`. Rules files (`AGENTS.md`, `CLAUDE.md`, `skills/`) go by their own PR, and the area director approves.
+Same as the company rules (`../../AGENTS.md`, section 7).
+- Solo: commit to `main`, logs included.
+- [team]: nobody writes to `main`. Notes and logs go on the standing PR through `sync`.
+- [team]: propose a rules change (`AGENTS.md`, `CLAUDE.md`, `skills/`) with `../../skills/sync/sync.sh propose <topic> <file>...`. A different model reviews it first. Then the area director approves with one click.

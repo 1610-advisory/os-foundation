@@ -1,6 +1,9 @@
 # Each area is its own repo. The company repo never tracks them.
 /areas/
 
+# Each person's workspace is its own private repo (team level).
+/users/
+
 # Secrets and machine files
 .env
 .env.*
