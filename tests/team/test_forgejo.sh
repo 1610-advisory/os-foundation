@@ -38,6 +38,7 @@ HOST="$root/template/skills/_host/host.sh"
 [ -f "$HOST" ] || die "host.sh is not in this tree"
 
 export OS_HOST_SH="$HOST"
+export GIT_TERMINAL_PROMPT=0
 export OS_HOST=forgejo
 export OS_HOST_URL="http://localhost:3300"
 export OS_ORG=acme
@@ -219,12 +220,15 @@ access "$token_dir/acme-admin" team-user-mia || die "admin cannot read a workspa
 access "$token_dir/acme-member-a" team-marketing || die "member-a cannot read marketing"
 access "$token_dir/acme-member-a" team-os || die "member-a cannot read the company repo"
 
-# Protected main rejects a direct push.
+# Protected main rejects a direct push. Use the helper so git does not wait on the keychain.
+# shellcheck disable=SC1091
+. "$root/template/skills/add-teammate/lib.sh"
+export OS_HOST_BIN="$HOST"
 printf '%s\n' "x" >> "$company/README.md"
 git_id git -C "$company" add README.md
 git_id git -C "$company" commit -q -m "should not land"
 set +e
-FORGEJO_TOKEN=$(load_token "$admin_token") git -C "$company" push origin main >"$work/push.out" 2>>"$log"
+FORGEJO_TOKEN=$(load_token "$admin_token") os_with_git_token git -C "$company" push origin main >"$work/push.out" 2>>"$log"
 push_rc=$?
 set -e
 [ "$push_rc" -ne 0 ] || die "push to protected main succeeded"
@@ -247,9 +251,6 @@ printf '%s\n' "keep pi" > "$join_home/.pi/agent/AGENTS.md"
 printf '%s\n' "keep cursor" > "$join_home/.cursor/rules.md"
 clone="$work/mia"
 mkdir -p "$clone"
-# shellcheck disable=SC1091
-. "$root/template/skills/add-teammate/lib.sh"
-export OS_HOST_BIN="$HOST"
 FORGEJO_TOKEN=$(load_token "$token_dir/acme-member-a")
 os_with_git_token git clone "http://localhost:3300/acme/team-os.git" "$clone" >>"$log" 2>&1 || die "member-a clone failed"
 cat > "$work/join-answers" << EOF
@@ -321,7 +322,8 @@ fi
 if access "$token_dir/acme-member-d" team-finance; then
   die "removed member can still read finance"
 fi
-git -C "$company" fetch origin "rules/ada/offboard-sam" >>"$log" 2>&1 || die "offboard branch missing"
+FORGEJO_TOKEN=$(load_token "$admin_token") \
+  os_with_git_token git -C "$company" fetch origin "rules/ada/offboard-sam" >>"$log" 2>&1 || die "offboard branch missing"
 git -C "$company" show "origin/rules/ada/offboard-sam:people/Sam Member.md" | grep -q '^left: 2026-10-24$' || die "left not on the branch"
 git -C "$company" show "origin/rules/ada/offboard-sam:bots/helper/BOT.md" | grep -q '^owner: ada$' || die "bot owner not on the branch"
 
@@ -367,7 +369,8 @@ os_with_git_token git clone "http://localhost:3300/acme/team-leak.git" "$fresh" 
 if git -C "$fresh" grep -F -q -f "$needle" "$(git -C "$fresh" rev-list --all)" 2>/dev/null; then
   die "secret still in history"
 fi
-git -C "$fresh" ls-remote --tags origin | grep -q 'os-rewrite-' || die "tag not on the host"
+FORGEJO_TOKEN=$(load_token "$admin_token") \
+  os_with_git_token git -C "$fresh" ls-remote --tags origin | grep -q 'os-rewrite-' || die "tag not on the host"
 
 # Cleanup. Never wipe the volume.
 FORGEJO_TOKEN=$(load_token "$admin_token")

@@ -71,8 +71,8 @@ PAGE=$(os_person_file "$ROOT" "$ME" || true)
 AREAS=$(os_answer_or areas "$ANSWERS" "")
 if [ -z "$AREAS" ]; then
   AREAS=$(os_fm_get "$PAGE" areas || true)
-  AREAS=$(printf '%s' "$AREAS" | tr -d '[]' | tr ',' ' ')
 fi
+AREAS=$(printf '%s' "$AREAS" | tr -d '[]' | tr ',' ' ')
 
 COMPANY_REPO=$(os_company_repo "$SLUG")
 

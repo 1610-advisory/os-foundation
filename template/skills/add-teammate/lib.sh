@@ -322,7 +322,7 @@ os_clone_url() {
 # Run a command with git credentials in the environment, not in argv.
 # Token is read from host.sh get-token into a mode-600 file, then into the env.
 os_with_git_token() {
-  local token_file ask user_json user rc
+  local token_file ask user_json user rc was_e
   token_file=$(mktemp)
   ask=$(mktemp)
   chmod 600 "$token_file"
@@ -347,6 +347,14 @@ case "$1" in
 esac
 EOF
   chmod 700 "$ask"
+  if [ "${1:-}" = "git" ]; then
+    shift
+    set -- git -c credential.helper= "$@"
+  fi
+  case $- in
+    *e*) was_e=1 ;;
+    *) was_e=0 ;;
+  esac
   set +e
   # shellcheck disable=SC2091
   OS_GIT_USER="$user" \
@@ -355,7 +363,9 @@ EOF
     GIT_TERMINAL_PROMPT=0 \
     "$@"
   rc=$?
-  set -e
+  if [ "$was_e" -eq 1 ]; then
+    set -e
+  fi
   rm -f "$token_file" "$ask"
   return "$rc"
 }
