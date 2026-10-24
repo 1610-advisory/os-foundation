@@ -38,7 +38,7 @@ Each person's workspace repo holds their drafts, profile and working notes; only
 
 ## review-vendor
 when: level: team
-The review check sends only the diff of each pull request and `review-rules.md` to the review model's vendor (your second-vendor key, or your own vendor if you have none); that vendor keeps it by its own rules, and you stop it by removing the key.
+The review check sends only the pull request under review (its title, body and diff) and `review-rules.md` to the vendor whose key the company added (a second vendor, or your own vendor if you have no second one); that vendor keeps it by its own rules, and you stop it by removing the key.
 
 ## outside-parties
 when: level: team
