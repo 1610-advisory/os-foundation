@@ -51,9 +51,11 @@ Never run it for them, ask for the key in the chat, or read it back.
 
 ### A4. Run it
 
-1. Write the answers file from A2 and A3, with `review_vendor` and `review_kind`. Never the key.
+1. Write the answers file from A2 and A3, with `review_vendor` and `review_kind` (`review_model` only if the admin names one). Never the key.
 2. Run `skills/add-teammate/team-on.sh --answers <file>`. It writes `.github/review.conf` (vendor, model, kind) for the review check.
-3. It checks that the key exists. No key: it prints the `set-secret` command. The admin sets the key (A3). Run `team-on.sh` again. Until the key exists, every pull request fails the model review.
+3. It checks that the key exists (`host.sh secret-exists`). Read its review line to the admin as printed:
+   - `no review key: every pull request fails the model review until you add one`: the admin sets the key (A3), then run `team-on.sh` again.
+   - `weaker review: same vendor`: say it plainly. The key works.
 4. If it stops with an error, tell the admin the exact message. Fix the cause it names, then run it again once. A second run changes nothing that is already done. If it stops again, stop. Do not say the team level is on.
 
 ### A5. Explain what turned on
@@ -84,11 +86,11 @@ A new area later: run `add-area`.
 ### B2. Folder and clone
 
 1. Ask for the folder. Suggest `~/{{COMPANY_SLUG}}-os`. Refuse a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive, Box).
-2. Clone the company repo with their own sign-in. Take the company repo URL from the hand-off message. Never guess it:
+2. Clone the company repo with their own sign-in. Take the URL from `Company repo:` in the hand-off message. Never guess it:
    ```
    git clone <company repo URL> ~/{{COMPANY_SLUG}}-os
    ```
-   Forgejo: the URL starts with the host address (`host_url`), also in the hand-off message. The teammate puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600) first.
+   `Host:` in the hand-off is the host address (on Forgejo, `host_url`). The teammate puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600) first.
 
 ### B3. The joining terms
 
