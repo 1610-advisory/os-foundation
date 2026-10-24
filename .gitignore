@@ -4,3 +4,4 @@
 *.pem
 *.key
 __pycache__/
+tests/acme/.out/
