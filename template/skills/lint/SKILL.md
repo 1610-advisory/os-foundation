@@ -9,20 +9,20 @@ Check the folder you are in: the company root (shared files only, not `areas/`),
 
 ## 1. Run the script
 
-Run `skills/lint/lint.sh` from the company root. In an area, run `../../skills/lint/lint.sh --root .`. Exit 0: no findings. Exit 1: findings, one per line. The flags are in `skills/lint/CLI.md`.
+Run `skills/lint/lint.sh` from the company root. From an area, run `../../skills/lint/lint.sh --root ../..`. It always checks the whole company folder, areas included. Exit 0: no findings. Exit 1: findings, one `finding:` line each. Exit 2: usage. The flags are in `skills/lint/CLI.md`.
 
 What each check means:
 
 1. **Skill links.** `.agents/skills` and `.claude/skills` must exist and point to `../skills`, at the root and in each area. They let every agent find the same skills. Missing or wrong: agents miss skills.
-2. **Skill copies.** On a computer with no link support, setup copies the skills. A copy that differs from `skills/` is drift. Agents then follow old steps.
+2. **Skill copies.** On a computer with no link support, setup copies the skills. A copy that differs from `skills/` is drift. So is an area skill that has the same name as a company skill but other content. Agents then follow old steps.
 3. **Level and switches.** `level:` must be `solo`, `team` or `app`. Each name in `switches:` must be a known switch. `dream` is not a switch: it is an error.
-4. **Rules file size.** Each `AGENTS.md` and `CLAUDE.md` must be under 10,000 characters. Agents may cut a longer file. Move detail into a skill.
+4. **Rules file size.** Each `AGENTS.md`, `CLAUDE.md`, `review-rules.md` and `bots/*/BOT.md` must be under 10,000 characters. Agents may cut a longer file. Move detail into a skill.
 5. **Placeholders.** No `{{...}}` left outside `skills/`. A skill's `{{...}}` is filled when it runs.
-6. **Profile.** [team] A profile (`users/<person>/profile/`) must hold no company name or slug. This is a simple check. The nightly check is the real one.
+6. **Profile.** [team] `users/<person>/profile/PROFILE.md` must not hold the company name or slug. This is a simple check. The nightly check is the real one.
 
-The script may also print two lines that are not findings. Pass each on as it is, in one line:
-- **Newer version.** "A newer os-foundation version exists." Add: "Say 'upgrade the OS' when you want it." Nothing else. Offline, it prints nothing.
-- **Bot offer.** One sentence. It comes once, after two weeks of use, when the `bots` switch is off. Say it once. Do not repeat it. If the person asks about bots before then, give the same sentence.
+The script may also print two lines that are not findings. They do not change the exit code. Pass each on in one line:
+- **`notice:`** a newer os-foundation version exists. Say it, then: "Say 'upgrade the OS' when you want it." Nothing else. Offline, nothing is printed.
+- **`offer:`** the bot offer. One sentence, once, after two weeks of use, when the `bots` switch is off. Say it as printed. Do not repeat it. If the person asks about bots before then, give the same sentence.
 
 Never offer the dream pass. It is not available.
 
@@ -46,4 +46,4 @@ Write `memory/lint/YYYY-MM-DD.md` with:
 - **Missing pages.**
 - **Stats:** notes per folder.
 
-Save it like any note (solo: commit; [team]: the nightly push sends it). Give a three-line summary in chat. Then the version line and the bot sentence, if the script printed them.
+Save it like any note (solo: commit; [team]: the nightly push sends it). Give a three-line summary in chat. Then the `notice:` and `offer:` lines, if the script printed them.

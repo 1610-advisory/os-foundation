@@ -43,8 +43,9 @@ Read `level:` in `company-profile.md`. At `solo`, skip this step: the area stays
 At `team`, the area must also get its place on the host. The scripts do it. Never call the host yourself.
 1. Ask who directs this area (approves its rules changes). Suggest the admin.
 2. Ask who may read and write it. Suggest the fewest people.
-3. Run the command `skills/add-teammate/CLI.md` gives for a new area. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and puts the repo under the ruleset.
-4. Tell the people who got access: their next pull brings the area. Nobody writes to its `main`.
+3. Write an answers file for `skills/add-teammate/team-on.sh` (keys in `skills/add-teammate/CLI.md`): the host lines from `company-profile.md`, `area.{{AREA_SLUG}}.director`, and every person from `people/` with this area added to the `.areas` of those who get it.
+4. Run `skills/add-teammate/team-on.sh --answers <file>` again. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and protects `main`.
+5. Each person who got access runs `skills/add-teammate/join.sh --answers <file>` again (`me=<slug>`). It clones only the new area. Nobody writes to its `main`.
 
 ## 5. Record it
 

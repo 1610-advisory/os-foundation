@@ -19,13 +19,13 @@ The flags are in `skills/remove-teammate/CLI.md`. Use exactly those.
 ## 1. Questions (one at a time)
 
 1. **Who is leaving?** Find their page in `people/`. Say their full name and slug back. Ask the admin to confirm.
-2. **Their bots.** Look in `bots/*/BOT.md` for bots this person owns. None: skip this question. Bots keep running when an owner leaves: they are company infrastructure. Ask who owns them now. Suggest the person's manager. No manager: suggest the admin.
+2. **Their bots.** Look in `bots/*/BOT.md` for bots this person owns. None: skip this question. Bots keep running when an owner leaves: they are company infrastructure. Ask who owns them now. Suggest the `manager:` on the person's page. No manager: suggest the admin.
 
 The script refuses to remove the last admin. If this person is the last admin, help name a new admin first.
 
 ## 2. Run it
 
-Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named a new bot owner.
+Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
 If it stops, read its message. Fix the cause. Run it again.
 
@@ -34,9 +34,9 @@ If it stops, read its message. Fix the cause. Run it again.
 1. **Revoke first.** It removes the person from their teams, from each repo grant and from the org. Their sign-in no longer reaches any company repo.
 2. **Workspace.** It archives their workspace repo. Only the admin can read it. The company keeps it. The admin may turn on deletion.
 3. **People page.** It sets `left:` to today on their page in `people/`. The page stays.
-4. **Bots.** Each bot they owned gets the new owner. Until the new owner is set up, the bot's flags go to the admin.
-5. **By pull request.** The changes to `people/` and `bots/` go in by pull request, like any change.
-6. **Vendor seats.** It prints a list of AI vendor seats from `architecture.md` → Connections.
+4. **Bots.** Each bot they owned gets the new `owner:` in its `BOT.md`.
+5. **By pull request.** The changes to `people/` and `bots/` go on one branch and one pull request. `bots/` holds rules files, so the model review runs. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main`.
+6. **Vendor seats.** It prints one `seat:` line per AI vendor seat listed under Connections in `architecture.md`.
 
 Their notes and action logs stay in the areas. They are company knowledge.
 
@@ -45,7 +45,7 @@ Their notes and action logs stay in the areas. They are company knowledge.
 One line each:
 - Access is gone now.
 - The workspace is archived. Only you can read it.
-- `people/` is marked. Bots have a new owner (name them).
+- `people/` is marked. Bots have a new owner (name them). Give the `pr:` link.
 - **Remove these vendor seats now.** Read the printed list. The admin removes each seat in that vendor's admin page. This is the only lever on vendor memory and chat history. What a vendor keeps after that is the vendor's rule.
 - **Their computer.** The device helper deletes the company folder by itself. Explain the signal below.
 
@@ -67,4 +67,4 @@ A firm, agency or bookkeeper is removed the same way, one company at a time. The
 
 ## Not in v1
 
-App level (the 1610 OS app): the app removes the person and drives the same steps. PHI installs delete the workspace by the company's record policy. Neither is in this script yet.
+App level (the 1610 OS app): the app removes the person and drives the same steps. PHI installs delete the workspace by the company's record policy. Neither is in this script yet: it prints `phi: app-level-not-in-v1`.

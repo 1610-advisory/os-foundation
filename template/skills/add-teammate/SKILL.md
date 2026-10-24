@@ -10,7 +10,7 @@ Access works by repo. A teammate gets the company repo, their own private worksp
 - **Part A** runs on the admin's computer. The first time, it turns on the team level. Later, it adds one person.
 - **Part B** runs on the teammate's computer.
 
-For each part: ask one question at a time, with a suggested answer. Write the answers to a file. Run the script. Explain the result in plain words. The person need not know git.
+For each part: ask one question at a time, with a suggested answer. Write the answers file. Run the script. Explain the result in plain words.
 
 The flags and answers-file keys are in `skills/add-teammate/CLI.md`. Use exactly those. Never put a password, token or key in the answers file or in the chat.
 
@@ -19,7 +19,7 @@ The flags and answers-file keys are in `skills/add-teammate/CLI.md`. Use exactly
 ### A1. Check first
 
 1. Read `level:` in `company-profile.md`. `solo`: go on. `team` or `app`: go to A6.
-2. The company folder must not be in a synced folder: iCloud Drive, Dropbox, OneDrive, Google Drive, Box. The script refuses one. Help move it first.
+2. The script refuses a company folder in a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive, Box). Help move it first.
 
 ### A2. Questions (one at a time)
 
@@ -30,14 +30,14 @@ The flags and answers-file keys are in `skills/add-teammate/CLI.md`. Use exactly
    No organization yet: help make one at github.com/organizations/new on the Team plan. Do not go on with a Free organization.
 3. **Organization name.** The repos belong to the company, not to one person.
 4. **Sign-in.** GitHub: the admin runs `gh auth login` and signs in in the browser. Forgejo: the token stays in the file `CLI.md` names, outside the folder.
-5. **The people.** For each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job).
+5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **The review key.** See A3.
 8. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
 
 ### A3. The review key
 
-Every pull request gets a review by a second AI model before it merges. Ask for one key from a **second AI vendor**. Pay-as-you-go is enough.
+Every pull request gets a review by a second AI model before it merges. Ask for one key from a **second AI vendor**.
 
 Tell the admin plainly how it is used:
 - Only by the review check.
@@ -57,9 +57,9 @@ It asks for the key in a hidden prompt. Never read the key back.
 
 ### A4. Run it
 
-1. Write the answers file.
+1. Write the answers file, one `key=value` per line: `host`, `host_url` (Forgejo only), `org`, `sync_engine`, `admin_slug`; for each person `person.<slug>.name`, `.github`, `.email`, `.role`, `.areas` (comma list), `.manager`; for each area `area.<area>.director`.
 2. Run `skills/add-teammate/team-on.sh --answers <file>`.
-3. When it prints the key command, the admin runs it (A3). Then run `team-on.sh` again. It checks that the secret exists. Not set: it records the weaker review plainly.
+3. It prints `review-command:` with the key command. The admin runs it (A3). Then run `team-on.sh` again. It checks only that the secret exists. It prints `review: key-set`, or `review: weaker` when no key is set.
 4. If it stops, read its message, fix the cause, and run it again. A second run changes nothing that is already done.
 
 ### A5. Explain what turned on
@@ -71,16 +71,16 @@ One line each:
 - **Level.** `company-profile.md` says `level: team`. The team rules in `AGENTS.md` now apply.
 - **OS jobs here.** Pull every 15 minutes. Push at about 2 am after the nightly check. Then the nightly review, the daily "to decide" list and the weekly report.
 - **Leaving.** `remove-teammate` and the device helper. Each person accepts `joining-terms.md` when they join.
-- **Chat apps.** People who use Cowork, ChatGPT or Grok in a chat app get `company-skills`. Upload it once per vendor account (`skills/company-skills/SKILL.md`).
-- **Privacy.** `privacy.md` lists the team places. Run `skills/privacy/privacy.sh` if the script did not.
+- **Chat apps.** Cowork, ChatGPT and Grok users get `company-skills`, uploaded once per vendor account (see its `SKILL.md`).
+- **Privacy.** `privacy.md` now lists the team places.
 
 Then show the **hand-off message** the script printed for each teammate. The admin sends it. It holds no secrets.
 
 ### A6. Add one more person later
 
-Ask A2 item 5 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Show the hand-off message.
+Ask A2 item 5 for the new person, and item 6 if they direct an area. Write the `person.<slug>.*` lines (and `area.<area>.director`). Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
 
-A new area later: run `add-area`. At the team level it gets its repo, team, `CODEOWNERS` and ruleset through the scripts.
+A new area later: run `add-area`.
 
 ## Part B — on the teammate's computer
 
@@ -108,26 +108,26 @@ A new area later: run `add-area`. At the team level it gets its repo, team, `COD
 3. Point to `privacy.md`: every place a copy of company data sits.
 4. Ask: "Do you accept these terms?" Yes: go on. They accept once, now. No: stop, and tell them to talk to the admin.
 
-### B4. Questions and run
+### B4. Run it
 
+Only after a yes in B3.
 1. **Slug.** It is in the hand-off message. Confirm it.
-2. **Agents.** Which AI tools do they use here: Claude Code, Codex, Cursor, Pi?
-3. Write the answers file. It records that they accepted the terms.
-4. From inside the clone, run `skills/add-teammate/join.sh --answers <file>`. It keeps the clone and goes on.
-5. If it stops, read its message, fix the cause, and run it again.
+2. Write the answers file: `me=<slug>`.
+3. From inside the clone, run `skills/add-teammate/join.sh --answers <file>`. It keeps the clone and goes on.
+4. If it stops, read its message, fix the cause, and run it again.
 
 ### B5. Explain the result
 
 One line each:
-- **Folders.** The company folder, their workspace at `users/<slug>/`, and their areas. An area that said "not found" is one they have no access to. That is correct.
+- **Folders.** The company folder, their workspace at `users/<slug>/`, and their areas. A `skipped:` area is one they have no access to. That is correct.
 - **Who they are.** One small file, `~/.config/{{COMPANY_SLUG}}-os/me`, names them. The nightly push checks it against their git sign-in.
 - **OS jobs.** Pull every 15 minutes. Push at about 2 am. A held file stays on this computer, and the next session says why.
-- **Profile.** Their voice and preferences live in `users/<slug>/profile/PROFILE.md`. Each agent they named loads it in every session, read-only. Their AI keeps it current. They never have to.
+- **Profile.** Their voice and preferences live in `users/<slug>/profile/PROFILE.md`. Claude Code, Codex and Pi (and Cursor, if it has a rules file) now load it in every session, read-only. Their AI keeps it current. They never have to.
+- **Terms.** `terms: proposed` means their yes is recorded on their people page, by pull request.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
 - **Changes.** Notes go up each night by themselves. They need not know git.
 
 ## Rules for this skill
 
 - Nobody writes to `main`, the admin included. Never write or say otherwise.
-- Never make a repo public.
 - No step after setup needs a person in the daily path.

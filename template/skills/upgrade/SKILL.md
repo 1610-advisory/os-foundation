@@ -12,10 +12,25 @@ Use this when `lint` says a newer os-foundation version exists, or when someone 
 
 The flags are in `skills/upgrade/CLI.md`. Use exactly those.
 
-## 1. Dry run first
+## 1. Get the script
 
-1. Run `skills/upgrade/upgrade.sh --dry-run` from the company root.
-2. It changes nothing. It prints what will change and what conflicts.
+The script comes with the new os-foundation version.
+1. Read the newest version: the one line at `https://1610.sh/os/version` (for example `v1.0.0`). `unreleased` means there is no version yet: say so and stop.
+2. Clone it to a temporary folder outside the company folder:
+   `git clone --depth 1 --branch <version> https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`
+3. In the steps below, `<upgrade>` means `<temp>/os-foundation/template/skills/upgrade/upgrade.sh`. Always add `--root <company folder> --template <temp>/os-foundation/template`.
+4. Check `git filter-repo --version`. Missing? Help install it (on a Mac, `brew install git-filter-repo`). The logs move needs it.
+
+## 2. Level
+
+Ask: "Does anyone else use this company OS with you?" Suggest no.
+- No: the level is `solo`. Add nothing.
+- Yes: still upgrade at `solo` first. Then run `add-teammate` Part A. It turns on the team level with the v1 parts.
+
+## 3. Dry run
+
+1. Run `<upgrade> --dry-run --root <company folder> --template <template>`.
+2. It changes nothing. It prints `v0:` lines (the old shape it found), `change:` lines and `conflict:` lines.
 3. Read the report to the person in plain words, one line each.
 
 What an upgrade may add or change:
@@ -29,37 +44,39 @@ What it never changes:
 - **Company content.** Notes, people, customers, decisions, meetings, area files, workspaces.
 - **A skill you changed.** A stock skill is replaced only if it is still exactly as shipped. A changed one is listed as a conflict. It stays as it is.
 
-## 2. Conflicts
+## 4. Conflicts
 
 For each conflict, say what it is and what the new version would change. Ask the person, one at a time:
 - **Keep yours** (suggested). The upgrade skips that file.
 - **Take the new one.** Do it later by its own rules change, so it gets a review.
 
-## 3. Apply
+`app-groups: needs Track K` means the folder is linked to the app. Stop and tell the person: 1610 manages that upgrade.
+
+## 5. Apply
 
 Ask once: "Apply this upgrade?" Suggest yes when the report has no surprises.
 
-Run `skills/upgrade/upgrade.sh`.
+Run `<upgrade> --root <company folder> --template <template>`. It makes branch `upgrade/v1` with one merge commit. It never writes to `main` itself.
 
-- **Team level:** it makes one branch and one pull request. Rules files change, so the model review runs. The admin is the author and the code owner, so the model review alone is enough. It merges like any rules change. Nobody writes to `main`, the admin included.
-- **Solo:** it makes one commit on `main`.
+- **Host on** (`host:` is not `none`): it opens one pull request and prints `pr:`. Rules files change, so the model review runs. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main`, the admin included.
+- **Solo, no host:** merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
 
-If the folder is linked to the app, the script reads the groups from the app. If it cannot, it says so: stop and tell the person.
-
-## 4. The old logs branch
+## 6. The old logs branch
 
 If the folder has an old `logs` branch:
-- Its files move to `memory/logs/` on `main`. Their history comes with them.
-- The old branch is kept as a tag named `logs-archive-<date>` for 90 days. Then it may be deleted.
+- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`.
+- The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). Keep it 90 days. Then it may be deleted. The script never deletes it.
 
-## 5. Going back
+## 7. Going back
 
-The whole upgrade is one merge (team) or one commit (solo). One revert undoes it. The script prints the exact command. At the team level the revert also goes by pull request.
+The whole upgrade is one merge commit. `git revert -m 1 <merge commit>` undoes it. With a host, the revert also goes by pull request.
 
-## 6. Tell the person
+## 8. Tell the person
 
 One line each:
 - What changed.
 - What was skipped (conflicts kept as they were).
 - How to go back.
-- Team level: the link to the pull request. It merges when the checks pass.
+- With a host: the link to the pull request. It merges when the checks pass.
+
+Then delete the temporary folder.
