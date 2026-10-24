@@ -8,7 +8,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 HOST="${ROOT}/template/skills/_host/host.sh"
 BASE="${OS_HOST_URL:-http://localhost:3310}"
 CONTAINER=osf-host-forgejo
-IMAGE=codeberg.org/forgejo/forgejo:11.0.11
+IMAGE=data.forgejo.org/forgejo/forgejo:17.0.0
 PASS=0
 FAIL=0
 
@@ -20,6 +20,30 @@ fi
 
 pass() { PASS=$((PASS + 1)); printf 'PASS %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$*"; }
+
+push_branch() {
+  local user=$1 token_file=$2 dir=$3 branch=$4
+  local ask token
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
+  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
+esac
+EOF
+  token=$(tr -d '\r\n' < "$token_file")
+  OS_GIT_USER="$user" OS_GIT_TOKEN="$token" GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0 \
+    git -C "$dir" -c credential.helper= push origin "HEAD:refs/heads/${branch}"
+  rm -f "$ask"
+}
+
+reviewer_names() {
+  local pr=$1
+  api GET "/repos/acme/acme-os/pulls/${pr}" >/dev/null
+  jq -r '[.requested_reviewers[]?.login, .requested_reviewers_teams[]?.name] | map(select(. != null and . != "")) | .[]' "$OUT" 2>/dev/null || true
+}
 
 scrub() {
   local file=$1 extra=${2-}
@@ -47,7 +71,7 @@ scrub() {
 }
 
 cleanup() {
-  rm -f "${TOKEN_FILE:-}" "${MIA_TOKEN_FILE:-}" "${BOT_TOKEN_FILE:-}" "${ERR:-}" "${OUT:-}"
+  rm -f "${TOKEN_FILE:-}" "${MIA_TOKEN_FILE:-}" "${DANA_TOKEN_FILE:-}" "${BOT_TOKEN_FILE:-}" "${ERR:-}" "${OUT:-}"
   if [ "${KEEP:-}" != "1" ]; then
     docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
   fi
@@ -59,7 +83,8 @@ if ! docker info >/dev/null 2>&1; then
   exit 2
 fi
 
-if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+running_image=$(docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)
+if [ "$running_image" != "$IMAGE" ] || ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   docker run -d --name "$CONTAINER" \
     -p 3310:3000 \
@@ -125,6 +150,10 @@ MIA_TOKEN_FILE=$(mktemp)
 chmod 600 "$MIA_TOKEN_FILE"
 fj_admin admin user generate-access-token \
   --username mia --token-name "osf-host-mia-$$" --raw --scopes all > "$MIA_TOKEN_FILE"
+DANA_TOKEN_FILE=$(mktemp)
+chmod 600 "$DANA_TOKEN_FILE"
+fj_admin admin user generate-access-token \
+  --username dana --token-name "osf-host-dana-$$" --raw --scopes all > "$DANA_TOKEN_FILE"
 
 WORK=$(mktemp -d)
 ERR=$(mktemp)
@@ -240,7 +269,9 @@ git -C "$SRC" init -b main >/dev/null
 git -C "$SRC" config user.email ada@example.com
 git -C "$SRC" config user.name "Ada Admin"
 printf '%s\n' "Acme note" > "$SRC/note.txt"
-git -C "$SRC" add note.txt
+printf '%s\n' "Acme rules" > "$SRC/AGENTS.md"
+printf '%s\n' '.*AGENTS.md @dana' > "$SRC/CODEOWNERS"
+git -C "$SRC" add note.txt AGENTS.md CODEOWNERS
 git -C "$SRC" commit -m "Add a note" >/dev/null
 git -C "$SRC" tag v1
 git -C "$SRC" checkout -b feature >/dev/null
@@ -308,7 +339,7 @@ else
 fi
 
 expect_rc 0 protect acme-os --approvals 0 --code-owners
-if jq -e '.code_owners == "unsupported" or .code_owners == "set"' "$OUT" >/dev/null; then
+if jq -e '.code_owners == "request-block"' "$OUT" >/dev/null; then
   pass "protect json"
   printf 'CODE_OWNERS %s\n' "$(jq -r '.code_owners' "$OUT")"
 else
@@ -322,6 +353,7 @@ if jq -e '
   and (.[0].required_approvals == 0)
   and (.[0].status_check_contexts | index("checks / checks (pull_request)"))
   and .[0].apply_to_admins == true
+  and .[0].block_on_official_review_requests == true
 ' "$OUT" >/dev/null; then
   pass "protect api"
 else
@@ -346,6 +378,108 @@ if jq -e '.permission == "write"' "$OUT" >/dev/null; then pass "grant user api";
 expect_rc 0 grant acme-os team:writers write
 api GET /repos/acme/acme-os/teams >/dev/null
 if jq -e '[.[].name] | index("writers")' "$OUT" >/dev/null; then pass "grant team api"; else fail "grant team api"; fi
+
+BODY="${WORK}/body.txt"
+printf '%s\n' "Please review this note." > "$BODY"
+git -C "$SRC" checkout main >/dev/null 2>&1 || git -C "$SRC" checkout main
+git -C "$SRC" checkout -b rules-ada >/dev/null
+printf '%s\n' "Ada changes a rule." >> "$SRC/AGENTS.md"
+git -C "$SRC" add AGENTS.md
+git -C "$SRC" commit -m "Change a rule" >/dev/null
+push_branch ada "$TOKEN_FILE" "$SRC" rules-ada
+rules_sha=$(git -C "$SRC" rev-parse HEAD)
+expect_rc 0 open-pr acme-os --head rules-ada --base main --title "Change a rule" --body-file "$BODY"
+RULES_PR=$(jq -r '.number' "$OUT")
+api POST "/repos/acme/acme-os/statuses/${rules_sha}" \
+  '{"context":"checks / checks (pull_request)","state":"success","description":"ok"}' >/dev/null
+rules_reviewers=$(reviewer_names "$RULES_PR" | tr '\n' ' ')
+if printf '%s' "$rules_reviewers" | grep -q dana; then
+  pass "rules pr requests dana"
+else
+  fail "rules pr requests dana (${rules_reviewers:-none})"
+fi
+set +e
+"$HOST" auto-merge acme-os "$RULES_PR" >/dev/null 2>"$ERR"
+blocked_rc=$?
+set -e
+sleep 2
+api GET "/repos/acme/acme-os/pulls/${RULES_PR}" >/dev/null
+if [ "$(jq -r '.merged' "$OUT")" != "true" ]; then
+  pass "rules pr blocked"
+else
+  fail "rules pr blocked exit ${blocked_rc}"
+fi
+dana_token=$(tr -d '\r\n' < "$DANA_TOKEN_FILE")
+approve_code=$(curl -sS -o "$OUT" -w '%{http_code}' -X POST \
+  -H "Authorization: token ${dana_token}" \
+  -H "Content-Type: application/json" \
+  -d '{"event":"APPROVED","body":"ok"}' \
+  "${BASE}/api/v1/repos/acme/acme-os/pulls/${RULES_PR}/reviews" || true)
+if [ "$approve_code" = "200" ] || [ "$approve_code" = "201" ]; then
+  pass "dana approves rules pr"
+else
+  fail "dana approves rules pr HTTP ${approve_code}"
+fi
+merged=0
+n=0
+while [ "$n" -lt 15 ]; do
+  api GET "/repos/acme/acme-os/pulls/${RULES_PR}" >/dev/null
+  if [ "$(jq -r '.merged' "$OUT")" = "true" ]; then
+    merged=1
+    break
+  fi
+  n=$((n + 1))
+  sleep 1
+done
+if [ "$merged" = "1" ]; then pass "rules pr merges after review"; else fail "rules pr merges after review"; fi
+
+git -C "$SRC" checkout main >/dev/null 2>&1 || git -C "$SRC" checkout main
+ask=$(mktemp)
+chmod 700 "$ask"
+cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
+  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
+esac
+EOF
+OS_GIT_USER=ada OS_GIT_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")" GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0 \
+  git -C "$SRC" -c credential.helper= pull --ff-only origin main >/dev/null
+rm -f "$ask"
+git -C "$SRC" checkout -b rules-dana >/dev/null
+printf '%s\n' "Dana changes a rule." >> "$SRC/AGENTS.md"
+git -C "$SRC" add AGENTS.md
+git -C "$SRC" -c user.email=dana@example.com -c user.name="Dana Director" commit -m "Dana changes a rule" >/dev/null
+push_branch dana "$DANA_TOKEN_FILE" "$SRC" rules-dana
+dana_sha=$(git -C "$SRC" rev-parse HEAD)
+saved_token=$FORGEJO_TOKEN
+FORGEJO_TOKEN=$(tr -d '\r\n' < "$DANA_TOKEN_FILE")
+expect_rc 0 open-pr acme-os --head rules-dana --base main --title "Dana changes a rule" --body-file "$BODY"
+DANA_PR=$(jq -r '.number' "$OUT")
+FORGEJO_TOKEN=$saved_token
+api POST "/repos/acme/acme-os/statuses/${dana_sha}" \
+  '{"context":"checks / checks (pull_request)","state":"success","description":"ok"}' >/dev/null
+dana_reviewers=$(reviewer_names "$DANA_PR" | tr '\n' ' ')
+if printf '%s' "$dana_reviewers" | grep -q dana; then
+  fail "author rules pr requested dana (${dana_reviewers})"
+else
+  pass "author rules pr does not request dana"
+fi
+expect_rc 0 auto-merge acme-os "$DANA_PR"
+merged=0
+n=0
+while [ "$n" -lt 15 ]; do
+  api GET "/repos/acme/acme-os/pulls/${DANA_PR}" >/dev/null
+  if [ "$(jq -r '.merged' "$OUT")" = "true" ]; then
+    merged=1
+    break
+  fi
+  n=$((n + 1))
+  sleep 1
+done
+if [ "$merged" = "1" ]; then pass "author rules pr merges"; else fail "author rules pr merges (${dana_reviewers:-none})"; fi
+git -C "$SRC" checkout main >/dev/null 2>&1 || true
+
 expect_rc 0 revoke acme-os dana
 api GET /repos/acme/acme-os/collaborators/dana/permission >/dev/null
 api GET /repos/acme/acme-os/collaborators >/dev/null

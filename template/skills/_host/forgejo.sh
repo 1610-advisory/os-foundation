@@ -45,7 +45,7 @@ FJ_BODY=""
 
 fj_call() {
   local method=$1 path=$2 body=${3-} secret=${4-}
-  local token url out err http code
+  local token url out err http code cfg bodyfile
   token=$(host_forgejo_token)
   url="${OS_HOST_URL%/}/api/v1${path}"
   case "$url" in
@@ -55,25 +55,30 @@ fj_call() {
   esac
   out=$(host_mktemp)
   err=$(host_mktemp)
+  cfg=$(host_mktemp)
+  chmod 600 "$cfg" "$out"
+  {
+    printf '%s\n' "header = \"Authorization: token ${token}\""
+    printf '%s\n' 'header = "Accept: application/json"'
+    printf '%s\n' 'header = "Content-Type: application/json"'
+    printf '%s\n' "url = \"${url}\""
+    printf '%s\n' "request = \"${method}\""
+    printf '%s\n' "output = \"${out}\""
+    printf '%s\n' 'silent'
+    printf '%s\n' 'show-error'
+    printf '%s\n' 'connect-timeout = 10'
+    printf '%s\n' 'max-time = 60'
+    printf '%s\n' 'write-out = "%{http_code}"'
+  } > "$cfg"
+  if [ -n "$body" ]; then
+    bodyfile=$(host_mktemp)
+    chmod 600 "$bodyfile"
+    printf '%s' "$body" > "$bodyfile"
+    printf '%s\n' "data-binary = \"@${bodyfile}\"" >> "$cfg"
+  fi
   code=0
   set +e
-  if [ -n "$body" ]; then
-    http=$(curl -sS --connect-timeout 10 --max-time 60 \
-      -o "$out" -w '%{http_code}' \
-      -X "$method" \
-      -H "Authorization: token ${token}" \
-      -H "Accept: application/json" \
-      -H "Content-Type: application/json" \
-      --data-binary "$body" \
-      "$url" 2>"$err")
-  else
-    http=$(curl -sS --connect-timeout 10 --max-time 60 \
-      -o "$out" -w '%{http_code}' \
-      -X "$method" \
-      -H "Authorization: token ${token}" \
-      -H "Accept: application/json" \
-      "$url" 2>"$err")
-  fi
+  http=$(curl --config "$cfg" 2>"$err")
   code=$?
   set -e
   if [ "$code" -ne 0 ] || [ "$http" = "000" ] || [ -z "$http" ]; then
@@ -179,44 +184,60 @@ fj_code_owner_field() {
 fj_protect_body() {
   local checks_json field=$1
   checks_json=$(host_check_lines "checks / checks (pull_request)" | jq -R . | jq -s 'map(select(length > 0))')
-  if [ -n "$field" ]; then
-    jq -n \
-      --argjson approvals "$APPROVALS" \
-      --argjson checks "$checks_json" \
-      --arg field "$field" \
-      '{
-        branch_name: "main",
-        rule_name: "main",
-        enable_push: false,
-        enable_status_check: true,
-        status_check_contexts: $checks,
-        required_approvals: $approvals,
-        apply_to_admins: true
-      } + {($field): true}'
-  else
-    jq -n \
-      --argjson approvals "$APPROVALS" \
-      --argjson checks "$checks_json" \
-      '{
-        branch_name: "main",
-        rule_name: "main",
-        enable_push: false,
-        enable_status_check: true,
-        status_check_contexts: $checks,
-        required_approvals: $approvals,
-        apply_to_admins: true
-      }'
-  fi
+  jq -n \
+    --argjson approvals "$APPROVALS" \
+    --argjson checks "$checks_json" \
+    --arg field "$field" \
+    '{
+      branch_name: "main",
+      rule_name: "main",
+      enable_push: false,
+      enable_status_check: true,
+      status_check_contexts: $checks,
+      required_approvals: $approvals,
+      apply_to_admins: true,
+      block_on_official_review_requests: true
+    } + (if $field == "" then {} else {($field): true} end)'
 }
 
 fj_team_id() {
-  local name=$1 id
-  if ! fj_call GET "/orgs/${OS_ORG}/teams?limit=50"; then
-    fj_offline
-  fi
-  fj_ok
-  id=$(printf '%s' "$FJ_BODY" | jq -r --arg name "$name" '.[] | select(.name==$name) | .id' | head -n 1)
-  printf '%s' "$id"
+  local name=$1 id page=1 n
+  while true; do
+    if ! fj_call GET "/orgs/${OS_ORG}/teams?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    id=$(printf '%s' "$FJ_BODY" | jq -r --arg name "$name" '.[] | select(.name==$name) | .id' | head -n 1)
+    if [ -n "$id" ]; then
+      printf '%s' "$id"
+      return 0
+    fi
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      return 0
+    fi
+    page=$((page + 1))
+  done
+}
+
+fj_team_permission() {
+  local name=$1 page=1 perm n
+  while true; do
+    if ! fj_call GET "/orgs/${OS_ORG}/teams?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    perm=$(printf '%s' "$FJ_BODY" | jq -r --arg name "$name" '.[] | select(.name==$name) | .permission' | head -n 1)
+    if [ -n "$perm" ]; then
+      printf '%s' "$perm"
+      return 0
+    fi
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      return 0
+    fi
+    page=$((page + 1))
+  done
 }
 
 host_split_grant() {
@@ -330,11 +351,13 @@ cmd_protect() {
     fi
   fi
   fj_ok
-  if [ -n "$field" ]; then
-    jq -nc --arg field "$field" '{ok:true, branch:"main", code_owners:"set", field:$field}'
-  else
-    jq -nc '{ok:true, branch:"main", code_owners:"unsupported", gap:"Forgejo branch protection has no code-owner review field. A person who may merge can drop a code-owner request."}'
-  fi
+  jq -nc --arg field "$field" '{
+    ok: true,
+    branch: "main",
+    code_owners: "request-block",
+    gap: "Forgejo has no require-code-owner-review field. It blocks while an official review request is open. A person who can merge can remove that request.",
+    field: (if $field == "" then null else $field end)
+  }'
 }
 
 cmd_team_create() {
@@ -420,11 +443,17 @@ cmd_grant() {
       fj_offline
     fi
   else
-    local enc
-    enc=$(printf '%s' "$GRANT_WHO" | jq -sRr @uri)
-    if ! fj_call PUT "$(host_repo "$name")/teams/${enc}"; then
+    local id applied
+    id=$(fj_team_id "$GRANT_WHO")
+    [ -n "$id" ] || host_die 2 "not found or no access"
+    applied=$(fj_team_permission "$GRANT_WHO")
+    if [ "$applied" != "$perm" ]; then
+      host_die 3 "Forgejo applies the team permission (${applied}), not a per-repo ${perm}"
+    fi
+    if ! fj_call PUT "/teams/${id}/repos/${OS_ORG}/${name}"; then
       fj_offline
     fi
+    perm=$applied
   fi
   fj_ok
   jq -nc --arg name "$name" --arg who "$POS2" --arg permission "$perm" \
@@ -482,7 +511,7 @@ cmd_archive() {
 }
 
 cmd_open_pr() {
-  local name text body number
+  local name text body number page n
   [ -n "$POS1" ] || host_die 1 "name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_name "name" "$POS1"
@@ -493,12 +522,24 @@ cmd_open_pr() {
   host_require_branch "$BASE"
   name=$POS1
   text=$(host_read_body_file)
-  if ! fj_call GET "$(host_repo "$name")/pulls?state=open&limit=50"; then
-    fj_offline
-  fi
-  fj_ok
-  number=$(printf '%s' "$FJ_BODY" | jq -r --arg head "$HEAD" \
-    '.[] | select(.head.ref==$head) | .number' | head -n 1)
+  number=""
+  page=1
+  while true; do
+    if ! fj_call GET "$(host_repo "$name")/pulls?state=open&limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    number=$(printf '%s' "$FJ_BODY" | jq -r --arg head "$HEAD" \
+      '.[] | select(.head.ref==$head) | .number' | head -n 1)
+    if [ -n "$number" ]; then
+      break
+    fi
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
   if [ -n "$number" ]; then
     body=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
     if ! fj_call PATCH "$(host_repo "$name")/pulls/${number}" "$body"; then
@@ -516,15 +557,31 @@ cmd_open_pr() {
 }
 
 cmd_auto_merge() {
-  local name number body
+  local name number body n msg
   host_need_number
   name=$POS1
   number=$POS2
   body=$(jq -nc '{Do:"merge", merge_when_checks_succeed:true}')
-  if ! fj_call POST "$(host_repo "$name")/pulls/${number}/merge" "$body"; then
-    fj_offline
-  fi
-  fj_ok
+  n=0
+  while true; do
+    if ! fj_call POST "$(host_repo "$name")/pulls/${number}/merge" "$body"; then
+      fj_offline
+    fi
+    if [ "$FJ_HTTP" = "200" ] || [ "$FJ_HTTP" = "201" ] || [ "$FJ_HTTP" = "204" ]; then
+      break
+    fi
+    msg=$(fj_message)
+    if [ "$FJ_HTTP" = "405" ] && [ "$n" -lt 15 ]; then
+      case "$msg" in
+        *"Please try again later"*)
+          n=$((n + 1))
+          sleep 1
+          continue
+          ;;
+      esac
+    fi
+    fj_fail
+  done
   jq -nc --arg name "$name" --argjson number "$number" \
     '{ok:true, name:$name, number:$number, merge:"merge"}'
 }
@@ -615,25 +672,30 @@ cmd_get_token() {
   printf '%s\n' "$token"
 }
 
+fj_purge_one() {
+  local path=$1
+  if ! fj_call POST "$path"; then
+    jq -nc '{purged:false, gap:"host is offline"}'
+    exit 5
+  fi
+  case "$FJ_HTTP" in
+    200|201|204) return 0 ;;
+    401|403) fj_fail ;;
+    404) return 1 ;;
+    *) fj_fail ;;
+  esac
+}
+
 cmd_purge() {
   local name tried
   host_need_name
   name=$POS1
-  tried=""
-  if ! fj_call POST "$(host_repo "$name")/git/gc"; then
-    jq -nc '{purged:false, gap:"host is offline"}'
-    exit 5
-  fi
   tried="/repos/${OS_ORG}/${name}/git/gc"
-  if [ "$FJ_HTTP" = "200" ] || [ "$FJ_HTTP" = "201" ] || [ "$FJ_HTTP" = "204" ]; then
+  if fj_purge_one "$tried"; then
     jq -nc --arg path "$tried" '{purged:true, path:$path}'
     return 0
   fi
-  if ! fj_call POST "/admin/cron/gc_repos"; then
-    jq -nc '{purged:false, gap:"host is offline"}'
-    exit 5
-  fi
-  if [ "$FJ_HTTP" = "200" ] || [ "$FJ_HTTP" = "201" ] || [ "$FJ_HTTP" = "204" ]; then
+  if fj_purge_one "/admin/cron/gc_repos"; then
     jq -nc '{purged:true, path:"/admin/cron/gc_repos", note:"instance cron, not a per-repo purge"}'
     return 0
   fi

@@ -93,11 +93,17 @@ host_profile_raw() {
     }
     !in_fm { next }
     mode == "list" {
+      if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) { next }
       if ($0 ~ /^[[:space:]]*-[[:space:]]*/) {
         item = $0
         sub(/^[[:space:]]*-[[:space:]]*/, "", item)
-        item = unquote(strip(item))
-        print item
+        item = strip(item)
+        if (item !~ /^".*"$/ && item !~ /^['].*[']$/) {
+          sub(/[[:space:]]+#.*$/, "", item)
+          item = strip(item)
+        }
+        item = unquote(item)
+        if (item != "") { print item }
         next
       }
       exit
@@ -115,6 +121,13 @@ host_profile_raw() {
       val = line
       sub(/^[^:]*:[[:space:]]*/, "", val)
       val = strip(val)
+      if (val !~ /^".*"$/ && val !~ /^['].*[']$/) {
+        sub(/[[:space:]]+#.*$/, "", val)
+        val = strip(val)
+      }
+      if (val ~ /^#/) {
+        val = ""
+      }
       if (val == "" || val == "|" || val == ">") {
         mode = "list"
         next
@@ -124,14 +137,15 @@ host_profile_raw() {
         inner = substr(val, 2, length(val) - 2)
         n = split(inner, items, ",")
         for (i = 1; i <= n; i++) {
-          item = unquote(strip(items[i]))
+          item = strip(items[i])
+          if (item !~ /^".*"$/ && item !~ /^['].*[']$/) {
+            sub(/[[:space:]]+#.*$/, "", item)
+            item = strip(item)
+          }
+          item = unquote(item)
           if (item != "") { print item }
         }
         exit
-      }
-      if (val !~ /^["'\''].*["'\'']$/) {
-        sub(/[[:space:]]+#.*$/, "", val)
-        val = strip(val)
       }
       print unquote(val)
       exit

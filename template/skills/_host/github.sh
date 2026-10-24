@@ -154,14 +154,17 @@ host_repo() {
   printf '/repos/%s/%s' "$OS_ORG" "$1"
 }
 
-host_ruleset_body() {
+host_checks_json() {
+  host_check_lines "checks" | jq -R . | jq -s 'map(select(length > 0)) | map({context:.})'
+}
+
+host_main_ruleset_body() {
   local checks_json
   host_require_bin jq
-  checks_json=$(host_check_lines "checks" | jq -R . | jq -s 'map(select(length > 0)) | map({context:.})')
+  checks_json=$(host_checks_json)
   jq -n \
     --argjson approvals "$APPROVALS" \
     --argjson checks "$checks_json" \
-    --argjson code_owners "$( [ "$CODE_OWNERS" = "1" ] && printf 'true' || printf 'false' )" \
     '{
       name: "main",
       target: "branch",
@@ -172,7 +175,7 @@ host_ruleset_body() {
           type: "pull_request",
           parameters: {
             dismiss_stale_reviews_on_push: false,
-            require_code_owner_review: $code_owners,
+            require_code_owner_review: false,
             require_last_push_approval: false,
             required_approving_review_count: $approvals,
             required_review_thread_resolution: false
@@ -189,6 +192,85 @@ host_ruleset_body() {
         {type: "deletion"}
       ]
     }'
+}
+
+host_rules_review_body() {
+  host_require_bin jq
+  jq -n '{
+    name: "rules-review",
+    target: "branch",
+    enforcement: "active",
+    bypass_actors: [
+      {actor_type: "OrganizationAdmin", bypass_mode: "pull_request"}
+    ],
+    conditions: {ref_name: {include: ["refs/heads/main"], exclude: []}},
+    rules: [
+      {
+        type: "pull_request",
+        parameters: {
+          dismiss_stale_reviews_on_push: false,
+          require_code_owner_review: true,
+          require_last_push_approval: false,
+          required_approving_review_count: 0,
+          required_review_thread_resolution: false
+        }
+      }
+    ]
+  }'
+}
+
+host_gh_all() {
+  local path=$1
+  local page=1 all='[]' chunk n sep
+  while true; do
+    sep='?'
+    case "$path" in
+      *'?'*) sep='&' ;;
+    esac
+    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}")
+    n=$(printf '%s' "$chunk" | jq 'if type == "array" then length else 0 end')
+    all=$(jq -n --argjson a "$all" --argjson b "$chunk" 'if ($b|type) == "array" then $a + $b else $a end')
+    if [ "$n" -lt 100 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  printf '%s' "$all"
+}
+
+host_gh_keyed() {
+  local path=$1 key=$2
+  local page=1 all='[]' chunk n sep
+  while true; do
+    sep='?'
+    case "$path" in
+      *'?'*) sep='&' ;;
+    esac
+    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}")
+    n=$(printf '%s' "$chunk" | jq --arg k "$key" '.[$k] | length')
+    all=$(jq -n --argjson a "$all" --argjson b "$chunk" --arg k "$key" '$a + ($b[$k] // [])')
+    if [ "$n" -lt 100 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  printf '%s' "$all"
+}
+
+host_upsert_ruleset() {
+  local repo_name=$1 ruleset_name=$2 body=$3
+  local list existing
+  if host_dry; then
+    host_emit POST "$(host_repo "$repo_name")/rulesets" "$body"
+    return 0
+  fi
+  list=$(host_gh_all "$(host_repo "$repo_name")/rulesets")
+  existing=$(printf '%s' "$list" | jq -r --arg name "$ruleset_name" '.[] | select(.name==$name) | .id' | head -n 1)
+  if [ -n "$existing" ]; then
+    host_gh_ok PUT "$(host_repo "$repo_name")/rulesets/${existing}" "$body" >/dev/null
+  else
+    host_gh_ok POST "$(host_repo "$repo_name")/rulesets" "$body" >/dev/null
+  fi
 }
 
 host_support_text() {
@@ -265,23 +347,17 @@ cmd_repo_access() {
 }
 
 cmd_protect() {
-  local name body
+  local name main_body review_body
   host_need_name
   name=$POS1
-  body=$(host_ruleset_body)
+  main_body=$(host_main_ruleset_body)
+  review_body=$(host_rules_review_body)
+  host_upsert_ruleset "$name" main "$main_body"
+  host_upsert_ruleset "$name" rules-review "$review_body"
   if host_dry; then
-    host_emit POST "$(host_repo "$name")/rulesets" "$body"
     return 0
   fi
-  local list existing
-  list=$(host_gh_ok GET "$(host_repo "$name")/rulesets")
-  existing=$(printf '%s' "$list" | jq -r '.[] | select(.name=="main") | .id' | head -n 1)
-  if [ -n "$existing" ]; then
-    host_gh_ok PUT "$(host_repo "$name")/rulesets/${existing}" "$body" >/dev/null
-  else
-    host_gh_ok POST "$(host_repo "$name")/rulesets" "$body" >/dev/null
-  fi
-  jq -nc --arg name "$name" '{ok:true, name:$name, ruleset:"main"}'
+  jq -nc --arg name "$name" '{ok:true, name:$name, rulesets:["main","rules-review"]}'
 }
 
 cmd_team_create() {
@@ -521,17 +597,17 @@ cmd_pr_status() {
   pr=$(host_gh_ok GET "$(host_repo "$name")/pulls/${number}")
   sha=$(printf '%s' "$pr" | jq -r '.head.sha // empty')
   [ -n "$sha" ] || host_die 3 "pull request has no head"
-  reviews=$(host_gh_ok GET "$(host_repo "$name")/pulls/${number}/reviews")
-  checks=$(host_gh_ok GET "$(host_repo "$name")/commits/${sha}/check-runs")
-  statuses=$(host_gh_ok GET "$(host_repo "$name")/commits/${sha}/status")
+  reviews=$(host_gh_all "$(host_repo "$name")/pulls/${number}/reviews")
+  checks=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/check-runs" check_runs)
+  statuses=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/status" statuses)
   jq -nc --argjson pr "$pr" --argjson reviews "$reviews" --argjson checks "$checks" --argjson statuses "$statuses" '
     {
       state: $pr.state,
       merged: $pr.merged,
       approved: ([$reviews[]?.state] | map(ascii_downcase) | index("approved") != null),
       checks: (
-        [($checks.check_runs // [])[] | {name:.name, state:(.conclusion // .status)}]
-        + [($statuses.statuses // [])[] | {name:.context, state:.state}]
+        [$checks[] | {name:.name, state:(.conclusion // .status)}]
+        + [$statuses[] | {name:.context, state:.state}]
       )
     }'
 }
@@ -607,13 +683,11 @@ cmd_get_token() {
     host_require_bin gh
     set +e
     if [ -n "$GH_HOSTNAME" ]; then
-      gh api --hostname "$GH_HOSTNAME" --method POST \
-        -H "Authorization: Bearer ${jwt}" \
+      GH_TOKEN="$jwt" gh api --hostname "$GH_HOSTNAME" --method POST \
         -H "Accept: application/vnd.github+json" \
         "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
     else
-      gh api --method POST \
-        -H "Authorization: Bearer ${jwt}" \
+      GH_TOKEN="$jwt" gh api --method POST \
         -H "Accept: application/vnd.github+json" \
         "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
     fi

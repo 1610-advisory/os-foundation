@@ -28,7 +28,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `whoami` | `{"login":...}` of the signed-in account |
 | `create-repo <name> [--private] [--source <dir>] [--push]` | Make `<org>/<name>`. With `--source --push`, add remote `origin` and push every branch and tag. The repo is private. |
 | `repo-access <name>` | `{"access":"ok"}` or `{"access":"no-access"}` |
-| `protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]` | GitHub: a repository ruleset on `main`. Pull request required, 0 approvals, code-owner review, required check `checks`, no force-push, no delete. Forgejo: branch protection on `main` with push off, the status check `checks / checks (pull_request)`, and 0 approvals. |
+| `protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]` | Protect `main`. See the rules below. |
 | `team-create <team>` | Create an org team |
 | `team-add <team> <user>` | Add a user to a team |
 | `team-remove <team> <user>` | Remove a user from a team |
@@ -44,6 +44,12 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `get-token [--bot <bot>]` | Print a token for git over HTTPS |
 | `purge-request <name>` | GitHub: print the support-request text. Forgejo: drop unreachable objects where the API allows it. |
 | `delete-repo <name> --yes-test-only` | Tests only. Refuses unless `OS_TEST_MODE=1`. |
+
+## Protect
+
+GitHub writes two repository rulesets. `main` requires a pull request, zero approvals, and the check `checks`. It blocks force-push and deletion. It has no bypass. `rules-review` requires a code-owner review. The org admin role can bypass that one rule on a pull request. The admin's own rules change still needs the green check, but not a second person. A live check of that bypass is Tier B. This layer does not call GitHub.
+
+Forgejo turns push off, requires the status check, and sets `block_on_official_review_requests`. With `CODEOWNERS` committed, Forgejo asks the owner to review a pull request that changes an owned file. The block stops the merge until that review happens. A notes change that touches no owned file can still merge on green checks. The result is `code_owners: request-block`. This is weaker than GitHub: a person who can merge can remove the review request.
 
 ## Tokens
 

@@ -6,6 +6,10 @@ log=${FAKE_GH_LOG:-}
 if [ -n "$log" ]; then
   printf '%s\n' "$*" >> "$log"
 fi
+envlog=${FAKE_GH_ENV:-}
+if [ -n "$envlog" ] && [ -n "${GH_TOKEN:-}" ]; then
+  printf '%s\n' "$GH_TOKEN" > "$envlog"
+fi
 
 joined="$*"
 case "$joined" in

@@ -123,6 +123,42 @@ class ProfileTests(unittest.TestCase):
         )
         self.assertEqual(missing.returncode, 2)
 
+    def test_comment_forms_do_not_leak_into_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "company-profile.md"
+            path.write_text(
+                "---\n"
+                "switches: [] # none yet\n"
+                "areas: [bots, traces] # on\n"
+                "notes: # list\n"
+                "items:\n"
+                "  - bots # keep\n"
+                "\n"
+                "  # skipped\n"
+                "  - traces\n"
+                "---\n"
+            )
+            env = os.environ.copy()
+            for key in ("OS_HOST", "OS_HOST_URL", "OS_ORG", "OS_SYNC_ENGINE"):
+                env.pop(key, None)
+            env["OS_PROFILE"] = str(path)
+
+            def read(key):
+                proc = subprocess.run(
+                    [str(PROFILE), key],
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                return proc.stdout.splitlines()
+
+            self.assertEqual(read("switches"), [])
+            self.assertEqual(read("areas"), ["bots", "traces"])
+            self.assertEqual(read("notes"), [])
+            self.assertEqual(read("items"), ["bots", "traces"])
+
     def test_strips_quotes_and_comments(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "company-profile.md"
@@ -203,25 +239,38 @@ class GithubDryRunTests(unittest.TestCase):
         self.assertEqual(got["url"], "https://support.github.com/contact")
 
     def test_protect_ruleset_shape(self):
-        body = loads((FIXTURES / "protect.jsonl").read_text())[0]["body"]
-        rules = {rule["type"]: rule for rule in body["rules"]}
-        self.assertEqual(body["name"], "main")
-        self.assertEqual(body["enforcement"], "active")
-        self.assertIn("refs/heads/main", body["conditions"]["ref_name"]["include"])
-        pr = rules["pull_request"]["parameters"]
-        self.assertTrue(pr["require_code_owner_review"])
-        self.assertEqual(pr["required_approving_review_count"], 0)
-        checks = rules["required_status_checks"]["parameters"]["required_status_checks"]
-        self.assertEqual(checks, [{"context": "checks"}])
-        self.assertIn("non_fast_forward", rules)
-        self.assertIn("deletion", rules)
+        calls = loads((FIXTURES / "protect.jsonl").read_text())
+        self.assertEqual([call["path"] for call in calls], [
+            "/repos/acme/acme-os/rulesets",
+            "/repos/acme/acme-os/rulesets",
+        ])
+        main = calls[0]["body"]
+        review = calls[1]["body"]
+        main_rules = {rule["type"]: rule for rule in main["rules"]}
+        self.assertEqual(main["name"], "main")
+        self.assertNotIn("bypass_actors", main)
+        self.assertFalse(main_rules["pull_request"]["parameters"]["require_code_owner_review"])
+        self.assertEqual(main_rules["pull_request"]["parameters"]["required_approving_review_count"], 0)
+        self.assertEqual(
+            main_rules["required_status_checks"]["parameters"]["required_status_checks"],
+            [{"context": "checks"}],
+        )
+        self.assertIn("non_fast_forward", main_rules)
+        self.assertIn("deletion", main_rules)
+        self.assertEqual(review["name"], "rules-review")
+        self.assertTrue(review["rules"][0]["parameters"]["require_code_owner_review"])
+        self.assertEqual(review["bypass_actors"], [
+            {"actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}
+        ])
+        self.assertNotIn("actor_id", review["bypass_actors"][0])
 
     def test_check_override_replaces_the_default(self):
         proc = run(["protect", "acme-os", "--check", "lint"], github_env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        body = loads(proc.stdout)[0]["body"]
-        checks = body["rules"][1]["parameters"]["required_status_checks"]
+        calls = loads(proc.stdout)
+        checks = calls[0]["body"]["rules"][1]["parameters"]["required_status_checks"]
         self.assertEqual(checks, [{"context": "lint"}])
+        self.assertEqual(calls[1]["body"]["name"], "rules-review")
 
     def test_ghes_hostname_is_recorded(self):
         proc = run(["whoami"], github_env(OS_HOST_URL="https://git.example.com"))
@@ -308,23 +357,24 @@ class TokenAndUsageTests(unittest.TestCase):
                 f"---\napp_id: 100\ninstallation_id: 200\nkey_path: {key}\n---\n"
             )
             log = root / "gh.log"
+            envlog = root / "gh.env"
             fake = ROOT / "tests" / "host" / "fake-gh.sh"
             env = github_env(HOST_DRY_RUN="", OS_PROFILE=str(root / "company-profile.md"))
-            env["PATH"] = str(fake.parent) + os.pathsep + env.get("PATH", os.environ.get("PATH", ""))
-            # The fake script is not named gh. Put a copy named gh on PATH.
             gh = root / "gh"
             gh.write_text(fake.read_text())
             gh.chmod(0o755)
-            env["PATH"] = str(root) + os.pathsep + env.get("PATH", "")
+            env["PATH"] = str(root) + os.pathsep + env.get("PATH", os.environ.get("PATH", ""))
             env["FAKE_GH_LOG"] = str(log)
+            env["FAKE_GH_ENV"] = str(envlog)
             proc = run(["get-token", "--bot", "helper"], env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(proc.stdout.strip(), "test-install-token")
             self.assertNotIn("PRIVATE KEY", proc.stderr)
             self.assertNotIn(key.read_text().splitlines()[1], proc.stdout + proc.stderr)
             recorded = log.read_text()
-            self.assertIn("Authorization: Bearer ", recorded)
-            jwt = recorded.split("Authorization: Bearer ", 1)[1].split()[0]
+            jwt = envlog.read_text().strip()
+            self.assertNotIn(jwt, recorded)
+            self.assertNotIn("Authorization:", recorded)
             self.assertEqual(jwt.count("."), 2)
             header, payload, sig = jwt.split(".")
             self.assertNotIn(jwt, proc.stdout)
@@ -353,6 +403,36 @@ class TokenAndUsageTests(unittest.TestCase):
             )
             self.assertEqual(verify.returncode, 0, verify.stderr)
             self.assertIn("Verified OK", verify.stdout)
+
+    def test_forgejo_argv_hides_token_and_secret(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "curl.log"
+            curl = root / "curl"
+            curl.write_text((ROOT / "tests" / "host" / "fake-curl.sh").read_text())
+            curl.chmod(0o755)
+            token = "fj-argv-token-value"
+            secret = "secret-value-not-in-argv"
+            env = {
+                "OS_HOST": "forgejo",
+                "OS_HOST_URL": "http://127.0.0.1:9",
+                "OS_ORG": "acme",
+                "OS_SLUG": "acme",
+                "FORGEJO_TOKEN": token,
+                "PATH": str(root) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_CURL_LOG": str(log),
+            }
+            access = run(["repo-access", "acme-os"], env)
+            self.assertNotEqual(access.returncode, 0)
+            argv = log.read_text()
+            self.assertNotIn(token, argv)
+            self.assertNotIn("Authorization", argv)
+            log.write_text("")
+            hidden = run(["set-secret", "OS_REVIEW_KEY"], env, stdin=secret)
+            self.assertNotEqual(hidden.returncode, 0)
+            argv = log.read_text()
+            self.assertNotIn(secret, argv)
+            self.assertNotIn(token, argv)
 
 
 if __name__ == "__main__":
