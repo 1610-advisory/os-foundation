@@ -1,0 +1,11 @@
+[Unit]
+Description=@DESC@ timer
+
+[Timer]
+OnCalendar=*-*-* @HOUR@:@MINUTE@:00
+Persistent=true
+RandomizedDelaySec=@DELAY@
+Unit=@LABEL@.service
+
+[Install]
+WantedBy=timers.target

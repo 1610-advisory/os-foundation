@@ -1,0 +1,10 @@
+[Unit]
+Description=@DESC@
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/bin/bash @SYNC@ @ARG@
+
+[Install]
+WantedBy=default.target
