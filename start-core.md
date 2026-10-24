@@ -54,13 +54,14 @@ You: "Great. Later I can connect one of those — you sign in yourself, and I ne
 
 In this guide, `{{COMPANY_OS}}` means the real folder you and they agree on. Use that path from then on. It is not a placeholder inside the template. Do not write those characters into their files.
 
-Store the company OS where they can open it again, in a folder this session can write. If they already have a folder open for this work, and it is empty or they want it to be the company OS, use that. Otherwise suggest one sensible place and let them change it. On their own computer, `~/{{COMPANY_SLUG}}-os/` is a fine suggestion. One folder. Leave os-foundation as the setup repo.
+Store the company OS where they can open it again, in a folder this session can write. If they already have a folder open for this work, and it is empty or they want it to be the company OS, use that. Otherwise suggest one sensible place and let them change it. On their own computer, `~/{{COMPANY_SLUG}}-os/` is a fine suggestion. One folder. Leave os-foundation as the setup repo. Never build it inside a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive): a sync service can break git. If the path is in one, say so in plain words and suggest a folder outside it.
 
 ```
 {{COMPANY_OS}}/               the company OS: shared knowledge at the root
 ├── AGENTS.md                 the rules every agent reads
 ├── company-profile.md, customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/  inbox/  memory/  skills/  templates/
+├── .agents/skills, .claude/skills   links to skills/, so every agent finds them
 └── areas/                    one folder per area of the business
     ├── marketing/            each area is its own git repo,
     ├── finance/              so access can be split later
@@ -101,13 +102,12 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
        t="${f#template/}"; mkdir -p "$(dirname "$t")"; curl -fsS "https://1610.sh/os/$f" -o "$t"
      done
      ```
-     No shell either? Read each `template/` file from `https://1610.sh/os/{{PATH}}` and write it into the folder yourself.
-2. **Copy** everything in `template/`, hidden files included, into `{{COMPANY_OS}}/` (for example `cp -R {{TEMP}}/os-foundation/template/. "{{COMPANY_OS}}/"`). Copy only `template/`: their folder must not get the os-foundation git history or remote. Do not invent a build script. Copy the template as written, then fill placeholders in the files.
-3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}` (the name they gave you), `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup.
-4. **Start its history.** If `{{COMPANY_OS}}` already has a `.git` folder, keep that history. Do not run `git init` again. If it has none, run `git -C "{{COMPANY_OS}}" init -b main`, then commit everything: `Company OS: start`. This history is local. It is not a mirror of any system they already use, and it does not need GitHub. Then make the session-logs folder: follow `{{COMPANY_OS}}/skills/logs-folder/SKILL.md` → "Make it", from `{{COMPANY_OS}}`.
-5. **Claude Code only:** `mkdir -p "{{COMPANY_OS}}/.claude" && ln -s ../skills "{{COMPANY_OS}}/.claude/skills"`, so the skills show as slash commands. Skip if it fails.
-6. Delete the temporary download.
-7. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`), and the website in `company-profile.md`.
+     No shell either? Read each `template/` file from `https://1610.sh/os/{{PATH}}` and write it into the folder yourself. Then check the two skill links as step 2 says.
+2. **Copy** everything in `template/`, hidden files included, into `{{COMPANY_OS}}/` (for example `cp -R {{TEMP}}/os-foundation/template/. "{{COMPANY_OS}}/"`). Copy only `template/`: their folder must not get the os-foundation git history or remote. Do not invent a build script. Copy the template as written, then fill placeholders in the files. The copy keeps two links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. If either arrived as a plain file (a file-by-file download, or Windows), replace it with the link; if links fail, copy `skills/` there instead.
+3. **Fill the placeholders** you know now, in every file outside `skills/`: `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{OWNER_NAME}}` (the name they gave you), `{{OWNER_ROLE}}`, `{{DATE}}` (today, YYYY-MM-DD), and `{{OS_VERSION}}` (the version you copied: from a git copy, `git -C {{TEMP}}/os-foundation describe --tags --always`; otherwise the one line at `https://1610.sh/os/version`; if neither works, `unknown`). Fill `{{ONE_LINER}}` and `{{AREAS}}` later in setup. Leave `level: solo` as it is.
+4. **Start its history.** If `{{COMPANY_OS}}` already has a `.git` folder, keep that history. Do not run `git init` again. If it has none, run `git -C "{{COMPANY_OS}}" init -b main`, then commit everything: `Company OS: start`. This history is local. It is not a mirror of any system they already use, and it does not need GitHub.
+5. Delete the temporary download.
+6. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`, with `slug:` set to a short lowercase form of their first name and `role: admin`), and the website in `company-profile.md`.
 
 From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit after each phase. If that repo already has a remote, you may push there. Add a new remote only if they ask.
 
@@ -173,7 +173,7 @@ Ask what those files still need. Include what they sell and what people buy firs
    Say "your agent" in that paragraph. Then give the one command from your add-on. That command names the product. With no add-on, name yourself in one line: Pi says Pi.
    - If they ask how to make or improve skills, explain that Anthropic's creator is already included at `skills/skill-creator/`; `skills/write-skill/` handles company placement/review. Point to `memory/skill-resources.md`. No need to install a whole collection or run evaluations during setup.
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
-3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `{{COMPANY_OS}}` as a vault. If they sync it with iCloud, Dropbox, or Obsidian Sync, tell them not to also push it to GitHub: one way to sync per folder.
-4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) Commit.
-5. **Log it.** Append to `memory/logs/YYYY-MM-DD-{{OWNER_SLUG}}.md`: what was built, what is open (areas not yet added, tools not yet connected). Commit it on the logs branch (`skills/logs-folder/` → "Write a log").
-6. **Wrap up** in three to five lines: what they have now, and the single best next step.
+3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `{{COMPANY_OS}}` as a vault. Do not sync the folder with iCloud, Dropbox, OneDrive, Google Drive or Obsidian Sync: git keeps the history, and a sync service can break it.
+4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) If `skills/privacy/privacy.sh` exists, run it once from `{{COMPANY_OS}}`; it writes `privacy.md`. Commit.
+5. **Log it.** Append to `memory/logs/YYYY-MM-DD-{{OWNER_SLUG}}.md` (the owner's `slug:`): what was built, what is open (areas not yet added, tools not yet connected). Commit it on `main` like any file.
+6. **Wrap up** in three to five lines: what they have now, and the single best next step. If `privacy.md` exists, name it in one line: it says where their company knowledge is kept and who can read it.
