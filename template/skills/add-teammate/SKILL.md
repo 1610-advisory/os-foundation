@@ -5,10 +5,7 @@ description: Turn on the team level and give teammates access to the company OS 
 
 # Add a teammate
 
-Access works by repo. A teammate gets the company repo, their own private workspace, and only the area repos they should see.
-
-- **Part A** runs on the admin's computer. The first time, it turns on the team level. Later, it adds one person.
-- **Part B** runs on the teammate's computer.
+Access works by repo. A teammate gets the company repo, their own private workspace, and only the area repos they should see. **Part A** runs on the admin's computer: the first time it turns on the team level; later it adds one person. **Part B** runs on the teammate's computer.
 
 For each part: ask one question at a time, with a suggested answer. Write the answers file. Run the script. Explain the result in plain words.
 
@@ -23,7 +20,7 @@ The flags and answers-file keys are in `skills/add-teammate/CLI.md`. Use exactly
 
 ### A2. Questions (one at a time)
 
-1. **Git host.** Suggest GitHub. A company that runs its own Forgejo may use that.
+1. **Git host.** Suggest GitHub. A company that runs its own Forgejo may use that. Say plainly: on Forgejo the code-owner review is weaker. A person who can merge can remove the review request.
 2. **GitHub plan.** Say this plainly:
    > The team level needs a GitHub organization on the **Team plan** (paid). The Free plan cannot enforce review on private repos. On Free, any change could go into `main` with no check.
 
@@ -47,19 +44,19 @@ Tell the admin plainly how it is used:
 
 No second-vendor key: use a key from the company's own AI vendor. Say plainly: "The review will use a different model from your own vendor. That review is weaker." No key at all: the check fails on every pull request and says how to add one.
 
-**The admin enters the key, never you.** `team-on.sh` prints one command. The admin runs it in their own terminal (in Claude Code: type `!` and then the command):
+**The admin enters the key, never you.** `team-on.sh` prints the command `skills/_host/host.sh set-secret OS_REVIEW_KEY`. It reads the key on stdin. The admin opens their own terminal window in the company folder and runs this line. It asks for the key without showing it:
 
 ```
-skills/_host/host.sh set-secret OS_REVIEW_KEY
+printf 'Review key: '; read -rs k; echo; printf '%s' "$k" | skills/_host/host.sh set-secret OS_REVIEW_KEY; unset k
 ```
 
-It asks for the key in a hidden prompt. Never read the key back.
+Never run it for them. Never read the key back.
 
 ### A4. Run it
 
-1. Write the answers file, one `key=value` per line: `host`, `host_url` (Forgejo only), `org`, `sync_engine`, `admin_slug`; for each person `person.<slug>.name`, `.github`, `.email`, `.role`, `.areas` (comma list), `.manager`; for each area `area.<area>.director`.
+1. Write the answers file, `key=value` lines: `host`, `host_url` (Forgejo), `org`, `sync_engine`, `admin_slug`, `person.<slug>.name|github|email|role|areas|manager`, `area.<area>.director`.
 2. Run `skills/add-teammate/team-on.sh --answers <file>`.
-3. It prints `review-command:` with the key command. The admin runs it (A3). Then run `team-on.sh` again. It checks only that the secret exists. It prints `review: key-set`, or `review: weaker` when no key is set.
+3. It prints `review-command:`. The admin sets the key (A3). Run `team-on.sh` again: it checks only that the secret exists and prints `review: key-set` or `review: weaker`.
 4. If it stops, read its message, fix the cause, and run it again. A second run changes nothing that is already done.
 
 ### A5. Explain what turned on
@@ -78,7 +75,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 item 5 for the new person, and item 6 if they direct an area. Write the `person.<slug>.*` lines (and `area.<area>.director`). Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
+Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
 
 A new area later: run `add-area`.
 
@@ -120,7 +117,7 @@ Only after a yes in B3.
 
 One line each:
 - **Folders.** The company folder, their workspace at `users/<slug>/`, and their areas. A `skipped:` area is one they have no access to. That is correct.
-- **Who they are.** One small file, `~/.config/{{COMPANY_SLUG}}-os/me`, names them. The nightly push checks it against their git sign-in.
+- **Who they are.** `~/.config/{{COMPANY_SLUG}}-os/me` names them. The nightly push checks it against their git sign-in.
 - **OS jobs.** Pull every 15 minutes. Push at about 2 am. A held file stays on this computer, and the next session says why.
 - **Profile.** Their voice and preferences live in `users/<slug>/profile/PROFILE.md`. Claude Code, Codex and Pi (and Cursor, if it has a rules file) now load it in every session, read-only. Their AI keeps it current. They never have to.
 - **Terms.** `terms: proposed` means their yes is recorded on their people page, by pull request.
