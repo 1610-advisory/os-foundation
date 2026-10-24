@@ -5,7 +5,7 @@ description: Turn on the team level and give teammates access to the company OS 
 
 # Add a teammate
 
-Access works by repo. The company folder is one private repo. Each area is its own private repo. Each person gets one private workspace repo. A teammate gets the company repo, their workspace, and only the areas they should see.
+Access works by repo. A teammate gets the company repo, their own private workspace, and only the area repos they should see.
 
 - **Part A** runs on the admin's computer. The first time, it turns on the team level. Later, it adds one person.
 - **Part B** runs on the teammate's computer.
@@ -33,7 +33,7 @@ The flags and answers-file keys are in `skills/add-teammate/CLI.md`. Use exactly
 5. **The people.** For each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **The review key.** See A3.
-8. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`. Codex: `codex exec`. Pi: `pi -p`.
+8. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
 
 ### A3. The review key
 
@@ -67,9 +67,9 @@ It asks for the key in a hidden prompt. Never read the key back.
 One line each:
 - **Repos.** The company folder and each area are private repos on the host, with their history. Each person has a private workspace: only that person, their own AI and the admin can read it.
 - **Review.** Nobody writes to `main`, the admin included. Each change goes by pull request. It merges when the checks pass: secret scan, `lint`, model review.
-- **Rules files** (`AGENTS.md`, `CLAUDE.md`, `skills/`) also need their code owner: the area director, or the admin at the company root. When the code owner is the author, the model review alone is enough. So the admin's own rules change merges on the model review.
+- **Rules files** (`AGENTS.md`, `CLAUDE.md`, `skills/`) also need their code owner: the area director, or the admin at the root. When the code owner is the author, the model review alone is enough, as for the admin's own rules change.
 - **Level.** `company-profile.md` says `level: team`. The team rules in `AGENTS.md` now apply.
-- **OS jobs here.** Pull every 15 minutes. Push each night at about 2 am, after the nightly check. Then the nightly review, the daily "to decide" list and the weekly report.
+- **OS jobs here.** Pull every 15 minutes. Push at about 2 am after the nightly check. Then the nightly review, the daily "to decide" list and the weekly report.
 - **Leaving.** `remove-teammate` and the device helper. Each person accepts `joining-terms.md` when they join.
 - **Chat apps.** People who use Cowork, ChatGPT or Grok in a chat app get `company-skills`. Upload it once per vendor account (`skills/company-skills/SKILL.md`).
 - **Privacy.** `privacy.md` lists the team places. Run `skills/privacy/privacy.sh` if the script did not.
@@ -86,8 +86,8 @@ A new area later: run `add-area`. At the team level it gets its repo, team, `COD
 
 ### B1. Tools and sign-in
 
-1. Check `git --version`. GitHub: also `gh --version`. Missing? Help install them (on a Mac, `brew install git gh`; otherwise the official installers).
-2. GitHub: the teammate runs `gh auth login` and signs in in the browser. Never handle a password or token.
+1. Check `git --version`. GitHub: also `gh --version`. Missing? Help install them (Mac: `brew install git gh`).
+2. GitHub: the teammate runs `gh auth login` and signs in in the browser.
 3. Accept the company's invites on the host.
 
 ### B2. Folder and clone
@@ -121,10 +121,10 @@ A new area later: run `add-area`. At the team level it gets its repo, team, `COD
 One line each:
 - **Folders.** The company folder, their workspace at `users/<slug>/`, and their areas. An area that said "not found" is one they have no access to. That is correct.
 - **Who they are.** One small file, `~/.config/{{COMPANY_SLUG}}-os/me`, names them. The nightly push checks it against their git sign-in.
-- **OS jobs.** Pull every 15 minutes. Push each night at about 2 am. A file the nightly check holds stays on this computer, and the next session says why.
+- **OS jobs.** Pull every 15 minutes. Push at about 2 am. A held file stays on this computer, and the next session says why.
 - **Profile.** Their voice and preferences live in `users/<slug>/profile/PROFILE.md`. Each agent they named loads it in every session, read-only. Their AI keeps it current. They never have to.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
-- **Changes.** Notes go up each night by themselves. A rules change goes to its owner. They need not know git.
+- **Changes.** Notes go up each night by themselves. They need not know git.
 
 ## Rules for this skill
 
