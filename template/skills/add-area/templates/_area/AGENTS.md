@@ -2,22 +2,26 @@
 
 This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its own git repo, so only people with access to this area have it on their computer.
 
+**Company skills are in `../../skills/`.** If that folder is missing, read them from the company repo on the host (`{{COMPANY_SLUG}}-os`, folder `skills/`).
+
 ## Must-have rules (every agent, every session)
 
-- **One company only.** Use only files inside `~/{{COMPANY_SLUG}}-os/`. Never read or copy from another company's folder.
-- **Sharing is a person's choice.** Never move facts from this area into the shared company files (`../../`) on your own. When a person asks to share something, do it (say once if it looks sensitive); a teammate's share goes to the admin as a pull request.
-- **No secrets.** No passwords, API keys, or tokens in any file. Connections use each tool's own sign-in.
+- **Level first.** Read `level:` and `switches:` in `../../company-profile.md`. Skip rules for a higher level or a switch that is off. **[team]** marks a rule for `team` and `app`.
+- **One company only.** Use only this company's folder (`../../`). Never read or copy from another company's folder.
+- **No secrets.** No passwords, API keys or tokens in any file. Connections use each tool's own sign-in.
+- **No personal-life facts** in any file. Private sources (DMs, a personal mailbox, 1:1s, HR, pay) stay in the person's workspace. Only plain facts go here: no quotes, no "X said in a DM".
+- **Sharing up is a person's choice.** Move facts from this area into the shared company files (`../../`) only when a person asks.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
-- **Ask first** before you send, post, publish, pay, or delete anything outside this folder.
+- **Ask first** before you send, post, publish, pay or delete anything outside this folder.
+- **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive).
 
 ## Start of a session
 
-Read these if your agent did not load them already:
-
-1. `../../AGENTS.md` — the company rules (layout, skills, memory, review).
-2. `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
-3. Recent work: if there is a GitHub remote, pull the logs here and at the company root (`git -C memory/logs pull -q`, `git -C ../../memory/logs pull -q`). Skim the last two or three days of logs here and in `../../memory/logs/`.
-4. `../../company-profile.md`, and any other shared file the task needs (`customers.md`, `offers.md`, `voice.md`, `people/`).
+1. [team] Run `../../skills/sync/sync.sh pull`, then `../../skills/sync/sync.sh status`. Tell the person about each held file and its reason.
+2. Read `../../AGENTS.md` if your agent did not load it: the company rules.
+3. Read `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
+4. Skim the last three days of `memory/logs/` here and in `../../memory/logs/`.
+5. Read `../../company-profile.md` and any shared file the task needs.
 
 ## What this area does
 
@@ -25,7 +29,7 @@ Read these if your agent did not load them already:
 
 ## Skills
 
-Area skills live in `skills/` here. Company skills live in `../../skills/` (ingest, connect-tool, write-skill, lint, suggest, logs-folder): read and follow those files the same way.
+Area skills live in `skills/` here. Company skills live in `../../skills/`: read and follow them the same way.
 
 | Skill | Use when someone says |
 |---|---|
@@ -33,11 +37,20 @@ Area skills live in `skills/` here. Company skills live in `../../skills/` (inge
 
 ## Folders
 
-- `inbox/` — capture for this area only. "Process the inbox" here files it into this area.
-- `meetings/` — meetings only this area should see.
-- `memory/` — how to work in this area. Session logs: `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md`, on the `logs` branch (`../../skills/logs-folder/`).
-- `skills/` — this area's SOPs.
+- `inbox/`: capture for this area only.
+- `meetings/`: meetings only this area should see.
+- `memory/`: how to work in this area.
+- `memory/logs/YYYY-MM-DD-<person>.md`: session logs, one file per person per day. `<person>` is the `slug:` on their page in `../../people/`. Write what was done and what is open. Never summarize private content.
+- `skills/`: this area's skills.
+
+## Approval tiers [team]
+
+The company table applies (`../../AGENTS.md`, section 6). This area may tighten it. It may never loosen it. Tighter rules for this area:
+
+| Tier | What | Approver |
+|---|---|---|
+| (none yet) | | |
 
 ## Changes and review
 
-Same as the company rules: the admin commits directly; everyone else opens a pull request; session logs go on the `logs` branch in `memory/logs/`, committed directly.
+Same as the company rules. Solo: commit to `main`, logs included. [team]: nobody writes to `main`. Notes and logs go on the standing PR through `sync`. Rules files (`AGENTS.md`, `CLAUDE.md`, `skills/`) go by their own PR, and the area director approves.

@@ -34,7 +34,7 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 ├── customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/
 ├── inbox/                    drop anything here; the agent files it
-├── memory/                   what the agent learned about working here (session logs on their own branch)
+├── memory/                   what the agent learned about working here, plus per-person session logs
 ├── skills/                   your SOPs, written down for the agent
 └── areas/                    one folder per area of the business
     ├── marketing/
