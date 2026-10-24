@@ -130,10 +130,18 @@ Secrets are scrubbed before upload. The v1 target is the folder `OS_TRACES_TARGE
 ```
 skills/sync/secret-scan.sh --staged
 skills/sync/secret-scan.sh --range <a>..<b>
-skills/sync/secret-scan.sh --files <file>...
+skills/sync/secret-scan.sh --files -- <file>...
 ```
 
-Exit 0 is clean. Exit 1 is a hit. The line is `file:line:rule`. The value is not printed. Exit 2 is an error.
+Paths are separate arguments. They are not split or globbed. Exit 0 is clean. Exit 1 is a hit. The line is `file:line:rule`. The value is not printed. Exit 2 is an error. `--files` with no paths is an error. A missing path, a directory, or a symlink is an error.
+
+On push, a deleted file is not scanned. There is nothing to read. A symlink or a directory in the change list is a scan error: that repo pushes nothing.
+
+## What is checked
+
+The change list is the working tree plus any file that differs from `origin/main`, including a local commit. A rename is a delete of the old path and an add of the new path. The new path is scanned and checked. Only approved paths are committed. The commit is built from `origin/main`, not from the index, so a staged file that was not approved is not published.
+
+A binary file is held. The reason is `binary file: add it by hand with a pull request`. It is not sent to the engine. Images under `assets/` with the suffix `png`, `jpg`, `jpeg`, `gif`, or `webp` are the exception. Those go to the engine.
 
 If `gitleaks` is on `PATH`, the script uses it. Otherwise it uses bundled patterns and an entropy check. `OS_SECRET_SCAN=bundled` forces the bundled scan. `OS_SECRET_SCAN=gitleaks` forces gitleaks.
 

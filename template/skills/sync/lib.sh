@@ -133,12 +133,25 @@ sync_log() {
   printf '%s %s\n' "$(sync_now)" "$*" >> "$SYNC_LOG"
 }
 
+sync_lock_take() {
+  local dir=$1
+  local got
+  if ! mkdir "$dir" 2>/dev/null; then
+    return 1
+  fi
+  printf '%s\n' "$$" > "$dir/pid"
+  got=$(cat "$dir/pid" 2>/dev/null || true)
+  if [ "$got" != "$$" ]; then
+    return 1
+  fi
+  SYNC_LOCK_DIR=$dir
+  return 0
+}
+
 sync_lock() {
   local dir pid
   dir="$SYNC_STATE/lock"
-  if mkdir "$dir" 2>/dev/null; then
-    printf '%s\n' "$$" > "$dir/pid"
-    SYNC_LOCK_DIR=$dir
+  if sync_lock_take "$dir"; then
     return 0
   fi
   pid=$(cat "$dir/pid" 2>/dev/null || true)
@@ -146,9 +159,9 @@ sync_lock() {
     sync_die 1 "another sync is running"
   fi
   rm -rf "$dir"
-  mkdir "$dir"
-  printf '%s\n' "$$" > "$dir/pid"
-  SYNC_LOCK_DIR=$dir
+  if ! sync_lock_take "$dir"; then
+    sync_die 1 "another sync is running"
+  fi
 }
 
 sync_me() {

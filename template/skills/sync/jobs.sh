@@ -232,7 +232,7 @@ sync_load_jobs() {
 }
 
 cmd_uninstall_jobs() {
-  local platform dir f safe
+  local platform dir f safe label
   platform=$(sync_job_platform)
   dir=$(sync_job_dir)
   safe=$(printf '%s' "$SYNC_SLUG" | tr -c 'a-z0-9-' '-')
@@ -241,6 +241,11 @@ cmd_uninstall_jobs() {
     macos)
       for f in "$dir"/com.osfoundation."${safe}".*.plist; do
         [ -f "$f" ] || continue
+        label=$(plutil -extract Label raw "$f" 2>/dev/null || true)
+        case "$label" in
+          "com.osfoundation.${safe}."*) ;;
+          *) continue ;;
+        esac
         if [ "${OS_JOBS_LOAD:-}" = "1" ]; then
           launchctl bootout "gui/$(id -u)" "$f" 2>/dev/null || launchctl unload -w "$f" 2>/dev/null || true
         fi
@@ -249,14 +254,14 @@ cmd_uninstall_jobs() {
       done
       ;;
     linux)
-      for f in "$dir"/osfoundation-*.service "$dir"/osfoundation-*.timer; do
+      for f in "$dir"/osfoundation-"${safe}"-*.service "$dir"/osfoundation-"${safe}"-*.timer; do
         [ -f "$f" ] || continue
         rm -f "$f"
         printf '%s\n' "$f"
       done
       ;;
     windows)
-      for f in "$dir"/osfoundation-*.xml; do
+      for f in "$dir"/osfoundation-"${safe}"-*.xml; do
         [ -f "$f" ] || continue
         rm -f "$f"
         printf '%s\n' "$f"

@@ -72,11 +72,34 @@ sync_identity() {
 sync_file_diff() {
   local repo=$1
   local path=$2
-  if git -C "$repo" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-    git -C "$repo" diff --no-color HEAD -- "$path" || true
-  else
-    git -C "$repo" diff --no-color --no-index -- /dev/null "$path" || true
+  if [ ! -f "$repo/$path" ] || [ -L "$repo/$path" ]; then
+    return 0
   fi
+  if git -C "$repo" cat-file -e "origin/main:$path" >/dev/null 2>&1; then
+    git -C "$repo" diff --no-color origin/main -- "$path" || true
+    return 0
+  fi
+  git -C "$repo" diff --no-color --no-index -- /dev/null "$repo/$path" || true
+}
+
+sync_is_binary() {
+  local path=$1
+  local raw filtered
+  [ -f "$path" ] || return 1
+  [ -L "$path" ] && return 1
+  raw=$(wc -c < "$path" | tr -d ' ')
+  filtered=$(tr -d '\000' < "$path" | wc -c | tr -d ' ')
+  [ "$raw" != "$filtered" ]
+}
+
+# Images under assets/ may go to the engine. Other binary files are held.
+sync_binary_allowed() {
+  local path=$1
+  case "$path" in
+    assets/*.png|assets/*.jpg|assets/*.jpeg|assets/*.gif|assets/*.webp) return 0 ;;
+    */assets/*.png|*/assets/*.jpg|*/assets/*.jpeg|*/assets/*.gif|*/assets/*.webp) return 0 ;;
+  esac
+  return 1
 }
 
 sync_engine_one() {
@@ -113,29 +136,51 @@ sync_engine_one() {
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || return "$rc"
-  n=$(grep -c '^{' "$out" || true)
+  n=$(awk 'NF { c++ } END { print c + 0 }' "$out")
   [ "$n" = "1" ] || return 2
-  line=$(grep '^{' "$out")
-  printf '%s' "$line" | jq -e '(.decision == "commit" or .decision == "hold") and (.reason | type == "string")' >/dev/null
+  line=$(awk 'NF { print; exit }' "$out")
+  printf '%s' "$line" | jq -e '
+    type == "object" and
+    (.decision | type == "string") and
+    (.decision == "commit" or .decision == "hold") and
+    (.reason | type == "string") and
+    (.message | type == "string")
+  ' >/dev/null || return 2
   printf '%s\n' "$line"
 }
 
 sync_scan_files() {
   local list=$1
   local hits=$2
-  local scanner path
+  local scanner path rc out err
   scanner="$SYNC_DIR/secret-scan.sh"
   : > "$hits"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    [ -f "$path" ] || continue
-    set +e
-    "$scanner" --files "$path" >> "$hits"
-    rc=$?
-    set -e
-    if [ "$rc" -eq 2 ]; then
+    if [ ! -e "$path" ]; then
+      continue
+    fi
+    if [ -L "$path" ] || [ -d "$path" ] || [ ! -f "$path" ]; then
+      echo "secret-scan: not a regular file" >&2
       return 2
     fi
+    err=$(sync_mktemp)
+    set +e
+    out=$("$scanner" --files -- "$path" 2>"$err")
+    rc=$?
+    set -e
+    case "$rc" in
+      0) ;;
+      1)
+        if ! printf '%s\n' "$out" | grep -q ':[0-9][0-9]*:[A-Za-z0-9_-][A-Za-z0-9_-]*$'; then
+          return 2
+        fi
+        printf '%s\n' "$out" >> "$hits"
+        ;;
+      *)
+        return 2
+        ;;
+    esac
   done < "$list"
   if [ -s "$hits" ]; then
     return 1
@@ -209,67 +254,115 @@ sync_commit_author() {
   printf '%s\n%s\n' "$name" "$email"
 }
 
+sync_apply_fail() {
+  local repo=$1
+  local tmp=$2
+  local id=$3
+  local why=$4
+  if [ -n "$tmp" ]; then
+    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+  fi
+  sync_log "push fail ${id} ${why}"
+  return 1
+}
+
+# Called from 'if !', so set -e does not stop this function. Check every step.
 sync_apply_commit() {
   local repo=$1
   local id=$2
   local kind=$3
   local files=$4
   local message=$5
-  local me ref tmp author name email path n
+  local me ref tmp author name email path n rc sha from to name_on_host number
   me=$(sync_me)
   n=$(wc -l < "$files" | tr -d ' ')
   [ "$n" -gt 0 ] || return 0
   author=$(sync_commit_author)
   name=$(printf '%s\n' "$author" | head -n 1)
   email=$(printf '%s\n' "$author" | tail -n 1)
-  if [ "$kind" = "workspace" ]; then
-    while IFS= read -r path; do
-      [ -n "$path" ] || continue
-      if [ -f "$repo/$path" ]; then
-        git -C "$repo" add -- "$path"
-      else
-        git -C "$repo" rm --cached -- "$path" >/dev/null 2>&1 || git -C "$repo" add -u -- "$path"
-      fi
-    done < "$files"
-    git -C "$repo" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
-      commit -F "$message" >/dev/null
-    sync_push_ref "$repo" "refs/heads/main" 0
-    return 0
-  fi
-  if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
-    sync_log "push fail ${id} could not reach origin"
+  tmp=""
+  sync_git "$repo" fetch origin >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$repo" "" "$id" "could not reach origin"
     return 1
   fi
   tmp=$(mktemp -d)
   chmod 700 "$tmp"
-  git -C "$repo" worktree add --detach "$tmp" origin/main >/dev/null
+  git -C "$repo" worktree add --detach "$tmp" origin/main >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$repo" "$tmp" "$id" "worktree"
+    return 1
+  fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if [ -f "$repo/$path" ]; then
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ]; then
       mkdir -p "$tmp/$(dirname "$path")"
       cp "$repo/$path" "$tmp/$path"
+      rc=$?
+      if [ "$rc" -ne 0 ]; then
+        sync_apply_fail "$repo" "$tmp" "$id" "copy"
+        return 1
+      fi
     else
       rm -f "$tmp/$path"
     fi
   done < "$files"
-  git -C "$tmp" add -A
-  git -C "$tmp" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
-    commit -F "$message" >/dev/null
-  ref="refs/heads/sync/${me}"
-  if ! sync_push_ref "$tmp" "$ref" 1; then
-    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true
-    sync_log "push fail ${id} could not reach origin"
+  if [ -n "${SYNC_RENAMES:-}" ] && [ -f "$SYNC_RENAMES" ]; then
+    while IFS=$(printf '\t') read -r from to; do
+      [ -n "$to" ] || continue
+      if grep -Fxq "$to" "$files"; then
+        rm -f "$tmp/$from"
+      fi
+    done < "$SYNC_RENAMES"
+  fi
+  git -C "$tmp" add -A >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$repo" "$tmp" "$id" "add"
     return 1
   fi
-  git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true
-  local name_on_host number
-  name_on_host=$(sync_remote_name "$repo") || return 1
+  git -C "$tmp" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
+    commit -F "$message" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$repo" "$tmp" "$id" "commit"
+    return 1
+  fi
+  if [ "$kind" = "workspace" ]; then
+    sync_push_ref "$tmp" "refs/heads/main" 0 >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
+      return 1
+    fi
+    sha=$(git -C "$tmp" rev-parse HEAD)
+    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+    git -C "$repo" reset --mixed "$sha" >/dev/null 2>&1 || true
+    return 0
+  fi
+  ref="refs/heads/sync/${me}"
+  sync_push_ref "$tmp" "$ref" 1 >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
+    return 1
+  fi
+  git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+  tmp=""
+  name_on_host=$(sync_remote_name "$repo") || {
+    sync_log "push fail ${id} could not open a pull request"
+    return 1
+  }
   number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" | jq -r '.number // empty')
   if [ -z "$number" ]; then
     sync_log "push fail ${id} could not open a pull request"
     return 1
   fi
-  if ! "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null; then
+  "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
     sync_log "push fail ${id} auto-merge"
     return 1
   fi
@@ -289,9 +382,13 @@ sync_push_one() {
     *) kind=root ;;
   esac
   changed=$(sync_mktemp)
-  (
-    cd "$repo" && sync_changed_names "$repo"
-  ) > "$changed" || true
+  SYNC_RENAMES=$(sync_mktemp)
+  sync_changed_names "$repo" > "$changed" || true
+  sync_rename_pairs "$repo" > "$SYNC_RENAMES" || true
+  if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    git -C "$repo" diff --name-only origin/main HEAD >> "$changed" || true
+  fi
+  sort -u "$changed" -o "$changed"
   if [ ! -s "$changed" ]; then
     return 0
   fi
@@ -337,6 +434,16 @@ sync_push_one() {
     if [ "$kind" != "workspace" ] && sync_is_rules "$path"; then
       sync_hold_line "$id" "$path" "$RULES_REASON" >> "$added"
       sync_log "push hold ${id} ${path} rules"
+      continue
+    fi
+    if [ -f "$repo/$path" ] && sync_is_binary "$repo/$path" && ! sync_binary_allowed "$path"; then
+      sync_hold_line "$id" "$path" "binary file: add it by hand with a pull request" >> "$added"
+      sync_log "push hold ${id} ${path} binary"
+      continue
+    fi
+    if [ ! -e "$repo/$path" ]; then
+      printf '%s\n' "$path" >> "$commit_files"
+      printf '%s\n' "remove ${path}" >> "$messages"
       continue
     fi
     diff=$(sync_mktemp)
@@ -413,7 +520,7 @@ cmd_propose() {
     [ -n "$path" ] || continue
     set -- "$@" "$path"
   done < "$files"
-  (cd "$SYNC_ROOT" && "$SYNC_DIR/secret-scan.sh" --files "$@") >/dev/null
+  (cd "$SYNC_ROOT" && "$SYNC_DIR/secret-scan.sh" --files -- "$@") >/dev/null
   rc=$?
   set -e
   if [ "$rc" -eq 1 ]; then

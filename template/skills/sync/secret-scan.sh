@@ -6,10 +6,11 @@ usage() {
   cat << 'EOF'
 Usage: secret-scan.sh --staged
        secret-scan.sh --range <a>..<b>
-       secret-scan.sh --files <file>...
+       secret-scan.sh --files -- <file>...
 
 Exit 0 is clean. Exit 1 is a hit. The line is file:line:rule.
 Exit 2 is an error. The value is never printed.
+--files with no paths is an error. A missing path is an error.
 
 Uses gitleaks when it is on PATH, unless OS_SECRET_SCAN=bundled.
 OS_SECRET_SCAN=gitleaks forces gitleaks.
@@ -26,7 +27,7 @@ fi
 
 mode=""
 range=""
-files=""
+file_count=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,13 +44,10 @@ while [ $# -gt 0 ]; do
     --files)
       mode=files
       shift
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          --*) break ;;
-        esac
-        files="${files} ${1}"
+      if [ "${1:-}" = "--" ]; then
         shift
-      done
+      fi
+      break
       ;;
     *)
       echo "secret-scan: unknown argument" >&2
@@ -73,28 +71,51 @@ trap cleanup EXIT
 
 add_file() {
   local f=$1
-  [ -f "$f" ] || return 0
+  case "$f" in
+    *$'\n'*)
+      echo "secret-scan: path has a newline" >&2
+      exit 2
+      ;;
+  esac
+  if [ ! -e "$f" ] || [ -L "$f" ] || [ ! -f "$f" ]; then
+    return 1
+  fi
   printf '%s\n' "$f" >> "$scan_list"
+  return 0
 }
 
 case "$mode" in
   staged)
-    git diff --cached --name-only -z | while IFS= read -r -d '' f; do
-      add_file "$f"
-    done
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] || continue
+      add_file "$f" || true
+    done < <(git diff --cached --name-only -z)
     ;;
   range)
-    git diff --name-only -z "$range" | while IFS= read -r -d '' f; do
-      add_file "$f"
-    done
+    while IFS= read -r -d '' f; do
+      [ -n "$f" ] || continue
+      add_file "$f" || true
+    done < <(git diff --name-only -z "$range")
     ;;
   files)
-    # shellcheck disable=SC2086
-    for f in $files; do
-      add_file "$f"
+    if [ $# -eq 0 ]; then
+      echo "secret-scan: no files" >&2
+      exit 2
+    fi
+    for f in "$@"; do
+      file_count=$((file_count + 1))
+      if ! add_file "$f"; then
+        echo "secret-scan: not a regular file" >&2
+        exit 2
+      fi
     done
     ;;
 esac
+
+if [ "$mode" = "files" ] && [ "$file_count" -eq 0 ]; then
+  echo "secret-scan: no files" >&2
+  exit 2
+fi
 
 if [ ! -s "$scan_list" ]; then
   exit 0

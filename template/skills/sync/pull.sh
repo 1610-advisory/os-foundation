@@ -9,19 +9,47 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
+# One parser for pull and push. -z rename is XY <to>\0<from>\0.
+# Prints one path per line. A rename prints the to path, then the from path.
 sync_changed_names() {
   local repo=$1
-  local line path
+  local line xy path from
   while IFS= read -r -d '' line; do
     [ -n "$line" ] || continue
+    xy=${line:0:2}
     path=${line:3}
-    case "$path" in
-      *" -> "*) path=${path##* -> } ;;
-    esac
     case "$path" in
       *$'\n'*) continue ;;
     esac
-    printf '%s\n' "$path"
+    case "$xy" in
+      R*|C*)
+        IFS= read -r -d '' from || true
+        printf '%s\n' "$path"
+        if [ -n "$from" ]; then
+          printf '%s\n' "$from"
+        fi
+        ;;
+      *)
+        printf '%s\n' "$path"
+        ;;
+    esac
+  done < <(git -C "$repo" status --porcelain -z -uall)
+}
+
+# Rename pairs: from<TAB>to. Push deletes from only when to is approved.
+sync_rename_pairs() {
+  local repo=$1
+  local line xy path from
+  while IFS= read -r -d '' line; do
+    [ -n "$line" ] || continue
+    xy=${line:0:2}
+    path=${line:3}
+    case "$xy" in
+      R*|C*)
+        IFS= read -r -d '' from || true
+        printf '%s\t%s\n' "$from" "$path"
+        ;;
+    esac
   done < <(git -C "$repo" status --porcelain -z -uall)
 }
 
@@ -137,15 +165,34 @@ sync_record_rewrite() {
   chmod 600 "$SYNC_REWRITE"
 }
 
-sync_carry_nested() {
+sync_move_nested() {
   local repo=$1
   local dest=$2
-  local d
+  local d rel
   for d in "$repo"/areas/* "$repo"/users/*; do
     [ -e "$d/.git" ] || continue
-    mkdir -p "$dest/$(dirname "${d#"$repo/"}")"
-    mv "$d" "$dest/${d#"$repo/"}"
+    rel=${d#"$repo/"}
+    if [ -e "$dest/$rel" ]; then
+      return 1
+    fi
+    mkdir -p "$dest/$(dirname "$rel")"
+    if ! mv "$d" "$dest/$rel"; then
+      return 1
+    fi
   done
+  return 0
+}
+
+sync_reclone_restore() {
+  local repo=$1
+  local old=$2
+  local new=$3
+  sync_move_nested "$repo" "$old" || true
+  if [ -d "$repo" ] && [ -d "$old" ]; then
+    mv "$repo" "$new.fail" 2>/dev/null || true
+    mv "$old" "$repo" 2>/dev/null || true
+    rm -rf "$new.fail"
+  fi
 }
 
 sync_reclone() {
@@ -198,10 +245,33 @@ sync_reclone() {
     mkdir -p "$new/$(dirname "$path")"
     cp "$repo/$path" "$new/$path"
   done < <(sync_changed_names "$repo")
-  sync_carry_nested "$repo" "$new"
+  if ! git -C "$new" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    rm -rf "$new"
+    sync_log "pull fail ${id} reclone"
+    return 1
+  fi
   local old="$parent/.sync-old-$$"
-  mv "$repo" "$old"
-  mv "$new" "$repo"
+  if ! mv "$repo" "$old"; then
+    rm -rf "$new"
+    sync_log "pull fail ${id} reclone"
+    return 1
+  fi
+  if ! mv "$new" "$repo"; then
+    mv "$old" "$repo" || true
+    rm -rf "$new"
+    sync_log "pull fail ${id} reclone"
+    return 1
+  fi
+  if [ "${OS_SYNC_RECLONE_FAIL:-}" = "nested" ]; then
+    sync_reclone_restore "$repo" "$old" "$new"
+    sync_log "pull fail ${id} reclone"
+    return 1
+  fi
+  if ! sync_move_nested "$old" "$repo"; then
+    sync_reclone_restore "$repo" "$old" "$new"
+    sync_log "pull fail ${id} reclone"
+    return 1
+  fi
   rm -rf "$old"
   sync_record_rewrite "$id" "$tag"
   sync_log "pull reclone ${id} ${tag}"
