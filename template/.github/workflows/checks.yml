@@ -1,0 +1,71 @@
+name: checks
+
+# One job. GitHub bills each job as a whole minute.
+# OS_REVIEW_FAKE is test-only. Set that path in the runner environment.
+# This file does not read a verdict from the repository.
+on:
+  pull_request:
+  issue_comment:
+    types: [created]
+
+jobs:
+  checks:
+    runs-on: ${{ vars.OS_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: checkout
+        env:
+          JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          temp="${RUNNER_TEMP:-/tmp}"
+          mkdir -p "${temp}/os-ci"
+          if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
+            trimmed=$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" | sed 's/^[[:space:]]*//')
+            case "$trimmed" in
+              /override*) ;;
+              *)
+                printf '%s\n' yes > "${temp}/os-ci/skip"
+                exit 0
+                ;;
+            esac
+          fi
+          if [ -z "${JOB_TOKEN:-}" ]; then
+            echo "checkout failed: the job token is missing" >&2
+            exit 1
+          fi
+          cd "${GITHUB_WORKSPACE}"
+          git init -q .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          # The token is an environment value. It is not a command argument.
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.extraHeader \
+            GIT_CONFIG_VALUE_0="Authorization: token ${JOB_TOKEN}" \
+            GIT_TERMINAL_PROMPT=0 \
+            git -c credential.helper= fetch --depth 1 origin main
+          git checkout -q --detach FETCH_HEAD
+          cp .github/scripts/checkout.sh "${temp}/checkout.sh"
+          cp .github/scripts/lib.sh "${temp}/lib.sh"
+          (
+            cd "${temp}"
+            bash ./checkout.sh
+          )
+
+      - name: run checks
+        env:
+          JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OS_REVIEW_KEY: ${{ secrets.OS_REVIEW_KEY }}
+          OS_REVIEW_VENDOR: ${{ vars.OS_REVIEW_VENDOR }}
+          OS_REVIEW_MODEL: ${{ vars.OS_REVIEW_MODEL }}
+          OS_REVIEW_KIND: ${{ vars.OS_REVIEW_KIND }}
+        run: |
+          set -euo pipefail
+          temp="${RUNNER_TEMP:-/tmp}"
+          if [ -f "${temp}/os-ci/skip" ] && [ "$(cat "${temp}/os-ci/skip")" = "yes" ]; then
+            exit 0
+          fi
+          bash .github/scripts/run-checks.sh
