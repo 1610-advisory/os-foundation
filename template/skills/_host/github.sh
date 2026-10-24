@@ -360,6 +360,49 @@ cmd_protect() {
   jq -nc --arg name "$name" '{ok:true, name:$name, rulesets:["main","rules-review"]}'
 }
 
+cmd_unprotect() {
+  local name list id ruleset
+  host_need_name
+  name=$POS1
+  if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/rulesets/main"
+    host_emit DELETE "$(host_repo "$name")/rulesets/rules-review"
+    return 0
+  fi
+  list=$(host_gh_all "$(host_repo "$name")/rulesets")
+  for ruleset in main rules-review; do
+    id=$(printf '%s' "$list" | jq -r --arg ruleset "$ruleset" '.[] | select(.name==$ruleset) | .id' | head -n 1)
+    if [ -n "$id" ]; then
+      host_gh_ok DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null
+    fi
+  done
+  jq -nc --arg name "$name" '{ok:true, name:$name}'
+}
+
+cmd_secret_exists() {
+  local name rc
+  [ -n "$POS1" ] || host_die 1 "secret name is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_org
+  case "$POS1" in
+    *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
+  esac
+  name=$POS1
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/actions/secrets/${name}"
+    return 0
+  fi
+  set +e
+  host_gh_call GET "/orgs/${OS_ORG}/actions/secrets/${name}" >/dev/null
+  rc=$?
+  set -e
+  case "$rc" in
+    0) jq -nc '{exists:true}' ;;
+    2) jq -nc '{exists:false}' ;;
+    *) exit "$rc" ;;
+  esac
+}
+
 cmd_team_create() {
   local team body
   [ -n "$POS1" ] || host_die 1 "team is required"
@@ -754,6 +797,8 @@ case "$VERB" in
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;
+  unprotect) cmd_unprotect ;;
+  secret-exists) cmd_secret_exists ;;
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;

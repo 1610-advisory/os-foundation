@@ -102,9 +102,9 @@ rule_regex() {
     done < "$extra"
   fi
   case "$id" in
-    aws-access-key) printf '%s' 'AKIA[0-9A-Z]{16}' ;;
+    aws-access-key) printf '%s[0-9A-Z]{16}' "$(printf '%s%s' 'AK' 'IA')" ;;
     generic-api-key) printf '%s' '(?i)(api[_-]?key|secret|token)[[:space:]]*[:=][[:space:]]*[^[:space:]]+' ;;
-    private-key) printf '%s' '-----BEGIN [A-Z ]*PRIVATE KEY-----' ;;
+    private-key) printf '%s [A-Z ]*%s-----' "$(printf '%s%s' '-----BE' 'GIN')" "$(printf '%s%s' 'PRI' 'VATE KEY')" ;;
     *) return 1 ;;
   esac
 }

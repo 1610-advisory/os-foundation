@@ -36,14 +36,7 @@ The regex goes in a mode-600 file passed to `git filter-repo --replace-text`. It
 5. Push an annotated tag `os-rewrite-<YYYYMMDDHHMMSS>`. The message is `rule: <id>` or `path: <p>`. It does not contain the secret.
 6. Write one audit line in `memory/logs/YYYY-MM-DD-<person>.md` on the rewritten `main`. The line names the repo and the rule id or path. It does not name the secret.
 
-`unprotect` is not in the host verb table yet. Until it is, a protected `main` cannot be force-pushed. The script says so and exits 3. Shape the host team should add:
-
-```
-host.sh unprotect <name>
-{"ok":true}
-```
-
-Same exit codes as the other verbs. It lifts branch protection or the ruleset so a rewrite can force-push.
+`unprotect` lifts what `protect` set. `protect` restores it after the force-push.
 
 ## Exit codes
 

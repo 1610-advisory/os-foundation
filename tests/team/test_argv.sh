@@ -128,7 +128,7 @@ out=$(PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --a
 rc=$?
 set -e
 printf '%s\n' "$out" | grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' || team_fail "missing review command"
-printf '%s\n' "$out" | grep -q 'review: weaker' || team_fail "missing weaker review"
+printf '%s\n' "$out" | grep -q 'no review key: every pull request fails the model review until you add one' || team_fail "missing no-key sentence"
 if grep -F -q -f "$work/token" "$OS_ARGV_LOG"; then
   team_fail "token appeared in team-on argv"
 fi

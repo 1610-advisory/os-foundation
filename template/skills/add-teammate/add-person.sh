@@ -138,4 +138,4 @@ printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$PERSON")"
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
 fi
-os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")"
+os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")" "$HOST_KIND" "$HOST_URL"

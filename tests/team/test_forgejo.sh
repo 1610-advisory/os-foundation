@@ -144,6 +144,8 @@ org=acme
 sync_engine=true
 runner=ubuntu-latest
 company_name=Acme Co
+review_vendor=xai
+review_kind=second-vendor
 person.ada.name=Ada Admin
 person.ada.github=acme-admin
 person.ada.email=ada${at}acme.test
@@ -189,10 +191,15 @@ if ! "$root/template/skills/add-teammate/team-on.sh" --answers "$answers" >"$wor
 fi
 grep -q 'team-on: ok' "$work/team-on.out" || die "team-on did not report ok"
 grep -q 'level: team' "$work/team-on.out" || die "level not reported"
-grep -q 'review: weaker' "$work/team-on.out" || die "weaker review not recorded"
+grep -q 'no review key: every pull request fails the model review until you add one' "$work/team-on.out" || die "no-key sentence missing"
+grep -q '^kind=second-vendor$' "$company/.github/review.conf" || die "review.conf missing"
+grep -q '^vendor=xai$' "$company/.github/review.conf" || die "review vendor missing"
+grep -q '^kind=second-vendor$' "$company/areas/marketing/.github/review.conf" || die "area review.conf missing"
+grep -q '^review:' "$company/company-profile.md" && die "profile must not hold a review line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/team-on.out" || die "review command missing"
 grep -q '^level: team$' "$company/company-profile.md" || die "profile level not team"
 grep -q 'hand-off: mia' "$work/team-on.out" || die "missing hand-off"
+grep -q 'http://localhost:3300/acme/team-os' "$work/team-on.out" || die "hand-off missing repo URL"
 grep -q 'CODEOWNERS' "$company/.github/CODEOWNERS" || true
 grep -q '@acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS missing admin"
 grep -q '@acme-director' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing director"
@@ -348,6 +355,7 @@ git_id git -C "$leak" add note.md
 git_id git -C "$leak" commit -q -m "plant"
 FORGEJO_TOKEN=$(load_token "$admin_token")
 "$HOST" create-repo team-leak --private --source "$leak" --push >>"$log" 2>&1 || die "could not create leak repo"
+"$HOST" protect team-leak --code-owners --approvals 0 >>"$log" 2>&1 || die "could not protect leak repo"
 needle="$work/needle"
 printf '%s' "$secret" > "$needle"
 chmod 600 "$needle"

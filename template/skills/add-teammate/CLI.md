@@ -44,6 +44,9 @@ One `key=value` per line. Blank lines and lines starting with `#` are ignored. S
 | `person.<slug>.areas` | Comma list of area slugs. |
 | `person.<slug>.manager` | Optional slug. Used later if this person leaves. |
 | `area.<area>.director` | Person slug. Default: the admin. |
+| `review_vendor` | `anthropic`, `openai`, or `xai`. Optional. |
+| `review_kind` | `second-vendor` or `same-vendor`. Default: `second-vendor` when a vendor is set, otherwise `same-vendor`. |
+| `review_model` | Optional model id. Blank means the vendor default. |
 
 There is no review-key key. The key never goes in this file and never goes in chat.
 
@@ -63,7 +66,23 @@ Then `team-on.sh` checks only that the secret exists:
 skills/_host/host.sh secret-exists OS_REVIEW_KEY
 ```
 
-That verb must print `{"exists":true}` or `{"exists":false}` and exit 0. It must never print the value. If the secret is missing, or the verb is not on this host yet, the script records the weaker review in plain words (`review: weaker` in `company-profile.md` and on stdout). If it exists, the script records `review: key-set`. It still does not read the value.
+That verb prints `{"exists":true}` or `{"exists":false}` and exits 0. It never prints the value. If the secret is missing, the script prints:
+
+```
+no review key: every pull request fails the model review until you add one
+```
+
+It does not say weaker. If the secret exists and `review_kind` is `same-vendor`, it prints `weaker review: same vendor`. It still does not read the value.
+
+Before the first push it writes `.github/review.conf`:
+
+```
+vendor=anthropic
+model=
+kind=second-vendor
+```
+
+`model` is blank unless `review_model` is set. The file is copied into each area repo with `.github/`. It is not a line in `company-profile.md`.
 
 ### What it does
 
@@ -99,15 +118,16 @@ That verb must print `{"exists":true}` or `{"exists":false}` and exit 0. It must
 team-on: ok
 level: team
 review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY
-review: weaker
+no review key: every pull request fails the model review until you add one
 repo: <slug>-os
 repo: <slug>-<area>
 workspace: <slug>-user-<person>
 protected: <slug>-os
 hand-off: <person-slug>
+Hand-off for <Name>. Company repo: <host_url>/<org>/<slug>-os. Host: <host_url>. Areas: <areas>. Workspace: <host_url>/<org>/<slug>-user-<person>.
 ```
 
-`review:` is `weaker` or `key-set`. A missing `secret-exists` verb adds `review-check: secret-exists is not on this host yet`.
+A missing key prints the no-review-key sentence. A same-vendor key prints `weaker review: same vendor`.
 
 ## join.sh
 

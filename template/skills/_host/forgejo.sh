@@ -369,6 +369,62 @@ cmd_protect() {
   }'
 }
 
+cmd_unprotect() {
+  local name page n rule
+  host_need_name
+  name=$POS1
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call DELETE "$(host_repo "$name")/branch_protections/main"
+    return 0
+  fi
+  page=1
+  while true; do
+    if ! fj_call GET "$(host_repo "$name")/branch_protections?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    if [ "$FJ_HTTP" = "404" ]; then
+      break
+    fi
+    fj_ok
+    n=$(printf '%s' "$FJ_BODY" | jq 'if type == "array" then length else 0 end')
+    for rule in $(printf '%s' "$FJ_BODY" | jq -r '.[] | select(.rule_name=="main" or .branch_name=="main") | (.rule_name // .branch_name)'); do
+      [ -n "$rule" ] || continue
+      if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${rule}"; then
+        fj_offline
+      fi
+    done
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main"}'
+}
+
+cmd_secret_exists() {
+  local name
+  [ -n "$POS1" ] || host_die 1 "secret name is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_org
+  case "$POS1" in
+    *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
+  esac
+  name=$POS1
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call GET "/orgs/${OS_ORG}/actions/secrets/${name}"
+    return 0
+  fi
+  if ! fj_call GET "/orgs/${OS_ORG}/actions/secrets/${name}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200) jq -nc '{exists:true}' ;;
+    404) jq -nc '{exists:false}' ;;
+    401) jq -nc '{error:"auth"}'; exit 4 ;;
+    *) fj_fail ;;
+  esac
+}
+
 cmd_team_create() {
   local team body
   [ -n "$POS1" ] || host_die 1 "team is required"
@@ -749,6 +805,8 @@ case "$VERB" in
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;
+  unprotect) cmd_unprotect ;;
+  secret-exists) cmd_secret_exists ;;
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;

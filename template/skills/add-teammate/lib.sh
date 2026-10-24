@@ -567,11 +567,31 @@ os_review_state() {
   printf '%s\n' "weaker"
 }
 
+os_repo_url() {
+  local host=$1 host_url=$2 org=$3 name=$4 base
+  case "$host" in
+    github)
+      if [ -n "$host_url" ]; then
+        base=${host_url%/}
+      else
+        base="https://github.com"
+      fi
+      ;;
+    *)
+      base=${host_url%/}
+      ;;
+  esac
+  printf '%s/%s/%s' "$base" "$org" "$name"
+}
+
 os_hand_off() {
-  local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6
+  local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6 host=$7 host_url=$8
+  local company_url ws_url
+  company_url=$(os_repo_url "$host" "$host_url" "$org" "$company_repo")
+  ws_url=$(os_repo_url "$host" "$host_url" "$org" "$ws")
   printf 'hand-off: %s\n' "$slug"
-  printf 'Hand-off for %s. Company repo: %s/%s. Areas: %s. Workspace: %s/%s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
-    "$name" "$org" "$company_repo" "$areas" "$org" "$ws"
+  printf 'Hand-off for %s. Company repo: %s. Host: %s. Areas: %s. Workspace: %s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
+    "$name" "$company_url" "$host_url" "$areas" "$ws_url"
 }
 
 os_split_areas() {

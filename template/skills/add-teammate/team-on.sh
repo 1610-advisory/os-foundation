@@ -99,22 +99,43 @@ ADMIN_GH=$(os_answer_or "person.${ADMIN}.github" "$ANSWERS" "")
 
 # Review key never enters this process. Print the command, then check existence only.
 printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
+REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
+REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
+case "$REVIEW_VENDOR" in
+  ""|anthropic|openai|xai) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+esac
+case "$REVIEW_KIND" in
+  "")
+    if [ -n "$REVIEW_VENDOR" ]; then
+      REVIEW_KIND=second-vendor
+    else
+      REVIEW_KIND=same-vendor
+    fi
+    ;;
+  second-vendor|same-vendor) ;;
+  *) os_die 2 "review_kind must be second-vendor or same-vendor" ;;
+esac
 REVIEW=$(os_review_state)
 case "$REVIEW" in
   key-set)
-    printf '%s\n' "review: key-set"
-    REVIEW_VALUE="key-set"
-    ;;
-  unchecked)
-    printf '%s\n' "review: weaker"
-    printf '%s\n' "review-check: secret-exists is not on this host yet"
-    REVIEW_VALUE="weaker"
+    if [ "$REVIEW_KIND" = "same-vendor" ]; then
+      printf '%s\n' "weaker review: same vendor"
+    else
+      printf '%s\n' "review: second-vendor"
+    fi
     ;;
   *)
-    printf '%s\n' "review: weaker"
-    REVIEW_VALUE="weaker"
+    printf '%s\n' "no review key: every pull request fails the model review until you add one"
     ;;
 esac
+mkdir -p "$ROOT/.github"
+cat > "$ROOT/.github/review.conf" << EOF
+vendor=${REVIEW_VENDOR}
+model=${REVIEW_MODEL}
+kind=${REVIEW_KIND}
+EOF
 
 os_fm_set "$ROOT/company-profile.md" company_slug "$SLUG"
 os_fm_set "$ROOT/company-profile.md" level "team"
@@ -123,7 +144,6 @@ os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "$HOST_URL")"
 os_fm_set "$ROOT/company-profile.md" org "$ORG"
 os_fm_set "$ROOT/company-profile.md" sync_engine "$(os_yaml_quote "$ENGINE")"
 os_fm_set "$ROOT/company-profile.md" runner "$RUNNER"
-os_fm_set "$ROOT/company-profile.md" review "$REVIEW_VALUE"
 
 # People pages.
 slug=""
@@ -162,6 +182,9 @@ while IFS= read -r area; do
     if [ -d "$ROOT/.github/scripts" ]; then
       mkdir -p "$ROOT/areas/$area/.github/scripts"
       cp -R "$ROOT/.github/scripts/." "$ROOT/areas/$area/.github/scripts/"
+    fi
+    if [ -f "$ROOT/.github/review.conf" ]; then
+      cp "$ROOT/.github/review.conf" "$ROOT/areas/$area/.github/review.conf"
     fi
   fi
   os_codeowners "$ROOT/areas/$area/.github/CODEOWNERS" "$(os_at_users "$ADMIN_GH" "$director_gh")"
@@ -288,7 +311,7 @@ while IFS= read -r slug; do
   [ "$slug" = "$ADMIN" ] && continue
   name=$(os_answer_or "person.${slug}.name" "$ANSWERS" "$slug")
   areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
-  os_hand_off "$slug" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$slug")"
+  os_hand_off "$slug" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$slug")" "$HOST_KIND" "$HOST_URL"
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF
