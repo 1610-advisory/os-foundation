@@ -34,7 +34,7 @@ Reverts: <run-id>
 
 It does not print a diff. It does not print a token.
 
-The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call is `get-token --bot <bot>`. The token goes to git through an environment variable and an ask-pass script. It is not put in the remote URL or in a child argument list.
+The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call is `get-token --bot <bot>`. The token goes to git through an environment variable and a password helper script. It is not put in the remote URL or in a child argument list.
 
 ## Exit codes
 

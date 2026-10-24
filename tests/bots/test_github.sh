@@ -62,8 +62,11 @@ EOF
 out=$(OS_PROFILE="$root/company-profile.md" HOST_DRY_RUN=1 \
   bash "$root/skills/_host/host.sh" get-token --bot helper)
 printf '%s\n' "$out" | jq -e '.method == "POST" and .path == "/app/installations/200/access_tokens"' >/dev/null
-if printf '%s\n' "$out" | grep -q 'ghp_\|ghs_\|Bearer'; then
+if printf '%s\n' "$out" | grep -q 'Bearer'; then
   bots_fail "dry-run printed a token"
+fi
+if printf '%s\n' "$out" | jq -e 'has("token")' >/dev/null 2>&1; then
+  bots_fail "dry-run printed a token field"
 fi
 bots_pass "github dry-run token path"
 

@@ -134,7 +134,7 @@ It fetches `origin/main` in the company repo and in each `areas/*` repo. It find
 
 It prints the repo, the reverted commit ids, the revert commit, and the pull request URL. It does not print a diff.
 
-The push token comes from `host.sh get-token` (`--bot` when `OS_BOT` is set). It is passed to git through an environment variable and an ask-pass script, never through the remote URL or an argument.
+The push token comes from `host.sh get-token` (`--bot` when `OS_BOT` is set). It is passed to git through an environment variable and a password helper script, never through the remote URL or an argument.
 
 ## BOT.md frontmatter
 
