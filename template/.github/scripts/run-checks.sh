@@ -35,7 +35,6 @@ event=$(ci_read_state event-name)
 pr=$(ci_read_state pr-number)
 head=$(ci_read_state head-sha)
 base=$(ci_read_state base-sha)
-head_ref=$(ci_read_state head-ref || true)
 owner=${GITHUB_REPOSITORY%%/*}
 repo=${GITHUB_REPOSITORY#*/}
 
@@ -73,13 +72,39 @@ post_comment() {
   fi
 }
 
-push_rerun() {
-  if [ -z "$head_ref" ]; then
-    ci_die 1 "could not re-run checks: the pull request branch is missing"
+run_gates() {
+  local range="${base}..${head}" scan_rc=0 lint_rc=0
+  if [ -f skills/sync/secret-scan.sh ]; then
+    set +e
+    bash skills/sync/secret-scan.sh --range "$range"
+    scan_rc=$?
+    set -e
+  elif command -v gitleaks >/dev/null 2>&1; then
+    set +e
+    gitleaks detect --redact --no-banner --log-opts "$range"
+    scan_rc=$?
+    set -e
+  else
+    ci_summary_add "secret scan failed: skills/sync/secret-scan.sh is missing and gitleaks is not installed"
+    return 1
   fi
-  git -c user.name=Checks -c user.email=checks@example.com \
-    commit --allow-empty -q -m "re-run checks"
-  ci_git push origin "HEAD:refs/heads/${head_ref}"
+  if [ "$scan_rc" -ne 0 ]; then
+    ci_summary_add "secret scan failed"
+    return 1
+  fi
+  if [ -f skills/lint/lint.sh ]; then
+    set +e
+    bash skills/lint/lint.sh --ci
+    lint_rc=$?
+    set -e
+    if [ "$lint_rc" -ne 0 ]; then
+      ci_summary_add "lint failed"
+      return 1
+    fi
+  else
+    ci_summary_add "lint skipped: skills/lint/lint.sh is missing"
+  fi
+  return 0
 }
 
 if [ "$event" = "issue_comment" ]; then
@@ -89,7 +114,16 @@ if [ "$event" = "issue_comment" ]; then
   decision=$(bash "$DIR/override.sh" --user "$user" --comment-file "$comment_file" --base "$base" --event-file "$GITHUB_EVENT_PATH")
   case "$decision" in
     valid\ *)
-      push_rerun
+      reason=${decision#valid }
+      if ! run_gates; then
+        exit 1
+      fi
+      msg="override by ${user}: ${reason}"
+      bash "$DIR/set-status.sh" "$head" success "$msg"
+      note=$(ci_mktemp)
+      printf '%s\n' "$msg" > "$note"
+      ci_summary_add "$msg"
+      post_comment "$note"
       exit 0
       ;;
     ignored\ empty)
@@ -106,39 +140,10 @@ if [ "$event" = "issue_comment" ]; then
   exit 0
 fi
 
-range="${base}..${head}"
-if [ -f skills/sync/secret-scan.sh ]; then
-  set +e
-  bash skills/sync/secret-scan.sh --range "$range"
-  scan_rc=$?
-  set -e
-elif command -v gitleaks >/dev/null 2>&1; then
-  set +e
-  gitleaks detect --redact --no-banner --log-opts "$range"
-  scan_rc=$?
-  set -e
-else
-  msg="secret scan failed: skills/sync/secret-scan.sh is missing and gitleaks is not installed"
-  ci_summary_add "$msg"
-  ci_die 1 "$msg"
-fi
-if [ "$scan_rc" -ne 0 ]; then
-  ci_summary_add "secret scan failed"
+if ! run_gates; then
   exit 1
 fi
-
-if [ -f skills/lint/lint.sh ]; then
-  set +e
-  bash skills/lint/lint.sh --ci
-  lint_rc=$?
-  set -e
-  if [ "$lint_rc" -ne 0 ]; then
-    ci_summary_add "lint failed"
-    exit 1
-  fi
-else
-  ci_summary_add "lint skipped: skills/lint/lint.sh is missing"
-fi
+range="${base}..${head}"
 
 title_file=$(ci_mktemp)
 body_file=$(ci_mktemp)
@@ -154,14 +159,17 @@ out=$(ci_mktemp)
 override_line=""
 if [ -n "$pr" ]; then
   comments=$(ci_mktemp)
-  if bash "$DIR/host-read.sh" comments "$owner" "$repo" "$pr" > "$comments"; then
+  read_err=$(ci_mktemp)
+  if bash "$DIR/host-read.sh" comments "$owner" "$repo" "$pr" >"$comments" 2>"$read_err"; then
     count=$(jq 'length' "$comments")
+    echo "comments: ${count}"
     i=0
     while [ "$i" -lt "$count" ]; do
       login=$(jq -r ".[$i].login" "$comments")
       one=$(ci_mktemp)
       jq -r ".[$i].body" "$comments" > "$one"
       decision=$(bash "$DIR/override.sh" --user "$login" --comment-file "$one" --base "$base" --event-file "${GITHUB_EVENT_PATH:-}")
+      echo "override ${login}: ${decision}"
       case "$decision" in
         valid\ *)
           override_line="override by ${login}: ${decision#valid }"
@@ -169,6 +177,8 @@ if [ -n "$pr" ]; then
       esac
       i=$((i + 1))
     done
+  else
+    echo "could not list comments" >&2
   fi
 fi
 

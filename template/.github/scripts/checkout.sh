@@ -59,9 +59,16 @@ case "$url" in
   *'@'*) ci_die 1 "checkout failed: refusing a credential in a clone URL" ;;
 esac
 
-rm -rf .git
-git init -q .
-git remote add origin "$url"
+if [ -d .git ]; then
+  if git remote get-url origin >/dev/null 2>&1; then
+    git remote set-url origin "$url"
+  else
+    git remote add origin "$url"
+  fi
+else
+  git init -q .
+  git remote add origin "$url"
+fi
 
 pr_number=""
 head_ref=""
@@ -104,6 +111,9 @@ fi
 if [ -z "$head_sha" ]; then
   ci_die 1 "checkout failed: the pull request head is missing"
 fi
+if [ -f "$(git rev-parse --git-path shallow)" ]; then
+  ci_git fetch --unshallow origin || true
+fi
 
 if [ -z "$head_ref" ] && [ -n "$pr_number" ]; then
   head_ref=$(ci_git ls-remote origin 'refs/heads/*' | awk -v sha="$head_sha" '
@@ -115,7 +125,7 @@ if [ -z "$head_ref" ] && [ -n "$pr_number" ]; then
   ')
 fi
 
-git checkout -q --detach "$head_sha"
+git checkout -f -q --detach "$head_sha"
 
 if [ -z "$base_sha" ]; then
   if git rev-parse --verify --quiet "refs/remotes/origin/${base_ref}" >/dev/null; then

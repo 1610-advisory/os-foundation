@@ -223,6 +223,50 @@ class OverrideTests(unittest.TestCase):
         self.assertEqual(empty.stdout.strip(), "ignored empty")
 
 
+class SetStatusTests(unittest.TestCase):
+    def test_token_not_in_argv(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        argv_log = root / "argv.txt"
+        fake = bin_dir / "curl"
+        fake.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os, sys
+                from pathlib import Path
+                Path(os.environ["ARGV_LOG"]).write_text("\\n".join(sys.argv[1:]), encoding="utf-8")
+                cfg = sys.argv[sys.argv.index("--config") + 1]
+                out = ""
+                for line in Path(cfg).read_text(encoding="utf-8").splitlines():
+                    if line.startswith("output = "):
+                        out = line.split("=", 1)[1].strip().strip('"')
+                Path(out).write_text("{}", encoding="utf-8")
+                sys.stdout.write("201")
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        result = run(
+            ["bash", str(SCRIPTS / "set-status.sh"), "abc", "success", "override by ada"],
+            env={
+                "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                "ARGV_LOG": str(argv_log),
+                "JOB_TOKEN": KEY,
+                "GITHUB_REPOSITORY": "acme/demo",
+                "GITHUB_SERVER_URL": "http://forgejo.example",
+                "GITHUB_API_URL": "http://forgejo.example/api/v1",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(KEY, argv_log.read_text(encoding="utf-8"))
+        self.assertNotIn(KEY, result.stdout + result.stderr)
+
+
 class HostReadTests(unittest.TestCase):
     def test_pages_until_short_page(self):
         tmp = tempfile.TemporaryDirectory()

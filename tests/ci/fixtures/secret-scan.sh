@@ -39,6 +39,12 @@ marker=OSF_PLANTED_SECRET
 hit=0
 file=""
 line_no=0
+diff_file=$(mktemp)
+if ! git diff --unified=0 "$range" > "$diff_file"; then
+  rm -f "$diff_file"
+  echo "secret scan failed: could not read the range" >&2
+  exit 2
+fi
 while IFS= read -r row; do
   case "$row" in
     "diff --git "*)
@@ -63,9 +69,8 @@ while IFS= read -r row; do
       esac
       ;;
   esac
-done << EOF
-$(git diff --unified=0 "$range")
-EOF
+done < "$diff_file"
+rm -f "$diff_file"
 
 if [ "$hit" -ne 0 ]; then
   exit 1

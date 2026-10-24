@@ -255,8 +255,27 @@ pr_sha() {
 }
 
 wait_sha() {
-  local number=$1 want=$2
-  python3 "$lib/results.py" wait-check acme "$repo" "$want" --timeout 180 >>"$log" 2>&1
+  local want=$2
+  local i=0 state fails=0
+  while [ "$i" -lt 40 ]; do
+    osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${want}/status"
+    state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+    osf_api_discard
+    if [ "$state" = "success" ]; then
+      return 0
+    fi
+    if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+      fails=$((fails + 1))
+      if [ "$fails" -ge 2 ]; then
+        return 2
+      fi
+    else
+      fails=0
+    fi
+    i=$((i + 1))
+    sleep 5
+  done
+  return 2
 }
 
 comment() {
@@ -395,7 +414,7 @@ if printf '%s\n' "$ignored" | grep -q 'override ignored:'; then
 else
   # The comment job may still be queued.
   i=0
-  while [ "$i" -lt 24 ]; do
+  while [ "$i" -lt 36 ]; do
     ignored=$(comments_text "$review_pr" || true)
     if printf '%s\n' "$ignored" | grep -q 'override ignored:'; then
       break
@@ -411,28 +430,23 @@ else
 fi
 comment "$admin" "$review_pr" "/override the marker is a test"
 i=0
-new_sha=$review_sha
+overrode=0
 while [ "$i" -lt 36 ]; do
-  new_sha=$(pr_sha "$review_pr")
-  if [ -n "$new_sha" ] && [ "$new_sha" != "$review_sha" ]; then
+  osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${review_sha}/status"
+  state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+  osf_api_discard
+  recorded=$(comments_text "$review_pr" || true)
+  if [ "$state" = "success" ] && printf '%s\n' "$recorded" | grep -q 'override by acme-admin: the marker is a test'; then
+    overrode=1
     break
   fi
   i=$((i + 1))
   sleep 5
 done
-if [ "$new_sha" = "$review_sha" ]; then
-  fail "admin override re-run"
+if [ "$overrode" = "1" ]; then
+  pass "admin override"
 else
-  if wait_sha "$review_pr" "$new_sha"; then
-    recorded=$(comments_text "$review_pr" || true)
-    if printf '%s\n' "$recorded" | grep -q 'override by acme-admin: the marker is a test'; then
-      pass "admin override"
-    else
-      fail "admin override recorded"
-    fi
-  else
-    fail "admin override checks"
-  fi
+  fail "admin override"
 fi
 
 # Rules file waits for the owner.
@@ -531,6 +545,7 @@ PY
 osf_api_discard
 
 if [ "$FAIL" -ne 0 ]; then
+  set +e
   osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs?limit=1"
   run_id=$(jq -r 'if type=="array" then .[0].id else (.workflow_runs[0].id // .runs[0].id // empty) end' "$OSF_HTTP_BODY")
   osf_api_discard
