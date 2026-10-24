@@ -40,7 +40,9 @@ Done when: <one line>
 ```
 
 - Put the exact text in the task. The local agent should not need this chat.
-- A rules or skill change: add "Propose it with skills/sync/sync.sh propose".
+- A rules or skill change: read `level:` in `company-profile.md` first.
+  - `solo`: there are no pull requests. Add "Edit the file and commit it on main."
+  - `team` or `app`: add "Propose it with skills/sync/sync.sh propose <topic> <file>...". Nobody writes to `main`.
 - No secrets in the task. No quotes from a private source. No personal-life facts.
 
 Tell the person in one line: "Paste this into your local agent in the company folder."
@@ -65,6 +67,6 @@ The admin's local agent makes the upload copy. No script does it.
    - `{{COMPANY_NAME}}`: the title line at the top of `company-profile.md`.
 3. Check that no `{{` is left in the copy. Delete the "For the admin" section from the copy.
 4. Upload the copy in the vendor's skills settings. Then delete the temporary folder.
-3. Each person who uses that chat app connects GitHub in it, with their own account.
+5. Each person who uses that chat app connects GitHub in it, with their own account.
 
 GitHub only. A company on Forgejo has no chat connector: those people use a local agent.

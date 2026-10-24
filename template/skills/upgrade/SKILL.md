@@ -69,7 +69,9 @@ If the folder has an old `logs` branch:
 
 ## 7. Going back
 
-The whole upgrade is one merge commit. `git revert -m 1 <merge commit>` undoes it. With a host, the revert also goes by pull request.
+The whole upgrade is one merge commit. One revert undoes it.
+- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass.
+- **Solo, no host:** run `git revert -m 1 <merge commit>` on `main`. Solo commits to `main` as usual.
 
 ## 8. Tell the person
 

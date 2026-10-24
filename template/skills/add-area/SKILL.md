@@ -43,9 +43,14 @@ Read `level:` in `company-profile.md`. At `solo`, skip this step: the area stays
 At `team`, the area must also get its place on the host. The scripts do it. Never call the host yourself.
 1. Ask who directs this area (approves its rules changes). Suggest the admin.
 2. Ask who may read and write it. Suggest the fewest people.
-3. Write an answers file for `skills/add-teammate/team-on.sh` (keys in `skills/add-teammate/CLI.md`): the host lines from `company-profile.md`, `area.{{AREA_SLUG}}.director`, and every person from `people/` with this area added to the `.areas` of those who get it.
-4. Run `skills/add-teammate/team-on.sh --answers <file>` again. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and protects `main`.
-5. Each person who got access runs `skills/add-teammate/join.sh --answers <file>` again (`me=<slug>`). It clones only the new area. Nobody writes to its `main`.
+3. Write an answers file for `skills/add-teammate/team-on.sh` (keys in `skills/add-teammate/CLI.md`). It must hold everything a first run needs, or the script refuses it:
+   - `host`, `host_url`, `org` and `sync_engine` from `company-profile.md`,
+   - `review_vendor` and `review_kind` from `.github/review.conf`,
+   - the full `person.<slug>.*` block for **every** person in `people/` (not only the new ones), with `{{AREA_SLUG}}` added to `.areas` of each person who gets it,
+   - every `area.<area>.director` already in use, plus `area.{{AREA_SLUG}}.director`.
+4. Run `skills/add-teammate/team-on.sh --answers <file>`. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and protects `main`.
+5. If it stops with an error: tell the admin the exact message. Do not say the area is on the host. Fix the cause it names and run it once more. If it stops again, stop.
+6. Each person who got the area runs `join.sh` on their own computer, from the company folder, with its own answers file: one line, `me=<their slug>`. It clones only the new area. Never reuse the `team-on.sh` answers file for `join.sh`.
 
 ## 5. Record it
 

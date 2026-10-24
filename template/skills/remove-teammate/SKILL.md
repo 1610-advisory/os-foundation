@@ -27,7 +27,7 @@ The script refuses to remove the last admin. If this person is the last admin, h
 
 Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
-If it stops, read its message. Fix the cause. Run it again.
+If it exits with an error, tell the admin the exact message. Do not say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
 
 ## 3. What it does, in this order
 

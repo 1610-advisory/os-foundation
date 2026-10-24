@@ -21,7 +21,12 @@ The flags are in `skills/remove-leak/CLI.md`. Use exactly those.
 
 ## 2. Questions (one at a time)
 
-1. **Which repo?** The company repo (`{{COMPANY_SLUG}}-os`), an area repo (`{{COMPANY_SLUG}}-<area>`) or a workspace. Suggest the repo where the hit was found.
+1. **Which repo?** Give `--repo` the repo name on the host, not a folder path:
+   - company repo: `{{COMPANY_SLUG}}-os`,
+   - area repo: `{{COMPANY_SLUG}}-<area>`,
+   - a person's workspace: `{{COMPANY_SLUG}}-user-<slug>` (on a computer it sits at `users/<slug>/`).
+
+   Suggest the repo where the hit was found.
 2. **What to remove?** One of:
    - **A file path**, when the whole file must go. Suggest the path from the hit.
    - **A scan rule id**, when a secret sits inside a file that should stay. Built-in ids: `aws-access-key`, `generic-api-key`, `private-key`. More may be in `skills/sync/secret-patterns.txt`. The script replaces each match with `[removed]`.
@@ -39,13 +44,13 @@ Run one of:
 
 Add `--pr <number> --head <branch>` when the leak is in an open pull request.
 
-If it stops, read its message. Fix the cause. Run it again.
+**Stop rule.** If the script exits with an error (not 0), stop. Tell the admin the exact message. Do not say the history is clean. Do not run it again, and do not try the steps by hand. Exit 3 can mean the branch protection is still on: only the script lifts and restores it (`host.sh unprotect` and `host.sh protect`). Never change protection by hand.
 
 ## 5. What it does
 
 1. **Revert.** If the leak is in an open pull request, it reverts it on that branch first. If the leak never reached `main`, it stops there.
 2. **Rewrite.** It rewrites the repo history so the file or the secret is gone from every commit.
-3. **Force-push.** It lifts the branch protection for this one push, pushes every branch and tag, and turns the protection back on.
+3. **Force-push.** It lifts the branch protection with `host.sh unprotect`, pushes every branch and tag, and restores it with `host.sh protect`.
 4. **Purge.** It asks the host to drop old cached copies.
    - GitHub: it prints the text of a support request. The admin sends it to GitHub Support. This is the one manual step: GitHub has no other way.
    - Forgejo: it drops what the API allows by itself.
