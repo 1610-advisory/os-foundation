@@ -13,7 +13,7 @@ The multi-user release. A solo owner gets a simpler setup. A team gets enforced 
 - **Level and switches.** `company-profile.md` says the level (`solo`, `team` or `app`) and which switches are on. Agents skip rules for a level or a switch that is not on. Every switch is off by default.
 - **`privacy.md`.** A script writes it from your level and switches. It lists every place a copy of your data sits, and only the places that are on: who can read it, how long it stays, how it is removed.
 - **`scale.md`.** A reference for large companies: scale switches, the projects pattern, a checklist for outside parties' computers, and the 5,000-staff case. Agents do not load it at start.
-- **Versions.** `1610.sh/os` serves the latest release. `1610.sh/os@vX.Y.Z` serves a pinned one. `lint` can say in one line when a newer version exists. You choose when to run `upgrade`.
+- **Versions.** `1610.sh/os` serves the latest release. `1610.sh/os@vX.Y.Z` serves a pinned one. `lint` can say in one line when a newer version exists. You choose when to run the new `upgrade` skill. The new `privacy` skill writes `privacy.md`.
 
 ### New for teams
 
@@ -23,7 +23,7 @@ The multi-user release. A solo owner gets a simpler setup. A team gets enforced 
 - **`sync` and OS jobs.** Pull every 15 minutes. Push each night, after a secret scan and a commit-or-hold check by a small model. Any failed step pushes nothing.
 - **Nightly review and reports.** On the admin's computer: clear errors fixed by pull request, one daily digest of flags per approver, a daily "to decide" list and a weekly report.
 - **Joining terms and leaving.** `joining-terms.md` holds the delete promise each person accepts when they join. `remove-teammate` removes access first. A helper then deletes the company folder from that person's computer. Leave, holidays and offline days never trigger it.
-- **New skills:** `sync`, `remove-teammate`, `remove-leak`, `upgrade`, `company-skills` (for chat-only agents), `privacy`.
+- **New skills:** `sync`, `remove-teammate`, `remove-leak`, `company-skills` (for chat-only agents).
 - **Bots (switch).** `add-bot` gives a bot its own GitHub App and one-hour tokens. Every bot commit carries a run ID, and `undo-run` reverts one run in one step.
 
 ### Not in v1
