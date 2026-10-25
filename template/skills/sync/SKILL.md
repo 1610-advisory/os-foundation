@@ -47,7 +47,7 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
 | Belongs in the workspace | Move it to `users/<person>/`. |
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
-| `binary file: add it by hand with a pull request` | Large files stay in their own system: write a note with a link. If it must be in the repo, ask the admin. |
+| `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
 | `symlink: add it by hand with a pull request` | One stop for the whole repo: every changed file shows it. Leave the other files alone. Find the symlink or folder. Replace it with the real file or a note, or delete it. |
 | `secret scan error` or `engine check failed` | The whole repo is held. Tell the person the line. Do not edit the files. Run `push` at most once more, then stop. The next night tries again. Three nights in a row: tell the admin. |
 
@@ -60,18 +60,27 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
-- `secret scan error`, `engine check failed`: see the table above.
 
 ## Propose a rules change
 
 One topic per proposal.
 
 1. Pick a short kebab-case topic, for example `invoice-skill-step`.
-2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Paths are relative to the company root.
-3. It checks identity, makes `rules/<person>/<topic>` from `main`, runs the secret scan, commits, pushes and opens a pull request on the company repo.
-4. If it prints `file not found: <path>`, `propose refused: secret scan hit` or `propose refused: secret scan error`, tell the person that line. Never pass `--no-verify` or skip the scan. Fix a wrong path once and try again. Remove a secret only when the person says so. Otherwise stop.
-5. **Area rules files:** in this version `propose` opens pull requests on the company repo only. For a file in `areas/<area>/`, tell the person: "This area rule cannot be proposed by `sync` yet. It stays held here." Then stop.
-6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves. When the approver is the author, the model review alone is enough. Example: the admin's own change.
+2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Paths start at the company root. An area file is `areas/<area>/<file>`. A `users/` path is refused: to share a workspace skill, copy it to a `skills/` folder of the company or an area, then propose the copy.
+3. It checks identity, every path and the secret scan first. An `areas/<area>/` file goes to that area repo, any other file to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request with auto-merge on. It prints one number per repo. Tell the person each number.
+4. **Refused.** Tell the person the line exactly. Never pass `--no-verify`. Never ask for a token.
+
+| Line | Do |
+|---|---|
+| `propose refused: bad path: <path>`, `file not found: <path>` | Fix the path once (from the company root, no `..`). Run again. |
+| `propose refused: users paths stay in the workspace` | Copy the file out first (step 2), or stop. |
+| `propose refused: symlink: <path>`, `propose refused: symlink on main: <path>` | Stop. Tell the admin. |
+| `nothing to propose: <path>` | The file is the same as on `main`. Stop. |
+| `propose refused: secret scan hit` | Remove the secret only when the person says so. Run once more. |
+| `propose refused: secret scan error` | Run once more. |
+
+5. **Failed after the checks:** `propose fail <repo>: <step>` (`repo`, `fetch`, `worktree`, `copy <path>`, `commit`, `push`, `open-pr` or `auto-merge`), then `opened: <repo> <n>` for each pull request it already opened. Those stay open. Tell the person every line. Run the same command once more: it updates them. If it fails again, stop and tell the admin.
+6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves a company file, the area director an area file. When the approver is the author, the model review alone is enough. Example: the admin's own change.
 
 A failed review blocks the merge. Read the findings in plain words and offer a fix.
 
@@ -86,7 +95,7 @@ Exit 0: done (files may be held). Exit 1: usage, `another sync is running`, solo
 launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 
 - `add-teammate` installs them when the first teammate joins. Never at `solo`: `install-jobs` refuses.
-- Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux adds up to 30 random minutes); device helper daily at 4 am.
+- Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux: plus up to 30 minutes); device helper at 4 am.
 - Admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
 - Bot's box (`--bot`): pull, push and helper, as the bot. `add-bot` installs them.
 - The jobs use the engine in `sync_engine:` in `company-profile.md`, for example `claude -p --model haiku`.

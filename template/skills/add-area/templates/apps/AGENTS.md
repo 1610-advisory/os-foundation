@@ -69,4 +69,4 @@ The company table applies (`../../AGENTS.md`, section 6). This area may tighten 
 Same as the company rules (`../../AGENTS.md`, section 7).
 - Solo: commit to `main`, logs included.
 - [team]: nobody writes to `main`. Notes and logs go on the standing PR through `sync`.
-- [team]: propose a rules change (`AGENTS.md`, `CLAUDE.md`, `skills/`) with `../../skills/sync/sync.sh propose <topic> <file>...`. A different model reviews it first. Then the area director approves with one click.
+- [team]: propose a rules change (`AGENTS.md`, `CLAUDE.md`, `skills/`) with `../../skills/sync/sync.sh propose <topic> areas/<area>/<file>...`. Paths start at the company root. A different model reviews it first. Then the area director approves with one click.

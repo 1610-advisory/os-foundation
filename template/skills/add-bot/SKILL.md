@@ -53,7 +53,7 @@ Ask one question at a time. Write each answer as one `key=value` line in an answ
 13. **GitHub only:** the App fields are now in `BOT.md` on the box. They are not secrets. The admin adds the same three lines to `BOT.md` on the admin computer, where `me` is the admin, and proposes it. The owner approves.
 14. **Sign the owner out** of the host on the box. Then **tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
 
-**When the script stops.** Tell the person its last line exactly. Examples: `email is required`, `bots switch is off`, `repo <repo> exceeds the owner's grant`, `an area bot cannot take the company repo`, `secret file is missing`, `secret file mode is not 0600`, `me file is <slug>, not <bot>. Set replace_me=yes on the bot box only.` Fix the answers file at most once and run again. If it stops again, stop and tell the owner. Never ask for a key or token in chat. If `propose` fails, tell the person its line and stop.
+**When the script stops.** Tell the person its last line exactly. Examples: `email is required`, `bots switch is off`, `repo <repo> exceeds the owner's grant`, `an area bot cannot take the company repo`, `secret file is missing`, `secret file mode is not 0600`, `me file is <slug>, not <bot>. Set replace_me=yes on the bot box only.` Fix the answers file at most once and run again. If it stops again, stop and tell the owner. Never ask for a key or token in chat. If `propose` stops, tell the person its line exactly and follow the `sync` skill (Propose a rules change).
 
 After setup, no person step is needed. The bot's credential helper gets a fresh short-lived token each time git needs one, only for the company host and the bot's repos.
 
