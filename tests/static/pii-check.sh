@@ -8,12 +8,19 @@ Usage: pii-check.sh [--base REF] [--all] [--paths FILE...] [--allow-unconfigured
 
 Checks added lines (default) or whole files for forbidden terms, home-folder
 paths, token prefixes, and email addresses. Also checks path names in scope.
---base also checks commit messages. Prints a count per check and
-file:line:check, path:name, or commit:sha:check. Never prints the matched text.
+--base also checks commit messages, and flags an added binary file.
+Prints a count per check and file:line:check, path:name, commit:sha:check,
+or binary: path. Never prints the matched text or file bytes.
+
+Email hits skip noreply@ on any domain, and the reserved domains .test,
+example.com, example.org, and example.net.
 
   --base REF   added lines in git diff REF...HEAD, plus added lines versus
                HEAD, plus untracked files that are not ignored. Also changed
                and renamed paths, and commit messages in REF..HEAD.
+               An added binary file is a finding, unless it is an image
+               (png, jpg, jpeg, gif, webp, svg) under assets/ or docs/.
+               Python bytecode and __pycache__/ are always findings.
                Default REF is origin/next/v1.
   --all        every tracked file, and every tracked path name
   --paths FILE these files only, and their path names
@@ -106,12 +113,13 @@ diff_tmp=$(mktemp)
 wt_tmp=$(mktemp)
 names_tmp=$(mktemp)
 msg_tmp=$(mktemp)
-chmod 600 "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp"
+bin_seen=$(mktemp)
+chmod 600 "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp" "$bin_seen"
 
 # Invoked by trap, not by a direct call.
 # shellcheck disable=SC2329
 cleanup() {
-  rm -f "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp"
+  rm -f "$terms_tmp" "$pat_tmp" "$hits_file" "$awk_file" "$diff_tmp" "$wt_tmp" "$names_tmp" "$msg_tmp" "$bin_seen"
 }
 trap cleanup EXIT
 
@@ -211,6 +219,7 @@ function allowed_domain(d,    low) {
   if (low == "example.com" || low == "example.org" || low == "example.net") return 1
   if (low == "acme.test") return 1
   if (low == "users.noreply.github.com") return 1
+  if (ends_with(low, ".test")) return 1
   if (ends_with(low, ".example")) return 1
   if (ends_with(low, ".example.com")) return 1
   if (ends_with(low, ".example.org")) return 1
@@ -219,13 +228,14 @@ function allowed_domain(d,    low) {
   return 0
 }
 
-function has_bad_email(line,    rest, m, at, dom) {
+function has_bad_email(line,    rest, m, at, localp, dom) {
   rest = line
   while (match(rest, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/)) {
     m = substr(rest, RSTART, RLENGTH)
     at = index(m, "@")
+    localp = tolower(substr(m, 1, at - 1))
     dom = substr(m, at + 1)
-    if (!allowed_domain(dom)) return 1
+    if (localp != "noreply" && !allowed_domain(dom)) return 1
     rest = substr(rest, RSTART + RLENGTH)
   }
   return 0
@@ -411,6 +421,95 @@ is_binary() {
   # Do not use grep for a NUL: an empty pattern matches every text file.
   bytes=$(dd if="$1" bs=8192 count=1 2>/dev/null | LC_ALL=C tr -cd '\0' | wc -c | tr -d '[:space:]')
   [[ "${bytes:-0}" -gt 0 ]]
+}
+
+is_bytecode() {
+  local rel=$1 low
+  low=$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')
+  case "$low" in
+    *.pyc|*.pyo) return 0 ;;
+  esac
+  case "/$low/" in
+    */__pycache__/*) return 0 ;;
+  esac
+  return 1
+}
+
+is_allowed_image() {
+  local rel=$1 base ext
+  base=${rel##*/}
+  ext=$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')
+  case "$ext" in
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg) ;;
+    *) return 1 ;;
+  esac
+  case "/${rel}/" in
+    */assets/*|*/docs/*) return 0 ;;
+  esac
+  return 1
+}
+
+note_binary() {
+  local rel=$1
+  [[ -n "$rel" ]] || return 0
+  if [[ -s "$bin_seen" ]] && grep -qxF -- "$rel" "$bin_seen"; then
+    return 0
+  fi
+  printf '%s\n' "$rel" >> "$bin_seen"
+  printf 'binary: %s\n' "$rel" >> "$hits_file"
+}
+
+diff_marks_binary() {
+  local range=$1 rel=$2 line added
+  line=$(git -C "$root" diff --numstat "$range" -- "$rel" || true)
+  [[ -n "$line" ]] || return 1
+  added=${line%%$'	'*}
+  [[ "$added" == "-" ]]
+}
+
+flag_added_binary() {
+  local rel=$1 mode=$2
+  [[ -n "$rel" ]] || return 0
+  if is_bytecode "$rel"; then
+    note_binary "$rel"
+    return 0
+  fi
+  if is_allowed_image "$rel"; then
+    return 0
+  fi
+  case "$mode" in
+    committed)
+      if diff_marks_binary "${base}...HEAD" "$rel"; then
+        note_binary "$rel"
+      fi
+      ;;
+    worktree)
+      if diff_marks_binary HEAD "$rel"; then
+        note_binary "$rel"
+      fi
+      ;;
+    untracked)
+      if [[ -f "$root/$rel" ]] && is_binary "$root/$rel"; then
+        note_binary "$rel"
+      fi
+      ;;
+  esac
+}
+
+scan_added_binaries() {
+  local rel
+  while IFS= read -r -d '' rel; do
+    flag_added_binary "$rel" committed
+  done < <(git -C "$root" diff --name-only --diff-filter=A -z "${base}...HEAD")
+  if git -C "$root" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    while IFS= read -r -d '' rel; do
+      flag_added_binary "$rel" worktree
+    done < <(git -C "$root" diff --name-only --diff-filter=A -z HEAD)
+  fi
+  while IFS= read -r -d '' rel; do
+    flag_added_binary "$rel" untracked
+  done < <(git -C "$root" ls-files --others --exclude-standard -z)
+  return 0
 }
 
 run_awk_files() {
@@ -601,6 +700,7 @@ else
   fi
   flush_names
   scan_commit_messages
+  scan_added_binaries
 fi
 
 term_n=$(grep -c ':term$' "$hits_file" || true)
@@ -608,19 +708,21 @@ name_n=$(grep -c ':name$' "$hits_file" || true)
 path_n=$(grep -c ':path$' "$hits_file" || true)
 token_n=$(grep -c ':token$' "$hits_file" || true)
 email_n=$(grep -c ':email$' "$hits_file" || true)
+binary_n=$(grep -c '^binary:' "$hits_file" || true)
 term_n=${term_n:-0}
 name_n=${name_n:-0}
 path_n=${path_n:-0}
 token_n=${token_n:-0}
 email_n=${email_n:-0}
+binary_n=${binary_n:-0}
 term_n=$((term_n + name_n))
-total=$((term_n + path_n + token_n + email_n))
+total=$((term_n + path_n + token_n + email_n + binary_n))
 
 if [[ "$total" -eq 0 ]]; then
   echo "pii-check: OK"
   exit 0
 fi
 
-printf 'term %s\npath %s\ntoken %s\nemail %s\n' "$term_n" "$path_n" "$token_n" "$email_n"
+printf 'term %s\npath %s\ntoken %s\nemail %s\nbinary %s\n' "$term_n" "$path_n" "$token_n" "$email_n" "$binary_n"
 cat "$hits_file"
 exit 1
