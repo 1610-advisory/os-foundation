@@ -38,6 +38,9 @@ class TeamScripts(unittest.TestCase):
     def test_p1(self):
         run_script("test_p1.sh")
 
+    def test_areas(self):
+        run_script("test_areas.sh")
+
     def test_forgejo(self):
         run_script("test_forgejo.sh")
 

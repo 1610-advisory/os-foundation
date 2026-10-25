@@ -313,7 +313,7 @@ while IFS= read -r slug; do
   areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
   os_host team-add company "$gh" >/dev/null
   a=""
-  while IFS= read -r a; do
+  while IFS= read -r a || [ -n "$a" ]; do
     [ -n "$a" ] || continue
     os_host team-create "$(os_team_area "$a")" >/dev/null
     os_host team-add "$(os_team_area "$a")" "$gh" >/dev/null
