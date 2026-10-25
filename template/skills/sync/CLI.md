@@ -149,6 +149,8 @@ If `gitleaks` is on `PATH`, the script uses it. Otherwise it uses bundled patter
 
 The command is `OS_SYNC_ENGINE`, else the `engine` file, else `sync_engine` in `company-profile.md`. Example: `claude -p --model haiku`. The prompt is on stdin. One JSON line is on stdout. `OS_ENGINE_TIMEOUT` is seconds (default 120).
 
+Test only: `OS_SYNC_ENGINE` overrides the engine. The Acme S10 test uses it.
+
 `REPO:` is `root`, `area`, or `workspace`.
 
 ## Environment

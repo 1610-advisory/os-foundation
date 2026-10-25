@@ -552,8 +552,8 @@ class SyncFixTests(unittest.TestCase):
         link.symlink_to(target)
         result = self.sync("push")
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
-        self.assertIn("secret scan error", log)
+        status = self.sync("status")
+        self.assertIn("symlink: add it by hand with a pull request", status.stdout)
         heads = run(["git", "--git-dir", str(self.tmp / "origin.git"), "ls-remote", "--heads"], env=self.env)
         self.assertNotIn("sync/mia", heads.stdout)
 
@@ -694,6 +694,101 @@ class SyncFixTests(unittest.TestCase):
         self.assertTrue((area / "keep.md").exists())
         self.assertTrue((self.company / "keep.md").exists())
         self.assertTrue((self.company / "company-profile.md").exists())
+
+    def test_reclone_copy_failure_removes_nothing(self):
+        self.seed_origin()
+        (self.company / "block-copy.md").write_text("keep this\n")
+        orphan = self.tmp / "orphan"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(
+            ["git", "-C", str(orphan), "tag", "-a", "os-rewrite-20261024235958", "-F", str(tag)],
+            env=self.env,
+            check=True,
+        )
+        run(
+            ["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-20261024235958"],
+            env=self.env,
+            check=True,
+        )
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in\n"
+            "    */block-copy.md) exit 1 ;;\n"
+            "  esac\n"
+            "done\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("could not copy block-copy.md; nothing removed", log)
+        self.assertEqual((self.company / "block-copy.md").read_text(), "keep this\n")
+        self.assertTrue((self.company / "company-profile.md").exists())
+
+    def test_reclone_leaves_nested_repo_when_move_back_fails(self):
+        self.seed_origin()
+        area = self.company / "areas" / "shop"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "keep.md").write_text("uncommitted area note\n")
+        run(["git", "-C", str(area), "add", "keep.md"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "area"], env=self.env, check=True)
+        (area / "keep.md").write_text("uncommitted area note\nextra\n")
+        orphan = self.tmp / "orphan2"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(
+            ["git", "-C", str(orphan), "tag", "-a", "os-rewrite-20261024235957", "-F", str(tag)],
+            env=self.env,
+            check=True,
+        )
+        run(
+            ["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-20261024235957"],
+            env=self.env,
+            check=True,
+        )
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "after-nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        found = list(self.tmp.rglob("keep.md"))
+        self.assertTrue(found, "nested file was deleted")
+        self.assertTrue(any("uncommitted area note" in p.read_text() for p in found))
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("left", log)
+
+    def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
+        self.seed_origin()
+        (self.company / "dangling.md").symlink_to("missing-target")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("symlink: add it by hand with a pull request", status.stdout)
+        heads = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "ls-remote", "--heads"],
+            env=self.env,
+        )
+        self.assertNotIn("sync/mia", heads.stdout)
 
 
 class SyncForgejoTests(unittest.TestCase):

@@ -157,11 +157,15 @@ sync_scan_files() {
   : > "$hits"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+    if [ -L "$path" ] || [ -d "$path" ]; then
+      echo "symlink: add it by hand with a pull request" >&2
+      return 2
+    fi
     if [ ! -e "$path" ]; then
       continue
     fi
-    if [ -L "$path" ] || [ -d "$path" ] || [ ! -f "$path" ]; then
-      echo "secret-scan: not a regular file" >&2
+    if [ ! -f "$path" ]; then
+      echo "symlink: add it by hand with a pull request" >&2
       return 2
     fi
     err=$(sync_mktemp)
@@ -392,9 +396,23 @@ sync_push_one() {
   if [ ! -s "$changed" ]; then
     return 0
   fi
+  added=$(sync_mktemp)
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -L "$repo/$path" ] || [ -d "$repo/$path" ]; then
+      : > "$added"
+      while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        sync_hold_line "$id" "$path" "symlink: add it by hand with a pull request" >> "$added"
+      done < "$changed"
+      sync_held_replace "$id" "$added"
+      sync_held_error "symlink: add it by hand with a pull request"
+      sync_log "push fail ${id} symlink"
+      return 1
+    fi
+  done < "$changed"
   # Paths from status are relative to the repo. Scan from the repo.
   hits=$(sync_mktemp)
-  added=$(sync_mktemp)
   commit_files=$(sync_mktemp)
   messages=$(sync_mktemp)
   : > "$added"
@@ -440,6 +458,13 @@ sync_push_one() {
       sync_hold_line "$id" "$path" "binary file: add it by hand with a pull request" >> "$added"
       sync_log "push hold ${id} ${path} binary"
       continue
+    fi
+    if [ -L "$repo/$path" ] || [ -d "$repo/$path" ]; then
+      sync_hold_line "$id" "$path" "symlink: add it by hand with a pull request" >> "$added"
+      sync_held_replace "$id" "$added"
+      sync_held_error "symlink: add it by hand with a pull request"
+      sync_log "push fail ${id} symlink"
+      return 1
     fi
     if [ ! -e "$repo/$path" ]; then
       printf '%s\n' "$path" >> "$commit_files"

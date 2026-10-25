@@ -169,6 +169,9 @@ sync_move_nested() {
   local repo=$1
   local dest=$2
   local d rel
+  if [ "${OS_SYNC_MOVE_BACK_FAIL:-}" = "1" ]; then
+    return 1
+  fi
   for d in "$repo"/areas/* "$repo"/users/*; do
     [ -e "$d/.git" ] || continue
     rel=${d#"$repo/"}
@@ -183,23 +186,42 @@ sync_move_nested() {
   return 0
 }
 
+# A temp tree that still has a git dir is left in place. Never delete it.
+sync_rm_temp() {
+  local tree=$1
+  local id=$2
+  local found
+  if [ ! -e "$tree" ]; then
+    return 0
+  fi
+  found=$(find "$tree" -name .git -print -prune 2>/dev/null | head -n 1 || true)
+  if [ -n "$found" ]; then
+    sync_log "pull fail ${id} reclone: left ${tree}"
+    return 1
+  fi
+  rm -rf "$tree"
+  return 0
+}
+
 sync_reclone_restore() {
   local repo=$1
   local old=$2
   local new=$3
+  local id=$4
   sync_move_nested "$repo" "$old" || true
   if [ -d "$repo" ] && [ -d "$old" ]; then
     mv "$repo" "$new.fail" 2>/dev/null || true
     mv "$old" "$repo" 2>/dev/null || true
-    rm -rf "$new.fail"
+    sync_rm_temp "$new.fail" "$id" || return 1
   fi
+  return 0
 }
 
 sync_reclone() {
   local repo=$1
   local id=$2
   local tag=$3
-  local url parent new rules rule path scanner hit
+  local url parent new rules rule path scanner hit copied old
   url=$(git -C "$repo" remote get-url origin)
   case "$url" in
     *://*@*) sync_die 1 "refusing a credential in the remote URL" ;;
@@ -209,12 +231,12 @@ sync_reclone() {
   fi
   parent=$(dirname "$repo")
   new="$parent/.sync-reclone-$$"
-  rm -rf "$new"
   if ! sync_git "$repo" clone -- "$url" "$new"; then
     sync_log "pull fail ${id} could not reach origin"
     return 1
   fi
   rules=$(sync_mktemp)
+  copied=$(sync_mktemp)
   sync_tag_rules "$repo" "$tag" > "$rules" || true
   scanner="$SYNC_DIR/secret-scan.sh"
   while IFS= read -r path; do
@@ -242,36 +264,55 @@ sync_reclone() {
       sync_log "pull drop ${id} ${path}"
       continue
     fi
-    mkdir -p "$new/$(dirname "$path")"
-    cp "$repo/$path" "$new/$path"
+    mkdir -p "$new/$(dirname "$path")" || true
+    if ! cp "$repo/$path" "$new/$path"; then
+      sync_log "pull fail ${id} reclone: could not copy ${path}; nothing removed"
+      sync_rm_temp "$new" "$id" || true
+      return 1
+    fi
+    printf '%s\n' "$path" >> "$copied"
   done < <(sync_changed_names "$repo")
   if ! git -C "$new" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    rm -rf "$new"
-    sync_log "pull fail ${id} reclone"
+    sync_log "pull fail ${id} reclone: could not copy ${new}; nothing removed"
+    sync_rm_temp "$new" "$id" || true
     return 1
   fi
   local old="$parent/.sync-old-$$"
   if ! mv "$repo" "$old"; then
-    rm -rf "$new"
-    sync_log "pull fail ${id} reclone"
+    sync_log "pull fail ${id} reclone: could not copy ${repo}; nothing removed"
+    sync_rm_temp "$new" "$id" || true
     return 1
   fi
   if ! mv "$new" "$repo"; then
     mv "$old" "$repo" || true
-    rm -rf "$new"
-    sync_log "pull fail ${id} reclone"
+    sync_log "pull fail ${id} reclone: could not copy ${repo}; nothing removed"
+    sync_rm_temp "$new" "$id" || true
     return 1
   fi
   if [ "${OS_SYNC_RECLONE_FAIL:-}" = "nested" ]; then
-    sync_reclone_restore "$repo" "$old" "$new"
+    sync_reclone_restore "$repo" "$old" "$new" "$id" || true
     sync_log "pull fail ${id} reclone"
     return 1
   fi
   if ! sync_move_nested "$old" "$repo"; then
-    sync_reclone_restore "$repo" "$old" "$new"
-    sync_log "pull fail ${id} reclone"
+    sync_reclone_restore "$repo" "$old" "$new" "$id" || true
+    sync_log "pull fail ${id} reclone: could not copy areas; nothing removed"
     return 1
   fi
+  if [ "${OS_SYNC_RECLONE_FAIL:-}" = "after-nested" ]; then
+    OS_SYNC_MOVE_BACK_FAIL=1
+    sync_reclone_restore "$repo" "$old" "$new" "$id" || true
+    sync_log "pull fail ${id} reclone: could not copy areas; nothing removed"
+    return 1
+  fi
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if ! cmp -s "$old/$path" "$repo/$path"; then
+      sync_reclone_restore "$repo" "$old" "$new" "$id" || true
+      sync_log "pull fail ${id} reclone: could not copy ${path}; nothing removed"
+      return 1
+    fi
+  done < "$copied"
   rm -rf "$old"
   sync_record_rewrite "$id" "$tag"
   sync_log "pull reclone ${id} ${tag}"
