@@ -54,6 +54,9 @@ case "$1" in
   secret-exists)
     printf '%s\n' '{"exists":false}'
     ;;
+  open-pr)
+    printf '%s\n' '{"number":1,"url":"http://example.test/pr/1"}'
+    ;;
   repo-access)
     if [ "${OS_REPO_EXISTS:-}" = "1" ]; then
       printf '%s\n' '{"access":"ok"}'

@@ -209,18 +209,69 @@ class ModelReviewTests(unittest.TestCase):
 
 
 class ToolCopyTests(unittest.TestCase):
-    def test_secret_scan_copy_matches_source(self):
-        source = ROOT / "template" / "skills" / "sync" / "secret-scan.sh"
-        copy = ROOT / "template" / ".github" / "scripts" / "tools" / "secret-scan.sh"
-        self.assertEqual(source.read_bytes(), copy.read_bytes())
+    def test_every_tool_copy_matches_its_source(self):
+        tools = ROOT / "template" / ".github" / "scripts" / "tools"
+        host = ROOT / "template" / "skills" / "_host"
+        mapping = {
+            "secret-scan.sh": ROOT / "template" / "skills" / "sync" / "secret-scan.sh",
+            "lint/lint.sh": ROOT / "template" / "skills" / "lint" / "lint.sh",
+            "add-teammate/lib.sh": ROOT / "template" / "skills" / "add-teammate" / "lib.sh",
+        }
+        seen = []
+        for path in sorted(tools.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(tools).as_posix()
+            if rel == "lint.sh":
+                continue
+            if rel.startswith("host/") and rel.endswith(".sh"):
+                source = host / path.name
+                self.assertNotEqual(path.name, "README.md")
+            else:
+                source = mapping.get(rel)
+            self.assertIsNotNone(source, rel)
+            self.assertTrue(source.is_file(), rel)
+            self.assertEqual(source.read_bytes(), path.read_bytes(), rel)
+            seen.append(rel)
+        self.assertIn("host/host.sh", seen)
+        self.assertIn("host/lib.sh", seen)
+        self.assertIn("host/forgejo.sh", seen)
+        self.assertIn("host/github.sh", seen)
+        self.assertIn("host/profile.sh", seen)
 
-    def test_lint_copy_includes_what_it_sources(self):
-        lint_src = ROOT / "template" / "skills" / "lint" / "lint.sh"
-        lint_copy = ROOT / "template" / ".github" / "scripts" / "tools" / "lint" / "lint.sh"
-        lib_src = ROOT / "template" / "skills" / "add-teammate" / "lib.sh"
-        lib_copy = ROOT / "template" / ".github" / "scripts" / "tools" / "add-teammate" / "lib.sh"
-        self.assertEqual(lint_src.read_bytes(), lint_copy.read_bytes())
-        self.assertEqual(lib_src.read_bytes(), lib_copy.read_bytes())
+    def test_lint_uses_the_base_profile_not_the_head(self):
+        text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$lint" --ci --base "$base"', text)
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "skills").mkdir()
+        (repo / ".agents").mkdir()
+        (repo / ".claude").mkdir()
+        (repo / ".agents" / "skills").symlink_to("../skills")
+        (repo / ".claude" / "skills").symlink_to("../skills")
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        (repo / "company-profile.md").write_text(
+            "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+            encoding="utf-8",
+        )
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "init")
+        base = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        git(repo, "checkout", "-q", "-B", "drop")
+        (repo / "company-profile.md").unlink()
+        (repo / "company-profile.md").mkdir()
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "replace the profile with a directory")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        result = run(["bash", str(lint), "--ci", "--base", base, "--root", str(repo)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("company-profile.md is missing", result.stdout + result.stderr)
 
     def test_copied_tools_run_from_an_empty_dir(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"

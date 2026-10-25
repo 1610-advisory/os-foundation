@@ -10,7 +10,8 @@ usage() {
   cat << 'EOF'
 usage: team-on.sh --answers <file>
 
-Turn solo into team in one run. A second run does not change git history.
+Turn solo into team in one run. A second run does not push to main.
+If an area main has no check tools, the second run opens a pull request.
 If origin is missing, it adds the host clone URL and fetches. If origin is set
 but origin/main is missing, it fetches again. It does not push to main.
 The review key is not an answers-file key. The script prints one command
@@ -247,6 +248,61 @@ push_new_repo() {
   printf 'repo: %s\n' "$name"
 }
 
+# An area that already has rules on main never gets a second push to main.
+# If that main has no check tools, commit them on a branch and open a pull request.
+propose_missing_tools() {
+  local dir=$1 name=$2 src branch pr number
+  if ! os_origin_exists "$dir"; then
+    return 0
+  fi
+  os_with_git_token git -C "$dir" fetch origin
+  if git -C "$dir" cat-file -e "origin/main:.github/scripts/tools/secret-scan.sh" 2>/dev/null; then
+    return 0
+  fi
+  branch="team/scripts-tools"
+  if git -C "$dir" cat-file -e "origin/${branch}:.github/scripts/tools/secret-scan.sh" 2>/dev/null; then
+    pr=$(os_host open-pr "$name" --head "$branch" --base main --title "Team: add check tools")
+    number=$(printf '%s' "$pr" | jq -r '.number // empty')
+    if [ -z "$number" ]; then
+      printf '%s\n' "could not open a pull request for ${name}" >&2
+      exit 2
+    fi
+    printf 'pr: %s %s\n' "$name" "$number"
+    return 0
+  fi
+  if [ -d "$ROOT/.github/scripts/tools" ]; then
+    src="$ROOT/.github/scripts"
+  else
+    src="$DIR/../../.github/scripts"
+  fi
+  [ -d "$src/tools" ] || os_die 3 "check tools are missing from the template"
+  git -C "$dir" checkout -q -f -B "$branch" origin/main
+  mkdir -p "$dir/.github"
+  rm -rf "$dir/.github/scripts"
+  cp -R "$src" "$dir/.github/scripts"
+  git -C "$dir" add -- .github/scripts
+  if git -C "$dir" diff --cached --quiet; then
+    return 0
+  fi
+  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    git -C "$dir" commit -q -m "Team: add check tools"
+  # Never push this branch to main. Main may be protected.
+  if ! os_with_git_token git -C "$dir" push origin "HEAD:${branch}"; then
+    printf '%s\n' "could not push the check-tools branch for ${name}" >&2
+    exit 2
+  fi
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "Team: add check tools")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    printf '%s\n' "could not open a pull request for ${name}" >&2
+    exit 2
+  fi
+  printf 'pr: %s %s\n' "$name" "$number"
+}
+
 commit_rules_before_protect "$ROOT" "Team: turn on"
 push_new_repo "$COMPANY_REPO" "$ROOT"
 
@@ -255,6 +311,7 @@ while IFS= read -r area; do
   [ -n "$area" ] || continue
   commit_rules_before_protect "$ROOT/areas/$area" "Team: area rules"
   push_new_repo "$(os_area_repo "$SLUG" "$area")" "$ROOT/areas/$area"
+  propose_missing_tools "$ROOT/areas/$area" "$(os_area_repo "$SLUG" "$area")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF

@@ -103,7 +103,7 @@ run_gates() {
   fi
   if [ -f "$lint" ]; then
     set +e
-    bash "$lint" --ci
+    bash "$lint" --ci --base "$base"
     lint_rc=$?
     set -e
     if [ "$lint_rc" -ne 0 ]; then

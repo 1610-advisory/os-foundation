@@ -8,8 +8,9 @@ set -euo pipefail
 
 usage() {
   cat << 'EOF'
-usage: lint.sh [--ci] [--root DIR]
+usage: lint.sh [--ci] [--root DIR] [--base SHA]
 
+Company or area comes from the base commit, not the pull request head.
 Company repo: full lint. Area repo: size of AGENTS.md, CLAUDE.md, and review-rules.md.
 EOF
 }
@@ -20,6 +21,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 root="."
+base=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --ci)
@@ -27,6 +29,10 @@ while [ $# -gt 0 ]; do
       ;;
     --root)
       root=${2:-}
+      shift 2
+      ;;
+    --base)
+      base=${2:-}
       shift 2
       ;;
     *)
@@ -42,8 +48,25 @@ if [ -z "$root" ] || [ ! -d "$root" ]; then
 fi
 root=$(cd "$root" && pwd)
 
+# The head can delete the profile, replace it with a directory, or leave a
+# dangling link. That must not switch a company repo onto the size-only path.
+company=0
+if [ -n "$base" ]; then
+  case "$base" in
+    *[!0-9a-fA-F]*)
+      echo "lint failed: the base commit is not a sha" >&2
+      exit 2
+      ;;
+  esac
+  if git -C "$root" cat-file -e "${base}:company-profile.md" 2>/dev/null; then
+    company=1
+  fi
+elif [ -f "$root/company-profile.md" ] && [ ! -L "$root/company-profile.md" ]; then
+  company=1
+fi
+
 here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
-if [ -f "$root/company-profile.md" ]; then
+if [ "$company" -eq 1 ]; then
   exec bash "$here/lint/lint.sh" --ci --root "$root"
 fi
 
