@@ -12,7 +12,7 @@ The multi-user release. A solo owner gets a simpler setup. A team gets enforced 
 - **Logs are plain files.** Each person writes one short log per day in `memory/logs/`. There is no separate `logs` branch any more.
 - **Level and switches.** `company-profile.md` says the level (`solo`, `team` or `app`) and which switches are on. Agents skip rules for a level or a switch that is not on. Every switch is off by default.
 - **`privacy.md`.** A script writes it from your level and switches. It lists every place a copy of your data sits, and only the places that are on: who can read it, how long it stays, how it is removed.
-- **`scale.md`.** A reference for large companies: scale switches, the projects pattern, a checklist for outside parties' computers, and the 5,000-staff case. Agents do not load it at start.
+- **`scale.md`.** A reference for large companies: scale switches, the projects pattern, a checklist for outside parties' computers, and the 5,000-staff case with results from a local Forgejo load check. Agents do not load it at start.
 - **Versions.** `1610.sh/os` serves the latest release. `1610.sh/os@vX.Y.Z` serves a pinned one. `lint` can say in one line when a newer version exists. You choose when to run the new `upgrade` skill. The new `privacy` skill writes `privacy.md`.
 
 ### New for teams

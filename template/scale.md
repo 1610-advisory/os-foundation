@@ -74,6 +74,32 @@ The same design works for a company of 5,000. The argument:
 
 ## Load and permission check
 
-Numbers: see `tests/scale/RESULTS.md` in the os-foundation repo (https://github.com/1610-advisory/os-foundation). The numbers come here before release.
+Full numbers: see `tests/scale/RESULTS.md` in the os-foundation repo (https://github.com/1610-advisory/os-foundation).
 
 The check runs on a local Forgejo: 5,000 users, 200 area repos, team grants by area. It proves read denial per repo for a sample of users, and simulates a spread nightly push window (rate, conflicts, time). It is not a live run with 5,000 people.
+
+Results from one run (2026-10-24):
+
+| Item | Result |
+|---|---|
+| Host | One local Forgejo 17.0.0 container (SQLite), capped at 2 CPUs and 2 GB |
+| Users | 5,000 |
+| Area repos | 200, plus one company repo |
+| Teams | 200, each with write on one area repo |
+| Team grants (people on teams) | 6,248 |
+| Time to create users | 711 seconds (about 7 a second) |
+| Time to create repos | 39 seconds for 201 repos |
+| Time to add team grants | 37 seconds |
+| Read denial | 400 user and repo pairs (200 allowed, 200 denied): 0 wrong. Clone and API read both checked. |
+| Pushes | 6,247 worked, 1 failed |
+| Push time | p50 0.28 seconds, p95 0.38 seconds |
+| Pushes a minute | 285 at 4 pushes at a time. Spread over the real 180-minute window: about 35. |
+| Push conflicts | 0 (each person pushes only their own branch) |
+| Standing pull requests merged | 50 of 50, no API errors |
+
+What this does not prove:
+
+- Forgejo is not GitHub. A number here is not a GitHub number.
+- At this size GitHub's own API rate limit and push rate limit are the first limits. This check did not measure them. Check the current GitHub numbers before you rely on them.
+- The read-denial sample left out the company repo. In the check it was owner-only. In a real company OS every teammate gets the company repo.
+- Ask GitHub, in writing, whether a connector reader is an End User before a large rollout.
