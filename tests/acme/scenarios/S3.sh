@@ -22,7 +22,7 @@ trap cleanup EXIT
 osf_sandbox "$work/box"
 dest="$work/company"
 osf_setup_solo "$dest" "$slug" >/dev/null
-osf_create_org "$org" || osf_result "S3 FAIL could not create org"
+osf_need_org S3 "$org"
 answers="$work/answers"
 osf_write_team_answers "$answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/engine.sh"
 osf_export_token acme-admin || osf_result "S3 FAIL admin token missing"

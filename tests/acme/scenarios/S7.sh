@@ -24,7 +24,7 @@ trap cleanup EXIT
 osf_sandbox "$work/box"
 dest="$work/company"
 osf_setup_solo "$dest" "$slug" >/dev/null
-osf_create_org "$org" || osf_result "S7 FAIL could not create org"
+osf_need_org S7 "$org"
 osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/review-engine.sh"
 osf_export_token acme-admin || osf_result "S7 FAIL admin token missing"
 export OS_ORG="$org"

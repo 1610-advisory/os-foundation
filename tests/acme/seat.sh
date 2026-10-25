@@ -187,6 +187,14 @@ chmod 700 "$root/tests/acme/.out" "$seat_dir" "$seat_dir/xdg"
 helper="$root/tests/acme/lib/git-credential-seat.sh"
 ssh_off="$root/tests/acme/lib/ssh-off.sh"
 chmod 700 "$helper" "$ssh_off"
+seat_bin="$seat_dir/bin"
+mkdir -p "$seat_bin"
+chmod 700 "$seat_bin"
+ln -sf "$ssh_off" "$seat_bin/ssh"
+ln -sf "$ssh_off" "$seat_bin/scp"
+ln -sf "$ssh_off" "$seat_bin/sftp"
+export PATH="$seat_bin:$PATH"
+export RSYNC_RSH="$seat_bin/ssh"
 
 gitconfig="$seat_dir/gitconfig"
 cat > "$gitconfig" << EOF
@@ -208,8 +216,12 @@ export GIT_ALLOW_PROTOCOL="http:https:file"
 token=$(tr -d '[:space:]' < "$token_file")
 
 if [ -z "$cwd" ] && [ -n "${OSF_ACME_REPO:-}" ]; then
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_TERMINAL_PROMPT=0 \
   OSF_FORGEJO_TOKEN="$token" \
   OSF_GIT_USER="$forgejo_user" \
@@ -290,6 +302,8 @@ run_engine() {
   cd "$cwd"
   set +e
   HOME="$real_home" \
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
   XDG_CONFIG_HOME="$seat_dir/xdg" \
   GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
@@ -347,6 +361,8 @@ if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$cwd" remote get-url origin >/dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD)
   HOME="$real_home" \
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
   GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \

@@ -26,9 +26,7 @@ trap cleanup EXIT
 osf_sandbox "$work/box"
 dest="$work/company"
 osf_setup_solo "$dest" "$slug" >/dev/null
-if ! osf_create_org "$org"; then
-  osf_result "S2 FAIL could not create org"
-fi
+osf_need_org S2 "$org"
 answers="$work/answers"
 osf_write_team_answers "$answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/engine.sh"
 if ! osf_export_token acme-admin; then

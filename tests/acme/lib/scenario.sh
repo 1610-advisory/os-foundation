@@ -468,6 +468,41 @@ osf_delete_org() {
   osf_wipe_owned "$1"
 }
 
+# Clean start must remove the org. A leftover org is a failure, not a reuse.
+osf_create_org() {
+  local org="$1"
+  local token body code
+  if ! osf_delete_org "$org"; then
+    return 1
+  fi
+  token=$(osf_token_file acme-admin)
+  osf_api "$token" GET "/api/v1/orgs/${org}" || true
+  if [ "$OSF_HTTP_CODE" != "404" ]; then
+    osf_api_discard
+    return 1
+  fi
+  osf_api_discard
+  body=$(mktemp)
+  chmod 600 "$body"
+  jq -n --arg name "$org" '{username:$name, visibility:"private"}' > "$body"
+  osf_api "$token" POST "/api/v1/orgs" "$body"
+  code="$OSF_HTTP_CODE"
+  rm -f "$body"
+  osf_api_discard
+  if [ "$code" = "201" ] || [ "$code" = "200" ]; then
+    return 0
+  fi
+  return 1
+}
+
+osf_need_org() {
+  local id="$1"
+  local org="$2"
+  if ! osf_create_org "$org"; then
+    osf_result "$id FAIL clean start failed"
+  fi
+}
+
 osf_seed_area() {
   local dest="$1"
   local area="$2"
@@ -482,24 +517,6 @@ osf_seed_area() {
     git -C "$dir" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
       commit -m "Area: start" >&2
   fi
-}
-
-osf_create_org() {
-  local org="$1"
-  local token body code
-  osf_delete_org "$org" || true
-  token=$(osf_token_file acme-admin)
-  body=$(mktemp)
-  chmod 600 "$body"
-  jq -n --arg name "$org" '{username:$name, visibility:"private"}' > "$body"
-  osf_api "$token" POST "/api/v1/orgs" "$body"
-  code="$OSF_HTTP_CODE"
-  rm -f "$body"
-  osf_api_discard
-  if [ "$code" = "201" ] || [ "$code" = "200" ] || [ "$code" = "409" ] || [ "$code" = "422" ]; then
-    return 0
-  fi
-  return 1
 }
 
 osf_results() {

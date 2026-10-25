@@ -121,6 +121,15 @@ class EngineFixtureTests(unittest.TestCase):
         self.assertIn("company fact", proc.stdout)
 
 
+class CleanStartTests(unittest.TestCase):
+    def test_create_org_does_not_reuse_a_leftover(self):
+        text = (LIB / "scenario.sh").read_text()
+        self.assertNotIn('osf_delete_org "$org" || true', text)
+        self.assertNotIn('"$code" = "409"', text)
+        self.assertIn("FAIL clean start failed", text)
+        self.assertIn('GET "/api/v1/orgs/${org}"', text)
+
+
 class SeatLockTests(unittest.TestCase):
     def test_helper_returns_nothing_for_github(self):
         helper = LIB / "git-credential-seat.sh"
@@ -164,6 +173,36 @@ class SeatLockTests(unittest.TestCase):
         direct = subprocess.run([str(ssh_off)], capture_output=True, text=True, check=False)
         self.assertEqual(direct.returncode, 1)
         self.assertIn("ssh is off in Acme seats", direct.stderr)
+
+    def test_path_shim_blocks_ssh_without_a_network_client(self):
+        import tempfile
+        ssh_off = LIB / "ssh-off.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            bindir = Path(tmp)
+            for name in ("ssh", "scp", "sftp"):
+                (bindir / name).symlink_to(ssh_off)
+            env = {
+                **os.environ,
+                "PATH": f"{bindir}:{os.environ.get('PATH', '')}",
+                "GIT_SSH_COMMAND": str(bindir / "ssh"),
+                "GIT_ALLOW_PROTOCOL": "http:https:file",
+                "GIT_TERMINAL_PROMPT": "0",
+                "RSYNC_RSH": str(bindir / "ssh"),
+            }
+            which = subprocess.run(["ssh", "-V"], capture_output=True, text=True, check=False, env=env)
+            self.assertEqual(which.returncode, 1)
+            self.assertIn("ssh is off in Acme seats", which.stderr)
+            self.assertNotIn("OpenSSH", which.stderr)
+            remote = "git" + "@" + "github.com:octocat/Hello-World.git"
+            proc = subprocess.run(
+                ["git", "ls-remote", remote],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("ssh is off in Acme seats", proc.stderr + which.stderr)
 
 
 class ScenarioScriptTests(unittest.TestCase):
