@@ -75,7 +75,7 @@ EOF
 bash "$root/skills/add-bot/add-bot.sh" --answers "$tmp/answers" --root "$root" >"$tmp/add.out" 2>"$tmp/add.err"
 
 git -C "$root" init -q -b main
-git -C "$root" add company-profile.md people bots
+git -C "$root" add -A
 git -C "$root" commit -q -m "start"
 cat > "$root/bots/helper/routines/daily.md" << 'EOF'
 ---
@@ -111,7 +111,7 @@ if not done:
     lines.insert(1, 'engine: "' + engine.replace('"', '\\"') + '"')
 pathlib.Path(path).write_text("\n".join(lines) + "\n")
 PY
-git -C "$root" add bots/helper/BOT.md
+git -C "$root" add -A
 git -C "$root" commit -q -m "set engine"
 bash "$root/skills/add-bot/run.sh" helper daily --root "$root" >"$tmp/run.out"
 
