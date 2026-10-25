@@ -444,6 +444,14 @@ if [ "$box" = "yes" ] && [ "$ready" -eq 1 ]; then
     if bot_is_git "$path"; then
       git -C "$path" config --local --unset-all credential.helper >/dev/null 2>&1 || true
       git -C "$path" config --local credential.helper "!${wrap}"
+      cred_url=$host_url
+      cred_url=${cred_url%/}
+      if [ "$host" = "github" ] && [ -z "$cred_url" ]; then
+        cred_url="https://github.com"
+      fi
+      if [ -n "$cred_url" ]; then
+        git -C "$path" config --local "credential.${cred_url}.useHttpPath" true
+      fi
     fi
   done < "$scope_file"
   sync_sh=$(bot_sync_sh)

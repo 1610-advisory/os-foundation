@@ -165,21 +165,27 @@ handoff: none
 
 Write the daily note.
 EOF
+git -C "$company" add bots
+git -C "$company" commit -q -m "bot page"
+GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+  git -C "$company" -c credential.helper= push -q origin main
 bash "$company/skills/add-bot/run.sh" helper daily --root "$company" >"$tmp/run.out"
 run_id=$(sed -n 's/^run_id: //p' "$tmp/run.out")
 [ -n "$run_id" ] || bots_fail "no run id"
 GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 git -C "$company" -c credential.helper= fetch -q origin
 GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 git -C "$company/areas/marketing" -c credential.helper= fetch -q origin
-company_hits=$(git -C "$company" log origin/main --format='%B' | awk -v id="$run_id" '
+git -C "$company" log origin/main --format='%B' > "$tmp/company-bodies"
+company_hits=$(awk -v id="$run_id" '
   /^Run-Id:/ { if ($0 ~ id) c++ }
   END { print c+0 }
-')
+' "$tmp/company-bodies")
 [ "$company_hits" -ge 2 ] || bots_fail "company trailers $company_hits"
-git -C "$company" log origin/main --format='%B' | grep -q "Bot-Owner: ada"
-area_hits=$(git -C "$company/areas/marketing" log origin/main --format='%B' | awk -v id="$run_id" '
+grep -q "Bot-Owner: ada" "$tmp/company-bodies"
+git -C "$company/areas/marketing" log origin/main --format='%B' > "$tmp/area-bodies"
+area_hits=$(awk -v id="$run_id" '
   /^Run-Id:/ { if ($0 ~ id) c++ }
   END { print c+0 }
-')
+' "$tmp/area-bodies")
 [ "$area_hits" -ge 1 ] || bots_fail "area trailers $area_hits"
 bots_pass "trailers present on main after merge"
 

@@ -109,7 +109,7 @@ while IFS= read -r line; do
   if ! bot_is_git "$path"; then
     continue
   fi
-  if ! git -C "$path" diff --quiet || ! git -C "$path" diff --cached --quiet; then
+  if [ -n "$(git -C "$path" status --porcelain)" ]; then
     bot_die 2 "repo is dirty. Commit or stash before the bot run."
   fi
 done < "$scope_file"
@@ -151,6 +151,7 @@ BOT_TMP_FILES="${BOT_TMP_FILES} ${wrap_dir}"
   printf 'export OS_REAL_GIT=%q\n' "$real_git"
   printf 'export OS_BOT_HOOKS=%q\n' "$hooks"
   printf 'export OS_BOT_LOG=%q\n' "$log_file"
+  printf 'export OS_BOT=%q\n' "$bot"
   printf 'exec %q "$@"\n' "${DIR}/git-guard.sh"
 } > "${wrap_dir}/git"
 chmod 700 "${wrap_dir}/git"

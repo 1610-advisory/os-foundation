@@ -128,6 +128,7 @@ undo_drop_worktree() {
 
 found_any=0
 any_conflict=0
+any_exists=0
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
@@ -160,9 +161,16 @@ EOF
   found_any=1
   name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
   branch="undo/${run_id}"
+  if git -C "$path" show-ref --verify --quiet "refs/heads/${branch}" \
+    || git -C "$path" show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
+    printf 'repo: %s\n' "$name"
+    printf '%s\n' "refused: ${branch} already exists"
+    any_exists=1
+    continue
+  fi
   wt=$(mktemp -d)
   rmdir "$wt"
-  if ! git -C "$path" worktree add -B "$branch" "$wt" origin/main >/dev/null 2>&1; then
+  if ! git -C "$path" worktree add -b "$branch" "$wt" origin/main >/dev/null 2>&1; then
     any_conflict=1
     printf 'repo: %s\n' "$name"
     printf '%s\n' "conflict: could not open a worktree; this repo was left unchanged"
@@ -231,4 +239,7 @@ if [ "$found_any" -ne 1 ]; then
 fi
 if [ "$any_conflict" -eq 1 ]; then
   exit 3
+fi
+if [ "$any_exists" -eq 1 ]; then
+  exit 2
 fi

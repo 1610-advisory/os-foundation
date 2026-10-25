@@ -555,7 +555,67 @@ bash "$root/skills/add-bot/git-guard.sh" -C "$root" push origin "HEAD:refs/heads
 code=$?
 set -e
 [ "$code" -eq 1 ] || bots_fail "HEAD push exit $code"
+rm -f "$root/README.md"
+printf 'loose\n' > "$root/notes/untracked.md"
+set +e
+bash "$run" helper daily --root "$root" >"$tmp/untracked.out" 2>"$tmp/untracked.err"
+code=$?
+set -e
+[ "$code" -eq 2 ] || bots_fail "untracked dirty exit $code"
+grep -q "dirty" "$tmp/untracked.err"
+rm -f "$root/notes/untracked.md"
 bots_pass "dirty tree and push to main are refused"
+
+# A: allowlist. Wildcards, --all, --mirror, --tags, and --delete are refused.
+# An allowed sync/<bot> refspec reaches git.
+fake="$tmp/fake-git"
+cat > "$fake" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "${OS_FAKE_GIT_LOG:?}"
+for a in "$@"; do
+  if [ "$a" = "rev-parse" ]; then
+    printf '%s\n' "${OS_FAKE_BRANCH:-main}"
+    exit 0
+  fi
+done
+exit 0
+EOF
+chmod 700 "$fake"
+export OS_FAKE_GIT_LOG="$tmp/fake-git.log" OS_BOT=helper
+: > "$OS_FAKE_GIT_LOG"
+for bad in --all --mirror --tags --delete; do
+  set +e
+  OS_REAL_GIT="$fake" bash "$root/skills/add-bot/git-guard.sh" push origin "$bad" >"$tmp/bad.out" 2>"$tmp/bad.err"
+  code=$?
+  set -e
+  [ "$code" -eq 1 ] || bots_fail "push $bad exit $code"
+done
+set +e
+OS_REAL_GIT="$fake" bash "$root/skills/add-bot/git-guard.sh" push origin 'refs/heads/*:refs/heads/*' >"$tmp/wild.out" 2>"$tmp/wild.err"
+code=$?
+set -e
+[ "$code" -eq 1 ] || bots_fail "wildcard push exit $code"
+set +e
+OS_FAKE_BRANCH=main OS_REAL_GIT="$fake" bash "$root/skills/add-bot/git-guard.sh" --git-dir "$root/.git" push >"$tmp/gitdir.out" 2>"$tmp/gitdir.err"
+code=$?
+set -e
+[ "$code" -eq 1 ] || bots_fail "git-dir push exit $code"
+grep -q "refused:" "$tmp/gitdir.err"
+: > "$OS_FAKE_GIT_LOG"
+OS_FAKE_BRANCH=sync/helper OS_REAL_GIT="$fake" bash "$root/skills/add-bot/git-guard.sh" push origin refs/heads/sync/helper >"$tmp/allow.out" 2>"$tmp/allow.err"
+grep -q "push origin refs/heads/sync/helper" "$OS_FAKE_GIT_LOG" || bots_fail "allowed push did not reach git"
+bots_pass "push allowlist"
+
+# D: an existing undo branch is refused and not reset.
+tip=$(git -C "$root" rev-parse undo/local-run)
+set +e
+bash "$undo" local-run --root "$root" >"$tmp/exists.out" 2>"$tmp/exists.err"
+code=$?
+set -e
+[ "$code" -eq 2 ] || bots_fail "existing undo exit $code"
+grep -q "already exists" "$tmp/exists.out"
+[ "$(git -C "$root" rev-parse undo/local-run)" = "$tip" ] || bots_fail "existing undo branch was reset"
+bots_pass "existing undo branch is not reset"
 
 # P2: a second run revokes a dropped repo.
 cat > "$tmp/drop" << EOF
@@ -575,5 +635,26 @@ bash "$add" --answers "$tmp/drop" --root "$root" >"$tmp/drop.out"
 grep -q "revoked: acme-marketing" "$tmp/drop.out"
 grep -q "revoke acme-marketing" "$OS_HOST_LOG"
 bots_pass "second run revokes a dropped grant"
+
+# B: useHttpPath is set, and a path outside the grant gets no answer.
+cat > "$tmp/http-path" << EOF
+kind=company
+bot=helper
+name=Acme helper
+owner=ada
+email=acme.bot@acme.test
+repos=acme-os
+scope.acme-os=company
+token_path=$token
+box=yes
+engine=$here/fixtures/engine.sh
+EOF
+bash "$add" --answers "$tmp/http-path" --root "$root" >"$tmp/http.out"
+use=$(git -C "$root" config --local --get credential.http://localhost:3300.useHttpPath)
+[ "$use" = "true" ] || bots_fail "useHttpPath is not set"
+printf 'protocol=http\nhost=localhost:3300\npath=acme/acme-secret.git\n\n' | \
+  OS_BOT=helper OS_ROOT="$root" bash "$helper" get >"$tmp/outside.out"
+[ ! -s "$tmp/outside.out" ] || bots_fail "helper answered a repo outside the grant"
+bots_pass "useHttpPath grant check"
 
 bots_pass "unit suite"

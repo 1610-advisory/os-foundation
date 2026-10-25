@@ -113,7 +113,7 @@ A hand-off is refused when `cloud-handoff` is off. When the switch is on, v1 sti
 
 The script makes a `Run-Id` of `YYYYMMDD-HHMMSS` plus 8 hex characters. `OS_NOW` fakes the clock. It runs the engine with the routine body on stdin, in `bots/<bot>/`. The engine is `engine` in `BOT.md`, else `OS_SYNC_ENGINE`, else `sync_engine`. Every `git commit` the engine makes gets trailers `Run-Id: <id>` and `Bot-Owner: <owner-slug>`.
 
-Before the engine, each granted local repo must be clean. A dirty tree is refused. The branch `sync/<bot>` is then taken from `origin/main`. The git wrapper refuses a push whose destination is `main` or `master`, and a merge into `main`. After the engine, the script runs `skills/sync/sync.sh push`. That push owns the standing pull request and auto-merge. This script does not open that pull request itself.
+Before the engine, each granted local repo must be clean. Untracked files count as dirty. A dirty tree is refused. The branch `sync/<bot>` is then taken from `origin/main`. The git wrapper allows a push only to `sync/<bot>` or `undo/*`. It refuses `merge`, `pull`, and `rebase` while on `main`. After the engine, the script runs `skills/sync/sync.sh push`. That push owns the standing pull request and auto-merge. This script does not open that pull request itself.
 
 Exit codes: `0` ok, `1` usage, `2` refused, `3` engine, sync, or hand-off caller missing.
 
