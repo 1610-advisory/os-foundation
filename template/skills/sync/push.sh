@@ -516,8 +516,325 @@ sync_push_one() {
   return 0
 }
 
+# Bot runs already committed on sync/<bot>. Push those commits as they are.
+# Do not commit again, and do not touch sync/<me>.
+# The bot key is the boundary. This path does not check that me is the bot.
+sync_bot_fail() {
+  local id=$1 why=$2
+  sync_log "push fail ${id} ${why}"
+  printf '%s\n' "$why" >&2
+  return 1
+}
+
+sync_bot_git() {
+  local dir=$1 bot=$2 helper
+  shift 2
+  helper="${SYNC_ROOT}/skills/add-bot/git-credential-os-bot"
+  if [ ! -x "$helper" ]; then
+    return 1
+  fi
+  # Absolute helper path: git runs it directly. No token in an argument.
+  env -u GIT_ASKPASS \
+    OS_BOT="$bot" \
+    OS_ROOT="${OS_ROOT:-$SYNC_ROOT}" \
+    OS_PROFILE="${OS_PROFILE:-$SYNC_ROOT/company-profile.md}" \
+    GIT_TERMINAL_PROMPT=0 \
+    git -C "$dir" \
+      -c credential.helper= \
+      -c "credential.helper=${helper}" \
+      -c commit.gpgsign=false \
+      "$@"
+}
+
+# Slug is checked before this runs. The only refspec is sync/<bot>.
+sync_bot_push_ref() {
+  local dir=$1 bot=$2
+  local ref="refs/heads/sync/${bot}"
+  sync_bot_git "$dir" "$bot" push --force origin "${ref}:${ref}"
+}
+
+sync_bot_url_has_credential() {
+  local url=$1
+  case "$url" in
+    *://*@*|*'token='*|*'password='*) return 0 ;;
+  esac
+  return 1
+}
+
+# Token stays in this function's output. The caller must not log it.
+sync_bot_take_token() {
+  local bot=$1 token err rc
+  err=$(sync_mktemp)
+  set +e
+  token=$("$HOST_SH" get-token --bot "$bot" 2>"$err")
+  rc=$?
+  set -e
+  rm -f "$err"
+  if [ "$rc" -ne 0 ] || [ -z "$token" ]; then
+    return 1
+  fi
+  token=$(printf '%s' "$token" | tr -d '\r\n')
+  case "$token" in
+    ""|*$'\n'*) return 1 ;;
+  esac
+  printf '%s' "$token"
+}
+
+# Set the host token only for this command. Not an argument, not a URL.
+sync_bot_host() {
+  local token=$1 host
+  shift
+  host=$(sync_profile host)
+  case "$host" in
+    github)
+      GH_TOKEN="$token" "$@"
+      ;;
+    forgejo)
+      FORGEJO_TOKEN="$token" "$@"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+sync_bot_wait_merge() {
+  local name=$1 number=$2 token=$3
+  local limit i status merged rc
+  limit=${OS_BOT_MERGE_WAIT:-180}
+  case "$limit" in
+    *[!0-9]*|"") return 1 ;;
+  esac
+  i=0
+  while [ "$i" -lt "$limit" ]; do
+    set +e
+    status=$(sync_bot_host "$token" "$HOST_SH" pr-status "$name" "$number" 2>/dev/null)
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      merged=$(printf '%s' "$status" | jq -r '.merged // empty' 2>/dev/null || true)
+      if [ "$merged" = "true" ]; then
+        return 0
+      fi
+    fi
+    i=$((i + 1))
+    if [ "$i" -ge "$limit" ]; then
+      break
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# origin/main..ref, or every commit on the branch when origin/main is missing.
+sync_bot_range() {
+  local repo=$1 ref=$2
+  if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    printf '%s\n' "origin/main..${ref}"
+    return 0
+  fi
+  printf '%s\n' "$ref"
+}
+
+# Rules paths and secret blobs in the range. Return 1 before any push.
+sync_bot_check_range() {
+  local repo=$1 id=$2 ref=$3
+  local range list line path sha kind dir n scanner rc blob
+  range=$(sync_bot_range "$repo" "$ref")
+  list=$(sync_mktemp)
+  set +e
+  git -C "$repo" log -z --name-only --no-renames --pretty=format: "$range" > "$list"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "secret scan"
+    return 1
+  fi
+  # -z keeps both sides of a rename and does not quote a path.
+  while IFS= read -r -d '' path || [ -n "$path" ]; do
+    [ -n "$path" ] || continue
+    if sync_is_rules "$path"; then
+      sync_bot_fail "$id" "rules file: propose it with sync.sh propose"
+      return 1
+    fi
+  done < "$list"
+  scanner="$SYNC_DIR/secret-scan.sh"
+  if [ ! -f "$scanner" ]; then
+    sync_bot_fail "$id" "secret scan"
+    return 1
+  fi
+  dir=$(mktemp -d)
+  chmod 700 "$dir"
+  n=0
+  set +e
+  git -C "$repo" rev-list --objects "$range" > "$list"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    rm -rf "$dir"
+    sync_bot_fail "$id" "secret scan"
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *" "*)
+        sha=${line%% *}
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    kind=$(git -C "$repo" cat-file -t "$sha" 2>/dev/null || true)
+    [ "$kind" = "blob" ] || continue
+    n=$((n + 1))
+    blob="$dir/blob-$n"
+    if ! git -C "$repo" cat-file blob "$sha" > "$blob"; then
+      rm -rf "$dir"
+      sync_bot_fail "$id" "secret scan"
+      return 1
+    fi
+    chmod 600 "$blob"
+  done < "$list"
+  if [ "$n" -eq 0 ]; then
+    blob="$dir/blob-0"
+    : > "$blob"
+    chmod 600 "$blob"
+  fi
+  set +e
+  # shellcheck disable=SC2086
+  "$scanner" --files -- "$dir"/blob-* >/dev/null 2>"$dir/scan.err"
+  rc=$?
+  set -e
+  rm -rf "$dir"
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "secret scan"
+    return 1
+  fi
+  return 0
+}
+
+# Called from '||', so set -e does not stop this function. Check every step.
+sync_bot_push_repo() {
+  local repo=$1 id=$2 bot=$3 token=$4
+  local ref rc name number out url
+  ref="refs/heads/sync/${bot}"
+  if ! git -C "$repo" show-ref --verify --quiet "$ref"; then
+    return 0
+  fi
+  url=$(git -C "$repo" remote get-url origin 2>/dev/null || true)
+  if [ -z "$url" ] || sync_bot_url_has_credential "$url"; then
+    sync_log "push fail ${id} credential"
+    printf '%s\n' "refusing a credential in the remote URL" >&2
+    return 1
+  fi
+  sync_bot_git "$repo" "$bot" fetch origin >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "push"
+    return 1
+  fi
+  if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    if git -C "$repo" merge-base --is-ancestor "$ref" origin/main; then
+      return 0
+    fi
+  fi
+  if ! sync_bot_check_range "$repo" "$id" "$ref"; then
+    return 1
+  fi
+  sync_bot_push_ref "$repo" "$bot" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "push"
+    return 1
+  fi
+  name=$(sync_remote_name "$repo") || {
+    sync_bot_fail "$id" "pull request"
+    return 1
+  }
+  set +e
+  out=$(sync_bot_host "$token" sync_open_pr "$name" "sync/${bot}" "sync: ${bot}")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "pull request"
+    return 1
+  fi
+  number=$(printf '%s' "$out" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    sync_bot_fail "$id" "pull request"
+    return 1
+  fi
+  set +e
+  sync_bot_host "$token" "$HOST_SH" auto-merge "$name" "$number" >/dev/null 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_bot_fail "$id" "auto-merge"
+    return 1
+  fi
+  if ! sync_bot_wait_merge "$name" "$number" "$token"; then
+    sync_bot_fail "$id" "merge wait"
+    return 1
+  fi
+  sync_log "push ok ${id}"
+  return 0
+}
+
+sync_push_bot() {
+  local bot rc=0 d id token host token_rc
+  bot=${OS_BOT:-}
+  if ! sync_safe_slug "$bot"; then
+    sync_held_error "bot slug is not a plain name"
+    sync_log "push fail bot slug"
+    return 1
+  fi
+  if [ ! -f "$SYNC_ROOT/bots/${bot}/BOT.md" ]; then
+    sync_held_error "bot page is missing"
+    sync_log "push fail bot page"
+    return 1
+  fi
+  [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
+  if [ ! -x "${SYNC_ROOT}/skills/add-bot/git-credential-os-bot" ]; then
+    sync_held_error "bot credential helper is missing"
+    sync_log "push fail bot helper"
+    return 1
+  fi
+  host=$(sync_profile host)
+  case "$host" in
+    github|forgejo) ;;
+    *)
+      sync_bot_fail "bot" "pull request"
+      return 1
+      ;;
+  esac
+  set +e
+  token=$(sync_bot_take_token "$bot")
+  token_rc=$?
+  set -e
+  if [ "$token_rc" -ne 0 ] || [ -z "$token" ]; then
+    token=""
+    sync_bot_fail "bot" "pull request"
+    return 1
+  fi
+  if [ -e "$SYNC_ROOT/.git" ]; then
+    sync_bot_push_repo "$SYNC_ROOT" "root" "$bot" "$token" || rc=1
+  fi
+  for d in "$SYNC_ROOT"/areas/*; do
+    [ -d "$d" ] || continue
+    [ -e "$d/.git" ] || continue
+    id="area:$(basename "$d")"
+    sync_bot_push_repo "$d" "$id" "$bot" "$token" || rc=1
+  done
+  token=""
+  return "$rc"
+}
+
 cmd_push() {
   sync_lock
+  if [ -n "${OS_BOT:-}" ]; then
+    sync_push_bot || return 1
+    return 0
+  fi
   sync_identity || return 1
   [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
   local rc=0

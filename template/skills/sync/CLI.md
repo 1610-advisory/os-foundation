@@ -13,7 +13,7 @@ skills/sync/sync.sh <command> [flags]
 | Command | Does |
 |---|---|
 | `pull` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. On failure, leave that repo's working copy unchanged and write one line to the log. |
-| `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. |
+| `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
 | `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
 | `status` | Print held files and the last error. The next session reads this. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
@@ -63,6 +63,21 @@ For each repo that has changes:
 Held files stay in the working copy, unchanged. Nothing held is pushed. After the pull request merges, the next `pull` is clean apart from held files. If it has not merged, `pull` still works and keeps local changes.
 
 Any failed step pushes nothing for that repo. A network failure writes one log line and pushes nothing.
+
+## Bot run push
+
+When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>`. The bot key is the boundary. This path does not check that `me` is the bot.
+
+For each company or area repo that already has commits on `sync/<bot>` that are not on `origin/main`:
+
+1. Refuse a credential in the origin URL before any fetch. The message does not include the URL.
+2. Take the bot token from `host.sh get-token --bot`. If that fails, stop before the push. The token is an environment value for the pull request calls only (`GH_TOKEN` on GitHub, `FORGEJO_TOKEN` on Forgejo). It is not an argument, a URL, or a log line.
+3. Scan every blob in `origin/main..sync/<bot>` with `secret-scan.sh`. If `origin/main` is missing, scan every blob on the branch. A hit or a scan error pushes nothing.
+4. If any changed path in that range is a rules file, stop. The reason is `rules file: propose it with sync.sh propose`.
+5. Push that branch as it is. The commits stay the same, including `Run-Id` and `Bot-Owner`. Git uses `skills/add-bot/git-credential-os-bot`.
+6. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, as the bot. Wait until it merges.
+
+`OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
 
 ## Pull and history rewrite
 
