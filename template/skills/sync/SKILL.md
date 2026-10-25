@@ -22,7 +22,7 @@ description: Keeps this computer and the company host in step. Pulls every 15 mi
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
 - **Nobody writes to `main`** in the company or an area repo. The admin is included.
-- **Bot run.** When `OS_BOT` is set, `push` does not use the steps above. It sends the commits already on `sync/<bot>` and opens `sync: <bot>`. It does not commit that work as the person, and it does not touch `sync/<person>`.
+- **Bot run.** When `OS_BOT` is set, `push` does not use the steps above. It scans the commits already on `sync/<bot>`, then sends that branch and opens `sync: <bot>` as the bot. A secret or a rules file pushes nothing. It does not commit that work as the person, and it does not touch `sync/<person>`. The bot key is the boundary.
 
 ## Session start (Claude Code, Codex, Cursor, Pi)
 

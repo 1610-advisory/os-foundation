@@ -144,6 +144,26 @@ export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/add-bot/run.sh" helper note --root "$dest" >"$work/run.log" 2>&1 \
   || osf_result "S8 FAIL bot run"
+python3 - "$org" "${slug}-os" "$root/tests/acme/lib" >"$work/pr-user.log" 2>&1 << 'PY' || osf_result "S8 FAIL pull request was not opened by the bot"
+import sys
+sys.path.insert(0, sys.argv[3])
+from results import api
+org, repo = sys.argv[1], sys.argv[2]
+code, pulls = api("GET", f"/api/v1/repos/{org}/{repo}/pulls?state=all&limit=50")
+if code != 200 or not isinstance(pulls, list):
+    sys.exit(1)
+opener = ""
+for pull in pulls:
+    head = pull.get("head") or {}
+    if head.get("ref") != "sync/helper":
+        continue
+    user = pull.get("user") or {}
+    opener = user.get("login") or user.get("username") or ""
+    break
+if opener != "acme-bot":
+    sys.stderr.write(opener + "\n")
+    sys.exit(1)
+PY
 run_id=$(grep -o 'Run-Id: [^ ]*' "$work/run.log" | awk '{print $2}' | head -n 1 || true)
 if [ -z "$run_id" ]; then
   run_id=$(grep -o 'run_id: [^ ]*' "$work/run.log" | awk '{print $2}' | head -n 1 || true)

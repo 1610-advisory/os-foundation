@@ -66,13 +66,16 @@ Any failed step pushes nothing for that repo. A network failure writes one log l
 
 ## Bot run push
 
-When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>`.
+When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>`. The bot key is the boundary. This path does not check that `me` is the bot.
 
 For each company or area repo that already has commits on `sync/<bot>` that are not on `origin/main`:
 
-1. Push that branch as it is. The commits stay the same, including `Run-Id` and `Bot-Owner`. The token comes from `skills/add-bot/git-credential-os-bot`. The token is not an argument.
-2. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, the same way a person's standing pull request works.
-3. Wait until that pull request merges. If the checks do not pass in time, that repo fails. Nothing is committed by this path.
+1. Refuse a credential in the origin URL before any fetch. The message does not include the URL.
+2. Take the bot token from `host.sh get-token --bot`. If that fails, stop before the push. The token is an environment value for the pull request calls only (`GH_TOKEN` on GitHub, `FORGEJO_TOKEN` on Forgejo). It is not an argument, a URL, or a log line.
+3. Scan every blob in `origin/main..sync/<bot>` with `secret-scan.sh`. If `origin/main` is missing, scan every blob on the branch. A hit or a scan error pushes nothing.
+4. If any changed path in that range is a rules file, stop. The reason is `rules file: propose it with sync.sh propose`.
+5. Push that branch as it is. The commits stay the same, including `Run-Id` and `Bot-Owner`. Git uses `skills/add-bot/git-credential-os-bot`.
+6. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, as the bot. Wait until it merges.
 
 `OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
 
