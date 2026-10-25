@@ -1,0 +1,11 @@
+[Unit]
+Description=@DESC@
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/bin/bash @ROOT@/skills/nightly-review/run.sh
+ExecStart=/bin/bash @ROOT@/skills/reports/run.sh
+
+[Install]
+WantedBy=default.target
