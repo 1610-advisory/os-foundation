@@ -30,7 +30,7 @@ Never offer the dream pass. It is not available.
 
 These need judgment. The script does not do them.
 
-1. **Secrets.** Strings that look like keys or passwords: an API key value, a `password:` line, a private key block. [team] Also run `skills/sync/secret-scan.sh --files <file>...` on the files you check. Put any hit at the top of the report. Never repeat the value: name the file and line only.
+1. **Secrets.** Strings that look like keys or passwords: an API key value, a `password:` line, a private key block. [team] Also run `skills/sync/secret-scan.sh --files -- <file>...` on the files you check. Put any hit at the top of the report. Never repeat the value: name the file and line only.
 2. **Broken links.** Every `[[target]]` that matches no file. Ignore `#heading` and `|alias`. Match by file name, any case. Do not make pages. List the most-linked missing ones.
 3. **Meetings.** Meeting notes with an empty `summary:` or no attendees. Fill from the note body if you can. Otherwise list them.
 4. **Inbox age.** Items older than 14 days. Report the count and the oldest five. Do not file them (that is `ingest`).

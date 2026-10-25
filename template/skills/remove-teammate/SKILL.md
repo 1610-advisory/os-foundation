@@ -27,7 +27,9 @@ The script refuses to remove the last admin. If this person is the last admin, h
 
 Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
-If it exits with an error, tell the admin the exact message. Do not say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
+The script prints `revoked:` only when every revoke worked. If any revoke fails, it does not remove the person from the org, prints what is left, and exits with an error.
+
+If it exits with an error, tell the admin the exact message and what is left. Never say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
 
 ## 3. What it does, in this order
 
@@ -46,6 +48,7 @@ One line each:
 - Access is gone now.
 - The workspace is archived. Only you can read it.
 - `people/` is marked. Bots have a new owner (name them). Give the `pr:` link.
+- **Rotate the review key.** Anyone who could push a branch could read it. Make a new key at the vendor, set it with `skills/_host/host.sh set-secret OS_REVIEW_KEY` (the hidden-input line in `add-teammate` A3), then delete the old key.
 - **Remove these vendor seats now.** Read the printed list. The admin removes each seat in that vendor's admin page. This is the only lever on vendor memory and chat history. What a vendor keeps after that is the vendor's rule.
 - **Their computer.** The device helper deletes the company folder by itself. Explain the signal below.
 

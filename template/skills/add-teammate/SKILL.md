@@ -14,17 +14,17 @@ For each part: ask one question at a time, with a suggested answer. Write the an
 ### A1. Check first
 
 1. Read `level:` in `company-profile.md`. `solo`: go on. `team` or `app`: go to A6.
-2. The script refuses a company folder in a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive, Box). Help move it first.
+2. The script refuses a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive). Help move it first.
 
 ### A2. Questions (one at a time)
 
-1. **Git host.** Suggest GitHub. A company that runs its own Forgejo may use that. Say plainly: on Forgejo the code-owner review is weaker. A person who can merge can remove the review request.
+1. **Git host.** Suggest GitHub. A company may use its own Forgejo. Say plainly: there the code-owner review is weaker; a person who can merge can remove the review request.
 2. **GitHub plan.** Say this plainly:
    > The team level needs a GitHub organization on the **Team plan** (paid). The Free plan cannot enforce review on private repos. On Free, any change could go into `main` with no check.
 
    No organization yet: help make one at github.com/organizations/new on the Team plan. Do not go on with a Free organization.
 3. **Organization name.** The repos belong to the company, not to one person.
-4. **Sign-in.** GitHub: the admin runs `gh auth login` and signs in in the browser. Forgejo: the admin's token goes in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600), outside the company folder. The admin puts it there. Never you.
+4. **Sign-in.** GitHub: the admin runs `gh auth login` in the browser. Forgejo: the admin puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600). Never you.
 5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
@@ -33,15 +33,15 @@ For each part: ask one question at a time, with a suggested answer. Write the an
 
 Every pull request gets a review by a second AI model before it merges. Ask for one key from a **second AI vendor**.
 
-Tell the admin plainly: only the review check uses it. It sends only the pull request under review (title, body, diff), nothing else. Each review is one model call, at that vendor's normal price. It is an org secret on the git host, never a file.
+Tell the admin plainly: only the review check uses it. It sends only the pull request under review (title, body, diff), nothing else. Each review is one model call, at that vendor's normal price. It is an org secret on the git host, never a file. Anyone who can push a branch can read it: the git host works that way. So use a key made only for this review, with a spend cap, and rotate it when someone leaves.
 
 Ask, one at a time:
 1. **Which vendor is the key from?** `anthropic`, `openai` or `xai`.
-2. **Is that the company's own AI vendor?** No: `second-vendor` (suggested). Yes: `same-vendor`. Then say plainly: "Weaker review: same vendor. The review uses a different model from your own vendor."
+2. **Is that the company's own AI vendor?** No: `second-vendor` (suggested). Yes: `same-vendor`; say plainly: "Weaker review: same vendor."
 
 No key at all: say plainly: "No review key: every pull request fails the model review until you add one." Nothing merges until then.
 
-**The admin sets the key, never you.** Best before `team-on.sh` runs. The admin opens their own terminal window in the company folder and runs this line. It runs `skills/_host/host.sh set-secret OS_REVIEW_KEY` and asks for the key without showing it. Fill `<host>` and `<org>` (Forgejo: also add `OS_HOST_URL=<url>`):
+**The admin sets the key, never you.** Best before `team-on.sh` runs. In their own terminal window, in the company folder, they run this line. It runs `skills/_host/host.sh set-secret OS_REVIEW_KEY` and hides the key. Fill `<host>` and `<org>` (Forgejo: add `OS_HOST_URL=<url>`):
 
 ```
 printf 'Review key: '; read -rs k; echo; printf '%s' "$k" | OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY; unset k
@@ -56,7 +56,7 @@ Never run it for them, ask for the key in the chat, or read it back.
 3. It checks that the key exists (`host.sh secret-exists`). Read its review line to the admin as printed:
    - `no review key: every pull request fails the model review until you add one`: the admin sets the key (A3), then run `team-on.sh` again.
    - `weaker review: same vendor`: say it plainly. The key works.
-4. If it stops with an error, tell the admin the exact message. Fix the cause it names, then run it again once. A second run changes nothing that is already done. If it stops again, stop. Do not say the team level is on.
+4. If it stops with an error, tell the admin the exact message. Fix the cause it names (if it names `sync.sh propose`, propose those files), then run it again once. A second run changes nothing already done. If it stops again, stop. Do not say the team level is on.
 
 ### A5. Explain what turned on
 
@@ -79,18 +79,17 @@ A new area later: run `add-area`.
 
 ### B1. Tools and sign-in
 
-1. Check `git --version`. GitHub: also `gh --version`. Missing? Help install them (Mac: `brew install git gh`).
-2. GitHub: the teammate runs `gh auth login` and signs in in the browser.
-3. Accept the company's invites on the host.
+1. Check `git --version` (GitHub: also `gh --version`). Missing? Help install them (Mac: `brew install git gh`).
+2. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites.
 
 ### B2. Folder and clone
 
-1. Ask for the folder. Suggest `~/{{COMPANY_SLUG}}-os`. Refuse a synced folder (iCloud Drive, Dropbox, OneDrive, Google Drive, Box).
+1. Ask for the folder. Suggest `~/{{COMPANY_SLUG}}-os`. Refuse a synced folder.
 2. Clone the company repo with their own sign-in. Take the URL from `Company repo:` in the hand-off message. Never guess it:
    ```
    git clone <company repo URL> ~/{{COMPANY_SLUG}}-os
    ```
-   `Host:` in the hand-off is the host address (on Forgejo, `host_url`). The teammate puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600) first.
+   Forgejo: `Host:` in the hand-off is the host address (`host_url`). The teammate puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600) first.
 
 ### B3. The joining terms
 
@@ -105,18 +104,17 @@ Only after a yes in B3.
 1. **Slug.** It is in the hand-off message. Confirm it. `host`, `host_url` and `org` come from `company-profile.md` in the clone: do not ask.
 2. Write the answers file: `me=<slug>`.
 3. From inside the clone, run `skills/add-teammate/join.sh --answers <file>`. It keeps the clone and goes on.
-4. If it stops with an error, tell them the exact message. Fix the cause it names, then run it again once. If it stops again, stop and tell them to send the message to the admin.
+4. On an error, tell them the exact message. `your workspace <repo> is not reachable: ask the admin`: stop; the join is not done; the admin checks that repo and its grant. Any other error: fix the cause it names and run it once more. If it stops again, stop and send the message to the admin.
 
 ### B5. Explain the result
 
 One line each:
-- **Folders.** The company folder, their workspace at `users/<slug>/`, and their areas. A `skipped:` area is one they have no access to. That is correct.
+- **Folders.** The company folder, `users/<slug>/` (their workspace) and their areas. A `skipped:` area is one they cannot read. That is correct.
 - **Who they are.** `~/.config/{{COMPANY_SLUG}}-os/me` names them. The nightly push checks it against their git sign-in.
-- **OS jobs.** Pull every 15 minutes. Push at about 2 am. A held file stays on this computer, and the next session says why.
+- **OS jobs.** Pull every 15 minutes, push at about 2 am. Notes go up by themselves. A held file stays here; the next session says why.
 - **Profile.** `users/<slug>/profile/PROFILE.md` holds their voice and preferences. Claude Code, Codex, Pi (and Cursor, with a rules file) load it in every session, read-only. Their AI keeps it current.
 - **Terms.** `terms: proposed`: their yes goes on their people page by pull request.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
-- **Changes.** Notes go up each night by themselves.
 
 ## Rules for this skill
 
