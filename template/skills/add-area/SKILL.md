@@ -19,11 +19,12 @@ Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` 
 
 ## 2. Build it
 
-1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`.
+1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`, hidden files included (`cp -R skills/add-area/templates/_area/. areas/{{AREA_SLUG}}/`). The copy keeps two committed links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. No link step is needed. If either arrived as a plain file (Windows, or a file-by-file copy), replace it with the link. If links fail, copy `skills/` there instead: `lint` finds drift later.
 2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (marketing, finance, apps), copy it on top. Its files replace the generic ones.
 3. Replace placeholders in every new file: `{{AREA_NAME}}` (for example "Marketing"), `{{AREA_SLUG}}`, `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{DATE}}` (today, YYYY-MM-DD).
 4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. Check with `git -C areas/{{AREA_SLUG}} rev-parse --show-toplevel` that the answer is the area folder, not the company folder.
-5. Logs need no setup: they are per-person files in the area's `memory/logs/`, committed like any file.
+5. Check the pointer line near the top of the new `AGENTS.md` (and in `CLAUDE.md`): company skills are in `../../skills/`; if that folder is missing, read them from the company repo on the host. The template has it. Do not copy company skills into the area.
+6. Logs need no setup: they are per-person files in the area's `memory/logs/`, committed like any file.
 
 ## 3. Three questions
 
@@ -35,7 +36,23 @@ Ask one at a time, each with a suggested answer, and write the answers into "Wha
 
 For each recurring output, offer to write a skill for it later (`write-skill`). Do not write them all now.
 
-## 4. Record it
+## 4. Team level
 
-- Add the area to the "Areas:" line in the company `AGENTS.md`, and commit that in the company repo.
+Read `level:` in `company-profile.md`. At `solo`, skip this step: the area stays a local repo until `add-teammate`.
+
+At `team`, the area must also get its place on the host. The scripts do it. Never call the host yourself.
+1. Ask who directs this area (approves its rules changes). Suggest the admin.
+2. Ask who may read and write it. Suggest the fewest people.
+3. Write an answers file for `skills/add-teammate/team-on.sh` (keys in `skills/add-teammate/CLI.md`). It must hold everything a first run needs, or the script refuses it:
+   - `host`, `host_url`, `org` and `sync_engine` from `company-profile.md`,
+   - `review_vendor` and `review_kind` from `.github/review.conf`,
+   - the full `person.<slug>.*` block for **every** person in `people/` (not only the new ones), with `{{AREA_SLUG}}` added to `.areas` of each person who gets it,
+   - every `area.<area>.director` already in use, plus `area.{{AREA_SLUG}}.director`.
+4. Run `skills/add-teammate/team-on.sh --answers <file>`. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and protects `main`.
+5. If it stops with an error: tell the admin the exact message. Do not say the area is on the host. Fix the cause it names and run it once more. If it stops again, stop.
+6. Each person who got the area runs `join.sh` on their own computer, from the company folder, with its own answers file: one line, `me=<their slug>`. It clones only the new area. Never reuse the `team-on.sh` answers file for `join.sh`.
+
+## 5. Record it
+
+- Add the area to the "Areas:" line in the company `AGENTS.md`. Solo: commit that in the company repo. [team]: this is a rules file, so propose it with `skills/sync/sync.sh propose add-area-{{AREA_SLUG}} AGENTS.md`.
 - Tell the person how to open it: "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`."
