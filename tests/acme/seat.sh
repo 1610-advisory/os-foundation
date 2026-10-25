@@ -240,16 +240,16 @@ rm -f "$rcfile"
 run_engine() {
   case "$engine" in
     claude)
-      claude -p \
+      # Variadic flags would swallow a prompt argument. The prompt is on stdin.
+      printf '%s\n' "$prompt_text" | claude -p \
         --model "${OSF_ACME_CLAUDE_MODEL:-haiku}" \
         --output-format text \
         --no-session-persistence \
         --max-budget-usd 0.50 \
-        --strict-mcp-config \
-        --mcp-config '{"mcpServers":{}}' \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git *)" \
         --add-dir "$cwd" \
-        "$prompt_text"
+        --strict-mcp-config \
+        --mcp-config '{"mcpServers":{}}'
       ;;
     pi)
       pi -p \
