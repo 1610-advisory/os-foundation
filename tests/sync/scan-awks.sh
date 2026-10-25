@@ -20,6 +20,9 @@ write_fixtures() {
   printf '%s%s%s\n' 'AK' 'IA' '0123456789ABCDEF' > "$dir/aws.txt"
   printf '%s\n' 'token = abcdefghijklmnop' > "$dir/generic.txt"
   printf '%s\n' 'api_key=abcdefghijklmnop' > "$dir/api-key.txt"
+  long=$(printf 'd%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)
+  printf '%s%s%s\n' 'token = ' "$long" ' secret = x' > "$dir/later-kw.txt"
+  printf '%s%s\n' 'token = no token = ' "$long" > "$dir/second-site.txt"
   printf '%s%s%s\n' 'token = "' "$(printf 'e%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)" '"' > "$dir/quoted.txt"
   printf '%s\n' 'password = aB3xQ9mZ2kL8pR4sT6uV1wY5nC7dE0fG2hJ4' > "$dir/entropy.txt"
   printf '%s%s\n' '-----BE' 'GIN OPENSSH PRIVATE KEY-----' > "$dir/pk1.txt"
@@ -36,12 +39,12 @@ run_set() {
   chmod 700 "$dir"
   write_fixtures "$dir"
   fail=0
-  for name in gh.txt fine.txt slack-b.txt slack-a.txt slack-p.txt slack-r.txt slack-s.txt aws.txt generic.txt api-key.txt quoted.txt entropy.txt pk1.txt pk2.txt; do
+  for name in gh.txt fine.txt slack-b.txt slack-a.txt slack-p.txt slack-r.txt slack-s.txt aws.txt generic.txt api-key.txt later-kw.txt second-site.txt quoted.txt entropy.txt pk1.txt pk2.txt; do
     case "$name" in
       gh.txt|fine.txt) expect=github-pat ;;
       slack-*) expect=slack-bot-token ;;
       aws.txt) expect=aws-access-key ;;
-      generic.txt|api-key.txt|quoted.txt) expect=generic-api-key ;;
+      generic.txt|api-key.txt|quoted.txt|later-kw.txt|second-site.txt) expect=generic-api-key ;;
       entropy.txt) expect=high-entropy ;;
       pk1.txt|pk2.txt) expect=private-key ;;
       *) expect=missing ;;

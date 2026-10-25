@@ -119,10 +119,6 @@ if [ "$mode" = "files" ] && [ "$file_count" -eq 0 ]; then
   exit 2
 fi
 
-if [ ! -s "$scan_list" ]; then
-  exit 0
-fi
-
 want=${OS_SECRET_SCAN:-auto}
 use_gitleaks=0
 if [ "$want" = "gitleaks" ]; then
@@ -146,6 +142,9 @@ cleanup() {
 trap cleanup EXIT
 
 if [ "$use_gitleaks" -eq 1 ]; then
+  if [ ! -s "$scan_list" ]; then
+    exit 0
+  fi
   src=$(mktemp -d)
   chmod 700 "$src"
   # shellcheck disable=SC2329
@@ -294,15 +293,37 @@ bundled_awk() {
       if (at) return at
       return 0
     }
-    function has_generic(s,    at, off, start, end) {
-      at = assign_at(s)
-      if (!at) return 0
+    function site_has_run(s, at,    off, start, end) {
       while (at <= length(s) && is_space(substr(s, at, 1))) at++
       for (off = 0; off <= 2; off++) {
         start = at + off
         end = run_end(s, start, "gen")
         if (end - start >= 16) return 1
       }
+      return 0
+    }
+    function keyword_sites(s, kw,    from, rest, p, pos, c) {
+      from = 1
+      while (from <= length(s)) {
+        rest = substr(s, from)
+        p = index(rest, kw)
+        if (p < 1) return 0
+        pos = from + p - 1 + length(kw)
+        while (pos <= length(s) && is_space(substr(s, pos, 1))) pos++
+        c = substr(s, pos, 1)
+        if ((c == ":" || c == "=") && site_has_run(s, pos + 1)) return 1
+        from = from + p
+      }
+      return 0
+    }
+    function has_generic(s) {
+      if (keyword_sites(s, "apikey")) return 1
+      if (keyword_sites(s, "api_key")) return 1
+      if (keyword_sites(s, "api-key")) return 1
+      if (keyword_sites(s, "secret")) return 1
+      if (keyword_sites(s, "password")) return 1
+      if (keyword_sites(s, "token")) return 1
+      if (keyword_sites(s, "passwd")) return 1
       return 0
     }
     function take_run(s, kind, need,    i, n, start, end) {
@@ -359,6 +380,8 @@ bundled_awk() {
       expect("AK" "IA" "0123456789ABCDEF", "aws-access-key")
       expect("token = " repeat("d", 16), "generic-api-key")
       expect("token = \"" repeat("e", 16), "generic-api-key")
+      expect("token = " repeat("d", 16) " secret = x", "generic-api-key")
+      expect("token = no token = " repeat("d", 16), "generic-api-key")
       mixed = "aB3xQ9mZ2kL8pR4sT6uV1wY5nC7dE0fG2hJ4"
       expect("password = " mixed, "high-entropy")
       expect("-----BE" "GIN OPENSSH PRIVATE" " KEY-----", "private-key")
@@ -401,6 +424,10 @@ scan_self_test() {
 if ! scan_self_test; then
   echo "secret scan error: self-test failed" >&2
   exit 2
+fi
+
+if [ ! -s "$scan_list" ]; then
+  exit 0
 fi
 
 found=0

@@ -1134,6 +1134,8 @@ class SecretScanAwkTests(unittest.TestCase):
             ("token = abcdefghijklmnop", "generic-api-key"),
             ("api_key=abcdefghijklmnop", "generic-api-key"),
             ('token = "' + ("e" * 16), "generic-api-key"),
+            ("token = " + ("d" * 16) + " secret = x", "generic-api-key"),
+            ("token = no token = " + ("d" * 16), "generic-api-key"),
             ("password = aB3xQ9mZ2kL8pR4sT6uV1wY5nC7dE0fG2hJ4", "high-entropy"),
             ("-----BE" + "GIN OPENSSH PRIVATE KEY-----", "private-key"),
             ("-----BE" + "GIN RSA PRIVATE KEY-----", "private-key"),
@@ -1164,6 +1166,25 @@ class SecretScanAwkTests(unittest.TestCase):
         self.assertIn("secret scan error: self-test failed", result.stderr)
         self.assertNotIn("hello", result.stdout)
         self.assertNotIn("self-test ok", result.stdout)
+
+    def test_empty_staged_self_test_fails_closed(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "awk"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        run(["git", "init", "-q", "-b", "main", str(repo)], env=env, check=True)
+        result = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--staged"],
+            env=env,
+            cwd=repo,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("secret scan error: self-test failed", result.stderr)
 
     def test_same_fixtures_under_bsd_mawk_and_gawk(self):
         result = run(["bash", str(ROOT / "tests" / "sync" / "scan-awks.sh")])
