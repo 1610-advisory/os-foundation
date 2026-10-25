@@ -329,6 +329,58 @@ class TokenAndUsageTests(unittest.TestCase):
         unknown = run(["nope"], github_env())
         self.assertEqual(unknown.returncode, 1)
 
+    def test_auto_merge_already_is_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            curl = root / "curl"
+            curl.write_text(
+                "#!/bin/bash\n"
+                "cfg=\n"
+                "while [ $# -gt 0 ]; do\n"
+                "  if [ \"$1\" = \"--config\" ]; then cfg=$2; shift 2; continue; fi\n"
+                "  shift\n"
+                "done\n"
+                "out=$(sed -n 's/^output = \"\\(.*\\)\"/\\1/p' \"$cfg\")\n"
+                "printf '%s\\n' \"$FAKE_CURL_BODY\" > \"$out\"\n"
+                "printf '%s' \"${FAKE_CURL_CODE:-409}\"\n"
+            )
+            curl.chmod(0o755)
+            env = {
+                "OS_HOST": "forgejo",
+                "OS_HOST_URL": "http://127.0.0.1:9",
+                "OS_ORG": "acme",
+                "OS_SLUG": "acme",
+                "FORGEJO_TOKEN": "fj-not-a-real-token",
+                "PATH": str(root) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_CURL_CODE": "409",
+                "FAKE_CURL_BODY": '{"message":"Pull request merge was already scheduled"}',
+            }
+            ok = run(["auto-merge", "acme-os", "4"], env)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            self.assertEqual(json.loads(ok.stdout)["auto_merge"], "already")
+            self.assertNotIn("fj-not-a-real-token", ok.stdout + ok.stderr)
+            env["FAKE_CURL_BODY"] = '{"message":"branch is protected"}'
+            other = run(["auto-merge", "acme-os", "4"], env)
+            self.assertEqual(other.returncode, 3, other.stdout + other.stderr)
+            self.assertNotIn("already", other.stdout)
+
+            gh = root / "gh"
+            gh.write_text(
+                "#!/bin/bash\n"
+                "printf '%s\\n' \"$FAKE_GH_MSG\" >&2\n"
+                "exit 1\n"
+            )
+            gh.chmod(0o755)
+            genv = github_env(HOST_DRY_RUN="", PATH=str(root) + os.pathsep + os.environ.get("PATH", ""))
+            genv["FAKE_GH_MSG"] = "Auto merge is already enabled"
+            enabled = run(["auto-merge", "acme-os", "4"], genv)
+            self.assertEqual(enabled.returncode, 0, enabled.stderr)
+            self.assertEqual(json.loads(enabled.stdout)["auto_merge"], "already")
+            genv["FAKE_GH_MSG"] = "not permitted"
+            denied = run(["auto-merge", "acme-os", "4"], genv)
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertNotIn("already", denied.stdout)
+
     def test_forgejo_offline_hides_the_token(self):
         token = "fj-test-token-not-real"
         proc = run(

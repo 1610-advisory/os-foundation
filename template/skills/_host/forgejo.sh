@@ -694,7 +694,7 @@ cmd_open_pr() {
 }
 
 cmd_auto_merge() {
-  local name number body n msg
+  local name number body n msg low
   host_need_number
   name=$POS1
   number=$POS2
@@ -708,6 +708,16 @@ cmd_auto_merge() {
       break
     fi
     msg=$(fj_message)
+    if [ "$FJ_HTTP" = "409" ]; then
+      low=$(printf '%s' "$msg" | tr '[:upper:]' '[:lower:]')
+      case "$low" in
+        *"already scheduled"*)
+          jq -nc --arg name "$name" --argjson number "$number" \
+            '{ok:true, name:$name, number:$number, auto_merge:"already"}'
+          return 0
+          ;;
+      esac
+    fi
     if [ "$FJ_HTTP" = "405" ] && [ "$n" -lt 15 ]; then
       case "$msg" in
         *"Please try again later"*)
