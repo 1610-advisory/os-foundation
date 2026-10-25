@@ -454,6 +454,43 @@ EOF
   chmod 600 "$file"
 }
 
+osf_clone_as() {
+  local user="$1"
+  local url="$2"
+  local dest="$3"
+  local file token helper cfg
+  file=$(osf_token_file "$user")
+  if [ ! -s "$file" ]; then
+    return 1
+  fi
+  token=$(tr -d '[:space:]' < "$file")
+  helper=$(mktemp)
+  cfg=$(mktemp)
+  chmod 700 "$helper"
+  chmod 600 "$cfg"
+  cat > "$helper" << 'EOF'
+#!/bin/sh
+while IFS= read -r line; do
+  [ -z "$line" ] && break
+done
+printf 'username=%s\n' "$OSF_GIT_USER"
+printf 'password=%s\n' "$OSF_FORGEJO_TOKEN"
+EOF
+  cat > "$cfg" << EOF
+[credential]
+	helper = !$helper
+	useHttpPath = true
+EOF
+  GIT_CONFIG_GLOBAL="$cfg" \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_TERMINAL_PROMPT=0 \
+    OSF_FORGEJO_TOKEN="$token" \
+    OSF_GIT_USER="$user" \
+    git clone "$url" "$dest"
+  token=""
+  rm -f "$helper" "$cfg"
+}
+
 osf_approve() {
   local owner="$1"
   local repo="$2"

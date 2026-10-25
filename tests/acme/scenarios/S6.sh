@@ -26,7 +26,6 @@ osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/
 osf_export_token acme-admin || osf_result "S6 FAIL admin token missing"
 export OS_ORG="$org"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
-export OS_REVIEW_FAKE="$root/tests/acme/fixtures/review-fake.txt"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
@@ -69,7 +68,7 @@ if [ "$merged_before" = "True" ]; then
 fi
 osf_approve "$org" "${slug}-marketing" "$number" acme-director || osf_result "S6 FAIL director approval"
 
-printf '%s\n' "OSF-REVIEW-FAIL" >> "$dest/AGENTS.md"
+printf '%s\n' "OSF_REVIEW_FAIL" >> "$dest/AGENTS.md"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
 bash "$dest/skills/sync/sync.sh" propose root-rules AGENTS.md >"$work/propose-root.log" 2>&1 \

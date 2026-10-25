@@ -349,8 +349,10 @@ dest = Path(os.environ["OSF_DEST"])
 dest.write_text(text)
 os.chmod(dest, 0o600)
 '
+  osf_place_review_fake
   docker cp "$cfg" osf-acme-runner:/data/config.yml
   docker exec -u 0 osf-acme-runner chmod 600 /data/config.yml
+  # This restarts the shared runner. Do not run bootstrap while other teams use it.
   docker restart osf-acme-runner >/dev/null
 }
 

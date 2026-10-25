@@ -56,7 +56,7 @@ osf_me "$slug" "$me"
 osf_write_token_file "$slug" "$user"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
-export OS_REVIEW_FAKE="$root/tests/acme/fixtures/review-fake.txt"
+# The model review reads OS_REVIEW_FAKE from the Tier A runner, not from this process.
 bash "$root/tests/acme/seat.sh" "$proposer" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1 \
   || osf_result "S5 FAIL proposer seat"
 

@@ -63,6 +63,9 @@ class ComposeTests(unittest.TestCase):
         text = (ACME / "forgejo" / "runner-config.template.yml").read_text()
         self.assertIn("ubuntu-latest:docker://osf-acme-job:local", text)
         self.assertNotIn("{{", text)
+        self.assertIn("OS_REVIEW_FAKE: /opt/os-review-fake/verdicts.txt", text)
+        self.assertIn("-v /opt/os-review-fake:/opt/os-review-fake:ro", text)
+        self.assertIn("- /opt/os-review-fake", text)
 
 
 class RepoHygieneTests(unittest.TestCase):

@@ -26,6 +26,8 @@ Forgejo listens on `http://localhost:3300`. Job containers run in the DinD sidec
 
 The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into DinD as `osf-acme-job:local`. The runner label `ubuntu-latest` points at that image. The image has bash, git, curl, and jq.
 
+The runner sets `OS_REVIEW_FAKE` to `/opt/os-review-fake/verdicts.txt` and mounts that folder read-only. `up.sh` copies `verdicts.txt` into the sidecar. Applying the runner config restarts the shared runner. Do that only when no other team is using it.
+
 ## Seats
 
 | Seat | Engine | Forgejo user | Git name |
