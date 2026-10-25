@@ -54,6 +54,10 @@ osf_keep_cache() {
 osf_sandbox() {
   local base="$1"
   osf_keep_cache
+  if [ -z "${OSF_REAL_HOME:-}" ]; then
+    OSF_REAL_HOME=$HOME
+    export OSF_REAL_HOME
+  fi
   mkdir -p "$base/home" "$base/xdg" "$base/jobs"
   chmod 700 "$base" "$base/home" "$base/xdg" "$base/jobs"
   export HOME="$base/home"

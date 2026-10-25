@@ -44,7 +44,7 @@ The runner sets `OS_REVIEW_FAKE` to `/opt/os-review-fake/verdicts.txt` and mount
 tests/acme/seat.sh member-d prompt.txt --cwd <clone>
 ```
 
-A missing engine or sign-in prints `BLOCKED: <seat> <reason>` and exits 3. The vendor login stays the one already on the computer. Each seat gets its own git name, host token, and `XDG_CONFIG_HOME`.
+A missing engine or sign-in prints `BLOCKED: <seat> <reason>` and exits 3. The vendor login stays the one already on the computer. A scenario sandbox does not hide it: sign-in checks and the engine use `OSF_REAL_HOME`. Each seat gets its own git name, host token, `XDG_CONFIG_HOME`, and an empty `GH_CONFIG_DIR` so GitHub is not signed in. Claude loads no MCP servers. Pi runs with `--no-extensions` and `--no-mcp`.
 
 Cursor sign-in is checked with a real command, not the status line. If that command says authentication is required, the seat is BLOCKED.
 

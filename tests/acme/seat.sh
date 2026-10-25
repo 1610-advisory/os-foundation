@@ -140,24 +140,27 @@ codex_signed_in() {
   return 1
 }
 
+# Vendor sign-in lives under the real home. A scenario sandbox must not hide it.
+real_home=${OSF_REAL_HOME:-$HOME}
+
 case "$engine" in
   claude)
-    if ! claude_signed_in; then
+    if ! HOME="$real_home" claude_signed_in; then
       blocked "not signed in: claude"
     fi
     ;;
   pi)
-    if ! pi_signed_in; then
+    if ! HOME="$real_home" pi_signed_in; then
       blocked "not signed in: pi"
     fi
     ;;
   cursor)
-    if ! cursor_signed_in; then
+    if ! HOME="$real_home" cursor_signed_in; then
       blocked "not signed in: cursor-agent"
     fi
     ;;
   codex)
-    if ! codex_signed_in; then
+    if ! HOME="$real_home" codex_signed_in; then
       blocked "not signed in: codex (gate G7)"
     fi
     ;;
@@ -242,6 +245,8 @@ run_engine() {
         --output-format text \
         --no-session-persistence \
         --max-budget-usd 0.50 \
+        --strict-mcp-config \
+        --mcp-config '{"mcpServers":{}}' \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git *)" \
         --add-dir "$cwd" \
         "$prompt_text"
@@ -287,7 +292,9 @@ run_engine() {
 (
   cd "$cwd"
   set +e
+  HOME="$real_home" \
   XDG_CONFIG_HOME="$seat_dir/xdg" \
+  GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
   GIT_AUTHOR_NAME="$git_name" \
@@ -340,6 +347,8 @@ fi
 if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$cwd" remote get-url origin >/dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD)
+  HOME="$real_home" \
+  GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
   GIT_AUTHOR_NAME="$git_name" \
