@@ -650,7 +650,9 @@ os_hand_off() {
 }
 
 os_split_areas() {
-  printf '%s' "$1" | tr ',' '\n' | while IFS= read -r a; do
+  local a
+  # A trailing newline is required. read drops a last line that has none.
+  printf '%s\n' "$1" | tr ',' '\n' | while IFS= read -r a || [ -n "$a" ]; do
     a=$(os_trim "$a")
     [ -n "$a" ] || continue
     printf '%s\n' "$a"
