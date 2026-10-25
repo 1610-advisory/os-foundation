@@ -657,4 +657,236 @@ printf 'protocol=http\nhost=localhost:3300\npath=acme/acme-secret.git\n\n' | \
 [ ! -s "$tmp/outside.out" ] || bots_fail "helper answered a repo outside the grant"
 bots_pass "useHttpPath grant check"
 
+# A repo the token cannot see is skipped. A hard fetch error still fails.
+skip_root="$tmp/skip"
+mkdir -p "$skip_root/areas/marketing" "$skip_root/bots/helper"
+bots_profile "$skip_root" forgejo "bots"
+bots_people "$skip_root"
+bots_copy_skills "$skip_root"
+bots_stub_host "$skip_root"
+cat > "$skip_root/bots/helper/BOT.md" << 'EOF'
+---
+type: bot
+bot: helper
+owner: ada
+email: "acme.bot@acme.test"
+repos:
+  - skip-os
+---
+Helper.
+EOF
+git -C "$skip_root" init -q -b main
+printf 'base\n' > "$skip_root/README.md"
+git -C "$skip_root" add README.md
+git -C "$skip_root" commit -q -m "base"
+printf 'bot note\n' > "$skip_root/notes.md"
+git -C "$skip_root" add notes.md
+git -C "$skip_root" commit -q -m "bot note
+
+Run-Id: skip-run
+Bot-Owner: ada"
+skip_bare="$tmp/skip-bare.git"
+git init -q --bare "$skip_bare"
+git -C "$skip_root" remote add origin "$skip_bare"
+git -C "$skip_root" push -q origin main
+git -C "$skip_root/areas/marketing" init -q -b main
+printf 'area\n' > "$skip_root/areas/marketing/README.md"
+git -C "$skip_root/areas/marketing" add README.md
+git -C "$skip_root/areas/marketing" commit -q -m "area"
+git -C "$skip_root/areas/marketing" update-ref refs/remotes/origin/main HEAD
+python3 - "$tmp/skip-port" << 'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(404)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"not found")
+    def do_POST(self):
+        self.send_response(404)
+        self.end_headers()
+    def log_message(self, fmt, *args):
+        return
+srv = HTTPServer(("127.0.0.1", 0), H)
+Path(sys.argv[1]).write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+skip_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$tmp/skip-port" ] && break
+  sleep 0.1
+done
+skip_port=$(cat "$tmp/skip-port")
+git -C "$skip_root/areas/marketing" remote add origin "http://127.0.0.1:${skip_port}/hidden.git"
+set +e
+bash "$skip_root/skills/undo-run/undo-run.sh" skip-run --root "$skip_root" >"$tmp/skip.out" 2>"$tmp/skip.err"
+skip_rc=$?
+set -e
+kill "$skip_pid" 2>/dev/null || true
+wait "$skip_pid" 2>/dev/null || true
+[ "$skip_rc" -eq 0 ] || bots_fail "skip exit $skip_rc $(tr '\n' ' ' < "$tmp/skip.err")"
+grep -q 'undo-run skip hidden: not visible to this token' "$tmp/skip.err" || bots_fail "missing skip line"
+grep -q 'repo: skip-bare' "$tmp/skip.out" || bots_fail "visible repo was not reverted"
+if git -C "$skip_root" diff --quiet && git -C "$skip_root" diff --cached --quiet; then
+  :
+else
+  bots_fail "skip left the company checkout dirty"
+fi
+bots_pass "undo-run skips a repo the token cannot see"
+
+# A fetch error that is not "not found" still fails, and no repo visible fails.
+dark_root="$tmp/dark"
+mkdir -p "$dark_root/bots/helper"
+bots_profile "$dark_root" forgejo "bots"
+bots_people "$dark_root"
+bots_copy_skills "$dark_root"
+bots_stub_host "$dark_root"
+cat > "$dark_root/bots/helper/BOT.md" << 'EOF'
+---
+type: bot
+bot: helper
+owner: ada
+email: "acme.bot@acme.test"
+---
+Helper.
+EOF
+git -C "$dark_root" init -q -b main
+printf 'x\n' > "$dark_root/README.md"
+git -C "$dark_root" add README.md
+git -C "$dark_root" commit -q -m "base"
+git -C "$dark_root" remote add origin "http://127.0.0.1:9/missing.git"
+set +e
+bash "$dark_root/skills/undo-run/undo-run.sh" dark-run --root "$dark_root" >"$tmp/dark.out" 2>"$tmp/dark.err"
+dark_rc=$?
+set -e
+[ "$dark_rc" -eq 3 ] || bots_fail "hard fetch error exit $dark_rc"
+grep -q 'undo-run skip' "$tmp/dark.err" && bots_fail "a connect error was treated as not visible"
+bots_pass "undo-run still fails on a fetch error that is not access"
+
+none_root="$tmp/none-visible"
+mkdir -p "$none_root/bots/helper"
+bots_profile "$none_root" forgejo "bots"
+bots_people "$none_root"
+bots_copy_skills "$none_root"
+bots_stub_host "$none_root"
+cat > "$none_root/bots/helper/BOT.md" << 'EOF'
+---
+type: bot
+bot: helper
+owner: ada
+email: "acme.bot@acme.test"
+---
+Helper.
+EOF
+python3 - "$tmp/none-port" << 'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(b"not found")
+    def log_message(self, fmt, *args):
+        return
+srv = HTTPServer(("127.0.0.1", 0), H)
+Path(sys.argv[1]).write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+none_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$tmp/none-port" ] && break
+  sleep 0.1
+done
+none_port=$(cat "$tmp/none-port")
+git -C "$none_root" init -q -b main
+printf 'x\n' > "$none_root/README.md"
+git -C "$none_root" add README.md
+git -C "$none_root" commit -q -m "base"
+git -C "$none_root" remote add origin "http://127.0.0.1:${none_port}/gone.git"
+git -C "$none_root" update-ref refs/remotes/origin/main HEAD
+set +e
+bash "$none_root/skills/undo-run/undo-run.sh" none-run --root "$none_root" >"$tmp/none.out" 2>"$tmp/none.err"
+none_rc=$?
+set -e
+kill "$none_pid" 2>/dev/null || true
+wait "$none_pid" 2>/dev/null || true
+[ "$none_rc" -eq 2 ] || bots_fail "no visible repo exit $none_rc"
+grep -q 'no repo visible to this token' "$tmp/none.err" || bots_fail "missing no-visible line"
+bots_pass "undo-run fails when no repo is visible"
+
+# A skipped repo that already has this run is a partial undo.
+part_root="$tmp/part"
+mkdir -p "$part_root/areas/marketing" "$part_root/bots/helper"
+bots_profile "$part_root" forgejo "bots"
+bots_people "$part_root"
+bots_copy_skills "$part_root"
+bots_stub_host "$part_root"
+cat > "$part_root/bots/helper/BOT.md" << 'EOF'
+---
+type: bot
+bot: helper
+owner: ada
+email: "acme.bot@acme.test"
+---
+Helper.
+EOF
+git -C "$part_root" init -q -b main
+printf 'base\n' > "$part_root/README.md"
+git -C "$part_root" add README.md
+git -C "$part_root" commit -q -m "base"
+printf 'bot note\n' > "$part_root/notes.md"
+git -C "$part_root" add notes.md
+git -C "$part_root" commit -q -m "bot note
+
+Run-Id: part-run
+Bot-Owner: ada"
+part_bare="$tmp/part-bare.git"
+git init -q --bare "$part_bare"
+git -C "$part_root" remote add origin "$part_bare"
+git -C "$part_root" push -q origin main
+git -C "$part_root/areas/marketing" init -q -b main
+printf 'area bot\n' > "$part_root/areas/marketing/note.md"
+git -C "$part_root/areas/marketing" add note.md
+git -C "$part_root/areas/marketing" commit -q -m "area bot
+
+Run-Id: part-run
+Bot-Owner: ada"
+git -C "$part_root/areas/marketing" update-ref refs/remotes/origin/main HEAD
+python3 - "$tmp/part-port" << 'PY' &
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(b"not found")
+    def log_message(self, fmt, *args):
+        return
+srv = HTTPServer(("127.0.0.1", 0), H)
+Path(sys.argv[1]).write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+part_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$tmp/part-port" ] && break
+  sleep 0.1
+done
+part_port=$(cat "$tmp/part-port")
+git -C "$part_root/areas/marketing" remote add origin "http://127.0.0.1:${part_port}/hidden.git"
+set +e
+bash "$part_root/skills/undo-run/undo-run.sh" part-run --root "$part_root" >"$tmp/part.out" 2>"$tmp/part.err"
+part_rc=$?
+set -e
+kill "$part_pid" 2>/dev/null || true
+wait "$part_pid" 2>/dev/null || true
+[ "$part_rc" -eq 4 ] || bots_fail "partial exit $part_rc $(tr '\n' ' ' < "$tmp/part.err")"
+grep -q 'undo-run partial: hidden not visible; revert it there by hand or rerun' "$tmp/part.err" || bots_fail "missing partial line"
+grep -q 'repo: part-bare' "$tmp/part.out" || bots_fail "visible repo was not reverted on a partial undo"
+grep -q 'undo-run skip hidden' "$tmp/part.err" && bots_fail "a local match was skipped"
+bots_pass "undo-run exits 4 when a skipped repo still has the run"
+
 bots_pass "unit suite"

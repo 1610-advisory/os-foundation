@@ -39,6 +39,28 @@ EOF
   rm -f "$ask"
 }
 
+force_push_rc() {
+  local user=$1 token_file=$2 dir=$3 branch=$4
+  local ask token rc
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
+  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
+esac
+EOF
+  token=$(tr -d '\r\n' < "$token_file")
+  set +e
+  OS_GIT_USER="$user" OS_GIT_TOKEN="$token" GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0 \
+    git -C "$dir" -c credential.helper= push --force origin "HEAD:refs/heads/${branch}" >"$OUT" 2>"$ERR"
+  rc=$?
+  set -e
+  rm -f "$ask"
+  printf '%s' "$rc"
+}
+
 reviewer_names() {
   local pr=$1
   api GET "/repos/acme/acme-os/pulls/${pr}" >/dev/null
@@ -601,6 +623,64 @@ OS_TEST_MODE=1 expect_rc 1 delete-repo acme-old
 OS_TEST_MODE=1 expect_rc 0 delete-repo acme-old --yes-test-only
 gone=$(api GET /repos/acme/acme-old)
 if [ "$gone" = "404" ]; then pass "delete-repo api"; else fail "delete-repo api HTTP ${gone}"; fi
+
+# protect, lift it, force-push a rewrite, then protect again.
+RW="${WORK}/rewrite"
+mkdir -p "$RW"
+git -C "$RW" init -b main >/dev/null
+git -C "$RW" config user.email ada@example.com
+git -C "$RW" config user.name "Ada Admin"
+printf '%s\n' "Rewrite note" > "$RW/note.txt"
+git -C "$RW" add note.txt
+git -C "$RW" commit -m "Rewrite note" >/dev/null
+expect_rc 0 create-repo acme-rewrite --private --source "$RW" --push
+expect_rc 0 protect acme-rewrite --approvals 0 --code-owners
+printf '%s\n' "Rewritten." >> "$RW/note.txt"
+git -C "$RW" add note.txt
+git -C "$RW" commit --amend -m "Rewritten note" >/dev/null
+blocked_push=$(force_push_rc ada "$TOKEN_FILE" "$RW" main)
+if [ "$blocked_push" != "0" ]; then
+  pass "force-push blocked while protected"
+else
+  fail "force-push blocked while protected"
+fi
+expect_rc 0 unprotect acme-rewrite
+if jq -e '.ok == true and .branch == "main"' "$OUT" >/dev/null; then
+  pass "unprotect json"
+else
+  fail "unprotect json $(jq -c . "$OUT" 2>/dev/null || echo missing)"
+fi
+opened_push=$(force_push_rc ada "$TOKEN_FILE" "$RW" main)
+if [ "$opened_push" = "0" ]; then
+  pass "force-push after unprotect"
+else
+  fail "force-push after unprotect exit ${opened_push}: $(scrub "$ERR" "${FORGEJO_TOKEN:-}" | tr '\n' ' ')"
+fi
+expect_rc 0 unprotect acme-rewrite
+if grep -q 'already unprotected: acme-rewrite main' "$ERR"; then
+  pass "unprotect says already unprotected"
+else
+  fail "unprotect says already unprotected"
+fi
+expect_rc 0 protect acme-rewrite --approvals 0 --code-owners
+api GET /repos/acme/acme-rewrite/branch_protections >/dev/null
+if jq -e '
+  [.[] | select(.rule_name=="main" or .branch_name=="main")]
+  | .[0].enable_push == false
+' "$OUT" >/dev/null; then
+  pass "protect again after rewrite"
+else
+  fail "protect again after rewrite $(jq -c . "$OUT" 2>/dev/null || echo missing)"
+fi
+printf '%s\n' "Still rewritten." >> "$RW/note.txt"
+git -C "$RW" add note.txt
+git -C "$RW" commit --amend -m "Rewritten note again" >/dev/null
+blocked_again=$(force_push_rc ada "$TOKEN_FILE" "$RW" main)
+if [ "$blocked_again" != "0" ]; then
+  pass "force-push blocked after reprotect"
+else
+  fail "force-push blocked after reprotect"
+fi
 
 printf 'RESULT pass=%s fail=%s\n' "$PASS" "$FAIL"
 if [ "$FAIL" -ne 0 ]; then
