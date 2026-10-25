@@ -29,7 +29,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `create-repo <name> [--private] [--source <dir>] [--push]` | Make `<org>/<name>`. With `--source --push`, add remote `origin` and push every branch and tag. The repo is private. |
 | `repo-access <name>` | `{"access":"ok"}` or `{"access":"no-access"}` |
 | `protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]` | Protect `main`. See the rules below. |
-| `unprotect <name>` | Lift what `protect` set on `main`. `protect` restores it. |
+| `unprotect <name>` | Lift the rule on `main` (`rule_name` or `branch_name`). Deletes that rule by its name. No matching rule: already unprotected, exit 0. `protect` restores it. |
 | `secret-exists <name>` | `{"exists":true}` or `{"exists":false}`. Never prints the value. |
 | `user-access <repo> <user>` | `{"access":"none"\|"read"\|"write"\|"admin"}`. A missing user is `none`. |
 | `team-create <team>` | Create an org team |

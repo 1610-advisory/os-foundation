@@ -666,7 +666,8 @@ osf_approve() {
   local repo="$2"
   local number="$3"
   local user="$4"
-  local body
+  local body prev rc
+  prev=${FORGEJO_TOKEN-}
   if ! osf_export_token "$user"; then
     return 1
   fi
@@ -675,10 +676,16 @@ osf_approve() {
   jq -n '{body:"Approved from the test.", event:"APPROVED"}' > "$body"
   osf_api "$(osf_token_file "$user")" POST "/api/v1/repos/${owner}/${repo}/pulls/${number}/reviews" "$body"
   rm -f "$body"
+  rc=1
   if [ "$OSF_HTTP_CODE" = "200" ] || [ "$OSF_HTTP_CODE" = "201" ]; then
-    osf_api_discard
-    return 0
+    rc=0
   fi
   osf_api_discard
-  return 1
+  # The review uses the approver file. Do not leave that token in the environment.
+  if [ -n "$prev" ]; then
+    export FORGEJO_TOKEN="$prev"
+  else
+    unset FORGEJO_TOKEN
+  fi
+  return "$rc"
 }

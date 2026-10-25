@@ -370,7 +370,7 @@ cmd_protect() {
 }
 
 cmd_unprotect() {
-  local name page n saved rule
+  local name saved rule enc
   host_need_name
   name=$POS1
   if [ "${HOST_DRY_RUN:-}" = "1" ]; then
@@ -378,34 +378,28 @@ cmd_unprotect() {
     return 0
   fi
   saved=$(host_mktemp)
-  page=1
-  while true; do
-    if ! fj_call GET "$(host_repo "$name")/branch_protections?limit=50&page=${page}"; then
-      fj_offline
-    fi
-    if [ "$FJ_HTTP" = "404" ]; then
-      break
-    fi
-    case "$FJ_HTTP" in
-      200) ;;
-      *) fj_fail ;;
-    esac
-    printf '%s' "$FJ_BODY" | jq -c '.[] | select(.rule_name=="main")' | head -n 1 > "$saved"
-    if [ -s "$saved" ]; then
-      break
-    fi
-    n=$(printf '%s' "$FJ_BODY" | jq 'if type == "array" then length else 0 end')
-    if [ "$n" -lt 50 ]; then
-      break
-    fi
-    page=$((page + 1))
-  done
-  if [ ! -s "$saved" ]; then
+  if ! fj_call GET "$(host_repo "$name")/branch_protections"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200) ;;
+    *) fj_fail ;;
+  esac
+  printf '%s' "$FJ_BODY" | jq -c \
+    '[.[] | select(.rule_name=="main" or .branch_name=="main")] | .[0] // empty' > "$saved"
+  if [ ! -s "$saved" ] || [ "$(tr -d '[:space:]' < "$saved")" = "null" ]; then
+    printf 'already unprotected: %s main\n' "$name" >&2
     jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main", removed:false}'
     return 0
   fi
-  rule=main
-  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${rule}"; then
+  rule=$(jq -r '.rule_name // .branch_name // empty' "$saved")
+  if [ -z "$rule" ]; then
+    printf 'already unprotected: %s main\n' "$name" >&2
+    jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main", removed:false}'
+    return 0
+  fi
+  enc=$(printf '%s' "$rule" | jq -sRr @uri)
+  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${enc}"; then
     fj_offline
   fi
   case "$FJ_HTTP" in
@@ -414,7 +408,7 @@ cmd_unprotect() {
       fj_fail
       ;;
   esac
-  if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "404" ]; then
+  if ! fj_call GET "$(host_repo "$name")/branch_protections/${enc}" || [ "$FJ_HTTP" != "404" ]; then
     if ! fj_call POST "$(host_repo "$name")/branch_protections" "$(cat "$saved")"; then
       host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
     fi
@@ -424,7 +418,7 @@ cmd_unprotect() {
         host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
         ;;
     esac
-    if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "200" ]; then
+    if ! fj_call GET "$(host_repo "$name")/branch_protections/${enc}" || [ "$FJ_HTTP" != "200" ]; then
       host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
     fi
     host_die 3 "unprotect failed. The main rule was restored."
