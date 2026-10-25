@@ -64,7 +64,8 @@ for engine in claude codex cursor pi; do
   fi
   prompt="$work/prompt.txt"
   printf '%s\n' "Read company-profile.md. Add one sentence to notes/admin.md: the admin run wrote this. Commit that file and push it to origin. Do not change git identity." > "$prompt"
-  if ! bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
+  # The engine pushes. seat.sh must not push a commit the engine never pushed.
+  if ! OSF_SEAT_PUSH=0 bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
     if grep -q '^BLOCKED:' "$work/seat.log"; then
       reason=$(sed -n 's/^BLOCKED: //p' "$work/seat.log" | head -n 1)
       osf_line "S13 $engine BLOCKED $reason"
