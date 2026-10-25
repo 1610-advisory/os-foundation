@@ -33,7 +33,7 @@ Weeks are ISO weeks that start on Monday, such as `2026-W43`.
 ## How it runs
 
 - The job runs `skills/reports/run.sh` from the company root. With no flags it writes the day's to-decide files and the week's pages.
-- By hand: `--date YYYY-MM-DD` for one day, `--week YYYY-Www` for one week, `--daily` for the to-decide files only.
+- By hand, every run writes the to-decide files for the date (today, or `--date YYYY-MM-DD`). It also writes the weekly pages for that date's week, or for `--week YYYY-Www`. Only `--daily` without `--week` skips the weekly pages. There is no week-only run.
 - The script gathers the facts. A small model (`report-prompt.md`) only picks which action and result sentences to keep, word for word. The counts are the script's, not the model's.
 - If the model fails, the page still has the facts and the line `The summary did not run.`
 - It writes as an area-scoped identity: the company bot when `bots` is on, else the admin's agent. Every commit carries a `Run-Id:` line.
@@ -73,6 +73,6 @@ A director may want a copy by email, Slack or Teams. If that tool is already con
 
 ## Never
 
-- Never read `users/`, traces or another area to write a report.
+- Never read `users/`, `profile/`, traces or another area to write a report.
 - Never rank, score or compare people.
 - Never quote a private source, a workspace note, a profile or a secret.

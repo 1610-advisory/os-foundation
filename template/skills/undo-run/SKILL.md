@@ -19,12 +19,16 @@ Undo is a revert. History keeps the run and the undo. Nothing is deleted.
 
 ## When it cannot finish
 
-The script goes on with the other repos. Repos that reverted keep their pull requests.
+The script goes on with the other repos. Repos that reverted keep their pull requests. Tell the person each failure line exactly as printed. Never revert, push, merge or delete `undo/<run-id>` by hand. Never ask for a token. Run the script at most once more, then stop.
 
-- **`conflict:`** A later change touched the same lines. That repo is unchanged. Tell the person which repo. Offer to undo that part by hand as a normal change.
-- **`refused: undo/<run-id> already exists`** The run was undone before, or an undo is still open. Find that pull request and show it. Do not delete the branch to try again.
-- **No commit has that run id.** Check the id with the person. A run that has not merged yet is still on the bot's standing PR. The owner may close that PR instead.
-- **No access to a repo.** Say which. The bot's owner or the admin runs the undo there.
+| Line | Meaning | Do |
+|---|---|---|
+| `conflict: revert stopped; this repo was left unchanged` | A later change touched the same lines. | Tell the owner which repo. A person decides the fix as a normal change. |
+| `conflict: could not open a worktree; this repo was left unchanged` | The script could not make its temporary copy. | Run once more. If it repeats, stop. |
+| `refused: undo/<run-id> already exists` | The run was undone before, or an undo is still open. | Say an undo for this run already exists. Do not make another. The owner checks its pull request on the host. |
+| `revert: empty` | The run's changes are already gone in that repo. | Say nothing was reverted there. |
+| `no commits for that run` | No commit has that run id and the bot's email. | Check the id with the person. A run not yet merged is still on the bot's standing PR: the owner may close that PR. |
+| `get-token failed`, `whoami returned no login` | Sign-in problem. | The owner signs in again through the host's own sign-in. Then run once more. |
 
 ## Rules
 

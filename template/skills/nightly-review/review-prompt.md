@@ -44,7 +44,7 @@ If you are not sure, it is not a clear error. Make it a judgment call.
 ## Kind 2: judgment
 
 Anything a person should look at. No fix. Examples:
-- Two notes that disagree, or a change that disagrees with an older note.
+- Two notes that disagree, or a change that disagrees with an older note. The summary must say `disagree`, `contradict` or `does not match`, so the weekly report lists it under Contradictions.
 - A fact that looks out of date, or a guess written as a fact.
 - A note in the wrong area or the wrong folder.
 - Any problem in a rules file. You never fix a rules file. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/` or `.claude/`. Even a typo there is a judgment call.
@@ -77,5 +77,5 @@ Print exactly one JSON object on one line. No code fence. Nothing before or afte
 Example:
 
 ```
-{"ok":true,"findings":[{"kind":"clear-error","path":"meetings/2026-10-21 Kickoff.md","summary":"Line 7: link to Dana Directr; the page is Dana Director.","author":"mia-member","fix":{"action":"replace","old":"- Owner: [[Dana Directr]]","new":"- Owner: [[Dana Director]]"}},{"kind":"judgment","path":"customers.md","summary":"Line 40: says Acme Co pays in 30 days; offers.md says 45.","author":"mia-member"}]}
+{"ok":true,"findings":[{"kind":"clear-error","path":"meetings/2026-10-21 Kickoff.md","summary":"Line 7: link to Dana Directr; the page is Dana Director.","author":"mia-member","fix":{"action":"replace","old":"- Owner: [[Dana Directr]]","new":"- Owner: [[Dana Director]]"}},{"kind":"judgment","path":"customers.md","summary":"Line 40: payment terms disagree: 30 days here, 45 days in offers.md.","author":"mia-member"}]}
 ```

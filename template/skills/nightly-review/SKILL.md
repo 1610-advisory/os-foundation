@@ -47,7 +47,9 @@ It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `C
 
 ## Fails closed
 
-Every engine call runs and is checked before any edit. If one fails (no answer, bad JSON, timeout), or the prompt or the engine is missing, the review makes no edits, no fold and no pull request. It writes one line to the log on the admin's computer. The digest says plainly: `The review did not run.` The next night tries again. Nobody needs to act unless it fails three nights in a row: then tell the admin.
+Every engine call runs and is checked before any edit. If one fails (no answer, bad JSON, timeout), or the prompt or the engine is missing, the review makes no edits, no fold and no pull request. It exits 2 and writes `The review did not run.` to the log and the digest. The next night tries again. Nobody needs to act unless it fails three nights in a row: then tell the admin.
+
+When you run it by hand and it exits 2: tell the person `The review did not run.` Run it at most once more, then stop. Never apply a fix yourself.
 
 ## Where things are
 
@@ -60,7 +62,7 @@ On the admin's computer, never in a repo (`~/.config/<company>-os/state/`):
 
 - **"Why did the review change my note?"** Find the `review/<date>` pull request. Show the change and its one-line reason. If it was wrong, change it back as a normal note change. If the review makes the same change again, tell the admin.
 - **"What is in my digest?"** Read the to-decide report for that day, or the digest file. Explain each flag in one line. Offer to fix the ones the person agrees with.
-- **"Turn it off."** Only the admin may. Say what is lost: notes would then get no check after they merge.
+- **"Turn it off."** Only the admin changes jobs. Do not run `sync.sh uninstall-jobs`: it also removes the pull and push jobs. Say what is lost (notes would get no check after they merge), then stop.
 
 ## Never
 

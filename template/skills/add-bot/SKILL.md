@@ -39,20 +39,25 @@ Ask one question at a time. Write each answer as one `key=value` line in an answ
 7. **Allowed connections** (`connections=`, or `none`). Shared mailboxes and public channels only.
 8. **Shared inbox** (`inbox=`, default `none`). Only with the inbox owner's yes. See below.
 
-Then set it up on the bot's box. The box is never a person's own computer. The owner signs in there, with their own host sign-in, for setup only.
+**On the owner's computer** (where `me` is the owner):
 
-9. **First run:** `skills/add-bot/add-bot.sh --answers <file>` (`box=no`). It writes `bots/<bot>/` and grants the repos.
-10. **Make the identity.**
-    - **GitHub:** the script prints one link. Open it in any browser and click **Create GitHub App**. Install the App on the listed repos only ("Only select repositories"). Save the key file on the bot's box, outside every repo, mode 0600. Add `app_id=`, `installation_id=` and `key_path=` to the answers. Run the script again. It records the key **location** in `BOT.md`, never the key.
-    - **Forgejo:** the admin makes one bot user and saves its token on the bot's box in a file outside every repo, mode 0600. Add `bot_user=` and `token_path=` to the answers, and run the script.
-11. **Propose the folder** while `me` on this box is still the owner: `skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/*.md`. Leave out the routines part if there are no routine files. `BOT.md` and the routines are rules files. The owner approves after the model review. The script prints this command as `propose:`.
-12. **Make the box the bot's:** add `box=yes` and `replace_me=yes` to the answers and run the script once more. It sets the bot as `me` on this box, points git at the bot's credential helper, and installs the OS jobs (`sync.sh install-jobs --bot`). Do not run `propose` on this box after this step: `me` is now the bot.
-13. **Sign the owner out** of the host on the box. From now on the bot uses only its own identity.
-14. **Tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
+9. **First run:** `skills/add-bot/add-bot.sh --answers <file>` (`box=no`). It writes `bots/<bot>/`.
+   - **GitHub:** it prints `create_url:` and `status: waiting-for-app`. Open the link in any browser and click **Create GitHub App**. Install the App on the listed repos only ("Only select repositories"). Save the key file **on the bot's box**, outside every repo, mode 0600.
+   - **Forgejo:** first the admin makes one bot user and saves its token in a file outside every repo, mode 0600. Add `bot_user=` and `token_path=` to the answers. The run grants that user the listed repos and prints `status: ready`. Later, the admin moves the token file to the bot's box at the same path.
+10. **Propose the folder** before any `box=yes` run. The script prints the command as `propose:`. Run it with the routine files written out, one path each: `skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/<slug>.md`. No routine files: leave that part out. Never pass a literal `*`. `BOT.md` and the routines are rules files. The owner approves after the model review.
 
-After setup, no person step is needed. The bot's credential helper gets a fresh short-lived token each time git needs one, only for the company host and only for the bot's repos.
+**On the bot's box** (never a person's own computer; the owner signs in for setup only):
 
-**Change the repos later:** the owner changes `repos:` in `BOT.md` on their own computer and proposes it. After it merges, the owner signs in on the box for one step: update `repos=` in the answers and run the script again. It revokes repos that left the list and prints what it granted and revoked. Then the owner signs out.
+11. **Box run:** add `box=yes` and `replace_me=yes` to the answers. GitHub: also `app_id=`, `installation_id=` and `key_path=`. Run the script. It prints `status: ready` and `jobs: installed`. It sets the bot as `me`, points git at the bot's credential helper, and installs the OS jobs (`sync.sh install-jobs --bot`). It records the key **location**, never the key.
+12. If it prints `propose-note:`, do not run `propose` on this box: `me` is now the bot.
+13. **GitHub only:** the App fields are now in `BOT.md` on the box. They are not secrets. The owner adds the same three lines to `BOT.md` on their own computer and proposes it.
+14. **Sign the owner out** of the host on the box. Then **tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
+
+**When the script stops.** Tell the person its last line exactly. Examples: `email is required`, `bots switch is off`, `repo <repo> exceeds the owner's grant`, `an area bot cannot take the company repo`, `secret file is missing`, `secret file mode is not 0600`, `me file is <slug>, not <bot>. Set replace_me=yes on the bot box only.` Fix the answers file at most once and run again. If it stops again, stop and tell the owner. Never ask for a key or token in chat. If `propose` fails, tell the person its line and stop.
+
+After setup, no person step is needed. The bot's credential helper gets a fresh short-lived token each time git needs one, only for the company host and the bot's repos.
+
+**Change the repos later:** the owner changes `repos:` in `BOT.md` on their own computer and proposes it. After it merges, the owner signs in on the box for one step: update `repos=` in the answers and run the script again. It prints `granted:` and `revoked:` lines. Then the owner signs out.
 
 ## Every bot run
 
