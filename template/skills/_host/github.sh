@@ -433,38 +433,52 @@ cmd_unprotect() {
 }
 
 cmd_user_access() {
-  local name user body rc perm access
+  local name user out err code perm access kind
   [ -n "$POS1" ] || host_die 1 "name is required"
   [ -n "$POS2" ] || host_die 1 "user is required"
   [ -z "$POS3" ] || host_die 1 "too many arguments"
   host_require_name "name" "$POS1"
   host_require_name "user" "$POS2"
+  host_require_org
+  host_require_bin gh
   name=$POS1
   user=$POS2
   if host_dry; then
     host_emit GET "$(host_repo "$name")/collaborators/${user}/permission"
     return 0
   fi
-  if body=$(host_gh_call GET "$(host_repo "$name")/collaborators/${user}/permission"); then
-    rc=0
+  out=$(host_mktemp)
+  err=$(host_mktemp)
+  set +e
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
   else
-    rc=$?
+    gh api --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
   fi
-  if [ "$rc" -eq 2 ]; then
+  code=$?
+  set -e
+  if [ "$code" -eq 0 ]; then
+    perm=$(jq -r '.permission // .role_name // "none"' "$out")
+    case "$perm" in
+      admin|owner) access="admin" ;;
+      write|maintain|push) access="write" ;;
+      read|pull|triage) access="read" ;;
+      *) access="none" ;;
+    esac
+    jq -nc --arg access "$access" '{access:$access}'
+    return 0
+  fi
+  if grep -q 'HTTP 404' "$err"; then
     jq -nc '{access:"none"}'
     return 0
   fi
-  if [ "$rc" -ne 0 ]; then
-    exit "$rc"
+  if grep -q 'HTTP 403' "$err"; then
+    host_scrub_file "$err" >&2
+    host_die 4 "cannot read collaborators: sign in as an org owner"
   fi
-  perm=$(printf '%s' "$body" | jq -r '.permission // .role_name // "none"')
-  case "$perm" in
-    admin|owner) access="admin" ;;
-    write|maintain|push) access="write" ;;
-    read|pull|triage) access="read" ;;
-    *) access="none" ;;
-  esac
-  jq -nc --arg access "$access" '{access:$access}'
+  kind=$(host_classify_gh "$err" "$code")
+  host_scrub_file "$err" >&2
+  exit "$kind"
 }
 
 cmd_secret_exists() {

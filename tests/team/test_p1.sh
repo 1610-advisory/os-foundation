@@ -329,4 +329,64 @@ while IFS= read -r tmp; do
   fi
 done < "$OS_TMP_LOG"
 
+# E. A GitHub 403 on user-access is not access gone.
+mkdir -p "$work/ghco/people" "$work/ghbin"
+cat > "$work/ghco/company-profile.md" << 'EOF'
+---
+company_slug: acme
+host: github
+org: acme
+level: team
+---
+# Acme Co
+EOF
+cat > "$work/ghco/people/Ada Admin.md" << 'EOF'
+---
+slug: ada
+github: acme-admin
+role: admin
+left: ""
+---
+# Ada Admin
+EOF
+cat > "$work/ghco/people/Sam Member.md" << 'EOF'
+---
+slug: sam
+github: acme-member-d
+role: writer
+left: ""
+manager: ada
+---
+# Sam Member
+EOF
+cat > "$work/ghbin/gh" << 'EOF'
+#!/bin/bash
+path=""
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    --method) ;;
+    *) path=$arg ;;
+  esac
+  prev=$arg
+done
+case "$path" in
+  */collaborators/*/permission)
+    printf '%s\n' "HTTP 403" >&2
+    exit 1
+    ;;
+esac
+printf '%s\n' '{}'
+exit 0
+EOF
+chmod 700 "$work/ghbin/gh"
+unset OS_HOST_SH
+set +e
+PATH="$work/ghbin:$PATH" "$root/template/skills/remove-teammate/remove.sh" --root "$work/ghco" --person sam >"$work/ghrm.out" 2>"$work/ghrm.err"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || team_fail "403 was treated as access gone"
+grep -q '^revoked:' "$work/ghrm.out" && team_fail "revoked was printed after a 403"
+grep -q 'acme-os' "$work/ghrm.err" || team_fail "403 repo was not listed as still reachable"
+
 printf '%s\n' "PASS p1"
