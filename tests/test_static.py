@@ -660,6 +660,43 @@ class PiiTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "pii-check: OK")
         self.assertNotIn("binary:", result.stdout)
 
+    def test_binary_added_then_deleted_is_a_finding(self):
+        env = git_env()
+        marker = "/" + "Users" + "/" + "zebra" + "/secret"
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "docs").mkdir()
+            (tmp / "docs" / "mod.pyc").write_bytes(b"\x00" + marker.encode())
+            (tmp / "docs" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            (tmp / "secret.bin").write_bytes(b"bin\x00" + marker.encode())
+            commit_all(tmp, env, "add files")
+            short = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "docs" / "mod.pyc").unlink()
+            (tmp / "docs" / "logo.png").unlink()
+            (tmp / "secret.bin").unlink()
+            commit_all(tmp, env, "drop files")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary: docs/mod.pyc (commit " + short + ")", result.stdout)
+        self.assertIn("binary: secret.bin (commit " + short + ")", result.stdout)
+        self.assertNotIn("logo.png", result.stdout)
+        self.assertIn("binary 2\n", result.stdout)
+        self.assertNotIn(marker, result.stdout)
+        self.assertNotIn(marker, result.stderr)
+
 
 class ShellcheckTests(unittest.TestCase):
     def test_no_scripts_passes(self):

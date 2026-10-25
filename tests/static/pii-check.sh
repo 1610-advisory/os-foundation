@@ -10,7 +10,8 @@ Checks added lines (default) or whole files for forbidden terms, home-folder
 paths, token prefixes, and email addresses. Also checks path names in scope.
 --base also checks commit messages, and flags an added binary file.
 Prints a count per check and file:line:check, path:name, commit:sha:check,
-or binary: path. Never prints the matched text or file bytes.
+or binary: path. A binary added in an earlier commit is
+binary: path (commit <sha>). Never prints the matched text or file bytes.
 
 Email hits skip noreply@ on any domain, and the reserved domains .test,
 example.com, example.org, and example.net.
@@ -21,6 +22,8 @@ example.com, example.org, and example.net.
                An added binary file is a finding, unless it is an image
                (png, jpg, jpeg, gif, webp, svg) under assets/ or docs/.
                Python bytecode and __pycache__/ are always findings.
+               Every commit in REF..HEAD is checked, so a file added and
+               later deleted is still a finding.
                Default REF is origin/next/v1.
   --all        every tracked file, and every tracked path name
   --paths FILE these files only, and their path names
@@ -449,14 +452,34 @@ is_allowed_image() {
   return 1
 }
 
+git_unquote() {
+  local s=$1
+  case "$s" in
+    \"*\")
+      s=${s#\"}
+      s=${s%\"}
+      ;;
+  esac
+  printf '%s' "$s" | sed 's/\\"/"/g; s/\\\\/\\/g'
+}
+
 note_binary() {
-  local rel=$1
+  local rel=$1 short=${2:-} line
   [[ -n "$rel" ]] || return 0
-  if [[ -s "$bin_seen" ]] && grep -qxF -- "$rel" "$bin_seen"; then
+  if [[ -n "$short" ]]; then
+    line="binary: ${rel} (commit ${short})"
+  else
+    line="binary: ${rel}"
+  fi
+  if [[ -s "$bin_seen" ]] && grep -qxF -- "$line" "$bin_seen"; then
     return 0
   fi
-  printf '%s\n' "$rel" >> "$bin_seen"
-  printf 'binary: %s\n' "$rel" >> "$hits_file"
+  # The commit line already names this path. Do not add a second line.
+  if [[ -z "$short" ]] && grep -qF -- "binary: ${rel} (commit " "$hits_file"; then
+    return 0
+  fi
+  printf '%s\n' "$line" >> "$bin_seen"
+  printf '%s\n' "$line" >> "$hits_file"
 }
 
 diff_marks_binary() {
@@ -496,8 +519,47 @@ flag_added_binary() {
   esac
 }
 
+# A later delete hides the file in the net diff. The blob is still in history.
+scan_history_binaries() {
+  local line sha short added rest path
+  sha=""
+  short=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] || continue
+    case "$line" in
+      *$'	'*) ;;
+      *)
+        if [[ "$line" =~ ^[0-9a-f]{40}$ ]]; then
+          sha=$line
+          short=$(git -C "$root" rev-parse --short "$sha")
+        fi
+        continue
+        ;;
+    esac
+    [[ -n "$short" ]] || continue
+    added=${line%%$'	'*}
+    rest=${line#*$'	'}
+    path=${rest#*$'\t'}
+    path=${path%$'\r'}
+    path=$(git_unquote "$path")
+    [[ -n "$path" ]] || continue
+    if is_bytecode "$path"; then
+      note_binary "$path" "$short"
+      continue
+    fi
+    if is_allowed_image "$path"; then
+      continue
+    fi
+    if [[ "$added" == "-" ]]; then
+      note_binary "$path" "$short"
+    fi
+  done < <(git -C "$root" log --format=%H --numstat --diff-filter=A "${base}..HEAD")
+  return 0
+}
+
 scan_added_binaries() {
   local rel
+  scan_history_binaries
   while IFS= read -r -d '' rel; do
     flag_added_binary "$rel" committed
   done < <(git -C "$root" diff --name-only --diff-filter=A -z "${base}...HEAD")
