@@ -24,6 +24,10 @@ for arg in "$@"; do
   i=$((i + 1))
 done
 printf '%s\n' "---" >> "$OS_ARGV_LOG"
+# Remote checks must hit the real git. Other calls stay a log-only spy.
+if [ "${1:-}" = "-C" ]; then
+  exec /usr/bin/git "$@"
+fi
 exit 0
 EOF
 cat > "$work/bin/host.sh" << 'EOF'
@@ -45,6 +49,10 @@ case "$1" in
     ;;
   secret-exists)
     printf '%s\n' '{"exists":false}'
+    ;;
+  repo-access)
+    printf '%s\n' '{"access":"no-access"}'
+    exit 2
     ;;
   *)
     printf '%s\n' '{"ok":true}'

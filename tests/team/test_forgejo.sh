@@ -200,6 +200,20 @@ grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/t
 grep -q '^level: team$' "$company/company-profile.md" || die "profile level not team"
 grep -q 'hand-off: mia' "$work/team-on.out" || die "missing hand-off"
 grep -q 'http://localhost:3300/acme/team-os' "$work/team-on.out" || die "hand-off missing repo URL"
+
+# Fresh repo path: origin is the host clone URL on the company, each area, and each workspace.
+assert_origin() {
+  local dir=$1 name=$2 got
+  got=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
+  [ "$got" = "http://localhost:3300/acme/${name}.git" ] || die "origin for $name is '${got}'"
+}
+assert_origin "$company" team-os
+assert_origin "$company/areas/marketing" team-marketing
+assert_origin "$company/areas/finance" team-finance
+for slug in ada dana mia max noa sam; do
+  [ -d "$company/users/$slug/.git" ] || die "workspace $slug missing"
+  assert_origin "$company/users/$slug" "team-user-$slug"
+done
 grep -q 'CODEOWNERS' "$company/.github/CODEOWNERS" || true
 grep -q '@acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS missing admin"
 grep -q '@acme-director' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing director"
@@ -241,12 +255,28 @@ set -e
 [ "$push_rc" -ne 0 ] || die "push to protected main succeeded"
 git -C "$company" reset -q --hard HEAD~1
 
-# Second run changes nothing in git.
+# Existing repo and a folder with no origin: add the remote and fetch. Do not push main.
+host_main=$(git -C "$company" rev-parse origin/main)
+area_main=$(git -C "$company/areas/marketing" rev-parse origin/main)
+git -C "$company" remote remove origin
+git -C "$company/areas/marketing" remote remove origin
+git -C "$company/areas/finance" remote remove origin
+for slug in ada dana mia max noa sam; do
+  git -C "$company/users/$slug" remote remove origin
+done
 before=$(git -C "$company" rev-parse HEAD)
 FORGEJO_TOKEN=$(load_token "$admin_token") \
   "$root/template/skills/add-teammate/team-on.sh" --answers "$answers" >"$work/team-on2.out" 2>>"$log" || die "second team-on failed"
 after=$(git -C "$company" rev-parse HEAD)
 [ "$before" = "$after" ] || die "second team-on moved main"
+assert_origin "$company" team-os
+assert_origin "$company/areas/marketing" team-marketing
+assert_origin "$company/areas/finance" team-finance
+for slug in ada dana mia max noa sam; do
+  assert_origin "$company/users/$slug" "team-user-$slug"
+done
+[ "$(git -C "$company" rev-parse origin/main)" = "$host_main" ] || die "second team-on pushed company main"
+[ "$(git -C "$company/areas/marketing" rev-parse origin/main)" = "$area_main" ] || die "second team-on pushed area main"
 
 printf '%s\n' "step: join" >&2
 # Join for member-a in a sandbox home.

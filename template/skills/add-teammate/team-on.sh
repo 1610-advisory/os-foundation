@@ -10,7 +10,8 @@ usage() {
   cat << 'EOF'
 usage: team-on.sh --answers <file>
 
-Turn solo into team in one run. A second run changes nothing.
+Turn solo into team in one run. A second run does not change git history.
+If origin is missing, it adds the host clone URL and fetches. It does not push to main.
 The review key is not an answers-file key. The script prints one command
 for the admin to run in their own terminal:
 
@@ -233,12 +234,14 @@ commit_rules_before_protect() {
 }
 
 push_new_repo() {
-  local name=$1 source=$2
+  local name=$1 source=$2 existed=0
   if repo_exists "$name"; then
-    printf 'repo: %s\n' "$name"
-    return 0
+    existed=1
+  else
+    os_host create-repo "$name" --private --source "$source" --push >/dev/null
   fi
-  os_host create-repo "$name" --private --source "$source" --push >/dev/null
+  # Existing repo: add a missing origin and fetch. Never push to main.
+  os_ensure_origin "$source" "$name" "$HOST_KIND" "$HOST_URL" "$ORG" "$existed"
   printf 'repo: %s\n' "$name"
 }
 
@@ -264,12 +267,15 @@ while IFS= read -r slug; do
   if [ ! -d "$ws_dir/.git" ]; then
     os_write_workspace "$ws_dir" "$slug" "$name" "$SLUG" "$COMPANY_NAME" "$WS_TEMPLATE"
   fi
-  if repo_exists "$(os_user_repo "$SLUG" "$slug")"; then
-    printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$slug")"
+  ws_name=$(os_user_repo "$SLUG" "$slug")
+  ws_existed=0
+  if repo_exists "$ws_name"; then
+    ws_existed=1
   else
-    os_host create-repo "$(os_user_repo "$SLUG" "$slug")" --private --source "$ws_dir" --push >/dev/null
-    printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$slug")"
+    os_host create-repo "$ws_name" --private --source "$ws_dir" --push >/dev/null
   fi
+  os_ensure_origin "$ws_dir" "$ws_name" "$HOST_KIND" "$HOST_URL" "$ORG" "$ws_existed"
+  printf 'workspace: %s\n' "$ws_name"
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF
