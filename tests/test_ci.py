@@ -240,6 +240,12 @@ class ToolCopyTests(unittest.TestCase):
         self.assertIn("host/github.sh", seen)
         self.assertIn("host/profile.sh", seen)
 
+    def test_default_review_rules_match_the_template(self):
+        default = ROOT / "template" / ".github" / "scripts" / "review-rules.default.md"
+        source = ROOT / "template" / "review-rules.md"
+        self.assertTrue(default.is_file())
+        self.assertEqual(source.read_bytes(), default.read_bytes())
+
     def test_no_placeholder_line_outside_skills(self):
         # Setup fills these on purpose. They are the tracked template files
         # outside skills/ that hold a named placeholder today, plus the rules
@@ -421,7 +427,14 @@ class BaseRulesTests(unittest.TestCase):
     def test_review_rules_come_from_base(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")
         self.assertIn('rules="${tools}/review-rules.md"', text)
+        self.assertIn("${tools}/.github/scripts/review-rules.default.md", text)
+        self.assertIn(
+            "model review: using default rules (review-rules.md is not on main yet)",
+            text,
+        )
         self.assertNotIn("--rules review-rules.md", text)
+        checkout = (SCRIPTS / "checkout.sh").read_text(encoding="utf-8")
+        self.assertIn(".github/scripts/*|.github/review.conf|review-rules.md", checkout)
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         repo = Path(tmp.name) / "repo"

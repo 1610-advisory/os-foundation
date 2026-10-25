@@ -300,9 +300,38 @@ commit_staged() {
 push_tools_branch() {
   local dir=$1 name=$2 branch=$3
   if ! os_with_git_token git -C "$dir" push origin "HEAD:${branch}"; then
-    printf '%s\n' "could not push the check-tools branch for ${name}" >&2
+    printf '%s\n' "could not push ${branch} for ${name}" >&2
     exit 2
   fi
+}
+
+open_rules_pr() {
+  local name=$1 branch=$2 pr number
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "Team: add review rules")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    printf '%s\n' "could not open a pull request for ${name}" >&2
+    exit 2
+  fi
+  printf 'pr: %s %s\n' "$name" "$number"
+}
+
+# Tools may already be on main. A missing review-rules.md still needs a pull
+# request. The checks job can pass from the default shipped with the scripts.
+propose_missing_review_rules() {
+  local dir=$1 name=$2 branch="team/review-rules"
+  if git -C "$dir" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+    return 0
+  fi
+  if ! git -C "$dir" cat-file -e "origin/${branch}:review-rules.md" 2>/dev/null; then
+    git -C "$dir" checkout -q -f -B "$branch" origin/main
+    stage_missing_review_rules "$dir"
+    if ! git -C "$dir" diff --cached --quiet; then
+      commit_staged "$dir" "Team: add review rules"
+      push_tools_branch "$dir" "$name" "$branch"
+    fi
+  fi
+  open_rules_pr "$name" "$branch"
 }
 
 open_tools_pr() {
@@ -326,6 +355,7 @@ propose_missing_tools() {
   fi
   os_with_git_token git -C "$dir" fetch origin
   if git -C "$dir" cat-file -e "origin/main:.github/scripts/tools/secret-scan.sh" 2>/dev/null; then
+    propose_missing_review_rules "$dir" "$name"
     return 0
   fi
   branch="team/scripts-tools"

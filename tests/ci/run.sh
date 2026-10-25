@@ -257,6 +257,33 @@ pr_sha() {
   osf_api_discard
 }
 
+approve_and_merge() {
+  local number=$1 approver=$2
+  local body i merged
+  as_user "$admin"
+  "$work/host/host.sh" auto-merge "$repo" "$number" >>"$log" 2>&1 || true
+  body=$(mktemp)
+  printf '%s\n' '{"event":"APPROVED","body":"ok"}' > "$body"
+  osf_api "$approver" POST "/api/v1/repos/acme/${repo}/pulls/${number}/reviews" "$body"
+  osf_api_discard
+  rm -f "$body"
+  as_user "$admin"
+  "$work/host/host.sh" auto-merge "$repo" "$number" >>"$log" 2>&1 || true
+  i=0
+  merged=false
+  while [ "$i" -lt 20 ]; do
+    osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${number}"
+    merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+    osf_api_discard
+    if [ "$merged" = "true" ]; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 3
+  done
+  return 1
+}
+
 wait_sha() {
   local want=$2
   local i=0 state fails=0
@@ -864,6 +891,113 @@ else
   fail "area tools pull request"
   fail "area review-rules pull request"
 fi
+
+# The pull request that adds review-rules.md must pass checks and merge.
+# Main already has the check scripts, including the default, and not the root file.
+intro_slug="cin${stamp}"
+intro_slug=${intro_slug//-/}
+intro_company="${intro_slug}-os"
+intro_area="${intro_slug}-marketing"
+intro_user="${intro_slug}-user-ada"
+EXTRA_REPOS="${EXTRA_REPOS} ${intro_company} ${intro_area} ${intro_user}"
+intro_root="$work/intro"
+mkdir -p "$intro_root"
+cp -R "$root/template/." "$intro_root/"
+python3 - "$intro_root/company-profile.md" "$intro_slug" << 'PY'
+import pathlib, sys
+path, slug = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+text = text.replace("{{COMPANY_SLUG}}", slug)
+text = text.replace("{{COMPANY_NAME}}", "Acme Co")
+text = text.replace("{{DATE}}", "2026-10-24")
+text = text.replace("{{ONE_LINER}}", "A test company")
+text = text.replace("{{OS_VERSION}}", "v1.0.0")
+pathlib.Path(path).write_text(text)
+PY
+intro_seed="$work/intro-seed"
+mkdir -p "$intro_seed/.github/workflows" "$intro_seed/.github/scripts"
+cp "$root/template/.github/workflows/checks.yml" "$intro_seed/.github/workflows/checks.yml"
+cp -R "$root/template/.github/scripts/." "$intro_seed/.github/scripts/"
+printf '%s\n' '# Marketing' > "$intro_seed/AGENTS.md"
+printf '%s\n' 'vendor=xai' 'model=' 'kind=second-vendor' > "$intro_seed/.github/review.conf"
+printf '%s\n' '/review-rules.md @acme-member-a' > "$intro_seed/.github/CODEOWNERS"
+git -C "$intro_root" init -q -b main
+git -C "$intro_root" config user.email ada.admin@acme.test
+git -C "$intro_root" config user.name "Ada Admin"
+git -C "$intro_root" add -A
+git -C "$intro_root" commit -q -m "company start"
+git -C "$intro_seed" init -q -b main
+git -C "$intro_seed" config user.email ada.admin@acme.test
+git -C "$intro_seed" config user.name "Ada Admin"
+git -C "$intro_seed" add -A
+git -C "$intro_seed" commit -q -m "area scripts, no review rules"
+if "$work/host/host.sh" create-repo "$intro_area" --private --source "$intro_seed" --push >>"$log" 2>&1; then
+  "$work/host/host.sh" grant "$intro_area" acme-member-a write >>"$log" 2>&1 || true
+  "$work/host/host.sh" protect "$intro_area" --code-owners --approvals 0 >>"$log" 2>&1 || true
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "git" ;;
+  *) cat "$OS_TOKEN_FILE" ;;
+esac
+EOF
+  mkdir -p "$intro_root/areas"
+  OS_TOKEN_FILE=$admin GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone -q "http://localhost:3300/acme/${intro_area}.git" "$intro_root/areas/marketing" >>"$log" 2>&1 || true
+  rm -f "$ask"
+  at='@'
+  cat > "$work/intro-answers" << EOF
+root=$intro_root
+host=forgejo
+host_url=http://localhost:3300
+org=acme
+sync_engine=true
+runner=ubuntu-latest
+company_name=Acme Co
+company_slug=${intro_slug}
+review_vendor=xai
+review_kind=second-vendor
+person.ada.name=Ada Admin
+person.ada.github=acme-admin
+person.ada.email=ada${at}acme.test
+person.ada.role=admin
+person.ada.areas=marketing
+area.marketing.director=ada
+EOF
+  set +e
+  OS_HOST_SH="$work/host/host.sh" OS_JOBS_DIR="$work/jobs" \
+    "$root/template/skills/add-teammate/team-on.sh" --answers "$work/intro-answers" >"$work/intro.out" 2>>"$log"
+  intro_rc=$?
+  set -e
+  intro_number=$(awk -v area="$intro_area" '$1 == "pr:" && $2 == area { print $3; exit }' "$work/intro.out")
+  if [ "$intro_rc" -eq 0 ] && [ -n "$intro_number" ] \
+    && git -C "$intro_root/areas/marketing" cat-file -e "team/review-rules:review-rules.md" \
+    && ! git -C "$intro_root/areas/marketing" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+    src="$intro_root/areas/marketing"
+    repo="$intro_area"
+    intro_sha=$(pr_sha "$intro_number")
+    if wait_sha "$intro_number" "$intro_sha" && approve_and_merge "$intro_number" "$member"; then
+      osf_api "$admin" GET "/api/v1/repos/acme/${intro_area}/contents/review-rules.md?ref=main"
+      if [ "$OSF_HTTP_CODE" = "200" ] \
+        && [ "$(jq -r '.sha // empty' "$OSF_HTTP_BODY")" = "$(git hash-object "$intro_root/review-rules.md")" ]; then
+        pass "area review-rules merge"
+      else
+        fail "area review-rules merge"
+      fi
+      osf_api_discard
+    else
+      fail "area review-rules merge"
+    fi
+  else
+    cat "$work/intro.out" >>"$log" 2>/dev/null || true
+    fail "area review-rules merge"
+  fi
+else
+  fail "area review-rules merge"
+fi
+repo="ci-checks-${stamp}"
 
 # An area made by team-on has review-rules.md on main. Its checks job passes.
 rules_slug="crr${stamp}"

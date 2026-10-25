@@ -165,9 +165,15 @@ git diff --no-color "$range" > "$diff_file"
 
 review_rc=0
 out=$(ci_mktemp)
+# Base copies only. The head is data. A missing root file falls back to the
+# default shipped with the check scripts, still from the base.
 rules="${tools}/review-rules.md"
 if [ ! -f "$rules" ]; then
-  ci_die 1 "model review failed: review-rules.md is missing"
+  rules="${tools}/.github/scripts/review-rules.default.md"
+  if [ ! -f "$rules" ]; then
+    ci_die 1 "model review failed: review-rules.md is missing"
+  fi
+  ci_summary_add "model review: using default rules (review-rules.md is not on main yet)"
 fi
 set +e
 bash "$DIR/model-review.sh" \
