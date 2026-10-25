@@ -194,9 +194,11 @@ sync_rm_temp() {
   if [ ! -e "$tree" ]; then
     return 0
   fi
-  found=$(find "$tree" -name .git -print -prune 2>/dev/null | head -n 1 || true)
+  # Skip the clone's own top-level .git. A nested repo is deeper.
+  found=$(find "$tree" -mindepth 2 -name .git -print -prune 2>/dev/null | head -n 1 || true)
   if [ -n "$found" ]; then
     sync_log "pull fail ${id} reclone: left ${tree}"
+    sync_held_error "reclone left ${tree}"
     return 1
   fi
   rm -rf "$tree"

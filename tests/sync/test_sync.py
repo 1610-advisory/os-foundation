@@ -738,6 +738,7 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("could not copy block-copy.md; nothing removed", log)
         self.assertEqual((self.company / "block-copy.md").read_text(), "keep this\n")
         self.assertTrue((self.company / "company-profile.md").exists())
+        self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
 
     def test_reclone_leaves_nested_repo_when_move_back_fails(self):
         self.seed_origin()
@@ -776,6 +777,9 @@ class SyncFixTests(unittest.TestCase):
         self.assertTrue(any("uncommitted area note" in p.read_text() for p in found))
         log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
         self.assertIn("left", log)
+        status = self.sync("status")
+        self.assertIn(".sync-reclone-", status.stdout)
+        self.assertTrue(any(p.is_dir() for p in self.company.parent.glob(".sync-reclone-*")))
 
     def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
         self.seed_origin()
