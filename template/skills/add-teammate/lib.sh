@@ -418,10 +418,11 @@ os_origin_exists() {
 }
 
 # Point origin at the host clone URL. Never pushes.
-# fetch_if_added=1: the repo already exists; if origin was missing, fetch it.
+# fetch_if_added=1: the repo already exists. Fetch when origin was missing,
+# and again when a failed fetch left no origin/main.
 os_ensure_origin() {
-  local dir=$1 name=$2 host=$3 host_url=$4 org=$5 fetch_if_added=$6
-  local url had=0 got
+  local dir="$1" name="$2" host="$3" host_url="$4" org="$5" fetch_if_added="$6"
+  local url had=0 got current=""
   url=$(os_clone_url "$host" "$host_url" "$org" "$name")
   current=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
   if [ -n "$current" ]; then
@@ -432,9 +433,11 @@ os_ensure_origin() {
   else
     git -C "$dir" remote add origin "$url"
   fi
-  if [ "$fetch_if_added" = "1" ] && [ "$had" -eq 0 ]; then
-    if ! os_with_git_token git -C "$dir" fetch origin; then
-      os_die 3 "could not fetch origin for $name"
+  if [ "$fetch_if_added" = "1" ]; then
+    if [ "$had" -eq 0 ] || ! git -C "$dir" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+      if ! os_with_git_token git -C "$dir" fetch origin; then
+        os_die 3 "could not fetch origin for $name"
+      fi
     fi
   fi
   got=$(git -C "$dir" remote get-url origin)

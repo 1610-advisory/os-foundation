@@ -11,7 +11,8 @@ usage() {
 usage: team-on.sh --answers <file>
 
 Turn solo into team in one run. A second run does not change git history.
-If origin is missing, it adds the host clone URL and fetches. It does not push to main.
+If origin is missing, it adds the host clone URL and fetches. If origin is set
+but origin/main is missing, it fetches again. It does not push to main.
 The review key is not an answers-file key. The script prints one command
 for the admin to run in their own terminal:
 

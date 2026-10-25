@@ -13,7 +13,7 @@ team-on.sh --answers <file>
 team-on.sh --help
 ```
 
-Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. It does not push to main.
+Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to main.
 
 ### Flags
 
