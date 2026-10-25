@@ -129,10 +129,34 @@ undo_drop_worktree() {
 found_any=0
 any_conflict=0
 any_exists=0
+visible=0
 while IFS= read -r path; do
   [ -n "$path" ] || continue
+  name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
+  fetch_err=$(bot_mktemp)
+  set +e
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
-    git -C "$path" -c credential.helper= fetch origin
+    git -C "$path" -c credential.helper= fetch origin >"$fetch_err" 2>&1
+  fetch_rc=$?
+  set -e
+  if [ "$fetch_rc" -ne 0 ]; then
+    if grep -Eiq 'not found|no access|access denied|correct access rights|error: 403|error: 404' "$fetch_err"; then
+      printf 'undo-run skip %s: not visible to this token\n' "$name" >&2
+      continue
+    fi
+    awk 'BEGIN { s = ENVIRON["OS_GIT_TOKEN"] } {
+      line = $0
+      if (s != "") {
+        while (index(line, s) > 0) {
+          i = index(line, s)
+          line = substr(line, 1, i - 1) "<redacted>" substr(line, i + length(s))
+        }
+      }
+      print line
+    }' "$fetch_err" >&2
+    exit 3
+  fi
+  visible=1
   hits=$(bot_mktemp)
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
@@ -234,6 +258,9 @@ EOF
   fi
 done < "$repo_list"
 
+if [ "$visible" -ne 1 ]; then
+  bot_die 2 "no repo visible to this token"
+fi
 if [ "$found_any" -ne 1 ]; then
   bot_die 2 "no commits for that run"
 fi

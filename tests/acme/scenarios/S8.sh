@@ -150,6 +150,9 @@ if [ -z "$run_id" ]; then
 fi
 bash "$dest/skills/undo-run/undo-run.sh" "$run_id" --root "$dest" >"$work/undo.log" 2>&1 \
   || osf_result "S8 FAIL undo-run"
+if ! grep -q "undo-run skip ${slug}-marketing: not visible to this token" "$work/undo.log"; then
+  osf_result "S8 FAIL undo-run did not skip the hidden area"
+fi
 osf_host S8 branches "$org" "${slug}-os"
 branches=$(cat "$OSF_HOST_JSON")
 if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$branches" | grep -q "undo/${run_id}"; then
