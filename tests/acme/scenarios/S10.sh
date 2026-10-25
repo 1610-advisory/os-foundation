@@ -67,7 +67,8 @@ if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$leak" | grep -q 'piano'; then
   osf_result "S10 FAIL private fact did not reach main"
 fi
 
-other="$work/other"
+# pull.sh refuses a company path outside HOME while OS_TEST_MODE is set.
+other="$HOME/other"
 osf_clone_as acme-member-a "$(osf_acme_url)/${org}/${slug}-os.git" "$other" >"$work/clone.log" 2>&1 \
   || osf_result "S10 FAIL could not clone for the other seat"
 

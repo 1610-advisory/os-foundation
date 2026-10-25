@@ -357,7 +357,8 @@ if [ "$rc" -ne 0 ]; then
   exit 2
 fi
 
-if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+if [ "${OSF_SEAT_PUSH:-1}" != "0" ] \
+  && git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$cwd" remote get-url origin >/dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD)
   HOME="$real_home" \

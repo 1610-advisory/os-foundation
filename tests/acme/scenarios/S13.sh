@@ -59,10 +59,13 @@ for engine in claude codex cursor pi; do
   osf_api "$(osf_token_file acme-admin)" PUT "/api/v1/repos/${org}/${repo}/collaborators/${user}" "$body" || true
   rm -f "$body"
   osf_api_discard
-  git -C "$dest" remote add origin "$(osf_acme_url)/${org}/${repo}.git"
+  if ! git -C "$dest" remote get-url origin >/dev/null 2>&1; then
+    git -C "$dest" remote add origin "$(osf_acme_url)/${org}/${repo}.git"
+  fi
   prompt="$work/prompt.txt"
   printf '%s\n' "Read company-profile.md. Add one sentence to notes/admin.md: the admin run wrote this. Commit that file and push it to origin. Do not change git identity." > "$prompt"
-  if ! bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
+  # The engine pushes. seat.sh must not push a commit the engine never pushed.
+  if ! OSF_SEAT_PUSH=0 bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
     if grep -q '^BLOCKED:' "$work/seat.log"; then
       reason=$(sed -n 's/^BLOCKED: //p' "$work/seat.log" | head -n 1)
       osf_line "S13 $engine BLOCKED $reason"
@@ -73,20 +76,36 @@ for engine in claude codex cursor pi; do
     fi
     continue
   fi
-  osf_host S13 file "$org" "$repo" notes/admin.md --ref main
-  page=$(cat "$OSF_HOST_JSON")
   found=0
-  if [ "$OSF_HOST_RC" -eq 0 ]; then
-    set +e
-    printf '%s\n' "$page" | grep -q 'the admin run wrote this'
-    rc=$?
-    set -e
-    if [ "$rc" -eq 0 ]; then
+  i=0
+  trap - ERR
+  while [ "$i" -lt 6 ]; do
+    osf_host S13 file "$org" "$repo" notes/admin.md --ref main
+    page=$(cat "$OSF_HOST_JSON")
+    if [ "$OSF_HOST_RC" -eq 0 ] && printf '%s\n' "$page" | grep -qi 'the admin run wrote this'; then
       found=1
+      break
     fi
-  fi
+    i=$((i + 1))
+    sleep 2
+  done
+  trap 'echo "$OSF_ID FAIL unexpected error"' ERR
   if [ "$found" -ne 1 ]; then
-    osf_line "S13 $engine FAIL note is not on the host"
+    tree="absent"
+    if [ -f "$dest/notes/admin.md" ]; then
+      tree="uncommitted"
+      if git -C "$dest" cat-file -e HEAD:notes/admin.md 2>/dev/null \
+        && git -C "$dest" diff --quiet -- notes/admin.md \
+        && git -C "$dest" diff --cached --quiet -- notes/admin.md; then
+        tree="committed, not pushed"
+      fi
+    fi
+    osf_line "S13 $engine FAIL note is not on the host (working tree: $tree)"
+    push_err=$(grep -E 'error:|fatal:|rejected|could not|Authentication failed' "$work/seat.log" | tail -n 1 || true)
+    if [ -n "$push_err" ]; then
+      push_err=$(printf '%s\n' "$push_err" | sed -E 's/[A-Za-z0-9_-]{20,}/[redacted]/g')
+      osf_line "S13 $engine push: $push_err"
+    fi
     fail=$((fail + 1))
     continue
   fi
