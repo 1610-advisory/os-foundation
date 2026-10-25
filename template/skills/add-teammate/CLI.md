@@ -170,7 +170,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
    - Codex: `~/.codex/AGENTS.md` gets one plain `Read <path>` line when `~/.codex` exists.
    - Pi: `~/.pi/agent/AGENTS.md` gets the same plain line when `~/.pi/agent` exists.
    - Cursor: one plain line only if a rules file already exists (`~/.cursor/rules.md` or `~/.cursor/User/rules.md`).
-8. Records `terms_accepted: YYYY-MM-DD` on the person's people page through `skills/sync/sync.sh propose join-terms <file>` when that command exists, otherwise on branch `sync/<me>` and `host.sh open-pr`.
+8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr`. A people page is not a rules file, so this does not call `sync.sh propose`.
 
 Tests must point `HOME`, `XDG_CONFIG_HOME`, and `OS_JOBS_DIR` at a sandbox.
 
