@@ -219,7 +219,8 @@ find "$ROOT" -type f \
   -not -path "$ROOT/areas/*/.git/*" \
   -not -path "$ROOT/users/*/.git/*" \
   | while IFS= read -r f; do
-    if grep -q '{{[^}]*}}' "$f" 2>/dev/null; then
+    # Bracket classes, so this line is not itself a placeholder.
+    if grep -q '[{][{][^}]*[}][}]' "$f" 2>/dev/null; then
       printf 'finding: placeholder: %s\n' "${f#"$ROOT"/}"
     fi
   done > "$ph" || true

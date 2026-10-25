@@ -503,23 +503,26 @@ os_at_users() {
 }
 
 os_fill_placeholders() {
-  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb
+  # Split the braces. A line that holds both pairs looks like a placeholder.
+  ob='{{'
+  cb='}}'
   # Text files only. Do not print file contents.
   find "$dest" -type f | while IFS= read -r f; do
     case "$f" in
       *.png|*.jpg|*.gif|*.webp|*.pdf) continue ;;
     esac
     sed -i '' \
-      -e "s/{{PERSON_SLUG}}/${slug}/g" \
-      -e "s/{{PERSON}}/${name}/g" \
-      -e "s/{{COMPANY_SLUG}}/${company_slug}/g" \
-      -e "s/{{COMPANY_NAME}}/${company_name}/g" \
+      -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
+      -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
+      -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f" 2>/dev/null || \
     sed -i \
-      -e "s/{{PERSON_SLUG}}/${slug}/g" \
-      -e "s/{{PERSON}}/${name}/g" \
-      -e "s/{{COMPANY_SLUG}}/${company_slug}/g" \
-      -e "s/{{COMPANY_NAME}}/${company_name}/g" \
+      -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
+      -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
+      -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f"
   done
 }
