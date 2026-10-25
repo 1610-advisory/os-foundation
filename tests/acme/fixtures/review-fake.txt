@@ -1,0 +1,3 @@
+# Tier A fake reviewer. A marker in the diff picks the verdict. * is the default.
+* PASS
+OSF-REVIEW-FAIL FAIL

@@ -415,6 +415,64 @@ def cmd_clone_denied(user: str, owner: str, repo: str) -> int:
     return emit({"denied": denied, "user": user, "repo": f"{owner}/{repo}"}, 0 if denied else 2)
 
 
+def api_list(path: str, who: str = "admin", limit: int = 50) -> tuple[int, list]:
+    page = 1
+    items: list = []
+    while page <= 40:
+        sep = "&" if "?" in path else "?"
+        code, payload = api("GET", f"{path}{sep}limit={limit}&page={page}", who)
+        if code != 200 or not isinstance(payload, list):
+            return code, items
+        items.extend(payload)
+        if len(payload) < limit:
+            break
+        page += 1
+    return 200, items
+
+
+def cmd_commits(owner: str, repo: str, ref: str, limit: int) -> int:
+    code, rows = api_list(
+        f"/api/v1/repos/{quote(owner)}/{quote(repo)}/commits?sha={quote(ref)}",
+        limit=limit,
+    )
+    if code == 404:
+        return emit({"commits": []}, 2)
+    if code != 200:
+        return fail_host(f"commits HTTP {code}")
+    commits = []
+    for row in rows[:limit]:
+        if not isinstance(row, dict):
+            continue
+        commit = row.get("commit") if isinstance(row.get("commit"), dict) else {}
+        message = commit.get("message") or ""
+        commits.append({
+            "sha": row.get("sha") or "",
+            "message": message,
+            "trailers": parse_trailers(message),
+        })
+    return emit({"commits": commits}, 0 if commits else 2)
+
+
+def cmd_branches(owner: str, repo: str) -> int:
+    code, rows = api_list(f"/api/v1/repos/{quote(owner)}/{quote(repo)}/branches")
+    if code == 404:
+        return emit({"branches": []}, 2)
+    if code != 200:
+        return fail_host(f"branches HTTP {code}")
+    names = [row.get("name") or "" for row in rows if isinstance(row, dict)]
+    return emit({"branches": names}, 0 if names else 2)
+
+
+def cmd_tags(owner: str, repo: str) -> int:
+    code, rows = api_list(f"/api/v1/repos/{quote(owner)}/{quote(repo)}/tags")
+    if code == 404:
+        return emit({"tags": []}, 2)
+    if code != 200:
+        return fail_host(f"tags HTTP {code}")
+    names = [row.get("name") or "" for row in rows if isinstance(row, dict)]
+    return emit({"tags": names}, 0)
+
+
 def cmd_wait_check(owner: str, repo: str, sha: str, timeout: int) -> int:
     import time
     deadline = time.time() + timeout
@@ -491,6 +549,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("repo")
     p.add_argument("sha")
     p.add_argument("--timeout", type=int, default=180)
+    p = sub.add_parser("commits")
+    p.add_argument("owner")
+    p.add_argument("repo")
+    p.add_argument("--ref", default="main")
+    p.add_argument("--limit", type=int, default=20)
+    p = sub.add_parser("branches")
+    p.add_argument("owner")
+    p.add_argument("repo")
+    p = sub.add_parser("tags")
+    p.add_argument("owner")
+    p.add_argument("repo")
     return parser
 
 
@@ -520,6 +589,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_runner_online()
         if args.cmd == "wait-check":
             return cmd_wait_check(args.owner, args.repo, args.sha, args.timeout)
+        if args.cmd == "commits":
+            return cmd_commits(args.owner, args.repo, args.ref, args.limit)
+        if args.cmd == "branches":
+            return cmd_branches(args.owner, args.repo)
+        if args.cmd == "tags":
+            return cmd_tags(args.owner, args.repo)
     except OSError as exc:
         return fail_host(str(exc))
     parser.error("unknown command")

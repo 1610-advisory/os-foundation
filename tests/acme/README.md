@@ -66,6 +66,16 @@ Tokens are not in this repo and are not printed. The site admin login is `osf-ad
 
 Files are mode 0600. The folder is mode 0700.
 
+## Scenarios
+
+`scenarios/S0.sh` through `scenarios/S14.sh` each print result lines. The last line is `S0`–`S14` plus `PASS`, `FAIL`, or `BLOCKED`. S13 also prints one line per engine before that summary.
+
+A scenario whose product code is not on this branch yet prints `BLOCKED not merged: <team>`. A missing engine or sign-in prints `BLOCKED` with the reason. Codex is gate G7. Cursor is blocked until sign-in works.
+
+When a scenario needs a second vendor and that seat is blocked, the script uses another vendor and names the substitution. It does not use the same vendor twice. A director approval is an API call with that seat's token. The director engine is not required.
+
+Each scenario deletes the repos it created. Repo names start with `acme2-`.
+
 ## Results
 
 `tests/acme/lib/results.py` reads git and the Forgejo API only. It does not read agent chat.

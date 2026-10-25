@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run Acme scenarios. One result line each, then a summary line.
+# Run Acme scenarios. Print each script's result lines, then a summary line.
+# S13 prints one line per engine and a summary line. The last line is the tally.
 set -euo pipefail
 
 here=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -91,13 +92,15 @@ for id in $selected; do
     continue
   fi
   set +e
-  out=$("$script" 2>>"$root/tests/acme/.out/run.err")
+  out=$(bash "$script" 2>>"$root/tests/acme/.out/run.err")
   set -e
-  line=$(printf '%s\n' "$out" | tail -n 1)
-  if [ -z "$line" ]; then
+  if [ -z "$out" ]; then
     line="$id FAIL no result line"
+    printf '%s\n' "$line"
+  else
+    printf '%s\n' "$out"
+    line=$(printf '%s\n' "$out" | tail -n 1)
   fi
-  printf '%s\n' "$line"
   case "$line" in
     "$id PASS"*)
       pass=$((pass + 1))

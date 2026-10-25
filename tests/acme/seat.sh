@@ -9,9 +9,11 @@ source "$here/lib/common.sh"
 usage() {
   cat << 'EOF'
 usage: seat.sh <seat> <prompt-file> [--cwd <dir>]
+       seat.sh --check <seat>
 
 Seats: admin, director, member-a, member-b, member-c, member-d, bot.
 A missing engine or sign-in prints BLOCKED and exits 3.
+--check only tests the engine and the sign-in. It does not run a prompt.
 The vendor login stays the one on this computer. The seat's git name,
 host token, and XDG_CONFIG_HOME are separate.
 EOF
@@ -20,11 +22,16 @@ EOF
 seat=""
 prompt=""
 cwd=""
+check_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --help|-h)
       usage
       exit 0
+      ;;
+    --check)
+      check_only=1
+      shift
       ;;
     --cwd)
       cwd="${2:-}"
@@ -49,11 +56,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -z "$seat" ] || [ -z "$prompt" ]; then
+if [ -z "$seat" ] || { [ "$check_only" -eq 0 ] && [ -z "$prompt" ]; }; then
   usage >&2
   exit 1
 fi
-if [ ! -f "$prompt" ]; then
+if [ "$check_only" -eq 0 ] && [ ! -f "$prompt" ]; then
   echo "FAIL: prompt file not found" >&2
   exit 1
 fi
@@ -155,6 +162,11 @@ case "$engine" in
     fi
     ;;
 esac
+
+if [ "$check_only" -eq 1 ]; then
+  echo "OK: $seat"
+  exit 0
+fi
 
 token_file="$(osf_acme_token_dir)/$forgejo_user"
 if [ ! -s "$token_file" ]; then
