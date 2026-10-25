@@ -40,7 +40,7 @@ The weekly area file is "what happened". Sections, in this order:
 - Contradictions: review flags whose summary says the notes disagree. Path and summary only. If none, one line that says so.
 - Counts: commits merged, people with actions, and log files.
 
-These come from git and the review digest. Counts and links only. No workspace content. No scores. No ranking.
+These come from git and the review digest. Counts and links only. No workspace content. No scores. No ranking. A `Possible leak:` line is not copied into any report file.
 
 The company page has plain counts per area. It does not copy area sentences into the company repo.
 

@@ -143,14 +143,15 @@ nr_flag_id() {
 
 nr_add_item() {
   local rel=$1 path=$2 summary=$3 author=$4 approver=$5 audience=$6 kind=$7 escalated=$8
-  local id item
+  local leak id item
+  leak=${9:-false}
   id=$(nr_flag_id "$rel" "$path" "$summary")
   item=$(jq -nc \
     --arg repo "$rel" --arg path "$path" --arg summary "$summary" \
     --arg author "$author" --arg approver "$approver" --arg audience "$audience" \
-    --arg kind "$kind" --argjson escalated "$escalated" --arg id "$id" \
+    --arg kind "$kind" --argjson escalated "$escalated" --argjson leak "$leak" --arg id "$id" \
     --arg date "$NR_DATE" \
-    '{repo:$repo,path:$path,summary:$summary,author:$author,approver:$approver,audience:$audience,kind:$kind,escalated:$escalated,id:$id,date:$date}')
+    '{repo:$repo,path:$path,summary:$summary,author:$author,approver:$approver,audience:$audience,kind:$kind,escalated:$escalated,leak:$leak,id:$id,date:$date}')
   jq --argjson item "$item" '. += [$item]' "$NR_ITEMS" > "${NR_ITEMS}.tmp"
   mv "${NR_ITEMS}.tmp" "$NR_ITEMS"
 }
@@ -170,7 +171,7 @@ nr_audience() {
 
 nr_review_diff() {
   local repo=$1 rel=$2 commits=$3 prompt=$4 diff input line
-  local area approver base_ref
+  local area approver base_ref files_all files_n
   area=$(nr_area_of "$rel")
   approver=$(nr_director_slug "$area")
   base_ref=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
@@ -197,13 +198,17 @@ nr_review_diff() {
       printf '%s %s %s\n' "$sha" "$(nr_commit_slug "$repo" "$sha")" "$subject"
     done < "$commits"
     printf '%s\n' "files:"
+    files_all=$(mktemp)
     git -C "$repo" ls-tree -r --name-only "$base_ref" | awk '
       $0 ~ /^(users|profile|traces)\// { next }
       { print }
-    ' | head -n 400
-    if [ "$(git -C "$repo" ls-tree -r --name-only "$base_ref" | wc -l | tr -d ' ')" -gt 400 ]; then
-      printf '%s\n' "files truncated"
+    ' > "$files_all"
+    files_n=$(wc -l < "$files_all" | tr -d ' ')
+    awk 'NR<=400' "$files_all"
+    if [ "$files_n" -gt 400 ]; then
+      printf 'and %s more files\n' $((files_n - 400))
     fi
+    rm -f "$files_all"
     printf '%s\n' "diff:"
     cat "$diff"
     printf '%s\n' "---END---"
@@ -247,7 +252,7 @@ nr_review_diff() {
     case "$summary" in
       "Possible leak:"*)
         audience=$(nr_admin_slug)
-        nr_add_item "$rel" "$path" "$summary" "$author" "$audience" "$audience" "judgment" false
+        nr_add_item "$rel" "$path" "$summary" "$author" "$audience" "$audience" "judgment" false true
         i=$((i + 1))
         continue
         ;;
@@ -265,7 +270,9 @@ nr_review_diff() {
   # Decision lines in the diff, listed first by kind.
   while IFS="$(printf '\t')" read -r sha _rest || [ -n "${sha:-}" ]; do
     [ -n "${sha:-}" ] || continue
-    git -C "$repo" show -p --format= "$sha" | grep '^+Decision:' | sed 's/^+//' > "$NR_DECISIONS" || true
+    git -C "$repo" show --format= --patch "$sha" -- . \
+      ':(exclude)reports' ':(exclude)users' ':(exclude)profile' ':(exclude)traces' \
+      | grep '^+Decision:' | sed 's/^+//' > "$NR_DECISIONS" || true
     while IFS= read -r dline || [ -n "$dline" ]; do
       [ -n "$dline" ] || continue
       nr_add_item "$rel" "log" "$dline" "" "$approver" "$approver" "decision" false
@@ -275,18 +282,24 @@ nr_review_diff() {
 }
 
 nr_fold_plan() {
-  local repo=$1 rel=$2 cutoff month f base day input line summary months month_list
+  local repo=$1 rel=$2 tree=$3 cutoff month f name day input line summary months month_list
   cutoff=$(nr_date_add "$NR_DATE" -30)
   : > "$NR_FOLD_RM"
   : > "$NR_FOLD_SUM"
-  for f in "$repo"/memory/logs/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.md; do
-    [ -f "$f" ] || continue
-    base=$(basename "$f")
-    day=$(printf '%s' "$base" | cut -c1-10)
+  git -C "$repo" ls-tree -r --name-only "$tree" -- memory/logs > "$NR_FOLD_RM.list" || true
+  while IFS= read -r f || [ -n "$f" ]; do
+    [ -n "$f" ] || continue
+    name=$(basename "$f")
+    case "$name" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.md) ;;
+      *) continue ;;
+    esac
+    day=$(printf '%s' "$name" | cut -c1-10)
     if [ "$day" \< "$cutoff" ]; then
-      printf '%s\n' "memory/logs/${base}" >> "$NR_FOLD_RM"
+      printf '%s\n' "$f" >> "$NR_FOLD_RM"
     fi
-  done
+  done < "$NR_FOLD_RM.list"
+  rm -f "$NR_FOLD_RM.list"
   if [ ! -s "$NR_FOLD_RM" ]; then
     return 0
   fi
@@ -315,9 +328,14 @@ nr_fold_plan() {
         esac
         printf 'file: %s\n' "$f"
         printf '%s\n' "---"
-        sed -n '1,400p' "$repo/$f"
-        printf '%s\n' "---"
+        git -C "$repo" show "$tree:$f"
+        printf '\n%s\n' "---"
       done < "$NR_FOLD_RM"
+      if git -C "$repo" cat-file -e "$tree:memory/logs/${month}-summary.md" 2>/dev/null; then
+        printf '%s\n' "current summary:"
+        git -C "$repo" show "$tree:memory/logs/${month}-summary.md"
+        printf '\n'
+      fi
       printf '%s\n' "---END---"
     } > "$input"
     set +e
@@ -377,26 +395,49 @@ nr_apply_in_wt() {
       fi
     fi
   done < "$NR_FIXES"
-  local month sum f
+  local month sum f line missing name
+  mkdir -p "$wt/memory/logs"
   while IFS="$(printf '\t')" read -r month sum || [ -n "${month:-}" ]; do
     [ -n "${month:-}" ] || continue
-    {
-      printf '# %s summary\n\n' "$month"
-      printf 'Folded on %s. The originals stay in git history.\n\n' "$NR_DATE"
-      cat "$sum"
-    } > "$wt/memory/logs/${month}-summary.md"
+    if [ -f "$wt/memory/logs/${month}-summary.md" ]; then
+      {
+        printf '\nFolded on %s. The originals stay in git history.\n\n' "$NR_DATE"
+        cat "$sum"
+      } >> "$wt/memory/logs/${month}-summary.md"
+    else
+      {
+        printf '# %s summary\n\n' "$month"
+        printf 'Folded on %s. The originals stay in git history.\n\n' "$NR_DATE"
+        cat "$sum"
+      } > "$wt/memory/logs/${month}-summary.md"
+    fi
     rm -f "$sum"
   done < "$NR_FOLD_SUM"
   while IFS= read -r f || [ -n "$f" ]; do
     [ -n "$f" ] || continue
-    if [ -f "$wt/$f" ]; then
-      git -C "$wt" rm -q -f -- "$f"
+    [ -f "$wt/$f" ] || continue
+    name=$(basename "$f")
+    month=$(printf '%s' "$name" | cut -c1-7)
+    missing=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        Decision:*)
+          if ! grep -F -q "$line" "$wt/memory/logs/${month}-summary.md" 2>/dev/null; then
+            missing=1
+          fi
+          ;;
+      esac
+    done < "$wt/$f"
+    if [ "$missing" = "1" ]; then
+      printf '%s kept %s: a Decision line is not in the summary.\n' "$NR_DATE" "$f" >> "$NR_LOG"
+      continue
     fi
+    git -C "$wt" rm -q -f -- "$f"
   done < "$NR_FOLD_RM"
 }
 
-nr_review_one() {
-  local repo=$1 rel=$2 base last commits n area
+nr_plan_repo() {
+  local repo=$1 rel=$2 id=$3 base last commits n
   NR_REL=$rel
   : > "$NR_FIXES"
   : > "$NR_FOLD_RM"
@@ -407,49 +448,58 @@ nr_review_one() {
   local rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
-    nr_fail_line
     printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
-    return 0
+    return 1
   fi
   last=$(nr_saved_sha "$rel" || true)
   commits=$(mktemp)
   nr_collect_commits "$repo" "$base" "$last" "$NR_DATE" > "$commits" || true
   n=$(grep -c . "$commits" || true)
   if [ "$n" -gt 0 ]; then
-    if [ ! -f "$DIR/review-prompt.md" ]; then
-      nr_fail_line
-      printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
-      rm -f "$commits"
-      return 0
-    fi
     if ! nr_review_diff "$repo" "$rel" "$commits" "$DIR/review-prompt.md"; then
-      nr_fail_line
       printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
       rm -f "$commits"
-      return 0
+      return 1
     fi
   fi
-  if ! nr_fold_plan "$repo" "$rel"; then
-    nr_fail_line
+  if ! nr_fold_plan "$repo" "$rel" "$base"; then
     printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
     rm -f "$commits"
-    return 0
+    return 1
   fi
-  local need=0
+  printf '%s\n' "$repo" > "$NR_PLAN/$id.repo"
+  printf '%s\n' "$rel" > "$NR_PLAN/$id.rel"
+  printf '%s\n' "$base" > "$NR_PLAN/$id.base"
+  printf '%s\n' "$n" > "$NR_PLAN/$id.ncommits"
+  cp "$NR_FIXES" "$NR_PLAN/$id.fixes"
+  cp "$NR_ITEMS" "$NR_PLAN/$id.items"
+  cp "$NR_FOLD_RM" "$NR_PLAN/$id.foldrm"
+  cp "$NR_FOLD_SUM" "$NR_PLAN/$id.foldsum"
+  : > "$NR_PLAN/$id.ready"
+  rm -f "$commits"
+  return 0
+}
+
+nr_apply_plan() {
+  local id=$1 repo rel base ncommits wt branch sha
+  repo=$(cat "$NR_PLAN/$id.repo")
+  rel=$(cat "$NR_PLAN/$id.rel")
+  base=$(cat "$NR_PLAN/$id.base")
+  ncommits=$(cat "$NR_PLAN/$id.ncommits")
+  NR_REL=$rel
+  cp "$NR_PLAN/$id.fixes" "$NR_FIXES"
+  cp "$NR_PLAN/$id.items" "$NR_ITEMS"
+  cp "$NR_PLAN/$id.foldrm" "$NR_FOLD_RM"
+  cp "$NR_PLAN/$id.foldsum" "$NR_FOLD_SUM"
   if [ -s "$NR_FIXES" ] || [ -s "$NR_FOLD_RM" ]; then
-    need=1
-  fi
-  if [ "$need" = "1" ]; then
-    local wt branch sha
     branch="review/${NR_DATE}"
     set +e
     wt=$(nr_worktree_open "$repo" "$base" "$branch")
-    rc=$?
+    local rc=$?
     set -e
     if [ "$rc" -ne 0 ] || [ -z "$wt" ]; then
       nr_fail_line
       printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
-      rm -f "$commits"
       return 0
     fi
     nr_load_identity "$(nr_area_of "$rel")"
@@ -458,15 +508,15 @@ nr_review_one() {
       nr_worktree_close "$repo" "$wt"
       nr_fail_line
       printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
-      rm -f "$commits"
       return 0
     fi
     nr_worktree_close "$repo" "$wt"
   fi
   sha=$(git -C "$repo" rev-parse "$base")
   nr_save_sha "$rel" "$sha"
-  nr_replace_repo_flags "$rel" "$NR_ITEMS"
-  rm -f "$commits"
+  if [ "$ncommits" -gt 0 ]; then
+    nr_replace_repo_flags "$rel" "$NR_ITEMS"
+  fi
 }
 
 nr_write_digests() {
@@ -530,24 +580,55 @@ nr_write_digests() {
   done
 }
 
+nr_lock
+NR_PLAN=$(mktemp -d)
+trap 'nr_unlock; rm -rf "$NR_PLAN"' EXIT
+NR_FAILED_REPOS=$(mktemp)
+: > "$NR_FAILED_REPOS"
+if [ ! -f "$DIR/review-prompt.md" ] || ! nr_load_engine; then
+  nr_fail_line
+  nr_write_digests
+  exit 2
+fi
+if [ ! -x "${NR_ENGINE[0]}" ] && ! command -v "${NR_ENGINE[0]}" >/dev/null 2>&1; then
+  nr_fail_line
+  nr_write_digests
+  exit 2
+fi
+
 NR_ITEMS=$(mktemp)
 NR_FIXES=$(mktemp)
 NR_FOLD_RM=$(mktemp)
 NR_FOLD_SUM=$(mktemp)
 NR_ENGINE_OUT=$(mktemp)
-NR_FAILED_REPOS=$(mktemp)
 NR_DECISIONS=$(mktemp)
 printf '%s\n' '[]' > "$NR_ITEMS"
-: > "$NR_FAILED_REPOS"
-
+plan_id=0
+plan_fail=0
 if [ -d "$NR_ROOT/.git" ] || [ -f "$NR_ROOT/.git" ]; then
-  nr_review_one "$NR_ROOT" "."
+  if ! nr_plan_repo "$NR_ROOT" "." "$plan_id"; then
+    plan_fail=1
+  fi
+  plan_id=$((plan_id + 1))
 fi
 for dir in "$NR_ROOT"/areas/*; do
   [ -d "$dir" ] || continue
   if [ -d "$dir/.git" ] || [ -f "$dir/.git" ]; then
-    nr_review_one "$dir" "areas/$(basename "$dir")"
+    if ! nr_plan_repo "$dir" "areas/$(basename "$dir")" "$plan_id"; then
+      plan_fail=1
+    fi
+    plan_id=$((plan_id + 1))
   fi
+done
+if [ "$plan_fail" = "1" ]; then
+  nr_fail_line
+  NR_FAILED=1
+  nr_write_digests
+  exit 2
+fi
+for ready in "$NR_PLAN"/*.ready; do
+  [ -f "$ready" ] || continue
+  nr_apply_plan "$(basename "$ready" .ready)"
 done
 
 nr_write_digests

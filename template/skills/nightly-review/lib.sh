@@ -73,6 +73,48 @@ nr_week_start() {
   nr_date_add "$d" $((1 - dow))
 }
 
+# Monday and the next Monday of an ISO week label, such as 2026-W43.
+nr_week_span() {
+  local label=$1 year week jan4 dow monday start
+  year=${label%%-W*}
+  week=${label#*-W}
+  week=$((10#$week))
+  jan4="${year}-01-04"
+  dow=$(nr_dow "$jan4")
+  monday=$(nr_date_add "$jan4" $((1 - dow)))
+  start=$(nr_date_add "$monday" $(( (week - 1) * 7 )))
+  printf '%s %s\n' "$start" "$(nr_date_add "$start" 7)"
+}
+
+nr_lock() {
+  local dir pid
+  dir="$NR_STATE_DIR/lock"
+  if mkdir "$dir" 2>/dev/null; then
+    printf '%s\n' "$$" > "$dir/pid"
+    NR_LOCK_DIR=$dir
+    return 0
+  fi
+  pid=$(cat "$dir/pid" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    printf '%s\n' "another nightly run is running" >&2
+    exit 2
+  fi
+  rm -rf "$dir"
+  if ! mkdir "$dir" 2>/dev/null; then
+    printf '%s\n' "another nightly run is running" >&2
+    exit 2
+  fi
+  printf '%s\n' "$$" > "$dir/pid"
+  NR_LOCK_DIR=$dir
+}
+
+nr_unlock() {
+  if [ -n "${NR_LOCK_DIR:-}" ] && [ -d "$NR_LOCK_DIR" ]; then
+    rm -rf "$NR_LOCK_DIR"
+  fi
+  NR_LOCK_DIR=""
+}
+
 nr_today() {
   local raw
   if [ -n "${OS_NOW:-}" ]; then

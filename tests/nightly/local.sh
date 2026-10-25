@@ -20,6 +20,7 @@ pass() {
 
 [ "$(nr_iso_week 2026-10-24)" = "2026-W43" ] || fail "iso week of 2026-10-24"
 [ "$(nr_iso_week 2021-01-01)" = "2020-W53" ] || fail "iso week of 2021-01-01"
+[ "$(nr_week_span 2026-W43)" = "2026-10-19 2026-10-26" ] || fail "week span $(nr_week_span 2026-W43)"
 pass "iso week"
 
 bash "$ROOT/template/skills/nightly-review/run.sh" --help >/dev/null
@@ -415,9 +416,158 @@ leak_case() {
   rm -rf "$box"
 }
 
+order_case() {
+  local box company area ops
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  ops="$company/areas/ops"
+  mkdir -p "$ops/notes"
+  printf '%s\n' "ENGINE-DOWN" > "$ops/notes/down.md"
+  git_identity
+  init_git "$ops"
+  set +e
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  local rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "later engine failure should exit 2"
+  if git -C "$area" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    fail "a pull request was opened before every engine call finished"
+  fi
+  if git -C "$ops" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    fail "engine down still opened a review branch"
+  fi
+  [ "$(grep -c 'The review did not run.' "$XDG_CONFIG_HOME/acme-os/state/review.log")" = "1" ]
+  pass "engine calls finish before any commit"
+  rm -rf "$box"
+}
+
+twice_case() {
+  local box company area before sha
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43
+  before=$(cat "$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24.json")
+  decide=$(git -C "$area" show "review/2026-10-24:reports/2026-10-24-to-decide.md")
+  sha=$(git -C "$area" rev-parse "review/2026-10-24")
+  git -C "$area" checkout -q main
+  git -C "$area" merge -q --ff-only "review/2026-10-24"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  [ "$(git -C "$area" rev-parse "review/2026-10-24")" = "$sha" ] || fail "second run opened another review commit"
+  [ "$(cat "$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24.json")" = "$before" ] || fail "second run replaced the digest"
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43
+  [ "$(git -C "$area" show "review/2026-10-24:reports/2026-10-24-to-decide.md")" = "$decide" ] || fail "second run changed the to-decide file"
+  pass "second run keeps flags"
+  rm -rf "$box"
+}
+
+missing_prompt_case() {
+  local box company area
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  rm -f "$company/skills/nightly-review/review-prompt.md"
+  set +e
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  local rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "missing prompt should exit 2"
+  if git -C "$area" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    fail "missing prompt still folded or committed"
+  fi
+  git -C "$area" cat-file -e "main:memory/logs/2026-09-23-mia.md"
+  grep -F 'The review did not run.' "$XDG_CONFIG_HOME/acme-os/state/review.log" >/dev/null
+  pass "missing prompt"
+  rm -rf "$box"
+}
+
+leak_publish_case() {
+  local box company area bare bodylog
+  box=$(mktemp -d)
+  company="$box/acme"
+  bodylog="$box/bodies"
+  : > "$bodylog"
+  run_env "$box"
+  unset OS_SKIP_PUSH
+  export OS_SKIP_FETCH=1
+  export OS_ARGV_SKIP_WHOAMI=1
+  make_company "$company" team "[]"
+  cat > "$company/skills/_host/host.sh" << EOF
+#!/bin/bash
+prev=
+for a in "\$@"; do
+  if [ "\$prev" = "--body-file" ]; then
+    cat "\$a" >> "$bodylog"
+    printf '\n' >> "$bodylog"
+  fi
+  prev=\$a
+done
+case "\$1" in
+  open-pr)
+    printf '%s\n' '{"number":1,"url":"http://example.com/1"}'
+    ;;
+  auto-merge)
+    printf '%s\n' '{"ok":true}'
+    ;;
+  get-token)
+    printf '%s\n' x
+    ;;
+  *)
+    printf '%s\n' '{"ok":true}'
+    ;;
+esac
+exit 0
+EOF
+  chmod 700 "$company/skills/_host/host.sh"
+  area="$company/areas/finance"
+  seed_area "$area"
+  printf '%s\n' "SECRET-LINE" > "$area/notes/leak.md"
+  printf '%s\n' "POSSIBLE-LEAK marker" >> "$area/notes/leak.md"
+  git -C "$area" add notes/leak.md
+  git -C "$area" -c user.name="Mia Member" -c user.email="mia@example.com" commit -q -m "Add a leak note"
+  bare="$box/bare"
+  git init -q --bare "$bare"
+  git -C "$area" remote add origin "$bare"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43
+  if grep -F 'Possible leak' "$bodylog" >/dev/null; then
+    fail "possible leak is in the pull request body"
+  fi
+  if grep -F 'SECRET-LINE' "$bodylog" >/dev/null; then
+    fail "leak text is in the pull request body"
+  fi
+  if git -C "$area" diff main..."review/2026-10-24" | grep -F 'Possible leak' >/dev/null; then
+    fail "possible leak was committed"
+  fi
+  if git -C "$area" log "review/2026-10-24" --not main --format=%B | grep -F 'Possible leak' >/dev/null; then
+    fail "possible leak is in a commit message"
+  fi
+  if git -C "$area" grep -F 'Possible leak' "review/2026-10-24" -- reports >/dev/null 2>&1; then
+    fail "possible leak is in a report file"
+  fi
+  grep -F 'Possible leak:' "$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24-ada.md" >/dev/null
+  pass "possible leak stays out of the repo"
+  rm -rf "$box"
+}
+
 main_case
 engine_down_case
 leak_case
+order_case
+twice_case
+missing_prompt_case
+leak_publish_case
 cap_case
 solo_case
 bots_case

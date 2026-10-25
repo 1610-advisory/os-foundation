@@ -4,6 +4,10 @@ set -euo pipefail
 
 input=$(cat)
 
+if printf '%s' "$input" | grep -q 'ENGINE-DOWN'; then
+  exit 1
+fi
+
 if printf '%s' "$input" | grep -q 'kind: fold'; then
   printf '%s\n' '{"ok":true,"summary":"Folded the old logs."}'
   exit 0

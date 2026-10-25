@@ -71,6 +71,8 @@ NR_ROOT=$(cd "$NR_ROOT" && pwd)
 cd "$NR_ROOT"
 umask 077
 nr_prepare
+nr_lock
+trap nr_unlock EXIT
 
 if [ -z "$WEEK" ]; then
   WEEK=$(nr_iso_week "$NR_DATE")
@@ -158,7 +160,7 @@ rp_write_decide() {
   fi
   cap=$(nr_cap)
   jq -r --arg r "$rel" '
-    [.items[] | select(.repo == $r)]
+    [.items[] | select(.repo == $r and .leak != true and (.summary | startswith("Possible leak:") | not))]
     | sort_by(if .kind == "decision" then 0 else 1 end, .path)
     | .[] | [.path, .summary, .audience] | @tsv
   ' "$DIGEST" | awk -F '\t' -v cap="$cap" '
@@ -218,16 +220,20 @@ rp_week_facts() {
     printf '%s\n' "$slug" >> "$people"
   done < <(git -C "$repo" log --no-merges --format='%H%x09%s' \
     --since="${start} 00:00:00" --until="${end} 00:00:00" "$5")
-  local f base day
-  for f in "$repo"/memory/logs/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.md; do
-    [ -f "$f" ] || continue
-    base=$(basename "$f")
-    day=$(printf '%s' "$base" | cut -c1-10)
+  local f name day
+  while IFS= read -r f || [ -n "$f" ]; do
+    [ -n "$f" ] || continue
+    name=$(basename "$f")
+    case "$name" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.md) ;;
+      *) continue ;;
+    esac
+    day=$(printf '%s' "$name" | cut -c1-10)
     if [ "$day" \< "$start" ] || [ ! "$day" \< "$end" ]; then
       continue
     fi
     logs=$((logs + 1))
-    slug=$(printf '%s' "$base" | cut -c12- | sed 's/\.md$//')
+    slug=$(printf '%s' "$name" | cut -c12- | sed 's/\.md$//')
     printf '%s\n' "$slug" >> "$people"
     while IFS= read -r line || [ -n "$line" ]; do
       [ -n "$line" ] || continue
@@ -241,8 +247,8 @@ rp_week_facts() {
         Result:*) printf 'result\t%s\t%s\n' "$slug" "${line#Result: }" >> "$facts" ;;
         *) printf 'action\t%s\t%s\n' "$slug" "$line" >> "$facts" ;;
       esac
-    done < "$f"
-  done
+    done < <(git -C "$repo" show "$5:$f")
+  done < <(git -C "$repo" ls-tree -r --name-only "$5" -- memory/logs)
   local pc
   pc=$(sort -u "$people" | grep -c . || true)
   rm -f "$people"
@@ -329,12 +335,18 @@ rp_week_sections() {
   printf '\n## Contradictions\n\n'
   n=0
   if [ -f "$DIGEST" ]; then
-    n=$(jq -r --arg r "$rel" '[.items[]? | select(.repo == $r) | select(.summary | test("disagree|contradict|does not match"; "i"))] | length' "$DIGEST")
-    jq -r --arg r "$rel" '.items[]? | select(.repo == $r) | select(.summary | test("disagree|contradict|does not match"; "i")) | [.path, .summary] | @tsv' "$DIGEST" \
-      | while IFS="$(printf '\t')" read -r path summary || [ -n "${path:-}" ]; do
-        [ -n "${path:-}" ] || continue
-        printf -- '- [%s](%s) — %s\n' "$path" "$path" "$summary"
-      done
+    n=0
+    while IFS="$(printf '\t')" read -r path summary || [ -n "${path:-}" ]; do
+      [ -n "${path:-}" ] || continue
+      if nr_ranking_line "$summary" || nr_private_line "$summary"; then
+        continue
+      fi
+      case "$summary" in
+        "Possible leak:"*) continue ;;
+      esac
+      printf -- '- [%s](%s) — %s\n' "$path" "$path" "$summary"
+      n=$((n + 1))
+    done < <(jq -r --arg r "$rel" '.items[]? | select(.repo == $r and .leak != true) | select(.summary | test("disagree|contradict|does not match"; "i")) | [.path, .summary] | @tsv' "$DIGEST")
   fi
   if [ "${n:-0}" = "0" ]; then
     printf '%s\n' "No contradiction was flagged."
@@ -480,8 +492,9 @@ rp_publish_repo() {
   git -C "$repo" clean -q -f -- reports 2>/dev/null || true
 }
 
-START=$(nr_week_start "$NR_DATE")
-END=$(nr_date_add "$START" 7)
+span=$(nr_week_span "$WEEK")
+START=${span%% *}
+END=${span#* }
 NR_AREA_COUNTS=$(mktemp)
 : > "$NR_AREA_COUNTS"
 

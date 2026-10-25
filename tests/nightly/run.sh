@@ -122,6 +122,8 @@ printf '%s\n' "RULES-BROKEN do not change this line" > "$area/AGENTS.md"
 printf '%s\n' "Filed the widget note." > "$area/memory/logs/2026-10-24-mia.md"
 printf '%s\n' "Result: The note is on main." >> "$area/memory/logs/2026-10-24-mia.md"
 printf '%s\n' "Old action from September." > "$area/memory/logs/2026-09-23-mia.md"
+printf '%s\n' "SECRET-LINE" > "$area/notes/leak.md"
+printf '%s\n' "POSSIBLE-LEAK marker" >> "$area/notes/leak.md"
 mkdir -p "$area/.github/workflows"
 cat > "$area/.github/workflows/checks.yml" << 'EOF'
 name: checks
@@ -221,6 +223,12 @@ bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week
 auth_git "$area" fetch origin "review/2026-10-24" >/dev/null
 decide=$(git -C "$area" show "origin/review/2026-10-24:reports/2026-10-24-to-decide.md")
 printf '%s\n' "$decide" | grep -F 'Confirm the price.' >/dev/null
+if printf '%s\n' "$decide" | grep -F 'Possible leak' >/dev/null; then
+  fail "possible leak is in the to-decide file"
+fi
+if git -C "$area" log "origin/review/2026-10-24" --format=%B | grep -F 'Possible leak' >/dev/null; then
+  fail "possible leak is in a commit message"
+fi
 weekly=$(git -C "$area" show "origin/review/2026-10-24:reports/2026-W43.md")
 printf '%s\n' "$weekly" | grep -F 'Filed the widget note.' >/dev/null
 printf '%s\n' "$weekly" | grep -F 'Commits merged' >/dev/null
@@ -234,6 +242,19 @@ if printf '%s\n' "$weekly" | grep -E -i '(^|[^A-Za-z])(rank|ranking|ranked|score
   fail "ranking word in the weekly report"
 fi
 
+# Wait until the report pull request has merged, then add one more commit.
+rnumber=$(awk -v repo="$AREA_REPO" '$1=="pr" && $2==repo { print $3 }' "$box/reports.out" | tail -n 1)
+if [ -n "$rnumber" ]; then
+  i=0
+  while [ "$i" -lt 40 ]; do
+    st=$(bash "$host" pr-status "$AREA_REPO" "$rnumber")
+    if printf '%s' "$st" | jq -e '.merged == true' >/dev/null; then
+      break
+    fi
+    i=$((i + 1))
+    sleep 3
+  done
+fi
 # Engine down: a new commit on main, no edits, one plain line.
 auth_git "$area" fetch origin main >/dev/null
 git -C "$area" reset --hard origin/main >/dev/null
