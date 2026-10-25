@@ -234,8 +234,40 @@ fi
 if [ -d "$TEMPLATE/.github/scripts/tools" ]; then
   printf '%s\n' "change: .github/scripts/tools"
 fi
+# 0 when the area main has no review-rules.md. A local file counts when
+# origin/main is not here yet. Does not fetch.
+area_lacks_review_rules() {
+  local area=$1
+  if git -C "$area" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    if git -C "$area" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+      return 1
+    fi
+    return 0
+  fi
+  if [ -f "$area/review-rules.md" ]; then
+    return 1
+  fi
+  if git -C "$area" rev-parse --verify --quiet HEAD >/dev/null 2>&1 \
+    && git -C "$area" cat-file -e "HEAD:review-rules.md" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+review_rules_source() {
+  if [ -f "$ROOT/review-rules.md" ]; then
+    printf '%s\n' "$ROOT/review-rules.md"
+    return 0
+  fi
+  if [ -f "$TEMPLATE/review-rules.md" ]; then
+    printf '%s\n' "$TEMPLATE/review-rules.md"
+    return 0
+  fi
+  return 1
+}
+
 plan_area_scripts() {
-  local area name repo slug
+  local area name repo slug files
   [ -d "$TEMPLATE/.github/scripts" ] || return 0
   [ -d "$ROOT/areas" ] || return 0
   slug=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
@@ -250,7 +282,11 @@ plan_area_scripts() {
     else
       repo="areas/${name}"
     fi
-    printf 'pr-plan: %s branch upgrade/scripts files .github/scripts auto-merge\n' "$repo"
+    files=".github/scripts"
+    if area_lacks_review_rules "$area" && review_rules_source >/dev/null; then
+      files=".github/scripts review-rules.md"
+    fi
+    printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
   done
 }
 plan_area_scripts
@@ -387,7 +423,7 @@ refresh_check_tools
 # Area folders are separate repos. /areas/ is gitignored in the company repo.
 # Commit the scripts in each area repo and open a pull request. Never git add them here.
 push_area_scripts() {
-  local area name repo branch pr number src
+  local area name repo branch pr number src rules_src
   src="$TEMPLATE/.github/scripts"
   [ -d "$src" ] || return 0
   [ -d "$ROOT/areas" ] || return 0
@@ -410,6 +446,18 @@ push_area_scripts() {
     mkdir -p "$area/.github"
     rm -rf "$area/.github/scripts"
     cp -R "$src" "$area/.github/scripts"
+    # Add the file only when main lacks it. Never replace the director's copy.
+    if ! git -C "$area" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+      if [ ! -f "$area/review-rules.md" ]; then
+        rules_src=""
+        if rules_src=$(review_rules_source); then
+          cp "$rules_src" "$area/review-rules.md"
+        fi
+      fi
+      if [ -f "$area/review-rules.md" ]; then
+        git -C "$area" add -- review-rules.md
+      fi
+    fi
     git -C "$area" add -- .github/scripts
     if git -C "$area" diff --cached --quiet; then
       printf 'pr-plan: %s nothing to commit\n' "$repo"

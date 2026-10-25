@@ -48,6 +48,8 @@ If the folder is app-linked (`app-link.json` or `OS_APP_LINK=1`), the dry-run sa
 
 When `host` is not `none` and `host.sh` is present, the script opens one pull request. It does not write to `main`.
 
+Each area repo gets its own pull request for the check scripts, on `upgrade/scripts`. That pull request also adds `review-rules.md` when the area main lacks it. It does not replace an existing file. A dry-run prints `pr-plan:` for that pull request and does not open it.
+
 ## Exit codes
 
 | Code | Meaning |
