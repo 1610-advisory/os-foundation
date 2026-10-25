@@ -477,20 +477,45 @@ os_areas_on_disk() {
   done
 }
 
+# Write both owner files. GitHub reads .github/CODEOWNERS (globs).
+# Forgejo reads .gitea/CODEOWNERS (regular expressions), not .github/CODEOWNERS.
+# A file the host ignores is harmless. One writer covers both hosts.
+# The third argument is the Forgejo owner list. Omit it to use the GitHub list.
+# An area passes only the director there. Forgejo waits for every name on the line.
 os_codeowners() {
-  local dest=$1
-  shift
-  local users=$*
-  mkdir -p "$(dirname "$dest")"
+  local root=$1 github_users=$2 forgejo_users=${3:-}
+  if [ -z "$forgejo_users" ]; then
+    forgejo_users=$github_users
+  fi
+  mkdir -p "$root/.github" "$root/.gitea"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
-    printf '%s\n' "/AGENTS.md $users"
-    printf '%s\n' "/CLAUDE.md $users"
-    printf '%s\n' "/review-rules.md $users"
-    printf '%s\n' "/skills/ $users"
-    printf '%s\n' "/bots/*/BOT.md $users"
-    printf '%s\n' "/.github/ $users"
-  } > "$dest"
+    printf '%s\n' "/AGENTS.md $github_users"
+    printf '%s\n' "/CLAUDE.md $github_users"
+    printf '%s\n' "/review-rules.md $github_users"
+    printf '%s\n' "/skills/ $github_users"
+    printf '%s\n' "/bots/*/BOT.md $github_users"
+    printf '%s\n' "/CODEOWNERS $github_users"
+    printf '%s\n' "/docs/CODEOWNERS $github_users"
+    printf '%s\n' "/.github/ $github_users"
+    printf '%s\n' "/.gitea/ $github_users"
+    printf '%s\n' "/.forgejo/ $github_users"
+    printf '%s\n' "/.claude/ $github_users"
+  } > "$root/.github/CODEOWNERS"
+  {
+    printf '%s\n' "# Rules files only. Notes have no code owner."
+    printf '%s %s\n' '^AGENTS\.md$' "$forgejo_users"
+    printf '%s %s\n' '^CLAUDE\.md$' "$forgejo_users"
+    printf '%s %s\n' '^review-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^skills/.*' "$forgejo_users"
+    printf '%s %s\n' '^bots/[^/]+/BOT\.md$' "$forgejo_users"
+    printf '%s %s\n' '^CODEOWNERS$' "$forgejo_users"
+    printf '%s %s\n' '^docs/CODEOWNERS$' "$forgejo_users"
+    printf '%s %s\n' '^\.github/.*' "$forgejo_users"
+    printf '%s %s\n' '^\.gitea/.*' "$forgejo_users"
+    printf '%s %s\n' '^\.forgejo/.*' "$forgejo_users"
+    printf '%s %s\n' '^\.claude/.*' "$forgejo_users"
+  } > "$root/.gitea/CODEOWNERS"
 }
 
 os_at_users() {
@@ -499,6 +524,16 @@ os_at_users() {
     printf '@%s' "$admin"
   else
     printf '@%s @%s' "$director" "$admin"
+  fi
+}
+
+# Forgejo names one owner. An area names the director, or the admin if there is none.
+os_forgejo_owner() {
+  local admin=$1 director=$2
+  if [ -z "$director" ] || [ "$director" = "$admin" ]; then
+    printf '@%s' "$admin"
+  else
+    printf '@%s' "$director"
   fi
 }
 

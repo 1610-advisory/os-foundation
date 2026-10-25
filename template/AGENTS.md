@@ -61,7 +61,7 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 [team]:
 - Nobody writes to `main`. The admin is included.
 - Notes and logs go on your branch `sync/<person>`. The nightly `sync` push puts them on one standing PR. It merges by itself when the checks pass.
-- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `.github/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
+- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
 - Every rules PR gets a review by a different model first (`review-rules.md`).
 - Area rules: after the review, the area director approves with one click.
 - Company-root rules: after the review, the admin approves.

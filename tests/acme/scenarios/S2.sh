@@ -58,6 +58,9 @@ echo "$prot" | grep -q '"push_blocked": true' || osf_result "S2 FAIL push is not
 if ! osf_results file "$owner" "$repo" .github/CODEOWNERS >/dev/null; then
   osf_result "S2 FAIL CODEOWNERS missing"
 fi
+if ! osf_results file "$owner" "$repo" .gitea/CODEOWNERS >/dev/null; then
+  osf_result "S2 FAIL Forgejo CODEOWNERS missing"
+fi
 if ! osf_results repo-exists "$owner" "${slug}-user-mia" >/dev/null; then
   osf_result "S2 FAIL workspace repo missing"
 fi

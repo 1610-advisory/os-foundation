@@ -100,6 +100,11 @@ review-rules.md
 skills/example/SKILL.md
 .github/workflows/checks.yml
 .github/CODEOWNERS
+.gitea/CODEOWNERS
+.forgejo/CODEOWNERS
+CODEOWNERS
+docs/CODEOWNERS
+.claude/settings.json
 bots/example/BOT.md"
 
 pattern_hits_rules() {
@@ -146,6 +151,7 @@ load_codeowners() {
 
 load_codeowners "${base}:CODEOWNERS" regex
 load_codeowners "${base}:.github/CODEOWNERS" glob
+load_codeowners "${base}:.gitea/CODEOWNERS" regex
 load_codeowners "${base}:.forgejo/CODEOWNERS" regex
 load_codeowners "${base}:docs/CODEOWNERS" regex
 

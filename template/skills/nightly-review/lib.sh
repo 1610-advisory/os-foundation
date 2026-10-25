@@ -337,7 +337,7 @@ nr_is_rules_path() {
     AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS) return 0 ;;
   esac
   case "$p" in
-    skills/*|*/skills/*|.github/*|*/.github/*|.claude/*|*/.claude/*) return 0 ;;
+    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS) return 0 ;;
     bots/*/BOT.md|*/bots/*/BOT.md) return 0 ;;
   esac
   return 1

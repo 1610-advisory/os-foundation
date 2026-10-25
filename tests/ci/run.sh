@@ -133,20 +133,10 @@ runner: ubuntu-latest
 EOF
 printf '%s\n' '# Acme' > "$src/AGENTS.md"
 printf '%s\n' 'A note.' > "$src/note.txt"
-cat > "$src/CODEOWNERS" << 'EOF'
-.*AGENTS\.md @acme-admin
-.*CLAUDE\.md @acme-admin
-.*review-rules\.md @acme-admin
-skills/.* @acme-admin
-\.github/.* @acme-admin
-EOF
-cat > "$src/.github/CODEOWNERS" << 'EOF'
-AGENTS.md @acme-admin
-CLAUDE.md @acme-admin
-review-rules.md @acme-admin
-skills/ @acme-admin
-.github/ @acme-admin
-EOF
+# Product owners. A hand-written root CODEOWNERS hid the Forgejo gap.
+# shellcheck disable=SC1091
+. "$root/template/skills/add-teammate/lib.sh"
+os_codeowners "$src" "$(os_at_users acme-admin acme-admin)"
 cat > "$src/people/Ada.md" << 'EOF'
 ---
 github: acme-admin
@@ -618,6 +608,65 @@ else
   fi
 fi
 
+# A root CODEOWNERS is read before .gitea/CODEOWNERS. Owning that path blocks the add.
+new_branch root-owners
+printf '%s\n' '* @acme-member-a' > "$src/CODEOWNERS"
+git -C "$src" add CODEOWNERS
+git -C "$src" commit -q -m "add a root owners file"
+push_branch "$member" root-owners
+root_pr=$(open_pr "$member" root-owners "Add root owners")
+root_sha=$(pr_sha "$root_pr")
+if wait_sha "$root_pr" "$root_sha"; then
+  pass "root owners checks"
+else
+  fail "root owners checks"
+fi
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+root_reviewers=$(jq -r '[.requested_reviewers[]?.login] | join(" ")' "$OSF_HTTP_BODY" 2>/dev/null || true)
+osf_api_discard
+if printf '%s' "$root_reviewers" | grep -q acme-admin; then
+  pass "root owners requests owner"
+else
+  fail "root owners requests owner"
+fi
+as_user "$admin"
+set +e
+"$work/host/host.sh" auto-merge "$repo" "$root_pr" >>"$log" 2>&1
+set -e
+sleep 3
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+root_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+osf_api_discard
+if [ "$root_merged" != "true" ]; then
+  pass "root owners blocked"
+else
+  fail "root owners blocked"
+fi
+root_body=$(mktemp)
+printf '%s\n' '{"event":"APPROVED","body":"ok"}' > "$root_body"
+osf_api "$admin" POST "/api/v1/repos/acme/${repo}/pulls/${root_pr}/reviews" "$root_body"
+osf_api_discard
+rm -f "$root_body"
+as_user "$admin"
+"$work/host/host.sh" auto-merge "$repo" "$root_pr" >>"$log" 2>&1 || true
+root_i=0
+root_merged=false
+while [ "$root_i" -lt 20 ]; do
+  osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+  root_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+  osf_api_discard
+  if [ "$root_merged" = "true" ]; then
+    break
+  fi
+  root_i=$((root_i + 1))
+  sleep 3
+done
+if [ "$root_merged" = "true" ]; then
+  pass "root owners merges after approval"
+else
+  fail "root owners merges after approval"
+fi
+
 # Deleting the company profile on the head must not switch to the size-only lint.
 new_branch drop-profile
 rm -f "$src/company-profile.md"
@@ -820,9 +869,10 @@ git -C "$tools_root" config user.name "Ada Admin"
 git -C "$tools_root" add -A
 git -C "$tools_root" commit -q -m "company start"
 seed="$work/tools-seed"
-mkdir -p "$seed/.github"
+mkdir -p "$seed/.github" "$seed/.gitea"
 printf '%s\n' '# Marketing' > "$seed/AGENTS.md"
 printf '%s\n' '* @acme-admin' > "$seed/.github/CODEOWNERS"
+printf '%s\n' '.* @acme-admin' > "$seed/.gitea/CODEOWNERS"
 printf '%s\n' 'vendor=xai' 'model=' 'kind=second-vendor' > "$seed/.github/review.conf"
 git -C "$seed" init -q -b main
 git -C "$seed" config user.email ada.admin@acme.test
@@ -921,6 +971,8 @@ cp -R "$root/template/.github/scripts/." "$intro_seed/.github/scripts/"
 printf '%s\n' '# Marketing' > "$intro_seed/AGENTS.md"
 printf '%s\n' 'vendor=xai' 'model=' 'kind=second-vendor' > "$intro_seed/.github/review.conf"
 printf '%s\n' '/review-rules.md @acme-member-a' > "$intro_seed/.github/CODEOWNERS"
+mkdir -p "$intro_seed/.gitea"
+printf '%s\n' '^review-rules\.md$ @acme-member-a' > "$intro_seed/.gitea/CODEOWNERS"
 git -C "$intro_root" init -q -b main
 git -C "$intro_root" config user.email ada.admin@acme.test
 git -C "$intro_root" config user.name "Ada Admin"
@@ -1085,6 +1137,144 @@ if [ "$rules_on_main" -eq 1 ]; then
 else
   cat "$work/rules-team.out" >>"$log" 2>/dev/null || true
   fail "area team-on checks"
+fi
+repo="ci-checks-${stamp}"
+
+# Area rules PR. Owners are os_codeowners output, not a hand-written file.
+# Forgejo names only the director. A member's skill change is blocked until
+# that director approves, then it merges. GitHub still names both.
+own_repo="ci-own-${stamp}"
+EXTRA_REPOS="${EXTRA_REPOS} ${own_repo}"
+src="$work/own"
+repo="$own_repo"
+director="$(osf_acme_token_dir)/acme-director"
+mkdir -p "$src/.github/workflows" "$src/.github/scripts" "$src/skills/sample"
+cp "$root/template/.github/workflows/checks.yml" "$src/.github/workflows/checks.yml"
+cp -R "$root/template/.github/scripts/." "$src/.github/scripts/"
+cp "$root/template/review-rules.md" "$src/review-rules.md"
+chmod +x "$src/.github/scripts/"*.sh "$src/.github/scripts/tools/"*.sh "$src/.github/scripts/tools/host/"*.sh
+printf '%s\n' '# Area' > "$src/AGENTS.md"
+printf '%s\n' 'A note.' > "$src/note.txt"
+printf '%s\n' '# Sample' > "$src/skills/sample/SKILL.md"
+# shellcheck disable=SC1091
+. "$root/template/skills/add-teammate/lib.sh"
+os_codeowners "$src" "$(os_at_users acme-admin acme-director)" "$(os_forgejo_owner acme-admin acme-director)"
+if [ -f "$src/CODEOWNERS" ] || [ ! -f "$src/.gitea/CODEOWNERS" ] \
+  || ! grep -F -x -q '^skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \
+  || grep -q acme-admin "$src/.gitea/CODEOWNERS" \
+  || ! grep -F -q '/.gitea/ @acme-director @acme-admin' "$src/.github/CODEOWNERS"; then
+  fail "area rules uses product owners"
+else
+  git -C "$src" init -q -b main
+  git -C "$src" config user.email ada.admin@acme.test
+  git -C "$src" config user.name "Ada Admin"
+  git -C "$src" add .
+  git -C "$src" commit -q -m "init"
+  as_user "$admin"
+  if ! "$work/host/host.sh" create-repo "$own_repo" --source "$src" --push >>"$log" 2>&1; then
+    fail "area rules create repo"
+  else
+    {
+      "$work/host/host.sh" grant "$own_repo" acme-member-a write
+      "$work/host/host.sh" grant "$own_repo" acme-director write
+      "$work/host/host.sh" protect "$own_repo" --code-owners --approvals 0
+    } >>"$log" 2>&1
+    new_branch area-rules
+    printf '%s\n' 'Changed skill.' >> "$src/skills/sample/SKILL.md"
+    git -C "$src" add skills/sample/SKILL.md
+    git -C "$src" commit -q -m "change a skill"
+    push_branch "$member" area-rules
+    own_pr=$(open_pr "$member" area-rules "Change a skill")
+    own_sha=$(pr_sha "$own_pr")
+    if wait_sha "$own_pr" "$own_sha"; then
+      pass "area rules checks"
+      own_checks=1
+    else
+      fail "area rules checks"
+      own_checks=0
+      osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${own_sha}/status"
+      echo "area rules status $(jq -c '{state,statuses}' "$OSF_HTTP_BODY" 2>/dev/null || echo bad-status)" >>"$log"
+      osf_api_discard
+      osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs?limit=5"
+      own_run=$(python3 -c 'import json,sys; raw=json.load(open(sys.argv[1])); rows=raw if isinstance(raw,list) else raw.get("workflow_runs") or raw.get("runs") or []; print(next((str(r.get("id")) for r in rows if r.get("head_sha")==sys.argv[2]), ""))' "$OSF_HTTP_BODY" "$own_sha" 2>/dev/null || true)
+      osf_api_discard
+      if [ -n "$own_run" ]; then
+        osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs/${own_run}/jobs"
+        own_job=$(jq -r 'if type=="array" then .[0].id else (.jobs[0].id // empty) end' "$OSF_HTTP_BODY" 2>/dev/null || true)
+        osf_api_discard
+        if [ -n "$own_job" ] && [ "$own_job" != "null" ]; then
+          osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/jobs/${own_job}/logs"
+          python3 "$lib/scrub.py" --secrets-dir "$(osf_acme_cache)" "$OSF_HTTP_BODY" | tail -n 40 >>"$log" || true
+          osf_api_discard
+        fi
+      fi
+    fi
+    own_i=0
+    own_reviewers=""
+    while [ "$own_i" -lt 8 ]; do
+      osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
+      own_reviewers=$(jq -r '[.requested_reviewers[]?.login] | join(" ")' "$OSF_HTTP_BODY" 2>/dev/null || true)
+      osf_api_discard
+      if printf '%s' "$own_reviewers" | grep -q acme-director; then
+        break
+      fi
+      own_i=$((own_i + 1))
+      sleep 1
+    done
+    if printf '%s' "$own_reviewers" | grep -q acme-director \
+      && ! printf '%s' "$own_reviewers" | grep -q acme-admin; then
+      pass "area rules requests director"
+    else
+      fail "area rules requests director"
+    fi
+    if [ "$own_checks" -eq 1 ]; then
+      as_user "$admin"
+      set +e
+      "$work/host/host.sh" auto-merge "$repo" "$own_pr" >>"$log" 2>&1
+      set -e
+      sleep 3
+      osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
+      own_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+      osf_api_discard
+      if [ "$own_merged" != "true" ]; then
+        pass "area rules blocked"
+      else
+        fail "area rules blocked"
+      fi
+      own_body=$(mktemp)
+      printf '%s\n' '{"event":"APPROVED","body":"ok"}' > "$own_body"
+      osf_api "$director" POST "/api/v1/repos/acme/${repo}/pulls/${own_pr}/reviews" "$own_body"
+      own_approve=$OSF_HTTP_CODE
+      osf_api_discard
+      rm -f "$own_body"
+      if [ "$own_approve" != "200" ] && [ "$own_approve" != "201" ]; then
+        fail "area rules merges after director"
+      else
+        as_user "$admin"
+        "$work/host/host.sh" auto-merge "$repo" "$own_pr" >>"$log" 2>&1 || true
+        own_i=0
+        own_merged=false
+        while [ "$own_i" -lt 20 ]; do
+          osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
+          own_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+          osf_api_discard
+          if [ "$own_merged" = "true" ]; then
+            break
+          fi
+          own_i=$((own_i + 1))
+          sleep 3
+        done
+        if [ "$own_merged" = "true" ]; then
+          pass "area rules merges after director"
+        else
+          fail "area rules merges after director"
+        fi
+      fi
+    else
+      fail "area rules blocked"
+      fail "area rules merges after director"
+    fi
+  fi
 fi
 repo="ci-checks-${stamp}"
 
