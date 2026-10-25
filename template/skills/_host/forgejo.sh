@@ -369,6 +369,130 @@ cmd_protect() {
   }'
 }
 
+cmd_unprotect() {
+  local name page n saved rule
+  host_need_name
+  name=$POS1
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call DELETE "$(host_repo "$name")/branch_protections/main"
+    return 0
+  fi
+  saved=$(host_mktemp)
+  page=1
+  while true; do
+    if ! fj_call GET "$(host_repo "$name")/branch_protections?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    if [ "$FJ_HTTP" = "404" ]; then
+      break
+    fi
+    case "$FJ_HTTP" in
+      200) ;;
+      *) fj_fail ;;
+    esac
+    printf '%s' "$FJ_BODY" | jq -c '.[] | select(.rule_name=="main")' | head -n 1 > "$saved"
+    if [ -s "$saved" ]; then
+      break
+    fi
+    n=$(printf '%s' "$FJ_BODY" | jq 'if type == "array" then length else 0 end')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  if [ ! -s "$saved" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main", removed:false}'
+    return 0
+  fi
+  rule=main
+  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${rule}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200|201|204) ;;
+    *)
+      fj_fail
+      ;;
+  esac
+  if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "404" ]; then
+    if ! fj_call POST "$(host_repo "$name")/branch_protections" "$(cat "$saved")"; then
+      host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+    fi
+    case "$FJ_HTTP" in
+      200|201|204) ;;
+      *)
+        host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+        ;;
+    esac
+    if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "200" ]; then
+      host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+    fi
+    host_die 3 "unprotect failed. The main rule was restored."
+  fi
+  jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main"}'
+}
+
+cmd_secret_exists() {
+  local name
+  [ -n "$POS1" ] || host_die 1 "secret name is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_org
+  case "$POS1" in
+    *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
+  esac
+  name=$POS1
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call GET "/orgs/${OS_ORG}/actions/secrets/${name}"
+    return 0
+  fi
+  if ! fj_call GET "/orgs/${OS_ORG}/actions/secrets/${name}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200) jq -nc '{exists:true}' ;;
+    404) jq -nc '{exists:false}' ;;
+    401|403)
+      host_die 4 "cannot read org secrets: sign in as an org owner"
+      ;;
+    *) fj_fail ;;
+  esac
+}
+
+cmd_user_access() {
+  local name user perm access
+  [ -n "$POS1" ] || host_die 1 "name is required"
+  [ -n "$POS2" ] || host_die 1 "user is required"
+  [ -z "$POS3" ] || host_die 1 "too many arguments"
+  host_require_name "name" "$POS1"
+  host_require_name "user" "$POS2"
+  name=$POS1
+  user=$POS2
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call GET "$(host_repo "$name")/collaborators/${user}/permission"
+    return 0
+  fi
+  if ! fj_call GET "$(host_repo "$name")/collaborators/${user}/permission"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    404)
+      jq -nc '{access:"none"}'
+      return 0
+      ;;
+    200) ;;
+    401|403) host_die 4 "auth failed" ;;
+    *) fj_fail ;;
+  esac
+  perm=$(printf '%s' "$FJ_BODY" | jq -r '.permission // .role_name // "none"')
+  case "$perm" in
+    admin|owner) access="admin" ;;
+    write|maintain|push) access="write" ;;
+    read|pull|triage) access="read" ;;
+    *) access="none" ;;
+  esac
+  jq -nc --arg access "$access" '{access:$access}'
+}
+
 cmd_team_create() {
   local team body
   [ -n "$POS1" ] || host_die 1 "team is required"
@@ -749,6 +873,9 @@ case "$VERB" in
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;
+  unprotect) cmd_unprotect ;;
+  secret-exists) cmd_secret_exists ;;
+  user-access) cmd_user_access ;;
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;

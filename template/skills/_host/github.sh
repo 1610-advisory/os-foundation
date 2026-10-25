@@ -360,6 +360,167 @@ cmd_protect() {
   jq -nc --arg name "$name" '{ok:true, name:$name, rulesets:["main","rules-review"]}'
 }
 
+host_ruleset_id() {
+  local list=$1 ruleset=$2
+  printf '%s' "$list" | jq -r --arg ruleset "$ruleset" '.[] | select(.name==$ruleset) | .id' | head -n 1
+}
+
+host_restore_ruleset() {
+  local name=$1 file=$2 expect=$3 body resp id got
+  [ -s "$file" ] || return 1
+  body=$(jq 'del(.id, .node_id, .created_at, .updated_at, .source, .source_type, .current_user_can_bypass, ._links)' "$file")
+  if ! resp=$(host_gh_call POST "$(host_repo "$name")/rulesets" "$body"); then
+    return 1
+  fi
+  id=$(printf '%s' "$resp" | jq -r '.id // empty')
+  [ -n "$id" ] || return 1
+  if ! got=$(host_gh_call GET "$(host_repo "$name")/rulesets/${id}"); then
+    return 1
+  fi
+  printf '%s' "$got" | jq -e --arg expect "$expect" '.name == $expect' >/dev/null
+}
+
+host_protection_off() {
+  local name=$1
+  host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+}
+
+cmd_unprotect() {
+  local name list id saved_main saved_review deleted_main deleted_review
+  host_need_name
+  name=$POS1
+  if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/rulesets/main"
+    host_emit DELETE "$(host_repo "$name")/rulesets/rules-review"
+    return 0
+  fi
+  list=$(host_gh_all "$(host_repo "$name")/rulesets")
+  saved_main=$(host_mktemp)
+  saved_review=$(host_mktemp)
+  deleted_main=0
+  deleted_review=0
+  id=$(host_ruleset_id "$list" main)
+  if [ -n "$id" ]; then
+    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main"
+  fi
+  id=$(host_ruleset_id "$list" rules-review)
+  if [ -n "$id" ]; then
+    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review"
+  fi
+  id=$(host_ruleset_id "$list" main)
+  if [ -n "$id" ]; then
+    if host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
+      deleted_main=1
+    else
+      exit 3
+    fi
+  fi
+  id=$(host_ruleset_id "$list" rules-review)
+  if [ -n "$id" ]; then
+    if host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
+      deleted_review=1
+    else
+      if [ "$deleted_main" -eq 1 ] && ! host_restore_ruleset "$name" "$saved_main" main; then
+        host_protection_off "$name"
+      fi
+      if [ "$deleted_review" -eq 1 ] && ! host_restore_ruleset "$name" "$saved_review" rules-review; then
+        host_protection_off "$name"
+      fi
+      exit 3
+    fi
+  fi
+  jq -nc --arg name "$name" '{ok:true, name:$name}'
+}
+
+cmd_user_access() {
+  local name user out err code perm access kind
+  [ -n "$POS1" ] || host_die 1 "name is required"
+  [ -n "$POS2" ] || host_die 1 "user is required"
+  [ -z "$POS3" ] || host_die 1 "too many arguments"
+  host_require_name "name" "$POS1"
+  host_require_name "user" "$POS2"
+  host_require_org
+  host_require_bin gh
+  name=$POS1
+  user=$POS2
+  if host_dry; then
+    host_emit GET "$(host_repo "$name")/collaborators/${user}/permission"
+    return 0
+  fi
+  out=$(host_mktemp)
+  err=$(host_mktemp)
+  set +e
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
+  else
+    gh api --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
+  fi
+  code=$?
+  set -e
+  if [ "$code" -eq 0 ]; then
+    perm=$(jq -r '.permission // .role_name // "none"' "$out")
+    case "$perm" in
+      admin|owner) access="admin" ;;
+      write|maintain|push) access="write" ;;
+      read|pull|triage) access="read" ;;
+      *) access="none" ;;
+    esac
+    jq -nc --arg access "$access" '{access:$access}'
+    return 0
+  fi
+  if grep -q 'HTTP 404' "$err"; then
+    jq -nc '{access:"none"}'
+    return 0
+  fi
+  if grep -q 'HTTP 403' "$err"; then
+    host_scrub_file "$err" >&2
+    host_die 4 "cannot read collaborators: sign in as an org owner"
+  fi
+  kind=$(host_classify_gh "$err" "$code")
+  host_scrub_file "$err" >&2
+  exit "$kind"
+}
+
+cmd_secret_exists() {
+  local name out err code
+  [ -n "$POS1" ] || host_die 1 "secret name is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_org
+  host_require_bin gh
+  case "$POS1" in
+    *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
+  esac
+  name=$POS1
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/actions/secrets/${name}"
+    return 0
+  fi
+  out=$(host_mktemp)
+  err=$(host_mktemp)
+  set +e
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
+  else
+    gh api --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
+  fi
+  code=$?
+  set -e
+  if [ "$code" -eq 0 ]; then
+    jq -nc '{exists:true}'
+    return 0
+  fi
+  if grep -q 'HTTP 404' "$err"; then
+    jq -nc '{exists:false}'
+    return 0
+  fi
+  if grep -q 'HTTP 403' "$err"; then
+    host_scrub_file "$err" >&2
+    host_die 4 "cannot read org secrets: sign in as an org owner"
+  fi
+  host_scrub_file "$err" >&2
+  host_die 3 "host error"
+}
+
 cmd_team_create() {
   local team body
   [ -n "$POS1" ] || host_die 1 "team is required"
@@ -754,6 +915,9 @@ case "$VERB" in
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;
+  unprotect) cmd_unprotect ;;
+  secret-exists) cmd_secret_exists ;;
+  user-access) cmd_user_access ;;
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
