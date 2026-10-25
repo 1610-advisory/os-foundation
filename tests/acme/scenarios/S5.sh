@@ -59,18 +59,45 @@ export OS_COMPANY_ROOT="$dest"
 osf_run_seat S5 "$proposer" "$prompt" "$dest" \
   || osf_result "S5 FAIL proposer seat"
 
-# Director approval is an API call with the director token. The engine is not required.
-osf_api "$(osf_token_file acme-director)" GET "/api/v1/repos/${org}/${slug}-marketing/pulls?state=open"
+# Read the skill pull request from the host. Do not merge, push, or open one.
+osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-marketing/pulls?state=open"
 number=$(jq -r '.[0].number // empty' "$OSF_HTTP_BODY")
 osf_api_discard
 if [ -z "$number" ]; then
   osf_result "S5 FAIL no skill pull request"
 fi
+head_sha=$(osf_results pr "$org" "${slug}-marketing" "$number" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_sha",""))')
+if ! osf_results wait-check "$org" "${slug}-marketing" "$head_sha" --timeout 180 >/dev/null; then
+  osf_result "S5 FAIL checks did not pass (OS_REVIEW_FAKE must be in the runner env)"
+fi
+sleep 20
+osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-marketing/pulls/${number}"
+merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+reviewers=$(jq -r '[.requested_reviewers[]?.login] | join(" ")' "$OSF_HTTP_BODY")
+osf_api_discard
+if [ "$merged" = "true" ]; then
+  osf_result "S5 FAIL merged without director approval"
+fi
+if ! printf '%s' "$reviewers" | grep -q acme-director; then
+  osf_result "S5 FAIL director not requested"
+fi
 if ! osf_approve "$org" "${slug}-marketing" "$number" acme-director; then
   osf_result "S5 FAIL director approval"
 fi
-if ! osf_results wait-check "$org" "${slug}-marketing" "$(osf_results pr "$org" "${slug}-marketing" "$number" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_sha",""))')" --timeout 180 >/dev/null; then
-  osf_result "S5 FAIL checks did not pass (OS_REVIEW_FAKE must be in the runner env)"
+i=0
+merged=false
+while [ "$i" -lt 36 ]; do
+  osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-marketing/pulls/${number}"
+  merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+  osf_api_discard
+  if [ "$merged" = "true" ]; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 5
+done
+if [ "$merged" != "true" ]; then
+  osf_result "S5 FAIL not merged after director approval"
 fi
 
 osf_host S5 file "$org" "${slug}-marketing" skills/sample/SKILL.md --ref main
