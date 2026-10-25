@@ -211,11 +211,31 @@ bot_now_epoch() {
 
 bot_now_utc() {
   local epoch=$1 fmt=$2
-  if date -u -r "$epoch" +"$fmt" >/dev/null 2>&1; then
-    date -u -r "$epoch" +"$fmt"
+  # GNU date -r reads a file mtime. Do not probe it.
+  case "$(uname -s)" in
+    Darwin)
+      date -u -r "$epoch" +"$fmt"
+      ;;
+    *)
+      date -u -d "@${epoch}" +"$fmt"
+      ;;
+  esac
+}
+
+# Scope is the repo name. <slug>-os is the company repo. <slug>-<area> is that area.
+bot_name_scope() {
+  local slug=$1 repo=$2
+  if [ "$repo" = "${slug}-os" ]; then
+    printf '%s\n' company
     return 0
   fi
-  date -u -d "@${epoch}" +"$fmt"
+  case "$repo" in
+    "${slug}-"*)
+      printf '%s\n' "${repo#"${slug}-"}"
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 bot_yaml_quote() {

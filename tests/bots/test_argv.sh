@@ -65,8 +65,9 @@ bot=helper
 name=Acme helper
 owner=ada
 bot_user=acme-bot
-repos=bots-os
-scope.bots-os=company
+repos=acme-os
+scope.acme-os=company
+email=acme.bot@acme.test
 token_path=$token
 box=yes
 engine=$here/fixtures/engine.sh
@@ -110,6 +111,8 @@ if not done:
     lines.insert(1, 'engine: "' + engine.replace('"', '\\"') + '"')
 pathlib.Path(path).write_text("\n".join(lines) + "\n")
 PY
+git -C "$root" add bots/helper/BOT.md
+git -C "$root" commit -q -m "set engine"
 bash "$root/skills/add-bot/run.sh" helper daily --root "$root" >"$tmp/run.out"
 
 printf 'protocol=https\nhost=example.test\n\n' | \

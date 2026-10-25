@@ -62,9 +62,10 @@ bot=helper
 name=Acme helper
 owner=ada
 bot_user=acme-bot
-repos=bots-os,bots-marketing
-scope.bots-os=company
-scope.bots-marketing=marketing
+repos=acme-os,acme-marketing
+scope.acme-os=company
+scope.acme-marketing=marketing
+email=acme.bot@acme.test
 token_path=$token
 box=yes
 engine=$here/fixtures/engine.sh
@@ -74,7 +75,7 @@ EOF
 bash "$add" --answers "$tmp/answers" --root "$root" >"$tmp/add.out" 2>"$tmp/add.err"
 grep -q "status: ready" "$tmp/add.out"
 grep -q "jobs: installed" "$tmp/add.out"
-grep -q "propose: skills/sync/sync.sh propose add-bot-helper bots/helper/BOT.md" "$tmp/add.out"
+grep -q "propose: skills/sync/sync.sh propose add-bot-helper bots/helper/BOT.md bots/helper/routines/\*.md" "$tmp/add.out"
 grep -c "grant " "$OS_HOST_LOG" | grep -q "^2$"
 [ -f "$OS_JOBS_DIR/installed" ]
 [ -f "$root/bots/helper/BOT.md" ]
@@ -93,8 +94,9 @@ kind=company
 bot=other
 owner=dana
 bot_user=acme-bot
-repos=bots-os
-scope.bots-os=company
+repos=acme-os
+scope.acme-os=company
+email=acme.bot@acme.test
 token_path=$token
 box=no
 EOF
@@ -116,6 +118,7 @@ area=marketing
 bot_user=acme-bot
 repos=acme-finance
 scope.acme-finance=finance
+email=acme.bot@acme.test
 token_path=$token
 box=no
 EOF
@@ -134,8 +137,9 @@ cat > "$tmp/inside" << EOF
 kind=company
 bot=inside
 owner=ada
-repos=bots-os
-scope.bots-os=company
+repos=acme-os
+scope.acme-os=company
+email=acme.bot@acme.test
 token_path=$inside
 box=no
 EOF
@@ -161,6 +165,7 @@ owner=ada
 repos=acme-os,acme-marketing
 scope.acme-os=company
 scope.acme-marketing=marketing
+email=acme.bot@acme.test
 box=no
 EOF
 bash "$ghroot/skills/add-bot/add-bot.sh" --answers "$tmp/gh-answers" --root "$ghroot" >"$tmp/gh.out"
@@ -182,7 +187,7 @@ bots_pass "github manifest and create URL"
 
 # Routine with two commits carries trailers. Push is recorded, not sent.
 git -C "$root" init -q -b main
-git -C "$root" add company-profile.md people bots/helper/BOT.md
+git -C "$root" add -A
 git -C "$root" commit -q -m "start"
 cat > "$root/bots/helper/routines/daily.md" << 'EOF'
 ---
@@ -222,6 +227,8 @@ for line in lines:
     out.append(line)
 pathlib.Path(path).write_text("\n".join(out) + "\n")
 PY
+git -C "$root" add -A
+git -C "$root" commit -q -m "set engine"
 bash "$run" helper daily --root "$root" >"$tmp/run.out"
 run_id=$(sed -n 's/^run_id: //p' "$tmp/run.out")
 [ -n "$run_id" ]
@@ -262,6 +269,10 @@ for line in text.splitlines():
         lines.append(line)
 pathlib.Path(path).write_text("\n".join(lines) + "\n")
 PY
+git -C "$root" add bots
+git -C "$root" commit -q -m "mark engine"
+git -C "$root" checkout -q main
+git -C "$root" merge -q --ff-only sync/helper
 rm -f "$marker"
 set +e
 bash "$run" helper mail --root "$root" >"$tmp/mail.out" 2>"$tmp/mail.err"
@@ -278,6 +289,10 @@ path = pathlib.Path(sys.argv[1])
 text = path.read_text().replace("shared_inbox: none", "shared_inbox:\n  - finance", 1)
 path.write_text(text)
 PY
+git -C "$root" add bots
+git -C "$root" commit -q -m "allow finance inbox"
+git -C "$root" checkout -q main
+git -C "$root" merge -q --ff-only sync/helper || git -C "$root" merge -q sync/helper
 bash "$run" helper mail --root "$root" >"$tmp/mail2.out"
 [ -f "$marker" ]
 grep -q "read inbox finance" "$root/bots/helper/logs/"*.md
@@ -318,7 +333,7 @@ trace="$tmp/trace"
 : > "$trace"
 printf '0\n' > "$OS_TOKEN_COUNT"
 feed() {
-  printf 'protocol=https\nhost=example.test\n\n'
+  printf 'protocol=http\nhost=localhost:3300\n\n'
 }
 feed | OS_NOW=1000000 OS_BOT_TOKEN_TTL=60 OS_BOT=helper OS_ROOT="$root" \
   OS_BOT_TOKEN_TRACE="$trace" bash "$helper" get >"$tmp/cred1.out"
@@ -391,6 +406,18 @@ bots_profile "$conflict_root" forgejo "bots"
 bots_people "$conflict_root"
 bots_copy_skills "$conflict_root"
 bots_stub_host "$conflict_root"
+mkdir -p "$conflict_root/bots/helper"
+cat > "$conflict_root/bots/helper/BOT.md" << 'EOF'
+---
+type: bot
+bot: helper
+owner: ada
+email: "acme.bot@acme.test"
+repos:
+  - acme-os
+---
+Helper.
+EOF
 git -C "$conflict_root" init -q -b main
 printf 'base\n' > "$conflict_root/README.md"
 git -C "$conflict_root" add README.md
@@ -435,5 +462,118 @@ else
   bots_fail "conflict repo was left dirty"
 fi
 bots_pass "conflict in one repo does not stop the others"
+
+# P1: a scope line cannot relabel the company repo as an area.
+cat > "$tmp/bad-scope" << EOF
+kind=company
+bot=relabel
+name=Relabel
+owner=ada
+email=acme.bot@acme.test
+repos=acme-os
+scope.acme-os=marketing
+token_path=$token
+box=no
+EOF
+: > "$OS_HOST_LOG"
+set +e
+bash "$add" --answers "$tmp/bad-scope" --root "$root" >"$tmp/scope.out" 2>"$tmp/scope.err"
+code=$?
+set -e
+[ "$code" -eq 2 ] || bots_fail "bad scope exit $code"
+grep -q "does not match the repo name" "$tmp/scope.err"
+if grep -q "^grant " "$OS_HOST_LOG"; then
+  bots_fail "bad scope granted a repo"
+fi
+bots_pass "scope comes from the repo name"
+
+# P1: helper answers only for this host, and only when bots is on.
+helper_out="$tmp/helper-miss.out"
+printf 'protocol=https\nhost=evil.example\n\n' | \
+  OS_BOT=helper OS_ROOT="$root" bash "$helper" get >"$helper_out"
+[ ! -s "$helper_out" ] || bots_fail "helper answered a foreign host"
+printf 'protocol=http\nhost=localhost:3300\npath=acme/acme-secret.git\n\n' | \
+  OS_BOT=helper OS_ROOT="$root" bash "$helper" get >"$helper_out"
+[ ! -s "$helper_out" ] || bots_fail "helper answered a path outside the grant"
+off_cfg="$XDG_CONFIG_HOME/acme-os/bots/helper/token-cache"
+before=$(wc -c < "$off_cfg" | tr -d ' ')
+printf 'protocol=http\nhost=localhost:3300\n\n' | \
+  OS_BOT=helper OS_ROOT="$off" bash "$off/skills/add-bot/git-credential-os-bot" get >"$helper_out"
+[ ! -s "$helper_out" ] || bots_fail "helper answered with bots off"
+after=$(wc -c < "$off_cfg" | tr -d ' ')
+[ "$before" = "$after" ] || bots_fail "helper wrote a cache with bots off"
+printf 'protocol=http\nhost=localhost:3300\n\n' | \
+  OS_ROOT="$root" bash "$helper" get >"$helper_out"
+[ ! -s "$helper_out" ] || bots_fail "helper guessed a bot"
+bots_pass "credential helper answers only for this host"
+
+# P1: undo does not touch a dirty live checkout.
+printf 'dirty\n' > "$root/notes/dirty.md"
+dirty_before=$(cat "$root/notes/dirty.md")
+set +e
+bash "$undo" local-run --root "$root" >"$tmp/dirty-undo.out" 2>"$tmp/dirty-undo.err"
+set -e
+[ "$(cat "$root/notes/dirty.md")" = "$dirty_before" ] || bots_fail "undo changed the live checkout"
+git -C "$root" status --porcelain | grep -q "notes/dirty.md" || bots_fail "dirty file was committed or lost"
+bots_pass "undo uses a worktree and leaves the live checkout"
+
+# P2: a copied Run-Id on another author is not reverted.
+GIT_AUTHOR_EMAIL="other@acme.test" GIT_COMMITTER_EMAIL="other@acme.test" \
+  git -C "$root" commit -q --allow-empty -m "copied
+
+Run-Id: copied-run
+Bot-Owner: ada"
+git -C "$root" push -q origin main
+set +e
+bash "$undo" copied-run --root "$root" >"$tmp/copied.out" 2>"$tmp/copied.err"
+code=$?
+set -e
+[ "$code" -eq 2 ] || bots_fail "copied trailer exit $code"
+grep -q "no commits" "$tmp/copied.err"
+bots_pass "copied Run-Id is not reverted"
+
+# P2: a dirty tree is refused. A push to main is refused.
+printf 'more\n' >> "$root/README.md"
+set +e
+bash "$run" helper daily --root "$root" >"$tmp/dirty-run.out" 2>"$tmp/dirty-run.err"
+code=$?
+set -e
+[ "$code" -eq 2 ] || bots_fail "dirty run exit $code"
+grep -q "dirty" "$tmp/dirty-run.err"
+rm -f "$root/notes/dirty.md"
+export OS_REAL_GIT OS_BOT_LOG="$tmp/guard.log"
+OS_REAL_GIT=$(PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" command -v git)
+set +e
+bash "$root/skills/add-bot/git-guard.sh" -C "$root" push origin main >"$tmp/guard.out" 2>"$tmp/guard.err"
+code=$?
+set -e
+[ "$code" -eq 1 ] || bots_fail "push main exit $code"
+grep -q "refused:" "$tmp/guard.err"
+grep -q "refused:" "$OS_BOT_LOG"
+set +e
+bash "$root/skills/add-bot/git-guard.sh" -C "$root" push origin "HEAD:refs/heads/main" >"$tmp/guard2.out" 2>"$tmp/guard2.err"
+code=$?
+set -e
+[ "$code" -eq 1 ] || bots_fail "HEAD push exit $code"
+bots_pass "dirty tree and push to main are refused"
+
+# P2: a second run revokes a dropped repo.
+cat > "$tmp/drop" << EOF
+kind=company
+bot=helper
+name=Acme helper
+owner=ada
+email=acme.bot@acme.test
+repos=acme-os
+scope.acme-os=company
+token_path=$token
+box=no
+engine=$here/fixtures/engine.sh
+EOF
+: > "$OS_HOST_LOG"
+bash "$add" --answers "$tmp/drop" --root "$root" >"$tmp/drop.out"
+grep -q "revoked: acme-marketing" "$tmp/drop.out"
+grep -q "revoke acme-marketing" "$OS_HOST_LOG"
+bots_pass "second run revokes a dropped grant"
 
 bots_pass "unit suite"

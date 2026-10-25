@@ -109,6 +109,23 @@ if [ -d "${BOT_ROOT}/areas" ]; then
   done
 fi
 
+emails=$(bot_mktemp)
+for page in "${BOT_ROOT}"/bots/*/BOT.md; do
+  [ -f "$page" ] || continue
+  one=$(bot_field "$page" email || true)
+  one=$(bot_trim "$one")
+  [ -n "$one" ] && printf '%s\n' "$one" >> "$emails"
+done
+[ -s "$emails" ] || bot_die 2 "no bot email on a bot page"
+
+undo_drop_worktree() {
+  local repo=$1 wt=$2 branch=$3
+  if [ -n "$wt" ] && [ -d "$wt" ]; then
+    git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
+  fi
+  git -C "$repo" branch -D "$branch" >/dev/null 2>&1 || true
+}
+
 found_any=0
 any_conflict=0
 while IFS= read -r path; do
@@ -119,22 +136,21 @@ while IFS= read -r path; do
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     body=$(git -C "$path" log -1 --format='%B' "$sha")
-    if printf '%s\n' "$body" | awk -v id="$run_id" '
-      BEGIN { hit = 0 }
-      {
-        line = $0
-        sub(/\r/, "", line)
-        if (line ~ /^Run-Id:[ \t]/) {
-          val = line
-          sub(/^Run-Id:[ \t]*/, "", val)
-          sub(/[ \t]*$/, "", val)
-          if (val == id) { hit = 1 }
-        }
+    trail=$(printf '%s\n' "$body" | git interpret-trailers --parse | awk '
+      /^Run-Id:[ \t]/ {
+        val = $0
+        sub(/^Run-Id:[ \t]*/, "", val)
+        sub(/[ \t]*$/, "", val)
+        print val
+        exit
       }
-      END { exit (hit ? 0 : 1) }
-    '; then
-      printf '%s\n' "$sha" >> "$hits"
+    ')
+    [ "$trail" = "$run_id" ] || continue
+    author=$(git -C "$path" log -1 --format='%ae' "$sha")
+    if ! grep -qx "$author" "$emails"; then
+      continue
     fi
+    printf '%s\n' "$sha" >> "$hits"
   done << EOF
 $(git -C "$path" log origin/main --format='%H')
 EOF
@@ -144,26 +160,33 @@ EOF
   found_any=1
   name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
   branch="undo/${run_id}"
-  git -C "$path" checkout -B "$branch" origin/main
+  wt=$(mktemp -d)
+  rmdir "$wt"
+  if ! git -C "$path" worktree add -B "$branch" "$wt" origin/main >/dev/null 2>&1; then
+    any_conflict=1
+    printf 'repo: %s\n' "$name"
+    printf '%s\n' "conflict: could not open a worktree; this repo was left unchanged"
+    undo_drop_worktree "$path" "$wt" "$branch"
+    continue
+  fi
   conflict=0
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
-    if ! git -C "$path" revert --no-commit "$sha"; then
+    if ! git -C "$wt" revert --no-commit "$sha"; then
       conflict=1
       break
     fi
   done < "$hits"
   if [ "$conflict" -eq 1 ]; then
-    git -C "$path" revert --abort >/dev/null 2>&1 || true
-    git -C "$path" reset --hard origin/main >/dev/null 2>&1 || true
-    git -C "$path" checkout -q --detach origin/main >/dev/null 2>&1 || true
-    git -C "$path" branch -D "$branch" >/dev/null 2>&1 || true
+    git -C "$wt" revert --abort >/dev/null 2>&1 || true
+    undo_drop_worktree "$path" "$wt" "$branch"
     any_conflict=1
     printf 'repo: %s\n' "$name"
     printf '%s\n' "conflict: revert stopped; this repo was left unchanged"
     continue
   fi
-  if git -C "$path" diff --cached --quiet; then
+  if git -C "$wt" diff --cached --quiet; then
+    undo_drop_worktree "$path" "$wt" "$branch"
     printf 'repo: %s\n' "$name"
     printf '%s\n' "revert: empty"
     continue
@@ -173,10 +196,11 @@ EOF
     printf 'Revert run %s\n\n' "$run_id"
     printf 'Reverts: %s\n' "$run_id"
   } > "$msg"
-  git -C "$path" commit -F "$msg"
-  revert_sha=$(git -C "$path" rev-parse HEAD)
+  git -C "$wt" commit -F "$msg"
+  revert_sha=$(git -C "$wt" rev-parse HEAD)
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
-    git -C "$path" -c credential.helper= push -u origin "$branch"
+    git -C "$wt" -c credential.helper= push -u origin "$branch"
+  git -C "$path" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
   body=$(bot_mktemp)
   {
     printf 'Revert run %s\n\n' "$run_id"
@@ -191,11 +215,10 @@ EOF
   url=$(printf '%s' "$pr" | jq -r '.url // empty')
   bash "$host_sh" auto-merge "$name" "$number" >/dev/null
   printf 'repo: %s\n' "$name"
-  printf 'reverted:'
   while IFS= read -r sha; do
-    printf ' %s' "$sha"
+    [ -n "$sha" ] || continue
+    printf 'sha: %s\n' "$sha"
   done < "$hits"
-  printf '\n'
   printf 'revert_commit: %s\n' "$revert_sha"
   printf 'pr: %s\n' "$number"
   if [ -n "$url" ]; then

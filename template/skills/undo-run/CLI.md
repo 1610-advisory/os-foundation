@@ -22,7 +22,9 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 5. Ask for auto-merge through `host.sh auto-merge`. Merge commit, not squash.
 6. Print the repo, the reverted commit ids, the revert commit, and the pull request URL.
 
-Each repo is separate. If a revert conflicts, the script resets that repo to `origin/main`, prints `conflict:`, and continues with the other repos. It does not leave a conflict in the working copy. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
+The revert runs in a temporary worktree from `origin/main`. The live checkout is not touched. If a revert conflicts, the script removes that worktree, stops for that repo, and changes nothing there. It prints `conflict:` and continues with the other repos. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
+
+A commit matches only when `git interpret-trailers --parse` shows `Run-Id` equal to the argument and the author email is the bot email on a bot page. A copied trailer on another person's commit is not reverted. Trailers are not proof. The pull request is the check. The script prints every SHA it reverts.
 
 The revert commit does not reuse the original `Run-Id`. Its message is:
 

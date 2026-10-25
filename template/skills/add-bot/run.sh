@@ -100,21 +100,19 @@ if [ -n "$handoff" ] && [ "$handoff" != "none" ]; then
   bot_die 3 "v1 does not call a cloud agent. $(bot_handoff_rule)"
 fi
 
-if [ -n "$inbox" ] && [ "$inbox" != "none" ]; then
-  bot_slug_ok "inbox" "$inbox"
-  allowed=0
-  while IFS= read -r line; do
-    [ "$line" = "none" ] && continue
-    [ "$line" = "$inbox" ] && allowed=1
-  done << EOF
-$(bot_field "$page" shared_inbox || true)
-EOF
-  if [ "$allowed" -ne 1 ]; then
-    bot_log_line "refused inbox ${inbox}"
-    bot_die 2 "inbox ${inbox} is not in shared_inbox"
+scope_file=$(bot_mktemp)
+bot_field "$page" repo_scope > "$scope_file" || true
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  scope=${line#*=}
+  path=$(bot_repo_path "$BOT_ROOT" "$scope")
+  if ! bot_is_git "$path"; then
+    continue
   fi
-  bot_log_line "read inbox ${inbox}"
-fi
+  if ! git -C "$path" diff --quiet || ! git -C "$path" diff --cached --quiet; then
+    bot_die 2 "repo is dirty. Commit or stash before the bot run."
+  fi
+done < "$scope_file"
 
 engine=$(bot_field "$page" engine || true)
 engine=$(bot_trim "$engine")
@@ -134,9 +132,11 @@ cat > "${hooks}/prepare-commit-msg" << EOF
 #!/bin/bash
 set -euo pipefail
 msg=\$1
-if ! grep -q '^Run-Id:' "\$msg"; then
-  printf '\\nRun-Id: %s\\nBot-Owner: %s\\n' "${run_id}" "${owner}" >> "\$msg"
-fi
+clean=\$(mktemp)
+grep -v -e '^Run-Id:' -e '^Bot-Owner:' "\$msg" > "\$clean" || true
+printf '\nRun-Id: %s\nBot-Owner: %s\n' "${run_id}" "${owner}" >> "\$clean"
+cat "\$clean" > "\$msg"
+rm -f "\$clean"
 EOF
 chmod 700 "${hooks}/prepare-commit-msg"
 
@@ -148,9 +148,15 @@ BOT_TMP_FILES="${BOT_TMP_FILES} ${wrap_dir}"
 {
   printf '%s\n' "#!/bin/bash"
   printf '%s\n' "set -euo pipefail"
-  printf 'exec %q -c %q "$@"\n' "$real_git" "core.hooksPath=${hooks}"
+  printf 'export OS_REAL_GIT=%q\n' "$real_git"
+  printf 'export OS_BOT_HOOKS=%q\n' "$hooks"
+  printf 'export OS_BOT_LOG=%q\n' "$log_file"
+  printf 'exec %q "$@"\n' "${DIR}/git-guard.sh"
 } > "${wrap_dir}/git"
 chmod 700 "${wrap_dir}/git"
+
+bot_email=$(bot_field "$page" email || true)
+bot_email=$(bot_trim "$bot_email")
 
 scope_file=$(bot_mktemp)
 bot_field "$page" repo_scope > "$scope_file" || true
@@ -167,6 +173,22 @@ while IFS= read -r line; do
     git -C "$path" checkout -B "sync/${bot}" main
   fi
 done < "$scope_file"
+
+if [ -n "$inbox" ] && [ "$inbox" != "none" ]; then
+  bot_slug_ok "inbox" "$inbox"
+  allowed=0
+  while IFS= read -r line; do
+    [ "$line" = "none" ] && continue
+    [ "$line" = "$inbox" ] && allowed=1
+  done << EOF
+$(bot_field "$page" shared_inbox || true)
+EOF
+  if [ "$allowed" -ne 1 ]; then
+    bot_log_line "refused inbox ${inbox}"
+    bot_die 2 "inbox ${inbox} is not in shared_inbox"
+  fi
+  bot_log_line "read inbox ${inbox}"
+fi
 
 prompt=$(bot_mktemp)
 awk '
@@ -186,6 +208,10 @@ awk '
   export OS_RUN_ID="$run_id"
   export OS_BOT_OWNER="$owner"
   export OS_BOT="$bot"
+  if [ -n "$bot_email" ]; then
+    export GIT_AUTHOR_EMAIL="$bot_email"
+    export GIT_COMMITTER_EMAIL="$bot_email"
+  fi
   # The engine command is the admin's setting. It is not a secret.
   # shellcheck disable=SC2086
   PATH="${wrap_dir}:${PATH}" eval "$engine" < "$prompt"

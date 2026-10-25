@@ -47,6 +47,8 @@ bots_copy_skills() {
   cp "$repo/template/skills/add-bot/lib.sh" "$root/skills/add-bot/"
   cp "$repo/template/skills/add-bot/run.sh" "$root/skills/add-bot/"
   cp "$repo/template/skills/add-bot/git-credential-os-bot" "$root/skills/add-bot/"
+  cp "$repo/template/skills/add-bot/git-guard.sh" "$root/skills/add-bot/"
+  chmod 700 "$root/skills/add-bot/git-guard.sh"
   cp "$repo/template/skills/undo-run/undo-run.sh" "$root/skills/undo-run/"
   cp "$repo/tests/bots/fixtures/sync.sh" "$root/skills/sync/sync.sh"
   chmod 700 "$root/skills/add-bot/add-bot.sh" "$root/skills/add-bot/run.sh"
@@ -84,13 +86,13 @@ EOF
 }
 
 bots_profile() {
-  local root=$1 host=$2 switches=$3
+  local root=$1 host=$2 switches=$3 slug=${4:-acme}
   cat > "$root/company-profile.md" << EOF
 ---
 type: company-profile
 summary: "Acme Co"
 updated: 2026-10-24
-company_slug: acme
+company_slug: ${slug}
 level: team
 switches: [${switches}]
 os_version: v1

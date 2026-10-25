@@ -69,17 +69,6 @@ ans() {
   printf '%s' "$val"
 }
 
-ans_scope() {
-  local repo=$1 inferred=$2
-  local got
-  got=$(ans "scope.${repo}" "")
-  if [ -n "$got" ]; then
-    printf '%s' "$got"
-    return 0
-  fi
-  printf '%s' "$inferred"
-}
-
 BOT_ROOT=$(bot_find_root)
 export BOT_ROOT
 export OS_PROFILE
@@ -106,6 +95,7 @@ key_path=$(ans key_path "")
 box=$(ans box "no")
 replace_me=$(ans replace_me "no")
 company_repo=$(ans company_repo "")
+email=$(ans email "")
 
 bot_slug_ok "kind" "$kind"
 case "$kind" in
@@ -118,6 +108,12 @@ bot_slug_ok "owner" "$owner"
 [ -n "$bot_user" ] || bot_user=$bot
 bot_slug_ok "bot_user" "$bot_user"
 [ -n "$repos_csv" ] || bot_die 1 "repos is required"
+[ -n "$email" ] || bot_die 1 "email is required"
+case "$email" in
+  *" "*) bot_die 1 "email is not valid" ;;
+  *@*.*) ;;
+  *) bot_die 1 "email is not valid" ;;
+esac
 case "$box" in
   yes|no) ;;
   *) bot_die 1 "box must be yes or no" ;;
@@ -126,8 +122,10 @@ esac
 profile=$(bot_profile)
 slug=$(bot_field "$profile" company_slug) || bot_die 1 "company slug is not set"
 slug=$(bot_trim "$slug")
-[ -n "$company_repo" ] || company_repo="${slug}-os"
-bot_slug_ok "company repo" "$company_repo"
+if [ -n "$company_repo" ] && [ "$company_repo" != "${slug}-os" ]; then
+  bot_die 2 "the company repo name must be ${slug}-os"
+fi
+company_repo="${slug}-os"
 host=$(bot_field "$profile" host || true)
 host=$(bot_trim "$host")
 org=$(bot_field "$profile" org || true)
@@ -164,19 +162,13 @@ for raw in $repos_csv; do
   repo=$(bot_trim "$raw")
   [ -n "$repo" ] || continue
   bot_slug_ok "repo" "$repo"
-  inferred=""
-  if [ "$repo" = "$company_repo" ]; then
-    inferred=company
-  else
-    prefix="${slug}-"
-    case "$repo" in
-      "$prefix"*)
-        inferred=${repo#"$prefix"}
-        ;;
-    esac
+  if ! scope=$(bot_name_scope "$slug" "$repo"); then
+    bot_die 2 "repo ${repo} name does not say its scope"
   fi
-  scope=$(ans_scope "$repo" "$inferred")
-  [ -n "$scope" ] || bot_die 2 "repo ${repo} is outside the owner's grant"
+  claimed=$(ans "scope.${repo}" "")
+  if [ -n "$claimed" ] && [ "$claimed" != "$scope" ]; then
+    bot_die 2 "scope.${repo} does not match the repo name"
+  fi
   if [ "$scope" = "company" ]; then
     [ "$role" = "admin" ] || bot_die 2 "repo ${repo} exceeds the owner's grant"
     if [ "$kind" = "area" ]; then
@@ -228,6 +220,11 @@ case "$host" in
     ;;
 esac
 
+old_repos=$(bot_mktemp)
+if [ -f "${BOT_ROOT}/bots/${bot}/BOT.md" ]; then
+  bot_field "${BOT_ROOT}/bots/${bot}/BOT.md" repos > "$old_repos" || true
+fi
+
 bot_dir="${BOT_ROOT}/bots/${bot}"
 mkdir -p "${bot_dir}/skills" "${bot_dir}/logs" "${bot_dir}/routines"
 printf '%s\n' "Bot skills live here." > "${bot_dir}/skills/README.md"
@@ -252,6 +249,7 @@ page=$(bot_mktemp)
     printf 'area: ""\n'
   fi
   printf 'bot_user: %s\n' "$bot_user"
+  printf 'email: %s\n' "$(bot_yaml_quote "$email")"
   if [ "$host" = "github" ] && [ -n "$app_id" ]; then
     printf 'app_id: %s\n' "$(bot_yaml_quote "$app_id")"
     printf 'installation_id: %s\n' "$(bot_yaml_quote "$installation_id")"
@@ -396,7 +394,17 @@ case "$host" in
     ;;
   forgejo)
     host_sh=$(bot_host_sh)
+    while IFS= read -r old; do
+      [ -n "$old" ] || continue
+      if ! grep -qx "$old" "$repo_file"; then
+        bash "$host_sh" revoke "$old" "$bot_user"
+        printf 'revoked: %s\n' "$old"
+      fi
+    done < "$old_repos"
     while IFS= read -r repo; do
+      if ! grep -qx "$repo" "$old_repos"; then
+        printf 'granted: %s\n' "$repo"
+      fi
       bash "$host_sh" grant "$repo" "$bot_user" write
     done < "$repo_file"
     ready=1
@@ -449,14 +457,7 @@ printf 'kind: %s\n' "$kind"
 while IFS= read -r repo; do
   printf 'repo: %s\n' "$repo"
 done < "$repo_file"
-propose_files="bots/${bot}/BOT.md"
-for routine_page in "${bot_dir}/routines/"*.md; do
-  [ -f "$routine_page" ] || continue
-  base=$(basename "$routine_page")
-  [ "$base" = "README.md" ] && continue
-  propose_files="${propose_files} bots/${bot}/routines/${base}"
-done
-printf 'propose: skills/sync/sync.sh propose add-bot-%s %s\n' "$bot" "$propose_files"
+printf 'propose: skills/sync/sync.sh propose add-bot-%s bots/%s/BOT.md bots/%s/routines/*.md\n' "$bot" "$bot" "$bot"
 if [ "$box" = "yes" ]; then
   printf '%s\n' "propose-note: me on this box is the bot. Run propose on the admin computer, where me is the admin, before that."
 fi

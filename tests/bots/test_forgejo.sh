@@ -54,7 +54,7 @@ bots_git_env
 
 company="$tmp/company"
 mkdir -p "$company/notes" "$company/areas/marketing/notes" "$company/skills"
-bots_profile "$company" forgejo "bots"
+bots_profile "$company" forgejo "bots" bots
 bots_people "$company"
 bots_copy_skills "$company"
 printf '%s\n' "areas/" > "$company/.gitignore"
@@ -108,6 +108,7 @@ bot_user=acme-bot
 repos=bots-os,bots-marketing
 scope.bots-os=company
 scope.bots-marketing=marketing
+email=acme.bot@acme.test
 token_path=$token_path
 box=yes
 engine=$engine
@@ -185,7 +186,7 @@ bots_pass "trailers present on main after merge"
 # Token refresh across a real token life. No person step.
 trace="$tmp/trace"
 : > "$trace"
-rm -f "$XDG_CONFIG_HOME/acme-os/bots/helper/token-cache"
+rm -f "$XDG_CONFIG_HOME/bots-os/bots/helper/token-cache"
 printf 'protocol=http\nhost=localhost:3300\n\n' | \
   OS_BOT=helper OS_ROOT="$company" OS_BOT_TOKEN_TTL=1 OS_BOT_TOKEN_TRACE="$trace" \
   bash "$company/skills/add-bot/git-credential-os-bot" get >"$tmp/cred1.out"

@@ -28,8 +28,8 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 | `name` | no | display name. Default: the bot slug |
 | `bot_user` | no | host login. Default: the bot slug. Forgejo: the existing bot user |
 | `repos` | yes | comma-separated repo short names to grant write |
-| `scope.<repo>` | yes if the name is not the default shape | `company` or an area slug. Default shape: `<company_slug>-os` is company; `<company_slug>-<area>` is that area |
-| `company_repo` | no | company repo short name. Default: `<company_slug>-os` |
+| `scope.<repo>` | no | Must match the name, or be omitted. `<company_slug>-os` is company. `<company_slug>-<area>` is that area. Any other name, or a scope that disagrees with the name, is refused |
+| `email` | yes | bot author email. undo-run matches this email, not a copied trailer alone |
 | `inbox` | no | `none` (default) or a comma list of shared inbox names |
 | `connections` | no | `none` (default) or a comma list of allowed connections |
 | `routines` | no | comma list of routine slugs. Files live in `bots/<bot>/routines/` |
@@ -43,7 +43,7 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 
 Exit codes: `0` ready or waiting for the App, `1` usage, `2` refused (switch off, grant above the owner, bad path), `3` a needed script or host call failed, `4` auth or key problem.
 
-Grants never exceed the owner. A company bot's owner must be an admin. An area bot may take only that area's repos. A director may grant only areas listed on their person page. The admin may grant the company repo and any area.
+Grants never exceed the owner. The scope comes from the repo name only. An answers line cannot relabel the company repo as an area. A second run revokes repos that left the list and prints granted and revoked.
 
 ### GitHub
 
@@ -59,7 +59,7 @@ A Forgejo or GitHub Enterprise host uses `host_url` as the base.
 
 ### Forgejo
 
-The script does not make a user. It uses `bot_user` and `token_path`. It grants that user write on each named repo through `host.sh grant`.
+The script does not make a user. It uses `bot_user` and `token_path`. It grants that user write on each named repo through `host.sh grant`. A second run revokes repos that are no longer named.
 
 ### What it writes
 
@@ -72,10 +72,10 @@ On the bot's box (`box=yes`) it writes `<config>/<slug>-os/me` (the bot slug) an
 `add-bot.sh` does not commit `BOT.md`. That page is a rules file. The nightly push will not put it on the standing pull request. After add-bot, on the admin's computer, while `me` is still the admin, run:
 
 ```
-skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/<routine>.md
+skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/*.md
 ```
 
-Pass only files that exist. Do not pass a glob that the shell left unexpanded. `sync.sh propose` is defined in `skills/sync/CLI.md`. It opens `rules/<me>/add-bot-<bot>`. It checks that `host.sh whoami` matches the `github:` field of the person page for `me`. The bot slug is not a person, so do not run propose on the bot box after `box=yes` has replaced `me`. Run propose first, from the admin computer. The script prints this command as `propose:`.
+That is the command. `sync.sh propose` is defined in `skills/sync/CLI.md`. The shell expands the routine glob. If no routine file matches, omit that argument. Do not pass the glob as a literal path. It opens `rules/<me>/add-bot-<bot>`. It checks that `host.sh whoami` matches the `github:` field of the person page for `me`. The bot slug is not a person, so do not run propose on the bot box after `box=yes` has replaced `me`. Run propose first, from the admin computer. The script prints this command as `propose:`.
 
 ## git-credential-os-bot
 
@@ -85,7 +85,7 @@ git-credential-os-bot get
 
 Git credential helper protocol. `get` only. `store` and `erase` do nothing and exit 0, so git does not fail. Any other operation exits 1.
 
-The bot slug comes from `OS_BOT`, else the `me` file. The company root comes from `OS_ROOT`, else `OS_PROFILE`, else a walk up to `company-profile.md`, else `<config>/<slug>-os/root`.
+It answers only when the request protocol and host match the company host URL. GitHub with an empty host URL is https and github.com. Any other request prints nothing and exits 0. If the request includes a path, that path must name a repo in this bot's grant list. The bots switch must be on. With the switch off, it prints nothing, refreshes nothing, and writes nothing. OS_BOT and the company root must already be set. It does not guess the bot from a me file.
 
 It calls `host.sh get-token --bot <bot>`. It caches the token and its expiry under `<config>/<slug>-os/bots/<bot>/token-cache` (mode 0600). It refreshes when under 5 minutes remain. If `OS_BOT_TOKEN_TTL` is under 5 minutes, it refreshes only at expiry, so a short test token can be reused and then refreshed. Default life is 3600 seconds. `OS_NOW` is an epoch second that fakes the clock. `OS_BOT_TOKEN_TRACE`, when set to a path, receives the word `cache` or `refresh` and never the token.
 
@@ -113,13 +113,13 @@ A hand-off is refused when `cloud-handoff` is off. When the switch is on, v1 sti
 
 The script makes a `Run-Id` of `YYYYMMDD-HHMMSS` plus 8 hex characters. `OS_NOW` fakes the clock. It runs the engine with the routine body on stdin, in `bots/<bot>/`. The engine is `engine` in `BOT.md`, else `OS_SYNC_ENGINE`, else `sync_engine`. Every `git commit` the engine makes gets trailers `Run-Id: <id>` and `Bot-Owner: <owner-slug>`.
 
-Before the engine, each granted local repo is put on `sync/<bot>` from `origin/main`. After the engine, the script runs `skills/sync/sync.sh push`. That push owns the standing pull request and auto-merge. This script does not open that pull request itself.
+Before the engine, each granted local repo must be clean. A dirty tree is refused. The branch `sync/<bot>` is then taken from `origin/main`. The git wrapper refuses a push whose destination is `main` or `master`, and a merge into `main`. After the engine, the script runs `skills/sync/sync.sh push`. That push owns the standing pull request and auto-merge. This script does not open that pull request itself.
 
 Exit codes: `0` ok, `1` usage, `2` refused, `3` engine, sync, or hand-off caller missing.
 
 ## Conflict
 
-`undo-run.sh` reverts each repo on its own. If a revert conflicts, that repo is reset to `origin/main` and left unchanged. The script prints `conflict:` for that repo and continues with the other repos. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
+`undo-run.sh` reverts each repo in a temporary worktree. It does not touch the live checkout. If a revert conflicts, it removes that worktree, stops for that repo, and changes nothing there. It prints `conflict:` and continues with the other repos. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
 
 ## undo-run.sh
 
@@ -130,7 +130,7 @@ undo-run.sh --help
 
 Refuses when `bots` is off.
 
-It fetches `origin/main` in the company repo and in each `areas/*` repo. It finds every commit whose message has a `Run-Id` trailer equal to the argument. Per repo, it makes one revert commit on branch `undo/<run-id>`, opens a pull request, and asks for auto-merge. The revert commit does not reuse the original `Run-Id`. Its message has `Reverts: <run-id>`.
+It fetches `origin/main` in the company repo and in each `areas/*` repo. It finds commits whose exact `Run-Id` trailer matches and whose author email is the bot email on a bot page. A copied trailer line on someone else's commit is not enough. Trailers are not proof. The pull request is the check. Per repo, it makes one revert commit on branch `undo/<run-id>` in a temporary worktree, pushes that branch, and asks for auto-merge. It prints every reverted SHA. The live checkout is not changed. The revert commit does not reuse the original `Run-Id`. Its message has `Reverts:`.
 
 It prints the repo, the reverted commit ids, the revert commit, and the pull request URL. It does not print a diff.
 
