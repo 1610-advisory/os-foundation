@@ -283,6 +283,55 @@ esac
         self.assertNotIn("refs/heads/sync/mia", heads)
         self.assertNotIn("open-pr", self.host_log.read_text())
 
+    def test_rename_out_of_skills_pushes_nothing(self):
+        (self.company / "skills" / "old.md").write_text("rule\n")
+        run(["git", "-C", str(self.company), "add", "skills/old.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "rules"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        run(
+            ["git", "-C", str(self.company), "checkout", "-q", "-B", "sync/helper", "origin/main"],
+            env=self.env,
+            check=True,
+        )
+        (self.company / "notes").mkdir()
+        run(
+            ["git", "-C", str(self.company), "mv", "skills/old.md", "notes/old.md"],
+            env=self.env,
+            check=True,
+        )
+        run(
+            [
+                "git",
+                "-C",
+                str(self.company),
+                "commit",
+                "-q",
+                "-m",
+                "Bot note",
+                "-m",
+                "Run-Id: run-1\nBot-Owner: mia",
+            ],
+            env=self.env,
+            check=True,
+        )
+        result = self.push()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rules file: propose it with sync.sh propose", result.stderr)
+        self.assert_no_token(result)
+        heads = self.heads()
+        self.assertNotIn("refs/heads/sync/helper", heads)
+        self.assertNotIn("refs/heads/sync/mia", heads)
+
+    def test_rules_path_with_a_space_pushes_nothing(self):
+        self.commit_on_bot("skills/a b.md", "a rules file\n")
+        result = self.push()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rules file: propose it with sync.sh propose", result.stderr)
+        self.assert_no_token(result)
+        heads = self.heads()
+        self.assertNotIn("refs/heads/sync/helper", heads)
+        self.assertNotIn("refs/heads/sync/mia", heads)
+
     def test_credential_in_the_remote_url_pushes_nothing(self):
         self.commit_on_bot("notes/bot.md", "the bot ran")
         run(

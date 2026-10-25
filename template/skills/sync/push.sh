@@ -643,16 +643,15 @@ sync_bot_check_range() {
   range=$(sync_bot_range "$repo" "$ref")
   list=$(sync_mktemp)
   set +e
-  git -C "$repo" log --name-only --pretty=format: "$range" > "$list"
+  git -C "$repo" log -z --name-only --no-renames --pretty=format: "$range" > "$list"
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
     sync_bot_fail "$id" "secret scan"
     return 1
   fi
-  while IFS= read -r line || [ -n "$line" ]; do
-    path=$line
-    path=${path%$'\r'}
+  # -z keeps both sides of a rename and does not quote a path.
+  while IFS= read -r -d '' path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
     if sync_is_rules "$path"; then
       sync_bot_fail "$id" "rules file: propose it with sync.sh propose"
