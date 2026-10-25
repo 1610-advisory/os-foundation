@@ -90,8 +90,8 @@ kind=second-vendor
 2. Sets `level: team` and writes `host`, `host_url`, `org`, `sync_engine`, `runner`, and `review` in `company-profile.md`.
 3. Writes `people/<Name>.md` with `slug`, `github`, `email`, `role`, `areas`, and `manager` when set.
 4. Writes `CODEOWNERS` for rules paths only. The company repo names the admin. An area repo names that area's director and the admin.
-5. Copies `.github/` from the company root into each area repo when that folder exists, then writes the area `CODEOWNERS`.
-6. Puts `CODEOWNERS` and `review.conf` on `main` before protection. If the repo already exists and is not protected, it pushes them. If `main` is already protected and those files are missing, it stops and names `sync.sh propose`.
+5. Copies `.github/` from the company root into each area repo when that folder exists, then writes the area `CODEOWNERS`. If the area has no `review-rules.md`, it copies the company file. It does not replace an existing one. The area director owns that file after the copy.
+6. Puts `CODEOWNERS` and `review.conf` on `main` before protection. If the repo already exists and is not protected, it pushes them. If `main` is already protected and those files are missing, it stops and names `sync.sh propose`. If an area main already has those files but no check tools, a second run opens a pull request on `team/scripts-tools`. That pull request also adds `review-rules.md` when main lacks it. It does not push to main.
 7. `host.sh create-repo <name> --source --push` for the company repo `<slug>-os` and each area repo `<slug>-<area>`. History is kept. The push happens before protection.
 8. `host.sh protect <name> --code-owners --approvals 0` on the company repo and each area repo. Workspace repos are not protected: they push to their own `main`.
 9. Creates team `company` (everyone, write on the company repo) and team `area-<area>` (that area's people, write on the area repo). The area director is on the area team.

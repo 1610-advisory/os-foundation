@@ -851,9 +851,108 @@ EOF
     cat "$work/team-on.out" >>"$log" 2>/dev/null || true
     fail "area tools pull request"
   fi
+  if [ "$tools_rc" -eq 0 ] \
+    && git -C "$tools_root/areas/marketing" cat-file -e "team/scripts-tools:review-rules.md" \
+    && ! git -C "$tools_root/areas/marketing" cat-file -e "origin/main:review-rules.md" 2>/dev/null \
+    && [ "$(git -C "$tools_root/areas/marketing" rev-parse "team/scripts-tools:review-rules.md")" = "$(git -C "$tools_root" rev-parse "HEAD:review-rules.md")" ] \
+    && [ "$(git -C "$tools_root/areas/marketing" rev-parse origin/main)" = "$tools_main" ]; then
+    pass "area review-rules pull request"
+  else
+    fail "area review-rules pull request"
+  fi
 else
   fail "area tools pull request"
+  fail "area review-rules pull request"
 fi
+
+# An area made by team-on has review-rules.md on main. Its checks job passes.
+rules_slug="crr${stamp}"
+rules_slug=${rules_slug//-/}
+rules_company="${rules_slug}-os"
+rules_area="${rules_slug}-marketing"
+rules_user="${rules_slug}-user-ada"
+EXTRA_REPOS="${EXTRA_REPOS} ${rules_company} ${rules_area} ${rules_user}"
+rules_root="$work/rules"
+mkdir -p "$rules_root/areas/marketing"
+cp -R "$root/template/." "$rules_root/"
+python3 - "$rules_root/company-profile.md" "$rules_slug" << 'PY'
+import pathlib, sys
+path, slug = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+text = text.replace("{{COMPANY_SLUG}}", slug)
+text = text.replace("{{COMPANY_NAME}}", "Acme Co")
+text = text.replace("{{DATE}}", "2026-10-24")
+text = text.replace("{{ONE_LINER}}", "A test company")
+text = text.replace("{{OS_VERSION}}", "v1.0.0")
+pathlib.Path(path).write_text(text)
+PY
+rm -rf "$rules_root/areas/marketing"
+mkdir -p "$rules_root/areas/marketing"
+printf '%s\n' '# Marketing' > "$rules_root/areas/marketing/AGENTS.md"
+printf '%s\n' 'A note.' > "$rules_root/areas/marketing/note.txt"
+git -C "$rules_root" init -q -b main
+git -C "$rules_root" config user.email ada.admin@acme.test
+git -C "$rules_root" config user.name "Ada Admin"
+git -C "$rules_root" add -A
+git -C "$rules_root" commit -q -m "company start"
+git -C "$rules_root/areas/marketing" init -q -b main
+git -C "$rules_root/areas/marketing" config user.email ada.admin@acme.test
+git -C "$rules_root/areas/marketing" config user.name "Ada Admin"
+git -C "$rules_root/areas/marketing" add -A
+git -C "$rules_root/areas/marketing" commit -q -m "area start"
+at='@'
+cat > "$work/rules-answers" << EOF
+root=$rules_root
+host=forgejo
+host_url=http://localhost:3300
+org=acme
+sync_engine=true
+runner=ubuntu-latest
+company_name=Acme Co
+company_slug=${rules_slug}
+review_vendor=xai
+review_kind=second-vendor
+person.ada.name=Ada Admin
+person.ada.github=acme-admin
+person.ada.email=ada${at}acme.test
+person.ada.role=admin
+person.ada.areas=marketing
+area.marketing.director=ada
+EOF
+set +e
+OS_HOST_SH="$work/host/host.sh" OS_JOBS_DIR="$work/jobs" \
+  "$root/template/skills/add-teammate/team-on.sh" --answers "$work/rules-answers" >"$work/rules-team.out" 2>>"$log"
+rules_rc=$?
+set -e
+rules_on_main=0
+if [ "$rules_rc" -eq 0 ]; then
+  osf_api "$admin" GET "/api/v1/repos/acme/${rules_area}/contents/review-rules.md?ref=main"
+  if [ "$OSF_HTTP_CODE" = "200" ] \
+    && [ "$(jq -r '.sha // empty' "$OSF_HTTP_BODY")" = "$(git hash-object "$rules_root/review-rules.md")" ]; then
+    rules_on_main=1
+  fi
+  osf_api_discard
+fi
+if [ "$rules_on_main" -eq 1 ]; then
+  src="$rules_root/areas/marketing"
+  repo="$rules_area"
+  git -C "$src" checkout -q -B area-note
+  printf '%s\n' 'A longer note.' >> "$src/note.txt"
+  git -C "$src" add note.txt
+  git -C "$src" commit -q -m "extend the note"
+  push_branch "$admin" area-note
+  rules_pr=$(open_pr "$admin" area-note "Area note")
+  rules_sha=$(pr_sha "$rules_pr")
+  if wait_sha "$rules_pr" "$rules_sha"; then
+    pass "area team-on checks"
+  else
+    fail "area team-on checks"
+  fi
+else
+  cat "$work/rules-team.out" >>"$log" 2>/dev/null || true
+  fail "area team-on checks"
+fi
+repo="ci-checks-${stamp}"
 
 # One job duration, for the billed-minute estimate.
 osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs?limit=20"

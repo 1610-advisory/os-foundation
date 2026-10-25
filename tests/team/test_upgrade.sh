@@ -103,8 +103,10 @@ git -C "$nologs" show HEAD:company-profile.md | grep -q '^level:' && team_fail "
 
 # Dry-run names an area pull request. It does not copy tools into the company commit.
 plan="$work/plan"
-mkdir -p "$plan/areas/marketing"
+mkdir -p "$plan/areas/marketing" "$plan/areas/finance"
 printf '%s\n' '# Marketing' > "$plan/areas/marketing/AGENTS.md"
+printf '%s\n' '# Finance' > "$plan/areas/finance/AGENTS.md"
+printf '%s\n' 'keep-mine' > "$plan/areas/finance/review-rules.md"
 git -C "$plan" init -q
 git -C "$plan" checkout -q -b main
 printf '%s\n' '/areas/' > "$plan/.gitignore"
@@ -129,8 +131,17 @@ GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
 GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
   GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
   git -C "$plan/areas/marketing" commit -q -m "area start"
+git -C "$plan/areas/finance" init -q
+git -C "$plan/areas/finance" checkout -q -b main
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan/areas/finance" add -A
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan/areas/finance" commit -q -m "area start"
 plan_out=$("$upgrade" --dry-run --root "$plan" --template "$root/template" --level team)
-printf '%s\n' "$plan_out" | grep -q 'pr-plan: acme-marketing branch upgrade/scripts files .github/scripts auto-merge' || team_fail "missing area pr plan"
+printf '%s\n' "$plan_out" | grep -q 'pr-plan: acme-marketing branch upgrade/scripts files .github/scripts review-rules.md auto-merge' || team_fail "missing area review-rules plan"
+printf '%s\n' "$plan_out" | grep -q 'pr-plan: acme-finance branch upgrade/scripts files .github/scripts auto-merge' || team_fail "dry-run planned an overwrite of review-rules.md"
 printf '%s\n' "$plan_out" | grep -q 'change: areas/' && team_fail "dry-run still claims an area working-tree change"
 git -C "$plan" status --porcelain | grep -q . && team_fail "dry-run changed the plan tree"
 git -C "$plan" ls-files | grep -q '^areas/' && team_fail "area files are in the company repo"
