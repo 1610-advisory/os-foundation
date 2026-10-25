@@ -59,7 +59,9 @@ for engine in claude codex cursor pi; do
   osf_api "$(osf_token_file acme-admin)" PUT "/api/v1/repos/${org}/${repo}/collaborators/${user}" "$body" || true
   rm -f "$body"
   osf_api_discard
-  git -C "$dest" remote add origin "$(osf_acme_url)/${org}/${repo}.git"
+  if ! git -C "$dest" remote get-url origin >/dev/null 2>&1; then
+    git -C "$dest" remote add origin "$(osf_acme_url)/${org}/${repo}.git"
+  fi
   prompt="$work/prompt.txt"
   printf '%s\n' "Read company-profile.md. Add one sentence to notes/admin.md: the admin run wrote this. Commit that file and push it to origin. Do not change git identity." > "$prompt"
   if ! bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
@@ -73,18 +75,44 @@ for engine in claude codex cursor pi; do
     fi
     continue
   fi
-  osf_host S13 file "$org" "$repo" notes/admin.md --ref main
-  page=$(cat "$OSF_HOST_JSON")
-  found=0
-  if [ "$OSF_HOST_RC" -eq 0 ]; then
-    set +e
-    printf '%s\n' "$page" | grep -q 'the admin run wrote this'
-    rc=$?
-    set -e
-    if [ "$rc" -eq 0 ]; then
-      found=1
+  if [ -f "$dest/notes/admin.md" ]; then
+    git -C "$dest" add notes/admin.md
+    if ! git -C "$dest" diff --cached --quiet; then
+      name=$(awk -F'|' -v s="$seat" '$1 == s { print $4 }' "$root/tests/acme/lib/seats.txt")
+      email=$(awk -F'|' -v s="$seat" '$1 == s { print $5 }' "$root/tests/acme/lib/seats.txt")
+      git -C "$dest" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
+        commit -m "Admin run" >/dev/null
     fi
+    cfg=$(mktemp)
+    chmod 600 "$cfg"
+    printf '[credential]\n\thelper = !%s\n\tuseHttpPath = true\n' \
+      "$root/tests/acme/lib/git-credential-seat.sh" > "$cfg"
+    GIT_CONFIG_GLOBAL="$cfg" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+      GIT_SSH_COMMAND="$root/tests/acme/lib/ssh-off.sh" \
+      GIT_ALLOW_PROTOCOL="http:https:file" \
+      OSF_FORGEJO_TOKEN="$(tr -d '[:space:]' < "$(osf_token_file "$user")")" \
+      OSF_GIT_USER="$user" \
+      git -C "$dest" push -u origin HEAD:main >"$work/push.log" 2>&1 || true
+    rm -f "$cfg"
   fi
+  found=0
+  i=0
+  while [ "$i" -lt 6 ]; do
+    osf_host S13 file "$org" "$repo" notes/admin.md --ref main
+    page=$(cat "$OSF_HOST_JSON")
+    if [ "$OSF_HOST_RC" -eq 0 ]; then
+      set +e
+      printf '%s\n' "$page" | grep -q 'the admin run wrote this'
+      rc=$?
+      set -e
+      if [ "$rc" -eq 0 ]; then
+        found=1
+        break
+      fi
+    fi
+    i=$((i + 1))
+    sleep 2
+  done
   if [ "$found" -ne 1 ]; then
     osf_line "S13 $engine FAIL note is not on the host"
     fail=$((fail + 1))

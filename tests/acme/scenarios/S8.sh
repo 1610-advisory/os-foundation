@@ -111,7 +111,10 @@ GIT_CONFIG_GLOBAL="$cfg" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
   git -C "$dest" fetch origin >"$work/fetch.log" 2>&1 \
   || osf_result "S8 FAIL could not fetch main"
 rm -f "$cfg"
-git -C "$dest" checkout -B main origin/main >"$work/checkout.log" 2>&1 \
+# The propose left local copies. Reset to the merged main instead of refusing them.
+git -C "$dest" reset --hard origin/main >"$work/checkout.log" 2>&1 \
+  || osf_result "S8 FAIL could not match origin/main"
+git -C "$dest" clean -fd >>"$work/checkout.log" 2>&1 \
   || osf_result "S8 FAIL could not match origin/main"
 
 trace="$work/token-trace"
@@ -141,9 +144,12 @@ export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/add-bot/run.sh" helper note --root "$dest" >"$work/run.log" 2>&1 \
   || osf_result "S8 FAIL bot run"
-run_id=$(grep -o 'Run-Id: [^ ]*' "$work/run.log" | awk '{print $2}' | head -n 1)
+run_id=$(grep -o 'Run-Id: [^ ]*' "$work/run.log" | awk '{print $2}' | head -n 1 || true)
 if [ -z "$run_id" ]; then
-  run_id=$(git -C "$dest" log -1 --format='%b' | awk -F': ' '/^Run-Id: /{print $2}')
+  run_id=$(grep -o 'run_id: [^ ]*' "$work/run.log" | awk '{print $2}' | head -n 1 || true)
+fi
+if [ -z "$run_id" ]; then
+  run_id=$(git -C "$dest" log -1 --format='%b' | awk -F': ' '/^Run-Id: /{print $2}' || true)
 fi
 if [ -z "$run_id" ]; then
   osf_result "S8 FAIL no Run-Id"

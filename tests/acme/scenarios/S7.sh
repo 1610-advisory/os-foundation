@@ -48,10 +48,16 @@ bash "$dest/skills/reports/run.sh" --date "$day" --root "$dest" >"$work/reports.
   || osf_result "S7 FAIL reports"
 
 week=$(date +%G-W%V)
-decide="$dest/areas/marketing/reports/${day}-to-decide.md"
-weekly="$dest/areas/marketing/reports/${week}.md"
-if [ ! -f "$decide" ]; then
-  osf_result "S7 FAIL to-decide file missing"
+# Reports publishes on review/<date> and then removes the working-tree copy.
+osf_host S7 file "$org" "${slug}-marketing" "reports/${day}-to-decide.md" --ref "review/${day}"
+decide=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S7 FAIL to-decide file is not on the host"
+fi
+osf_host S7 file "$org" "${slug}-marketing" "reports/${week}.md" --ref "review/${day}"
+weekly=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S7 FAIL weekly report is not on the host"
 fi
 osf_host S7 file "$org" "${slug}-marketing" notes/widget.md --ref "review/${day}"
 fixed=$(cat "$OSF_HOST_JSON")
@@ -65,16 +71,13 @@ fi
 if printf '%s\n' "$fixed" | grep -q 'Missing Person'; then
   osf_result "S7 FAIL broken link is still on the host"
 fi
-if ! grep -q 'price' "$decide"; then
+if ! printf '%s\n' "$decide" | grep -q 'price'; then
   osf_result "S7 FAIL judgment call is not in to-decide"
 fi
-if [ ! -f "$weekly" ]; then
-  osf_result "S7 FAIL weekly report missing"
-fi
-if grep -Eiq 'rank|ranking|score|leaderboard|profile/PROFILE' "$weekly" "$decide"; then
+if printf '%s\n' "$weekly" "$decide" | grep -Eiq 'rank|ranking|score|leaderboard|profile/PROFILE'; then
   osf_result "S7 FAIL report contains ranking or profile text"
 fi
-if grep -q 'piano lesson' "$weekly" "$decide"; then
+if printf '%s\n' "$weekly" "$decide" | grep -q 'piano lesson'; then
   osf_result "S7 FAIL report contains workspace content"
 fi
 
