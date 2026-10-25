@@ -48,7 +48,7 @@ At `team`, the area must also get its place on the host. The scripts do it. Neve
    - `review_vendor` and `review_kind` from `.github/review.conf`,
    - the full `person.<slug>.*` block for **every** person in `people/` (not only the new ones), with `{{AREA_SLUG}}` added to `.areas` of each person who gets it,
    - every `area.<area>.director` already in use, plus `area.{{AREA_SLUG}}.director`.
-4. Run `skills/add-teammate/team-on.sh --answers <file>`. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` (rules files: the director and the admin), adds the checks, and protects `main`.
+4. Run `skills/add-teammate/team-on.sh --answers <file>`. A second run changes only what is missing. It pushes the area repo with its history, makes the area's team, writes its `CODEOWNERS` files (rules files: the director and the admin), adds the checks, and protects `main`.
 5. If it stops with an error: tell the admin the exact message. Do not say the area is on the host. Fix the cause it names and run it once more. If it stops again, stop.
 6. Each person who got the area runs `join.sh` on their own computer, from the company folder, with its own answers file: one line, `me=<their slug>`. It clones only the new area. Never reuse the `team-on.sh` answers file for `join.sh`.
 

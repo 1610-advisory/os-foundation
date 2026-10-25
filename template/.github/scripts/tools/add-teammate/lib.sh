@@ -477,11 +477,14 @@ os_areas_on_disk() {
   done
 }
 
+# Write both owner files. GitHub reads .github/CODEOWNERS (globs).
+# Forgejo reads .gitea/CODEOWNERS (regular expressions), not .github/CODEOWNERS.
+# A file the host ignores is harmless. One writer covers both hosts.
 os_codeowners() {
-  local dest=$1
+  local root=$1
   shift
   local users=$*
-  mkdir -p "$(dirname "$dest")"
+  mkdir -p "$root/.github" "$root/.gitea"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
     printf '%s\n' "/AGENTS.md $users"
@@ -490,7 +493,18 @@ os_codeowners() {
     printf '%s\n' "/skills/ $users"
     printf '%s\n' "/bots/*/BOT.md $users"
     printf '%s\n' "/.github/ $users"
-  } > "$dest"
+    printf '%s\n' "/.gitea/ $users"
+  } > "$root/.github/CODEOWNERS"
+  {
+    printf '%s\n' "# Rules files only. Notes have no code owner."
+    printf '%s %s\n' '^AGENTS\.md$' "$users"
+    printf '%s %s\n' '^CLAUDE\.md$' "$users"
+    printf '%s %s\n' '^review-rules\.md$' "$users"
+    printf '%s %s\n' '^skills/.*' "$users"
+    printf '%s %s\n' '^bots/[^/]+/BOT\.md$' "$users"
+    printf '%s %s\n' '^\.github/.*' "$users"
+    printf '%s %s\n' '^\.gitea/.*' "$users"
+  } > "$root/.gitea/CODEOWNERS"
 }
 
 os_at_users() {

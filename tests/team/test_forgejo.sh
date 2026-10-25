@@ -216,8 +216,13 @@ for slug in ada dana mia max noa sam; do
 done
 grep -q 'CODEOWNERS' "$company/.github/CODEOWNERS" || true
 grep -q '@acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS missing admin"
+grep -F -q '/.gitea/ @acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS does not own .gitea"
+grep -F -q '^AGENTS\.md$ @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS missing"
+grep -F -q '^\.gitea/.* @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own itself"
 grep -q '@acme-director' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing director"
 grep -q '@acme-admin' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing admin"
+grep -F -q '/.gitea/ @acme-director @acme-admin' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS does not own .gitea"
+grep -F -q '^skills/.* @acme-director @acme-admin' "$company/areas/marketing/.gitea/CODEOWNERS" || die "area Forgejo CODEOWNERS missing"
 [ -f "$company/people/Mia Member.md" ] || die "people page missing"
 grep -q '^slug: mia$' "$company/people/Mia Member.md" || die "people slug missing"
 

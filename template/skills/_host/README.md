@@ -52,7 +52,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 
 GitHub writes two repository rulesets. `main` requires a pull request, zero approvals, and the check `checks`. It blocks force-push and deletion. It has no bypass. `rules-review` requires a code-owner review. The org admin role can bypass that one rule on a pull request. The admin's own rules change still needs the green check, but not a second person. A live check of that bypass is Tier B. This layer does not call GitHub.
 
-Forgejo turns push off, requires the status check, and sets `block_on_official_review_requests`. With `CODEOWNERS` committed, Forgejo asks the owner to review a pull request that changes an owned file. The block stops the merge until that review happens. A notes change that touches no owned file can still merge on green checks. The result is `code_owners: request-block`. This is weaker than GitHub: a person who can merge can remove the review request.
+Forgejo turns push off, requires the status check, and sets `block_on_official_review_requests`. It reads owners from `CODEOWNERS`, `docs/CODEOWNERS`, or `.gitea/CODEOWNERS`. It does not read `.github/CODEOWNERS`. Patterns are regular expressions, not GitHub globs. With `.gitea/CODEOWNERS` committed, Forgejo asks each named owner to review a pull request that changes an owned file. The block stops the merge until every official review request is approved. One owner's approval does not clear the other. A notes change that touches no owned file can still merge on green checks. The result is `code_owners: request-block`. This is weaker than GitHub: a person who can merge can remove the review request.
 
 ## Tokens
 

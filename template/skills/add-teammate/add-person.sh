@@ -129,7 +129,7 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   abranch="rules/${ADMIN}/add-${PERSON}"
   os_with_git_token git -C "$ROOT/areas/$a" fetch origin
   git -C "$ROOT/areas/$a" checkout -q -B "$abranch" origin/main
-  os_codeowners "$ROOT/areas/$a/.github/CODEOWNERS" "$(os_at_users "$ADMIN_GH" "$gh")"
+  os_codeowners "$ROOT/areas/$a" "$(os_at_users "$ADMIN_GH" "$gh")"
   os_git_commit "$ROOT/areas/$a" "Rules: director for ${a}"
   os_with_git_token git -C "$ROOT/areas/$a" push --set-upstream origin "$abranch"
   os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}" >/dev/null || true

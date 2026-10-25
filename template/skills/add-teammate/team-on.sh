@@ -168,7 +168,7 @@ $(os_person_slugs "$ANSWERS")
 EOF
 
 COMPANY_REPO=$(os_company_repo "$SLUG")
-os_codeowners "$ROOT/.github/CODEOWNERS" "$(os_at_users "$ADMIN_GH" "$ADMIN_GH")"
+os_codeowners "$ROOT" "$(os_at_users "$ADMIN_GH" "$ADMIN_GH")"
 
 # Area CODEOWNERS and a copy of .github when the company root has one.
 area=""
@@ -204,7 +204,7 @@ while IFS= read -r area; do
       cp "$rules_src" "$ROOT/areas/$area/review-rules.md"
     fi
   fi
-  os_codeowners "$ROOT/areas/$area/.github/CODEOWNERS" "$(os_at_users "$ADMIN_GH" "$director_gh")"
+  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
@@ -218,6 +218,7 @@ fi
 rules_on_main() {
   local dir=$1
   git -C "$dir" cat-file -e origin/main:.github/CODEOWNERS 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.gitea/CODEOWNERS 2>/dev/null \
     && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null
 }
 
@@ -245,7 +246,7 @@ commit_rules_before_protect() {
   if os_with_git_token git -C "$dir" push origin HEAD:main; then
     return 0
   fi
-  printf '%s\n' "main is protected and .github/CODEOWNERS or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
+  printf '%s\n' "main is protected and .github/CODEOWNERS, .gitea/CODEOWNERS, or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
   exit 2
 }
 
