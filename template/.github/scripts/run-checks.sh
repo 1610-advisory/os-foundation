@@ -56,13 +56,14 @@ prepare_host() {
     export OS_HOST_URL="${GITHUB_SERVER_URL%/}"
   fi
   export OS_ORG="$owner"
+  export OS_SLUG="${OS_SLUG:-$owner}"
   export FORGEJO_TOKEN="$JOB_TOKEN"
   export GH_TOKEN="$JOB_TOKEN"
 }
 
 post_comment() {
   local file=$1 host_bin out err rc
-  host_bin="${tools}/skills/_host/host.sh"
+  host_bin="${tools}/.github/scripts/tools/host/host.sh"
   if [ ! -f "$host_bin" ]; then
     ci_die 1 "could not post the review comment: the host layer is missing"
   fi
@@ -80,8 +81,8 @@ post_comment() {
 
 run_gates() {
   local range="${base}..${head}" scan_rc=0 lint_rc=0 scan lint
-  scan="${tools}/skills/sync/secret-scan.sh"
-  lint="${tools}/skills/lint/lint.sh"
+  scan="${tools}/.github/scripts/tools/secret-scan.sh"
+  lint="${tools}/.github/scripts/tools/lint.sh"
   if [ -f "$scan" ]; then
     set +e
     bash "$scan" --range "$range"
@@ -93,7 +94,7 @@ run_gates() {
     scan_rc=$?
     set -e
   else
-    ci_summary_add "secret scan failed: skills/sync/secret-scan.sh is missing and gitleaks is not installed"
+    ci_summary_add "secret scan failed: .github/scripts/tools/secret-scan.sh is missing and gitleaks is not installed"
     return 1
   fi
   if [ "$scan_rc" -ne 0 ]; then
@@ -102,7 +103,7 @@ run_gates() {
   fi
   if [ -f "$lint" ]; then
     set +e
-    bash "$lint" --ci
+    bash "$lint" --ci --base "$base"
     lint_rc=$?
     set -e
     if [ "$lint_rc" -ne 0 ]; then
@@ -110,7 +111,7 @@ run_gates() {
       return 1
     fi
   else
-    ci_summary_add "lint skipped: skills/lint/lint.sh is missing"
+    ci_summary_add "lint skipped: .github/scripts/tools/lint.sh is missing"
   fi
   return 0
 }

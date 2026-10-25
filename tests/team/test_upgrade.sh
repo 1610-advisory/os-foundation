@@ -101,4 +101,38 @@ git -C "$nologs" rev-parse HEAD:company-profile.md >/dev/null
 git -C "$nologs" show HEAD:company-profile.md | grep -q '^level:' && team_fail "no-logs revert kept level"
 [ "$(git -C "$nologs" rev-parse "HEAD:company-profile.md")" = "$(git -C "$nologs" rev-parse "$oldn:company-profile.md")" ] || team_fail "no-logs revert did not restore the profile"
 
+# Dry-run names an area pull request. It does not copy tools into the company commit.
+plan="$work/plan"
+mkdir -p "$plan/areas/marketing"
+printf '%s\n' '# Marketing' > "$plan/areas/marketing/AGENTS.md"
+git -C "$plan" init -q
+git -C "$plan" checkout -q -b main
+printf '%s\n' '/areas/' > "$plan/.gitignore"
+cat > "$plan/company-profile.md" << 'EOF'
+---
+type: company-profile
+summary: "Acme plan"
+company_slug: acme
+---
+EOF
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan" add -A
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan" commit -q -m "v0 plan"
+git -C "$plan/areas/marketing" init -q
+git -C "$plan/areas/marketing" checkout -q -b main
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan/areas/marketing" add -A
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$plan/areas/marketing" commit -q -m "area start"
+plan_out=$("$upgrade" --dry-run --root "$plan" --template "$root/template" --level team)
+printf '%s\n' "$plan_out" | grep -q 'pr-plan: acme-marketing branch upgrade/scripts files .github/scripts auto-merge' || team_fail "missing area pr plan"
+printf '%s\n' "$plan_out" | grep -q 'change: areas/' && team_fail "dry-run still claims an area working-tree change"
+git -C "$plan" status --porcelain | grep -q . && team_fail "dry-run changed the plan tree"
+git -C "$plan" ls-files | grep -q '^areas/' && team_fail "area files are in the company repo"
+
 printf '%s\n' "PASS upgrade"

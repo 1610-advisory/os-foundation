@@ -208,6 +208,135 @@ class ModelReviewTests(unittest.TestCase):
         self.assertIn("VERDICT: PASS", self.out.read_text(encoding="utf-8"))
 
 
+class ToolCopyTests(unittest.TestCase):
+    def test_every_tool_copy_matches_its_source(self):
+        tools = ROOT / "template" / ".github" / "scripts" / "tools"
+        host = ROOT / "template" / "skills" / "_host"
+        mapping = {
+            "secret-scan.sh": ROOT / "template" / "skills" / "sync" / "secret-scan.sh",
+            "lint/lint.sh": ROOT / "template" / "skills" / "lint" / "lint.sh",
+            "add-teammate/lib.sh": ROOT / "template" / "skills" / "add-teammate" / "lib.sh",
+        }
+        seen = []
+        for path in sorted(tools.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(tools).as_posix()
+            if rel == "lint.sh":
+                continue
+            if rel.startswith("host/") and rel.endswith(".sh"):
+                source = host / path.name
+                self.assertNotEqual(path.name, "README.md")
+            else:
+                source = mapping.get(rel)
+            self.assertIsNotNone(source, rel)
+            self.assertTrue(source.is_file(), rel)
+            self.assertEqual(source.read_bytes(), path.read_bytes(), rel)
+            seen.append(rel)
+        self.assertIn("host/host.sh", seen)
+        self.assertIn("host/lib.sh", seen)
+        self.assertIn("host/forgejo.sh", seen)
+        self.assertIn("host/github.sh", seen)
+        self.assertIn("host/profile.sh", seen)
+
+    def test_lint_uses_the_base_profile_not_the_head(self):
+        text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")
+        self.assertIn('bash "$lint" --ci --base "$base"', text)
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "skills").mkdir()
+        (repo / ".agents").mkdir()
+        (repo / ".claude").mkdir()
+        (repo / ".agents" / "skills").symlink_to("../skills")
+        (repo / ".claude" / "skills").symlink_to("../skills")
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        (repo / "company-profile.md").write_text(
+            "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+            encoding="utf-8",
+        )
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "init")
+        base = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        git(repo, "checkout", "-q", "-B", "drop")
+        (repo / "company-profile.md").unlink()
+        (repo / "company-profile.md").mkdir()
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "replace the profile with a directory")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        result = run(["bash", str(lint), "--ci", "--base", base, "--root", str(repo)])
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("company-profile.md is missing", result.stdout + result.stderr)
+
+    def test_unknown_base_sha_fails_closed(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "init")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        unknown = "a" * 40
+        result = run(["bash", str(lint), "--ci", "--base", unknown, "--root", str(repo)])
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("lint failed: the base commit is not in the repo", result.stderr)
+
+    def test_ci_without_a_base_fails_closed(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        (repo / "company-profile.md").write_text("level: team\n", encoding="utf-8")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        result = run(["bash", str(lint), "--ci", "--root", str(repo)])
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("lint failed: the base commit is missing", result.stderr)
+
+    def test_copied_tools_run_from_an_empty_dir(self):
+        tools = ROOT / "template" / ".github" / "scripts" / "tools"
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(empty, ignore_errors=True))
+        dest = empty / "tools"
+        __import__("shutil").copytree(tools, dest)
+        self.assertFalse((dest / "skills").exists())
+
+        def repo(kind):
+            path = empty / kind
+            path.mkdir()
+            (path / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+            (path / "note.txt").write_text("A note.\n", encoding="utf-8")
+            if kind == "company":
+                (path / "skills").mkdir()
+                (path / ".agents").mkdir()
+                (path / ".claude").mkdir()
+                (path / ".agents" / "skills").symlink_to("../skills")
+                (path / ".claude" / "skills").symlink_to("../skills")
+                (path / "company-profile.md").write_text(
+                    "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+                    encoding="utf-8",
+                )
+            return path
+
+        company = repo("company")
+        area = repo("area")
+        lint = dest / "lint.sh"
+        scan = dest / "secret-scan.sh"
+        company_lint = run(["bash", str(lint), "--root", str(company)])
+        self.assertEqual(company_lint.returncode, 0, company_lint.stdout + company_lint.stderr)
+        self.assertNotIn("No such file", company_lint.stderr)
+        area_lint = run(["bash", str(lint), "--root", str(area)])
+        self.assertEqual(area_lint.returncode, 0, area_lint.stdout + area_lint.stderr)
+        self.assertNotIn("No such file", area_lint.stderr)
+        clean = empty / "clean.txt"
+        clean.write_text("a note\n", encoding="utf-8")
+        scanned = run(["bash", str(scan), "--files", "--", str(clean)], env={"OS_SECRET_SCAN": "bundled"})
+        self.assertEqual(scanned.returncode, 0, scanned.stdout + scanned.stderr)
+
+
 class BaseRulesTests(unittest.TestCase):
     def test_review_rules_come_from_base(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")

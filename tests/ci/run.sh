@@ -54,6 +54,8 @@ member="$(osf_acme_token_dir)/acme-member-a"
 lib=$(osf_acme_lib_dir)
 stamp="$(date +%s)-$$"
 repo="ci-checks-${stamp}"
+area_repo=""
+EXTRA_REPOS=""
 work=$(mktemp -d)
 log="$work/run.log"
 : > "$log"
@@ -81,7 +83,10 @@ cleanup() {
     export OS_TEST_MODE=1
     FORGEJO_TOKEN=$(tr -d '[:space:]' < "$admin")
     export FORGEJO_TOKEN
-    "$work/host/host.sh" delete-repo "$repo" --yes-test-only >>"$log" 2>&1 || true
+    for name in "$repo" ${area_repo:-} ${EXTRA_REPOS:-}; do
+      [ -n "$name" ] || continue
+      "$work/host/host.sh" delete-repo "$name" --yes-test-only >>"$log" 2>&1 || true
+    done
   fi
   scrub_log "$log"
   rm -rf "$work"
@@ -102,16 +107,14 @@ cp "$host_src"/*.sh "$work/host/"
 chmod +x "$work/host/"*.sh
 
 src="$work/src"
-mkdir -p "$src/.github/workflows" "$src/.github/scripts" "$src/skills/sync" "$src/skills/lint" \
-  "$src/skills/_host" "$src/people"
+mkdir -p "$src/.github/workflows" "$src/.github/scripts" "$src/skills" "$src/.agents" "$src/.claude" "$src/people"
+printf '%s\n' 'Company skills live here.' > "$src/skills/README.md"
+ln -s ../skills "$src/.agents/skills"
+ln -s ../skills "$src/.claude/skills"
 cp "$root/template/.github/workflows/checks.yml" "$src/.github/workflows/checks.yml"
-cp "$root/template/.github/scripts/"*.sh "$src/.github/scripts/"
+cp -R "$root/template/.github/scripts/." "$src/.github/scripts/"
 cp "$root/template/review-rules.md" "$src/review-rules.md"
-cp "$here/fixtures/secret-scan.sh" "$src/skills/sync/secret-scan.sh"
-cp "$here/fixtures/lint.sh" "$src/skills/lint/lint.sh"
-cp "$work/host/"*.sh "$src/skills/_host/"
-chmod +x "$src/.github/scripts/"*.sh "$src/skills/sync/secret-scan.sh" "$src/skills/lint/lint.sh" \
-  "$src/skills/_host/"*.sh
+chmod +x "$src/.github/scripts/"*.sh "$src/.github/scripts/tools/"*.sh "$src/.github/scripts/tools/host/"*.sh
 cat > "$src/company-profile.md" << 'EOF'
 ---
 type: company-profile
@@ -355,7 +358,7 @@ fi
 
 # Planted secret.
 new_branch secret
-printf '%s\n' 'OSF_PLANTED_SECRET' > "$src/secret.txt"
+printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
 git -C "$src" add secret.txt
 git -C "$src" commit -q -m "add a file"
 push_branch "$member" secret
@@ -371,10 +374,10 @@ else
   fail "secret scan fails"
 fi
 
-# Lint failure.
+# Lint failure. The shipped lint fails when AGENTS.md is over 10000 characters.
 new_branch lint
-printf '%s\n' 'OSF_LINT_FAIL' > "$src/lint.txt"
-git -C "$src" add lint.txt
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text("x"*10001)' "$src/AGENTS.md"
+git -C "$src" add AGENTS.md
 git -C "$src" commit -q -m "mark lint"
 push_branch "$member" lint
 lint_pr=$(open_pr "$member" lint "Mark lint")
@@ -470,8 +473,10 @@ fi
 new_branch hijack
 printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/run-checks.sh"
 chmod +x "$src/.github/scripts/run-checks.sh"
-printf '%s\n' 'OSF_PLANTED_SECRET' > "$src/secret.txt"
-git -C "$src" add .github/scripts/run-checks.sh secret.txt
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/tools/secret-scan.sh"
+chmod +x "$src/.github/scripts/tools/secret-scan.sh"
+printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+git -C "$src" add .github/scripts/run-checks.sh .github/scripts/tools/secret-scan.sh secret.txt
 git -C "$src" commit -q -m "replace the check"
 push_branch "$member" hijack
 hijack_pr=$(open_pr "$member" hijack "Replace the check")
@@ -488,10 +493,10 @@ fi
 
 # P1: a head lint script that writes a marker is never run.
 new_branch lint-hijack
-printf '%s\n' '#!/bin/bash' 'echo OSF_LINT_RAN' 'exit 0' > "$src/skills/lint/lint.sh"
-chmod +x "$src/skills/lint/lint.sh"
-printf '%s\n' 'OSF_LINT_FAIL' > "$src/lint.txt"
-git -C "$src" add skills/lint/lint.sh lint.txt
+printf '%s\n' '#!/bin/bash' 'echo OSF_LINT_RAN' 'exit 0' > "$src/.github/scripts/tools/lint.sh"
+chmod +x "$src/.github/scripts/tools/lint.sh"
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text("x"*10001)' "$src/AGENTS.md"
+git -C "$src" add .github/scripts/tools/lint.sh AGENTS.md
 git -C "$src" commit -q -m "replace lint"
 push_branch "$member" lint-hijack
 lint_hijack_pr=$(open_pr "$member" lint-hijack "Replace lint")
@@ -584,6 +589,270 @@ else
   else
     fail "rules merges after approval"
   fi
+fi
+
+# Deleting the company profile on the head must not switch to the size-only lint.
+new_branch drop-profile
+rm -f "$src/company-profile.md"
+mkdir -p "$src/company-profile.md"
+git -C "$src" add -A
+git -C "$src" commit -q -m "replace the profile with a directory"
+push_branch "$member" drop-profile
+drop_pr=$(open_pr "$member" drop-profile "Drop the profile")
+drop_sha=$(pr_sha "$drop_pr")
+set +e
+wait_sha "$drop_pr" "$drop_sha"
+drop_rc=$?
+set -e
+if [ "$drop_rc" -eq 2 ]; then
+  pass "deleted profile still fails full lint"
+else
+  fail "deleted profile still fails full lint"
+fi
+
+# Area-shaped repo: no skills/ directory. The check tools live under .github/scripts/tools/.
+area_repo="ci-area-${stamp}"
+src="$work/area"
+repo="$area_repo"
+mkdir -p "$src/.github/workflows" "$src/.github/scripts"
+cp "$root/template/.github/workflows/checks.yml" "$src/.github/workflows/checks.yml"
+cp -R "$root/template/.github/scripts/." "$src/.github/scripts/"
+cp "$root/template/review-rules.md" "$src/review-rules.md"
+chmod +x "$src/.github/scripts/"*.sh "$src/.github/scripts/tools/"*.sh "$src/.github/scripts/tools/host/"*.sh
+printf '%s\n' '# Area' > "$src/AGENTS.md"
+printf '%s\n' 'A note.' > "$src/note.txt"
+printf '%s\n' '.*AGENTS\.md @acme-admin' > "$src/CODEOWNERS"
+git -C "$src" init -q -b main
+git -C "$src" config user.email ada.admin@acme.test
+git -C "$src" config user.name "Ada Admin"
+git -C "$src" add .
+git -C "$src" commit -q -m "init"
+if ! "$work/host/host.sh" create-repo "$area_repo" --source "$src" --push >>"$log" 2>&1; then
+  fail "area create repo"
+else
+  "$work/host/host.sh" grant "$area_repo" acme-member-a write >>"$log" 2>&1
+  "$work/host/host.sh" protect "$area_repo" --code-owners --approvals 0 >>"$log" 2>&1
+  new_branch area-note
+  printf '%s\n' 'A longer note.' >> "$src/note.txt"
+  git -C "$src" add note.txt
+  git -C "$src" commit -q -m "extend the note"
+  push_branch "$admin" area-note
+  area_pr=$(open_pr "$admin" area-note "Area note")
+  area_sha=$(pr_sha "$area_pr")
+  if wait_sha "$area_pr" "$area_sha"; then
+    pass "area clean"
+  else
+    fail "area clean"
+  fi
+  new_branch area-secret
+  printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+  git -C "$src" add secret.txt
+  git -C "$src" commit -q -m "add a file"
+  push_branch "$member" area-secret
+  area_sec=$(open_pr "$member" area-secret "Area secret")
+  area_sec_sha=$(pr_sha "$area_sec")
+  set +e
+  wait_sha "$area_sec" "$area_sec_sha"
+  area_sec_rc=$?
+  set -e
+  if [ "$area_sec_rc" -eq 2 ]; then
+    pass "area secret fails"
+  else
+    fail "area secret fails"
+  fi
+  new_branch area-hijack
+  printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/tools/secret-scan.sh"
+  chmod +x "$src/.github/scripts/tools/secret-scan.sh"
+  printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+  git -C "$src" add .github/scripts/tools/secret-scan.sh secret.txt
+  git -C "$src" commit -q -m "replace the scanner"
+  push_branch "$member" area-hijack
+  area_hijack_pr=$(open_pr "$member" area-hijack "Replace the scanner")
+  area_hijack_sha=$(pr_sha "$area_hijack_pr")
+  set +e
+  wait_sha "$area_hijack_pr" "$area_hijack_sha"
+  area_hijack_rc=$?
+  set -e
+  if [ "$area_hijack_rc" -eq 2 ]; then
+    pass "area head tools ignored"
+  else
+    fail "area head tools ignored"
+  fi
+fi
+repo="ci-checks-${stamp}"
+
+# Upgrade opens a pull request in the area repo. It does not commit area files in the company repo.
+up_slug="ciup${stamp}"
+up_slug=${up_slug//-/}
+up_company="${up_slug}-os"
+up_area="${up_slug}-marketing"
+EXTRA_REPOS="${EXTRA_REPOS} ${up_company} ${up_area}"
+up_root="$work/upgrade"
+mkdir -p "$up_root/skills"
+printf '%s\n' '/areas/' > "$up_root/.gitignore"
+printf '%s\n' '# Acme' > "$up_root/AGENTS.md"
+cat > "$up_root/company-profile.md" << EOF
+---
+type: company-profile
+summary: "Acme upgrade"
+company_slug: ${up_slug}
+host: forgejo
+host_url: "http://localhost:3300"
+org: "acme"
+---
+EOF
+git -C "$up_root" init -q -b main
+git -C "$up_root" config user.email ada.admin@acme.test
+git -C "$up_root" config user.name "Ada Admin"
+git -C "$up_root" add .gitignore company-profile.md AGENTS.md
+git -C "$up_root" commit -q -m "v0 start"
+up_seed="$work/up-seed"
+mkdir -p "$up_seed"
+printf '%s\n' '# Marketing' > "$up_seed/AGENTS.md"
+printf '%s\n' '* @acme-admin' > "$up_seed/CODEOWNERS"
+git -C "$up_seed" init -q -b main
+git -C "$up_seed" config user.email ada.admin@acme.test
+git -C "$up_seed" config user.name "Ada Admin"
+git -C "$up_seed" add .
+git -C "$up_seed" commit -q -m "area start"
+if "$work/host/host.sh" create-repo "$up_company" --private --source "$up_root" --push >>"$log" 2>&1 \
+  && "$work/host/host.sh" create-repo "$up_area" --private --source "$up_seed" --push >>"$log" 2>&1; then
+  "$work/host/host.sh" protect "$up_area" --code-owners --approvals 0 >>"$log" 2>&1 || true
+  if git -C "$up_root" remote get-url origin >/dev/null 2>&1; then
+    git -C "$up_root" remote set-url origin "http://localhost:3300/acme/${up_company}.git"
+  else
+    git -C "$up_root" remote add origin "http://localhost:3300/acme/${up_company}.git"
+  fi
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "git" ;;
+  *) cat "$OS_TOKEN_FILE" ;;
+esac
+EOF
+  mkdir -p "$up_root/areas"
+  OS_TOKEN_FILE=$admin GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone -q "http://localhost:3300/acme/${up_area}.git" "$up_root/areas/marketing" >>"$log" 2>&1 || true
+  rm -f "$ask"
+  if [ -d "$up_root/areas/marketing/.git" ]; then
+    set +e
+    OS_HOST_SH="$work/host/host.sh" "$root/template/skills/upgrade/upgrade.sh" \
+      --root "$up_root" --template "$root/template" --level team >"$work/upgrade.out" 2>>"$log"
+    up_rc=$?
+    set -e
+    if [ "$up_rc" -eq 0 ] \
+      && grep -q "pr: ${up_area} " "$work/upgrade.out" \
+      && git -C "$up_root/areas/marketing" cat-file -e "upgrade/scripts:.github/scripts/tools/secret-scan.sh" \
+      && git -C "$up_root/areas/marketing" cat-file -e "upgrade/scripts:.github/scripts/checkout.sh" \
+      && ! git -C "$up_root" ls-files | grep -q '^areas/'; then
+      osf_api "$admin" GET "/api/v1/repos/acme/${up_area}/contents/.github/scripts/tools/secret-scan.sh?ref=main"
+      main_code=$OSF_HTTP_CODE
+      osf_api_discard
+      if [ "$main_code" = "200" ]; then
+        fail "upgrade area pr"
+      else
+        pass "upgrade area pr"
+      fi
+    else
+      cat "$work/upgrade.out" >>"$log" 2>/dev/null || true
+      fail "upgrade area pr"
+    fi
+  else
+    fail "upgrade area pr"
+  fi
+else
+  fail "upgrade area pr"
+fi
+
+# A second team-on opens a pull request when the area main has no check tools.
+tools_slug="cit${stamp}"
+tools_slug=${tools_slug//-/}
+tools_company="${tools_slug}-os"
+tools_area="${tools_slug}-marketing"
+tools_user="${tools_slug}-user-ada"
+EXTRA_REPOS="${EXTRA_REPOS} ${tools_company} ${tools_area} ${tools_user}"
+tools_root="$work/team"
+mkdir -p "$tools_root"
+cp -R "$root/template/." "$tools_root/"
+python3 - "$tools_root/company-profile.md" "$tools_slug" << 'PY'
+import pathlib, sys
+path, slug = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+text = text.replace("{{COMPANY_SLUG}}", slug)
+text = text.replace("{{COMPANY_NAME}}", "Acme Co")
+text = text.replace("{{DATE}}", "2026-10-24")
+text = text.replace("{{ONE_LINER}}", "A test company")
+text = text.replace("{{OS_VERSION}}", "v1.0.0")
+pathlib.Path(path).write_text(text)
+PY
+git -C "$tools_root" init -q -b main
+git -C "$tools_root" config user.email ada.admin@acme.test
+git -C "$tools_root" config user.name "Ada Admin"
+git -C "$tools_root" add -A
+git -C "$tools_root" commit -q -m "company start"
+seed="$work/tools-seed"
+mkdir -p "$seed/.github"
+printf '%s\n' '# Marketing' > "$seed/AGENTS.md"
+printf '%s\n' '* @acme-admin' > "$seed/.github/CODEOWNERS"
+printf '%s\n' 'vendor=xai' 'model=' 'kind=second-vendor' > "$seed/.github/review.conf"
+git -C "$seed" init -q -b main
+git -C "$seed" config user.email ada.admin@acme.test
+git -C "$seed" config user.name "Ada Admin"
+git -C "$seed" add .
+git -C "$seed" commit -q -m "area rules"
+if "$work/host/host.sh" create-repo "$tools_area" --private --source "$seed" --push >>"$log" 2>&1; then
+  "$work/host/host.sh" protect "$tools_area" --code-owners --approvals 0 >>"$log" 2>&1 || true
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "git" ;;
+  *) cat "$OS_TOKEN_FILE" ;;
+esac
+EOF
+  mkdir -p "$tools_root/areas"
+  OS_TOKEN_FILE=$admin GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone -q "http://localhost:3300/acme/${tools_area}.git" "$tools_root/areas/marketing" >>"$log" 2>&1 || true
+  rm -f "$ask"
+  tools_main=$(git -C "$tools_root/areas/marketing" rev-parse origin/main)
+  at='@'
+  cat > "$work/tools-answers" << EOF
+root=$tools_root
+host=forgejo
+host_url=http://localhost:3300
+org=acme
+sync_engine=true
+runner=ubuntu-latest
+company_name=Acme Co
+company_slug=${tools_slug}
+review_vendor=xai
+review_kind=second-vendor
+person.ada.name=Ada Admin
+person.ada.github=acme-admin
+person.ada.email=ada${at}acme.test
+person.ada.role=admin
+person.ada.areas=marketing
+area.marketing.director=ada
+EOF
+  set +e
+  OS_HOST_SH="$work/host/host.sh" OS_JOBS_DIR="$work/jobs" \
+    "$root/template/skills/add-teammate/team-on.sh" --answers "$work/tools-answers" >"$work/team-on.out" 2>>"$log"
+  tools_rc=$?
+  set -e
+  if [ "$tools_rc" -eq 0 ] \
+    && grep -q "pr: ${tools_area} " "$work/team-on.out" \
+    && git -C "$tools_root/areas/marketing" cat-file -e "team/scripts-tools:.github/scripts/tools/secret-scan.sh" \
+    && [ "$(git -C "$tools_root/areas/marketing" rev-parse origin/main)" = "$tools_main" ]; then
+    pass "area tools pull request"
+  else
+    cat "$work/team-on.out" >>"$log" 2>/dev/null || true
+    fail "area tools pull request"
+  fi
+else
+  fail "area tools pull request"
 fi
 
 # One job duration, for the billed-minute estimate.

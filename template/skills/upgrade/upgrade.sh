@@ -231,6 +231,30 @@ if [ "$V0_LOGS" -eq 1 ]; then
   printf '%s\n' "keep: 90 days"
 fi
 
+if [ -d "$TEMPLATE/.github/scripts/tools" ]; then
+  printf '%s\n' "change: .github/scripts/tools"
+fi
+plan_area_scripts() {
+  local area name repo slug
+  [ -d "$TEMPLATE/.github/scripts" ] || return 0
+  [ -d "$ROOT/areas" ] || return 0
+  slug=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
+  case "$slug" in
+    ""|*'{{'*) slug="" ;;
+  esac
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    name=$(basename "$area")
+    if [ -n "$slug" ]; then
+      repo=$(os_area_repo "$slug" "$name")
+    else
+      repo="areas/${name}"
+    fi
+    printf 'pr-plan: %s branch upgrade/scripts files .github/scripts auto-merge\n' "$repo"
+  done
+}
+plan_area_scripts
+
 if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
@@ -350,6 +374,65 @@ if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
 fi
 
+refresh_check_tools() {
+  local src
+  src="$TEMPLATE/.github/scripts/tools"
+  [ -d "$src" ] || return 0
+  mkdir -p "$ROOT/.github/scripts"
+  rm -rf "$ROOT/.github/scripts/tools"
+  cp -R "$src" "$ROOT/.github/scripts/tools"
+}
+refresh_check_tools
+
+# Area folders are separate repos. /areas/ is gitignored in the company repo.
+# Commit the scripts in each area repo and open a pull request. Never git add them here.
+push_area_scripts() {
+  local area name repo branch pr number src
+  src="$TEMPLATE/.github/scripts"
+  [ -d "$src" ] || return 0
+  [ -d "$ROOT/areas" ] || return 0
+  case "${SLUG:-}" in
+    ""|*'{{'*) return 0 ;;
+  esac
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    name=$(basename "$area")
+    repo=$(os_area_repo "$SLUG" "$name")
+    if [ ! -e "$area/.git" ]; then
+      printf 'pr-plan: %s skipped: not a git repo\n' "$repo" >&2
+      continue
+    fi
+    branch="upgrade/scripts"
+    if ! os_with_git_token git -C "$area" fetch origin; then
+      os_die 3 "could not fetch ${repo}"
+    fi
+    git -C "$area" checkout -q -f -B "$branch" origin/main
+    mkdir -p "$area/.github"
+    rm -rf "$area/.github/scripts"
+    cp -R "$src" "$area/.github/scripts"
+    git -C "$area" add -- .github/scripts
+    if git -C "$area" diff --cached --quiet; then
+      printf 'pr-plan: %s nothing to commit\n' "$repo"
+      continue
+    fi
+    GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+      GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+      GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+      GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+      git -C "$area" commit -q -m "Upgrade: check scripts"
+    if ! os_with_git_token git -C "$area" push origin "HEAD:${branch}"; then
+      os_die 3 "could not push ${branch} for ${repo}"
+    fi
+    pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts")
+    number=$(printf '%s' "$pr" | jq -r '.number // empty')
+    if [ -z "$number" ]; then
+      os_die 3 "could not open a pull request for ${repo}"
+    fi
+    os_host auto-merge "$repo" "$number" >/dev/null
+    printf 'pr: %s %s\n' "$repo" "$number"
+  done
+}
+
 stage_upgrade() {
   local path
   for path in .gitignore company-profile.md AGENTS.md CLAUDE.md; do
@@ -362,6 +445,9 @@ stage_upgrade() {
   fi
   if [ -d "$ROOT/skills" ]; then
     git -C "$ROOT" add -- skills
+  fi
+  if [ -d "$ROOT/.github/scripts/tools" ]; then
+    git -C "$ROOT" add -- .github/scripts/tools
   fi
   if [ -d "$ROOT/memory/logs" ]; then
     git -C "$ROOT" add -f -- memory/logs
@@ -396,6 +482,7 @@ if [ "$HOST_KIND" = "github" ] || [ "$HOST_KIND" = "forgejo" ]; then
   if OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
     export OS_HOST_BIN OS_ORG="$ORG" OS_HOST="$HOST_KIND" OS_HOST_URL="$HOST_URL" OS_SLUG="$SLUG"
     export OS_PROFILE="$ROOT/company-profile.md"
+    push_area_scripts
     os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
     pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1")
     number=$(printf '%s' "$pr" | jq -r '.number // empty')
