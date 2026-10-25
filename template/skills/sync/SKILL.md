@@ -66,7 +66,7 @@ One topic per proposal.
 
 1. Pick a short kebab-case topic, for example `invoice-skill-step`.
 2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Give files, never a folder. Paths start at the company root: no leading `/`, no `..`. An area file is `areas/<area>/<file>`. A `users/` path is refused. To share a workspace skill, copy its folder to `skills/<name>/` or `areas/<area>/skills/<name>/`, then propose each file in the copy.
-3. It checks identity, every path and the secret scan first. A file under `areas/<area>/` goes to that area repo. Any other file goes to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request with auto-merge on. It prints one bare number per repo: the company repo first, then the areas in name order. Tell the person each number and its repo.
+3. It checks identity, every path and the secret scan first. A file under `areas/<area>/` goes to that area repo. A file outside `areas/<area>/` and outside `users/` goes to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request with auto-merge on. It prints one bare number per repo: the company repo first, then the areas in name order. Tell the person each number and its repo.
 4. **Refused.** Tell the person the line exactly, and every `opened: <repo> <n>` line before it (those pull requests stay open). Never pass `--no-verify`. Never ask for a token. After "run once more", if it stops again, stop.
 
 | Line | Do |
