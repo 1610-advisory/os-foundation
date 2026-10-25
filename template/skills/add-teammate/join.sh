@@ -179,9 +179,6 @@ else
   os_fm_set "$PAGE" terms_accepted "$(os_today)"
   os_git_commit "$ROOT" "Join: accept terms"
   os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
-  if [ -x "$ROOT/skills/sync/sync.sh" ]; then
-    "$ROOT/skills/sync/sync.sh" propose join-terms "$PAGE" || true
-  fi
   pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "sync: ${ME}")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   printf 'terms: proposed\n'

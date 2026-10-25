@@ -297,15 +297,38 @@ areas=marketing,finance
 EOF
 export HOME="$join_home" XDG_CONFIG_HOME="$join_home/.config" OS_JOBS_DIR="$join_home/jobs"
 if ! FORGEJO_TOKEN=$(load_token "$token_dir/acme-member-a") \
-  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" >"$work/join.out" 2>>"$log"; then
-  cat "$work/join.out" >> "$log"
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" >"$work/join.out" 2>"$work/join.err"; then
+  cat "$work/join.out" "$work/join.err" >> "$log"
   die "join failed"
 fi
+cat "$work/join.err" >> "$log"
 grep -q 'company-clone: done' "$work/join.out" || die "join recloned or missed the company"
 grep -q 'cloned: team-marketing' "$work/join.out" || die "marketing was not cloned"
 grep -q 'skipped: team-finance' "$work/join.out" || die "finance was not skipped"
 grep -q 'cloned: team-user-mia' "$work/join.out" || die "workspace was not cloned"
 grep -q 'terms: proposed' "$work/join.out" || die "terms were not proposed"
+if grep -q 'propose refused' "$work/join.out" "$work/join.err"; then
+  die "join printed propose refused"
+fi
+git -C "$clone" rev-parse --verify --quiet origin/sync/mia >/dev/null || die "sync branch missing"
+git -C "$clone" log -1 --format=%s origin/sync/mia | grep -q 'Join: accept terms' || die "terms commit is not on the sync branch"
+page=$(os_person_file "$clone" mia)
+[ -n "$page" ] || die "people page missing"
+rel=${page#"$clone/"}
+git -C "$clone" show "origin/sync/mia:$rel" | grep -q '^terms_accepted: ' || die "terms date is not on the sync branch"
+number=$(awk '/^pr: / { print $2; exit }' "$work/join.out")
+[ -n "$number" ] || die "terms PR was not opened"
+head_ref=$(python3 - "$token_dir/acme-member-a" "$number" << 'PY'
+import json, sys, urllib.request
+token = open(sys.argv[1], encoding="utf-8").read().strip()
+url = "http://localhost:3300/api/v1/repos/acme/team-os/pulls/" + sys.argv[2]
+req = urllib.request.Request(url, headers={"Authorization": "token " + token})
+with urllib.request.urlopen(req, timeout=10) as resp:
+    data = json.load(resp)
+print(data.get("head", {}).get("ref", ""))
+PY
+)
+[ "$head_ref" = "sync/mia" ] || die "terms PR head is not the sync branch"
 grep -qxF 'keep this line' "$join_home/.claude/CLAUDE.md" || die "claude config was overwritten"
 grep -q "@$clone/users/mia/profile/PROFILE.md" "$join_home/.claude/CLAUDE.md" || die "claude pointer missing"
 grep -q "Read $clone/users/mia/profile/PROFILE.md" "$join_home/.codex/AGENTS.md" || die "codex pointer missing"
