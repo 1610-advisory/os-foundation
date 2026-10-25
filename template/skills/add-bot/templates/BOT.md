@@ -8,12 +8,13 @@ kind: company             # company | area
 owner: ""                 # person slug. The Bot-Owner trailer uses this
 area: ""                  # area slug, or empty for the company bot
 bot_user: ""              # host login
+email: ""                 # the bot's own git author email. undo-run matches it. Never a person's
 app_id: ""                # GitHub App id. Not a secret. Omit until the App exists
 installation_id: ""       # GitHub installation id. Omit until install
 key_path: ""              # GitHub key file LOCATION, outside every repo. Never the key
 token_path: ""            # Forgejo token file LOCATION, outside every repo. Never the token
 repos: []                 # repo short names this bot may write. No more
-repo_scope: []            # repo=company or repo=<area slug>, one per repo
+repo_scope: []            # repo=company or repo=<area slug>. Set from the repo name only
 routines: []              # routine slugs. Each is bots/<bot>/routines/<slug>.md
 allowed_connections: none # none, or a list of tools
 shared_inbox: none        # none, or a list of inboxes shared on purpose
@@ -35,7 +36,7 @@ Each routine is one file: `routines/<slug>.md`. Its body is the prompt the bot r
 
 <!-- One line per routine: when it runs, what it does, which repo it writes. -->
 
-Every run has a `Run-Id`. Every commit of the run carries `Run-Id:` and `Bot-Owner:` lines. The `undo-run` skill undoes a whole run in one step.
+Every run has a `Run-Id`. Every commit of the run carries `Run-Id:` and `Bot-Owner:` lines. A run starts only on a clean working copy. The bot pushes only to `sync/<bot>` and `undo/*`, never to `main`. The `undo-run` skill undoes a whole run in one step.
 
 ## Allowed connections
 

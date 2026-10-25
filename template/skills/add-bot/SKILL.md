@@ -22,7 +22,7 @@ Read `level:` and `switches:` in `company-profile.md` first. This skill works on
 | Kind | Owner | May grant |
 |---|---|---|
 | Company bot (one by default) | The admin | The company repo and any area |
-| Area bot (only when the area needs one) | The area director | Only that area's repos |
+| Area bot (only when the area needs one) | The area director | Only that area's repos, within the director's own access |
 
 The owner gets the bot's flags and approves changes to its `BOT.md`.
 
@@ -33,26 +33,34 @@ Ask one question at a time. Write each answer as one `key=value` line in an answ
 1. **Kind** (`kind=company` or `kind=area`). For an area bot, the area (`area=`).
 2. **Name.** Short, lowercase, kebab-case (`bot=acme-bot`). A display name is optional (`name=`).
 3. **Owner** (`owner=`): the admin for a company bot, the director for an area bot.
-4. **Repos** (`repos=`, comma list). Suggest the fewest. The owner must have access to each one.
-5. **Routines** (`routines=`, comma list of slugs). For each, write `bots/<bot>/routines/<slug>.md`: when it runs, and the prompt. Example: "Each weekday at 6 am, file the shared inbox."
-6. **Allowed connections** (`connections=`, or `none`). Shared mailboxes and public channels only.
-7. **Shared inbox** (`inbox=`, default `none`). Only with the inbox owner's yes. See below.
-8. **Box.** Run the script on the bot's box with `box=yes`. The company folder must be cloned there, signed in to the bot's company-owned engine account.
-9. **Run the script:** `skills/add-bot/add-bot.sh --answers <file>`.
-10. **Make the identity.**
-    - **GitHub:** the script prints one link. The owner opens it and clicks **Create GitHub App**. Then they install the App on the listed repos only ("Only select repositories"). They save the key file at a path outside every repo, mode 0600. Add `app_id=`, `installation_id=` and `key_path=` to the answers file. Run the script again. It records the key **location** in `BOT.md`, never the key.
-    - **Forgejo:** the admin makes one bot user and saves its token in a file outside every repo, mode 0600. Add `bot_user=` and `token_path=` to the answers. The script grants that user only the listed repos.
-11. **What the script does on the box:** writes `bots/<bot>/`, sets the bot as `me` on this box, points git at the bot's credential helper, and installs the OS jobs (`sync.sh install-jobs --bot`).
-12. **Propose the folder.** `BOT.md` and the routines are rules files. Run `skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/<slug>.md...` (each routine file). The owner approves after the model review.
-13. **Tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
+4. **Email** (`email=`): the bot's own git author email, never a person's. `undo-run` uses it to find the bot's commits.
+5. **Repos** (`repos=`, comma list of repo short names). Suggest the fewest. The scope comes from the name only: `<company>-os` is the company repo, `<company>-<area>` is that area. Any other name is refused. The owner must have access to each one.
+6. **Routines** (`routines=`, comma list of slugs). For each, write `bots/<bot>/routines/<slug>.md`: when it runs, and the prompt. Example: "Each weekday at 6 am, file the shared inbox."
+7. **Allowed connections** (`connections=`, or `none`). Shared mailboxes and public channels only.
+8. **Shared inbox** (`inbox=`, default `none`). Only with the inbox owner's yes. See below.
 
-After setup, no person step is needed. The bot's credential helper gets a fresh short-lived token each time git needs one.
+Then set it up on the bot's box. The box is never a person's own computer. The owner signs in there, with their own host sign-in, for setup only.
+
+9. **First run:** `skills/add-bot/add-bot.sh --answers <file>` (`box=no`). It writes `bots/<bot>/` and grants the repos.
+10. **Make the identity.**
+    - **GitHub:** the script prints one link. Open it in any browser and click **Create GitHub App**. Install the App on the listed repos only ("Only select repositories"). Save the key file on the bot's box, outside every repo, mode 0600. Add `app_id=`, `installation_id=` and `key_path=` to the answers. Run the script again. It records the key **location** in `BOT.md`, never the key.
+    - **Forgejo:** the admin makes one bot user and saves its token on the bot's box in a file outside every repo, mode 0600. Add `bot_user=` and `token_path=` to the answers, and run the script.
+11. **Propose the folder** while `me` on this box is still the owner: `skills/sync/sync.sh propose add-bot-<bot> bots/<bot>/BOT.md bots/<bot>/routines/*.md`. Leave out the routines part if there are no routine files. `BOT.md` and the routines are rules files. The owner approves after the model review. The script prints this command as `propose:`.
+12. **Make the box the bot's:** add `box=yes` and `replace_me=yes` to the answers and run the script once more. It sets the bot as `me` on this box, points git at the bot's credential helper, and installs the OS jobs (`sync.sh install-jobs --bot`). Do not run `propose` on this box after this step: `me` is now the bot.
+13. **Sign the owner out** of the host on the box. From now on the bot uses only its own identity.
+14. **Tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
+
+After setup, no person step is needed. The bot's credential helper gets a fresh short-lived token each time git needs one, only for the company host and only for the bot's repos.
+
+**Change the repos later:** the owner changes `repos:` in `BOT.md` on their own computer and proposes it. After it merges, the owner signs in on the box for one step: update `repos=` in the answers and run the script again. It revokes repos that left the list and prints what it granted and revoked. Then the owner signs out.
 
 ## Every bot run
 
 - The OS job runs `skills/add-bot/run.sh <bot> <routine>`.
 - Each run gets a `Run-Id`. Every commit of the run carries `Run-Id: <id>` and `Bot-Owner: <owner>`.
-- The bot works on its own `sync/<bot>` branch. `sync.sh push` sends it up on the bot's standing PR, like a person's notes.
+- A run starts only when every repo it writes is clean. A file left over from an earlier run stops the next run: find out why before you remove it.
+- The bot works on its own `sync/<bot>` branch, taken fresh from `main`. It may push only to `sync/<bot>` and `undo/*`. It never merges, pulls or rebases on `main`.
+- `sync.sh push` sends its work up on the bot's standing PR, like a person's notes.
 - The bot follows the same tiers as a person (`AGENTS.md` section 6). Its rules changes go by `propose`.
 - To undo a whole run in one step: the `undo-run` skill.
 
