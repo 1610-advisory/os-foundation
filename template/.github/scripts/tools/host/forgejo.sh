@@ -370,7 +370,7 @@ cmd_protect() {
 }
 
 cmd_unprotect() {
-  local name saved rule enc
+  local name saved rule enc page n
   host_need_name
   name=$POS1
   if [ "${HOST_DRY_RUN:-}" = "1" ]; then
@@ -378,15 +378,28 @@ cmd_unprotect() {
     return 0
   fi
   saved=$(host_mktemp)
-  if ! fj_call GET "$(host_repo "$name")/branch_protections"; then
-    fj_offline
-  fi
-  case "$FJ_HTTP" in
-    200) ;;
-    *) fj_fail ;;
-  esac
-  printf '%s' "$FJ_BODY" | jq -c \
-    '[.[] | select(.rule_name=="main" or .branch_name=="main")] | .[0] // empty' > "$saved"
+  page=1
+  while true; do
+    if ! fj_call GET "$(host_repo "$name")/branch_protections?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    case "$FJ_HTTP" in
+      200) ;;
+      *) fj_fail ;;
+    esac
+    if [ ! -s "$saved" ] || [ "$(tr -d '[:space:]' < "$saved")" = "null" ]; then
+      printf '%s' "$FJ_BODY" | jq -c \
+        '[.[] | select(.rule_name=="main" or .branch_name=="main")] | .[0] // empty' > "$saved"
+    fi
+    if [ -s "$saved" ] && [ "$(tr -d '[:space:]' < "$saved")" != "null" ]; then
+      break
+    fi
+    n=$(printf '%s' "$FJ_BODY" | jq 'if type == "array" then length else 0 end')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
   if [ ! -s "$saved" ] || [ "$(tr -d '[:space:]' < "$saved")" = "null" ]; then
     printf 'already unprotected: %s main\n' "$name" >&2
     jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main", removed:false}'

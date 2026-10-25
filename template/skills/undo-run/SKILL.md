@@ -28,7 +28,8 @@ The script goes on with the other repos. Repos that reverted keep their pull req
 | `refused: undo/<run-id> already exists` | The run was undone before, or an undo is still open. | Say an undo for this run already exists. Do not make another. The owner checks its pull request on the host. |
 | `revert: empty` | The run's changes are already gone in that repo. | Say nothing was reverted there. |
 | `no commits for that run` | No commit has that run id and the bot's email. | Check the id with the person. A run not yet merged is still on the bot's standing PR: the owner may close that PR. |
-| `undo-run skip <repo>: not visible to this token` | That repo is outside this token's grant. | Say which repo was skipped. The other repos still undo. |
+| `undo-run skip <repo>: not visible to this token` | That repo is outside this token's grant, and the local clone has no commit for this run. | Say which repo was skipped. The other repos still undo. |
+| `undo-run partial: <repo> not visible; revert it there by hand or rerun` | That repo may still have this run, and this token cannot see it. Exit 4. | Do not say the whole run is undone. The other repos were reverted. Revert that repo by hand, or rerun. |
 | `get-token failed`, `whoami returned no login` | Sign-in problem. | The owner signs in again through the host's own sign-in. Then run once more. |
 
 ## Rules

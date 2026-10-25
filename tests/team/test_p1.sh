@@ -245,6 +245,107 @@ grep -q 'DELETE ' "$work/empty.log" && team_fail "unprotect deleted a rule that 
 kill "$pid4" 2>/dev/null || true
 wait "$pid4" 2>/dev/null || true
 
+# Page 1 is a full page of other rules. The main rule is on page 2.
+cat > "$work/fj_page.py" << PY
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
+from pathlib import Path
+log = Path("$work/page.log")
+log.write_text("")
+page1 = [{"rule_name": "other-%d" % i, "branch_name": "other-%d" % i} for i in range(50)]
+page2 = [{"rule_name": "protect main", "branch_name": "main", "marker": "later"}]
+
+class H(BaseHTTPRequestHandler):
+    def _send(self, code, body=b""):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+    def do_GET(self):
+        with log.open("a") as fh:
+            fh.write("GET " + self.path + "\n")
+        if self.path.endswith("/branch_protections/protect%20main"):
+            self._send(404, b"{}")
+            return
+        if "/branch_protections" not in self.path:
+            self._send(404, b"{}")
+            return
+        page = parse_qs(urlparse(self.path).query).get("page", ["1"])[0]
+        body = page2 if page == "2" else page1
+        self._send(200, json.dumps(body).encode())
+    def do_DELETE(self):
+        with log.open("a") as fh:
+            fh.write("DELETE " + self.path + "\n")
+        if self.path.endswith("/branch_protections/protect%20main"):
+            self._send(204)
+            return
+        self._send(404, b"{}")
+    def log_message(self, fmt, *args):
+        return
+
+srv = HTTPServer(("127.0.0.1", 0), H)
+Path("$work/port5").write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+python3 "$work/fj_page.py" >/dev/null 2>&1 &
+pid5=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$work/port5" ] && break
+  sleep 0.1
+done
+port5=$(cat "$work/port5")
+export OS_HOST_URL="http://127.0.0.1:${port5}"
+if ! "$root/template/skills/_host/host.sh" unprotect demo >"$work/u5.out" 2>"$work/u5.err"; then
+  team_fail "unprotect did not page to the main rule"
+fi
+grep -q 'page=2' "$work/page.log" || team_fail "second page was not fetched"
+grep -q 'DELETE /api/v1/repos/acme/demo/branch_protections/protect%20main' "$work/page.log" || team_fail "paged rule was not deleted"
+kill "$pid5" 2>/dev/null || true
+wait "$pid5" 2>/dev/null || true
+
+cat > "$work/fj_deny.py" << PY
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+log = Path("$work/deny.log")
+log.write_text("")
+
+class H(BaseHTTPRequestHandler):
+    def _send(self, code, body=b""):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+    def do_GET(self):
+        with log.open("a") as fh:
+            fh.write("GET " + self.path + "\n")
+        self._send(403, b'{"message":"forbidden"}')
+    def log_message(self, fmt, *args):
+        return
+
+srv = HTTPServer(("127.0.0.1", 0), H)
+Path("$work/port6").write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+python3 "$work/fj_deny.py" >/dev/null 2>&1 &
+pid6=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -s "$work/port6" ] && break
+  sleep 0.1
+done
+port6=$(cat "$work/port6")
+export OS_HOST_URL="http://127.0.0.1:${port6}"
+set +e
+"$root/template/skills/_host/host.sh" unprotect demo >"$work/u6.out" 2>"$work/u6.err"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || team_fail "a 403 on the rule list should fail"
+grep -q 'not found or no access' "$work/u6.err" || team_fail "403 was treated as already unprotected"
+kill "$pid6" 2>/dev/null || true
+wait "$pid6" 2>/dev/null || true
+
 # P1.2 GitHub unprotect restores the main ruleset if the second delete fails.
 mkdir -p "$work/bin"
 cat > "$work/bin/gh" << 'EOF'

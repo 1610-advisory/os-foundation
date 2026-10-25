@@ -15,7 +15,7 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 
 ## What it does
 
-1. Fetch `origin/main` in the company repo and in each `areas/*` repo. A fetch that says the repo is not found or this token has no access is skipped. The script prints `undo-run skip <repo>: not visible to this token` on stderr and goes on. Any other fetch error stops the script (exit 3). If no repo was visible, it exits 2 with `no repo visible to this token`.
+1. Fetch `origin/main` in the company repo and in each `areas/*` repo. A fetch that says the repo is not found or this token has no access is skipped only when the local `origin/main` and the local branch have no commit for this run. The script prints `undo-run skip <repo>: not visible to this token` and goes on. If that clone has a match, or there is no local `origin/main` to prove it does not, the visible repos are still reverted, then it prints `undo-run partial: <repo> not visible; revert it there by hand or rerun` and exits 4. Any other fetch error stops the script (exit 3). If no repo was visible, it exits 2 with `no repo visible to this token`.
 2. Find every commit whose message has a `Run-Id` trailer equal to the argument.
 3. In each repo that has such commits, make one revert commit on branch `undo/<run-id>`.
 4. Open a pull request into `main` through `host.sh open-pr`.
@@ -46,7 +46,7 @@ The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call i
 | 1 | usage |
 | 2 | refused, no commit has that run id, or no repo was visible to this token |
 | 3 | host or git error, or a revert conflict in at least one repo |
-| 4 | auth failed |
+| 4 | auth failed, or a skipped repo may still hold this run |
 
 ## Related
 

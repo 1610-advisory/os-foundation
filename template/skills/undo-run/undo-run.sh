@@ -126,10 +126,60 @@ undo_drop_worktree() {
   git -C "$repo" branch -D "$branch" >/dev/null 2>&1 || true
 }
 
+undo_ref_matches() {
+  local path=$1 ref=$2 sha body trail author
+  git -C "$path" rev-parse --verify --quiet "$ref" >/dev/null 2>&1 || return 1
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    body=$(git -C "$path" log -1 --format='%B' "$sha")
+    trail=$(printf '%s\n' "$body" | git interpret-trailers --parse | awk '
+      /^Run-Id:[ \t]/ {
+        val = $0
+        sub(/^Run-Id:[ \t]*/, "", val)
+        sub(/[ \t]*$/, "", val)
+        print val
+        exit
+      }
+    ')
+    [ "$trail" = "$run_id" ] || continue
+    author=$(git -C "$path" log -1 --format='%ae' "$sha")
+    if grep -qx "$author" "$emails"; then
+      return 0
+    fi
+  done << EOF
+$(git -C "$path" log "$ref" --format='%H')
+EOF
+  return 1
+}
+
+# 0 only when origin/main from the last fetch, and the local branch, have no match.
+undo_skip_is_clean() {
+  local path=$1 ref
+  if ! git -C "$path" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then
+    return 1
+  fi
+  if undo_ref_matches "$path" refs/remotes/origin/main; then
+    return 1
+  fi
+  if git -C "$path" rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
+    if undo_ref_matches "$path" refs/heads/main; then
+      return 1
+    fi
+  fi
+  ref=$(git -C "$path" symbolic-ref -q HEAD || true)
+  if [ -n "$ref" ] && [ "$ref" != "refs/heads/main" ]; then
+    if undo_ref_matches "$path" "$ref"; then
+      return 1
+    fi
+  fi
+  return 0
+}
+
 found_any=0
 any_conflict=0
 any_exists=0
 visible=0
+partials=$(bot_mktemp)
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
@@ -141,7 +191,11 @@ while IFS= read -r path; do
   set -e
   if [ "$fetch_rc" -ne 0 ]; then
     if grep -Eiq 'not found|no access|access denied|correct access rights|error: 403|error: 404' "$fetch_err"; then
-      printf 'undo-run skip %s: not visible to this token\n' "$name" >&2
+      if undo_skip_is_clean "$path"; then
+        printf 'undo-run skip %s: not visible to this token\n' "$name" >&2
+      else
+        printf '%s\n' "$name" >> "$partials"
+      fi
       continue
     fi
     awk 'BEGIN { s = ENVIRON["OS_GIT_TOKEN"] } {
@@ -258,6 +312,13 @@ EOF
   fi
 done < "$repo_list"
 
+if [ -s "$partials" ]; then
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    printf 'undo-run partial: %s not visible; revert it there by hand or rerun\n' "$name" >&2
+  done < "$partials"
+  exit 4
+fi
 if [ "$visible" -ne 1 ]; then
   bot_die 2 "no repo visible to this token"
 fi
