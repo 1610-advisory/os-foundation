@@ -22,9 +22,11 @@ fi
 
 root="."
 base=""
+ci=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --ci)
+      ci=1
       shift
       ;;
     --root)
@@ -50,6 +52,13 @@ root=$(cd "$root" && pwd)
 
 # The head can delete the profile, replace it with a directory, or leave a
 # dangling link. That must not switch a company repo onto the size-only path.
+# In --ci, a missing or unknown base fails closed. Size-only only when the
+# base commit exists and has no company-profile.md.
+if [ "$ci" -eq 1 ] && [ -z "$base" ]; then
+  echo "lint failed: the base commit is missing" >&2
+  exit 2
+fi
+
 company=0
 if [ -n "$base" ]; then
   case "$base" in
@@ -58,6 +67,10 @@ if [ -n "$base" ]; then
       exit 2
       ;;
   esac
+  if ! git -C "$root" cat-file -e "${base}^{commit}" 2>/dev/null; then
+    echo "lint failed: the base commit is not in the repo" >&2
+    exit 2
+  fi
   if git -C "$root" cat-file -e "${base}:company-profile.md" 2>/dev/null; then
     company=1
   fi

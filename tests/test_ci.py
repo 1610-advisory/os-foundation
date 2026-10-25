@@ -273,6 +273,29 @@ class ToolCopyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("company-profile.md is missing", result.stdout + result.stderr)
 
+    def test_unknown_base_sha_fails_closed(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "init")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        unknown = "a" * 40
+        result = run(["bash", str(lint), "--ci", "--base", unknown, "--root", str(repo)])
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("lint failed: the base commit is not in the repo", result.stderr)
+
+    def test_ci_without_a_base_fails_closed(self):
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+        (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+        (repo / "company-profile.md").write_text("level: team\n", encoding="utf-8")
+        lint = SCRIPTS / "tools" / "lint.sh"
+        result = run(["bash", str(lint), "--ci", "--root", str(repo)])
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("lint failed: the base commit is missing", result.stderr)
+
     def test_copied_tools_run_from_an_empty_dir(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"
         empty = Path(tempfile.mkdtemp())
@@ -302,10 +325,10 @@ class ToolCopyTests(unittest.TestCase):
         area = repo("area")
         lint = dest / "lint.sh"
         scan = dest / "secret-scan.sh"
-        company_lint = run(["bash", str(lint), "--ci", "--root", str(company)])
+        company_lint = run(["bash", str(lint), "--root", str(company)])
         self.assertEqual(company_lint.returncode, 0, company_lint.stdout + company_lint.stderr)
         self.assertNotIn("No such file", company_lint.stderr)
-        area_lint = run(["bash", str(lint), "--ci", "--root", str(area)])
+        area_lint = run(["bash", str(lint), "--root", str(area)])
         self.assertEqual(area_lint.returncode, 0, area_lint.stdout + area_lint.stderr)
         self.assertNotIn("No such file", area_lint.stderr)
         clean = empty / "clean.txt"
