@@ -39,7 +39,7 @@ Ask one question at a time. Write each answer as one `key=value` line in an answ
 7. **Allowed connections** (`connections=`, or `none`). Shared mailboxes and public channels only.
 8. **Shared inbox** (`inbox=`, default `none`). Only with the inbox owner's yes. See below.
 
-**On the owner's computer** (where `me` is the owner):
+**On the admin computer, where `me` is the admin:**
 
 9. **First run:** `skills/add-bot/add-bot.sh --answers <file>` (`box=no`). It writes `bots/<bot>/`.
    - **GitHub:** it prints `create_url:` and `status: waiting-for-app`. Open the link in any browser and click **Create GitHub App**. Install the App on the listed repos only ("Only select repositories"). Save the key file **on the bot's box**, outside every repo, mode 0600.
@@ -50,7 +50,7 @@ Ask one question at a time. Write each answer as one `key=value` line in an answ
 
 11. **Box run:** add `box=yes` and `replace_me=yes` to the answers. GitHub: also `app_id=`, `installation_id=` and `key_path=`. Run the script. It prints `status: ready` and `jobs: installed`. It sets the bot as `me`, points git at the bot's credential helper, and installs the OS jobs (`sync.sh install-jobs --bot`). It records the key **location**, never the key.
 12. If it prints `propose-note:`, do not run `propose` on this box: `me` is now the bot.
-13. **GitHub only:** the App fields are now in `BOT.md` on the box. They are not secrets. The owner adds the same three lines to `BOT.md` on their own computer and proposes it.
+13. **GitHub only:** the App fields are now in `BOT.md` on the box. They are not secrets. The admin adds the same three lines to `BOT.md` on the admin computer, where `me` is the admin, and proposes it. The owner approves.
 14. **Sign the owner out** of the host on the box. Then **tell the owner** in plain words: the bot's name, its repos, its routines, and where its logs are.
 
 **When the script stops.** Tell the person its last line exactly. Examples: `email is required`, `bots switch is off`, `repo <repo> exceeds the owner's grant`, `an area bot cannot take the company repo`, `secret file is missing`, `secret file mode is not 0600`, `me file is <slug>, not <bot>. Set replace_me=yes on the bot box only.` Fix the answers file at most once and run again. If it stops again, stop and tell the owner. Never ask for a key or token in chat. If `propose` fails, tell the person its line and stop.
