@@ -525,27 +525,350 @@ cmd_push() {
   return "$rc"
 }
 
+sync_propose_bad_path() {
+  local path=$1
+  local seg oldifs
+  [ -n "$path" ] || return 0
+  case "$path" in
+    /*|..|../*|*/..|*/../*)
+      return 0
+      ;;
+  esac
+  case "$path" in
+    *$'\n'*|*$'\t'*)
+      return 0
+      ;;
+  esac
+  oldifs=$IFS
+  IFS=/
+  # shellcheck disable=SC2086
+  set -- $path
+  IFS=$oldifs
+  for seg in "$@"; do
+    if [ -z "$seg" ] || [ "$seg" = ".." ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+sync_propose_refuse_path() {
+  local path=$1
+  case "$path" in
+    *$'\n'*|*$'\t'*)
+      printf '%s\n' "propose refused: bad path" >&2
+      ;;
+    *)
+      printf '%s\n' "propose refused: bad path: ${path}" >&2
+      ;;
+  esac
+  exit 1
+}
+
+sync_under_dir() {
+  local path=$1
+  local root=$2
+  local real rootreal
+  real=$(sync_abs "$path")
+  rootreal=$(sync_abs "$root")
+  case "$real" in
+    "$rootreal"|"$rootreal"/*) return 0 ;;
+  esac
+  return 1
+}
+
+sync_propose_main_symlink() {
+  local root=$1
+  local rel=$2
+  local cur part oldifs
+  cur=$root
+  oldifs=$IFS
+  IFS=/
+  # shellcheck disable=SC2086
+  set -- $rel
+  IFS=$oldifs
+  for part in "$@"; do
+    [ -n "$part" ] || continue
+    cur="$cur/$part"
+    if [ -L "$cur" ]; then
+      return 0
+    fi
+    if [ ! -e "$cur" ]; then
+      return 1
+    fi
+  done
+  return 1
+}
+
+sync_propose_symlink() {
+  local root=$1
+  local rel=$2
+  local cur part oldifs
+  if [ -L "$root/$rel" ]; then
+    return 0
+  fi
+  cur=$root
+  oldifs=$IFS
+  IFS=/
+  # shellcheck disable=SC2086
+  set -- $rel
+  IFS=$oldifs
+  for part in "$@"; do
+    [ -n "$part" ] || continue
+    cur="$cur/$part"
+    if [ -L "$cur" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+sync_propose_repo_ok() {
+  local dir=$1
+  local label=$2
+  local top real
+  if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+    sync_propose_fail "$label" "repo" 1
+    return 1
+  fi
+  if [ -L "$dir/.git" ] || [ -f "$dir/.git" ] || [ ! -d "$dir/.git" ]; then
+    sync_propose_fail "$label" "repo" 1
+    return 1
+  fi
+  top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null || true)
+  [ -n "$top" ] || {
+    sync_propose_fail "$label" "repo" 1
+    return 1
+  }
+  real=$(sync_abs "$dir")
+  top=$(sync_abs "$top")
+  if [ "$top" != "$real" ]; then
+    sync_propose_fail "$label" "repo" 1
+    return 1
+  fi
+  return 0
+}
+
+sync_propose_note_tree() {
+  local repo=$1
+  local tmp=$2
+  printf '%s\t%s\n' "$repo" "$tmp" >> "$SYNC_STATE/propose-trees"
+}
+
+sync_propose_drop_trees() {
+  local line repo tmp
+  [ -n "${SYNC_STATE:-}" ] || return 0
+  [ -f "$SYNC_STATE/propose-trees" ] || return 0
+  while IFS=$(printf '\t') read -r repo tmp; do
+    [ -n "$tmp" ] || continue
+    if [ -n "$repo" ] && [ -e "$repo/.git" ]; then
+      git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true
+    fi
+    if [ -e "$tmp" ]; then
+      rm -rf "$tmp"
+    fi
+  done < "$SYNC_STATE/propose-trees"
+  rm -f "$SYNC_STATE/propose-trees"
+}
+
+sync_propose_print_opened() {
+  local name number
+  [ -n "${SYNC_STATE:-}" ] || return 0
+  [ -f "$SYNC_STATE/propose-opened" ] || return 0
+  while read -r name number; do
+    [ -n "$name" ] || continue
+    printf '%s\n' "opened: ${name} ${number}" >&2
+  done < "$SYNC_STATE/propose-opened"
+}
+
+sync_propose_fail() {
+  local repo=$1
+  local step=$2
+  local code=$3
+  sync_log "propose fail ${repo}: ${step}"
+  printf '%s\n' "propose fail ${repo}: ${step}" >&2
+  sync_propose_print_opened
+  return "$code"
+}
+
+# List lines are repo-relative path, tab, the path the person gave.
+sync_propose_repo() {
+  local repo=$1
+  local topic=$2
+  local me=$3
+  local list=$4
+  local rel userpath tmp name number rc author aname email msgfile dest
+  name=$(sync_remote_name "$repo") || name=$repo
+  tmp=$(mktemp -d)
+  chmod 700 "$tmp"
+  sync_propose_note_tree "$repo" "$tmp"
+  if ! git -C "$repo" worktree add --detach "$tmp" origin/main >/dev/null 2>&1; then
+    sync_propose_fail "$name" "worktree" 2
+    return 2
+  fi
+  while IFS=$(printf '\t') read -r rel userpath; do
+    [ -n "$rel" ] || continue
+    dest="$tmp/$rel"
+    if sync_propose_main_symlink "$tmp" "$rel"; then
+      printf '%s\n' "propose refused: symlink on main: ${userpath}" >&2
+      return 1
+    fi
+    mkdir -p "$(dirname "$dest")"
+    if ! sync_under_dir "$(dirname "$dest")" "$tmp" && [ "$(dirname "$dest")" != "$tmp" ]; then
+      sync_propose_fail "$name" "copy ${userpath}" 1
+      return 1
+    fi
+    if ! cp "$SYNC_ROOT/$userpath" "$dest"; then
+      sync_propose_fail "$name" "copy ${userpath}" 1
+      return 1
+    fi
+    if ! sync_under_dir "$dest" "$tmp"; then
+      sync_propose_fail "$name" "copy ${userpath}" 1
+      return 1
+    fi
+    git -C "$tmp" add -- "$rel"
+    if git -C "$tmp" diff --cached --quiet -- "$rel"; then
+      sync_die 1 "nothing to propose: ${userpath}"
+    fi
+  done < "$list"
+  author=$(sync_commit_author)
+  aname=$(printf '%s\n' "$author" | head -n 1)
+  email=$(printf '%s\n' "$author" | tail -n 1)
+  msgfile=$(sync_mktemp)
+  printf '%s\n' "propose ${topic}" > "$msgfile"
+  if ! git -C "$tmp" -c user.name="$aname" -c user.email="$email" -c commit.gpgsign=false \
+      commit -F "$msgfile" >/dev/null 2>&1; then
+    sync_propose_fail "$name" "commit" 2
+    return 2
+  fi
+  if ! sync_push_ref "$tmp" "refs/heads/rules/${me}/${topic}" 1; then
+    sync_propose_fail "$name" "push" 2
+    return 2
+  fi
+  number=$(sync_open_pr "$name" "rules/${me}/${topic}" "rules: ${topic}" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    sync_propose_fail "$name" "open-pr" 2
+    return 2
+  fi
+  printf '%s %s\n' "$name" "$number" >> "$SYNC_STATE/propose-opened"
+  if ! "$HOST_SH" auto-merge "$name" "$number" >/dev/null 2>&1; then
+    sync_propose_fail "$name" "auto-merge" 2
+    return 2
+  fi
+  sync_log "propose ok ${name} ${topic} ${number}"
+  printf '%s\n' "$number"
+}
+
+sync_propose_check_file() {
+  local repo=$1
+  local rel=$2
+  local userpath=$3
+  local src
+  src="$SYNC_ROOT/$userpath"
+  if sync_propose_symlink "$repo" "$rel" || [ -L "$src" ]; then
+    printf '%s\n' "propose refused: symlink: ${userpath}" >&2
+    return 1
+  fi
+  if [ ! -f "$src" ]; then
+    sync_die 1 "file not found: ${userpath}"
+  fi
+  if ! sync_under_dir "$src" "$repo"; then
+    printf '%s\n' "propose refused: bad path: ${userpath}" >&2
+    return 1
+  fi
+  return 0
+}
+
 cmd_propose() {
   local topic=$1
   shift
-  local me files path name number tmp author aname email msgfile
+  local me path area rest company_list areas_list area_list scan_list args_file label rc
+  sync_safe_slug "$topic" || sync_die 1 "topic is not a plain name"
+  [ $# -ge 1 ] || sync_die 1 "propose needs at least one file"
+  for path in "$@"; do
+    path=${path#./}
+    if sync_propose_bad_path "$path"; then
+      sync_propose_refuse_path "$path"
+    fi
+  done
   sync_lock
   sync_identity || return 1
-  sync_safe_slug "$topic" || sync_die 1 "topic is not a plain name"
   me=$(sync_me)
-  [ $# -ge 1 ] || sync_die 1 "propose needs at least one file"
-  files=$(sync_mktemp)
+  [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
+  rm -f "$SYNC_STATE/propose-opened" "$SYNC_STATE/propose-trees"
   for path in "$@"; do
-    [ -f "$SYNC_ROOT/$path" ] || sync_die 1 "file not found: ${path}"
-    printf '%s\n' "$path" >> "$files"
+    path=${path#./}
+    case "$path" in
+      users|users/*)
+        printf '%s\n' "propose refused: users paths stay in the workspace" >&2
+        return 1
+        ;;
+    esac
   done
-  set +e
+  company_list=$(sync_mktemp)
+  areas_list=$(sync_mktemp)
+  scan_list=$(sync_mktemp)
+  args_file=$(sync_mktemp)
+  : > "$company_list"
+  : > "$areas_list"
+  : > "$scan_list"
+  : > "$args_file"
+  for path in "$@"; do
+    path=${path#./}
+    printf '%s\n' "$path" >> "$args_file"
+  done
+  for path in "$@"; do
+    path=${path#./}
+    case "$path" in
+      areas/*/*)
+        area=${path#areas/}
+        area=${area%%/*}
+        printf '%s\n' "$area" >> "$areas_list"
+        ;;
+      areas|areas/*)
+        sync_die 1 "nothing to propose: ${path}"
+        ;;
+      *)
+        printf '%s\t%s\n' "$path" "$path" >> "$company_list"
+        printf '%s\n' "$SYNC_ROOT/$path" >> "$scan_list"
+        ;;
+    esac
+  done
+  sort -u "$areas_list" -o "$areas_list"
+  if [ -s "$company_list" ]; then
+    label=$(sync_remote_name "$SYNC_ROOT" || true)
+    [ -n "$label" ] || label=root
+    sync_propose_repo_ok "$SYNC_ROOT" "$label" || return $?
+    while IFS=$(printf '\t') read -r rest path; do
+      sync_propose_check_file "$SYNC_ROOT" "$rest" "$path" || return 1
+    done < "$company_list"
+  fi
+  while IFS= read -r area; do
+    [ -n "$area" ] || continue
+    label=$(sync_remote_name "$SYNC_ROOT/areas/$area" || true)
+    [ -n "$label" ] || label=$area
+    sync_propose_repo_ok "$SYNC_ROOT/areas/$area" "$label" || return $?
+    for path in "$@"; do
+      path=${path#./}
+      case "$path" in
+        areas/"$area"/*)
+          rest=${path#areas/"$area"/}
+          printf '%s\n' "$SYNC_ROOT/$path" >> "$scan_list"
+          sync_propose_check_file "$SYNC_ROOT/areas/$area" "$rest" "$path" || return 1
+          ;;
+      esac
+    done
+  done < "$areas_list"
   set --
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     set -- "$@" "$path"
-  done < "$files"
-  (cd "$SYNC_ROOT" && "$SYNC_DIR/secret-scan.sh" --files -- "$@") >/dev/null
+  done < "$scan_list"
+  if [ $# -eq 0 ]; then
+    sync_die 1 "propose needs at least one file"
+  fi
+  set +e
+  "$SYNC_DIR/secret-scan.sh" --files -- "$@" >/dev/null
   rc=$?
   set -e
   if [ "$rc" -eq 1 ]; then
@@ -554,38 +877,39 @@ cmd_propose() {
   if [ "$rc" -ne 0 ]; then
     sync_die 2 "propose refused: secret scan error"
   fi
-  if ! sync_git "$SYNC_ROOT" fetch origin >/dev/null 2>&1; then
-    sync_log "propose fail could not reach origin"
-    return 2
+  if [ -s "$company_list" ]; then
+    label=$(sync_remote_name "$SYNC_ROOT" || true)
+    [ -n "$label" ] || label=root
+    if ! sync_git "$SYNC_ROOT" fetch origin >/dev/null 2>&1; then
+      sync_propose_fail "$label" "fetch" 2
+      return 2
+    fi
   fi
-  tmp=$(mktemp -d)
-  chmod 700 "$tmp"
-  git -C "$SYNC_ROOT" worktree add --detach "$tmp" origin/main >/dev/null
-  while IFS= read -r path; do
-    mkdir -p "$tmp/$(dirname "$path")"
-    cp "$SYNC_ROOT/$path" "$tmp/$path"
-  done < "$files"
-  git -C "$tmp" add -A
-  author=$(sync_commit_author)
-  aname=$(printf '%s\n' "$author" | head -n 1)
-  email=$(printf '%s\n' "$author" | tail -n 1)
-  msgfile=$(sync_mktemp)
-  printf '%s\n' "propose ${topic}" > "$msgfile"
-  git -C "$tmp" -c user.name="$aname" -c user.email="$email" -c commit.gpgsign=false \
-    commit -F "$msgfile" >/dev/null
-  if ! sync_push_ref "$tmp" "refs/heads/rules/${me}/${topic}" 1; then
-    git -C "$SYNC_ROOT" worktree remove --force "$tmp" >/dev/null 2>&1 || true
-    sync_log "propose fail could not reach origin"
-    return 2
+  while IFS= read -r area; do
+    [ -n "$area" ] || continue
+    label=$(sync_remote_name "$SYNC_ROOT/areas/$area" || true)
+    [ -n "$label" ] || label=$area
+    if ! sync_git "$SYNC_ROOT/areas/$area" fetch origin >/dev/null 2>&1; then
+      sync_propose_fail "$label" "fetch" 2
+      return 2
+    fi
+  done < "$areas_list"
+  if [ -s "$company_list" ]; then
+    sync_propose_repo "$SYNC_ROOT" "$topic" "$me" "$company_list" || return $?
   fi
-  git -C "$SYNC_ROOT" worktree remove --force "$tmp" >/dev/null 2>&1 || true
-  name=$(sync_remote_name "$SYNC_ROOT") || return 2
-  number=$(sync_open_pr "$name" "rules/${me}/${topic}" "rules: ${topic}" | jq -r '.number // empty')
-  [ -n "$number" ] || {
-    sync_log "propose fail could not open a pull request"
-    return 2
-  }
-  "$HOST_SH" auto-merge "$name" "$number" >/dev/null || true
-  sync_log "propose ok ${topic} ${number}"
-  printf '%s\n' "$number"
+  while IFS= read -r area; do
+    [ -n "$area" ] || continue
+    area_list=$(sync_mktemp)
+    : > "$area_list"
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      case "$path" in
+        areas/"$area"/*)
+          rest=${path#areas/"$area"/}
+          printf '%s\t%s\n' "$rest" "$path" >> "$area_list"
+          ;;
+      esac
+    done < "$args_file"
+    sync_propose_repo "$SYNC_ROOT/areas/$area" "$topic" "$me" "$area_list" || return $?
+  done < "$areas_list"
 }
