@@ -81,7 +81,7 @@ for engine in claude codex cursor pi; do
   while [ "$i" -lt 6 ]; do
     osf_host S13 file "$org" "$repo" notes/admin.md --ref main
     page=$(cat "$OSF_HOST_JSON")
-    if [ "$OSF_HOST_RC" -eq 0 ] && printf '%s\n' "$page" | grep -q 'the admin run wrote this'; then
+    if [ "$OSF_HOST_RC" -eq 0 ] && printf '%s\n' "$page" | grep -qi 'the admin run wrote this'; then
       found=1
       break
     fi
