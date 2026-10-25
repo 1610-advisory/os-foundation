@@ -9,9 +9,11 @@ source "$here/lib/common.sh"
 usage() {
   cat << 'EOF'
 usage: seat.sh <seat> <prompt-file> [--cwd <dir>]
+       seat.sh --check <seat>
 
 Seats: admin, director, member-a, member-b, member-c, member-d, bot.
 A missing engine or sign-in prints BLOCKED and exits 3.
+--check only tests the engine and the sign-in. It does not run a prompt.
 The vendor login stays the one on this computer. The seat's git name,
 host token, and XDG_CONFIG_HOME are separate.
 EOF
@@ -20,11 +22,16 @@ EOF
 seat=""
 prompt=""
 cwd=""
+check_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --help|-h)
       usage
       exit 0
+      ;;
+    --check)
+      check_only=1
+      shift
       ;;
     --cwd)
       cwd="${2:-}"
@@ -49,11 +56,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -z "$seat" ] || [ -z "$prompt" ]; then
+if [ -z "$seat" ] || { [ "$check_only" -eq 0 ] && [ -z "$prompt" ]; }; then
   usage >&2
   exit 1
 fi
-if [ ! -f "$prompt" ]; then
+if [ "$check_only" -eq 0 ] && [ ! -f "$prompt" ]; then
   echo "FAIL: prompt file not found" >&2
   exit 1
 fi
@@ -133,28 +140,36 @@ codex_signed_in() {
   return 1
 }
 
+# Vendor sign-in lives under the real home. A scenario sandbox must not hide it.
+real_home=${OSF_REAL_HOME:-$HOME}
+
 case "$engine" in
   claude)
-    if ! claude_signed_in; then
+    if ! HOME="$real_home" claude_signed_in; then
       blocked "not signed in: claude"
     fi
     ;;
   pi)
-    if ! pi_signed_in; then
+    if ! HOME="$real_home" pi_signed_in; then
       blocked "not signed in: pi"
     fi
     ;;
   cursor)
-    if ! cursor_signed_in; then
+    if ! HOME="$real_home" cursor_signed_in; then
       blocked "not signed in: cursor-agent"
     fi
     ;;
   codex)
-    if ! codex_signed_in; then
+    if ! HOME="$real_home" codex_signed_in; then
       blocked "not signed in: codex (gate G7)"
     fi
     ;;
 esac
+
+if [ "$check_only" -eq 1 ]; then
+  echo "OK: $seat"
+  exit 0
+fi
 
 token_file="$(osf_acme_token_dir)/$forgejo_user"
 if [ ! -s "$token_file" ]; then
@@ -169,16 +184,17 @@ seat_dir="$root/tests/acme/.out/$run_id/$seat"
 mkdir -p "$seat_dir/xdg" "$seat_dir/logs" "$seat_dir/work"
 chmod 700 "$root/tests/acme/.out" "$seat_dir" "$seat_dir/xdg"
 
-helper="$seat_dir/git-credential-osf"
-cat > "$helper" << 'EOF'
-#!/bin/sh
-while IFS= read -r line; do
-  [ -z "$line" ] && break
-done
-printf 'username=%s\n' "$OSF_GIT_USER"
-printf 'password=%s\n' "$OSF_FORGEJO_TOKEN"
-EOF
-chmod 700 "$helper"
+helper="$root/tests/acme/lib/git-credential-seat.sh"
+ssh_off="$root/tests/acme/lib/ssh-off.sh"
+chmod 700 "$helper" "$ssh_off"
+seat_bin="$seat_dir/bin"
+mkdir -p "$seat_bin"
+chmod 700 "$seat_bin"
+ln -sf "$ssh_off" "$seat_bin/ssh"
+ln -sf "$ssh_off" "$seat_bin/scp"
+ln -sf "$ssh_off" "$seat_bin/sftp"
+export PATH="$seat_bin:$PATH"
+export RSYNC_RSH="$seat_bin/ssh"
 
 gitconfig="$seat_dir/gitconfig"
 cat > "$gitconfig" << EOF
@@ -193,11 +209,19 @@ cat > "$gitconfig" << EOF
 EOF
 chmod 600 "$gitconfig"
 
+unset SSH_AUTH_SOCK
+export GIT_SSH_COMMAND="$ssh_off"
+export GIT_ALLOW_PROTOCOL="http:https:file"
+
 token=$(tr -d '[:space:]' < "$token_file")
 
 if [ -z "$cwd" ] && [ -n "${OSF_ACME_REPO:-}" ]; then
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_TERMINAL_PROMPT=0 \
   OSF_FORGEJO_TOKEN="$token" \
   OSF_GIT_USER="$forgejo_user" \
@@ -225,14 +249,16 @@ rm -f "$rcfile"
 run_engine() {
   case "$engine" in
     claude)
-      claude -p \
+      # Variadic flags would swallow a prompt argument. The prompt is on stdin.
+      printf '%s\n' "$prompt_text" | claude -p \
         --model "${OSF_ACME_CLAUDE_MODEL:-haiku}" \
         --output-format text \
         --no-session-persistence \
         --max-budget-usd 0.50 \
         --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git *)" \
         --add-dir "$cwd" \
-        "$prompt_text"
+        --strict-mcp-config \
+        --mcp-config '{"mcpServers":{}}'
       ;;
     pi)
       pi -p \
@@ -275,9 +301,15 @@ run_engine() {
 (
   cd "$cwd"
   set +e
+  HOME="$real_home" \
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
   XDG_CONFIG_HOME="$seat_dir/xdg" \
+  GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_AUTHOR_NAME="$git_name" \
   GIT_AUTHOR_EMAIL="$git_email" \
   GIT_COMMITTER_NAME="$git_name" \
@@ -328,8 +360,14 @@ fi
 if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   && git -C "$cwd" remote get-url origin >/dev/null 2>&1; then
   branch=$(git -C "$cwd" symbolic-ref --short HEAD)
+  HOME="$real_home" \
+  PATH="$seat_bin:$PATH" \
+  RSYNC_RSH="$seat_bin/ssh" \
+  GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_AUTHOR_NAME="$git_name" \
   GIT_AUTHOR_EMAIL="$git_email" \
   GIT_COMMITTER_NAME="$git_name" \

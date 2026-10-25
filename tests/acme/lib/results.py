@@ -367,78 +367,152 @@ def cmd_runner_online() -> int:
     return emit({"online": False, "names": names}, 2)
 
 
+def classify_access(admin_code: int | None, user_code: int | None) -> tuple[dict, int]:
+    """Tell a real denial from a missing repo and from a host error.
+
+    admin_code None means the admin call did not complete. user_code None
+    means the user call did not complete. 404 from the admin is a missing
+    repo. 401, 403, or 404 from the user, when the admin can see the repo,
+    is a denial.
+    """
+    if admin_code is None:
+        return {"error": "host"}, 3
+    if admin_code == 404:
+        return {"error": "missing", "denied": False}, 3
+    if admin_code != 200:
+        return {"error": "host"}, 3
+    if user_code is None:
+        return {"error": "host"}, 3
+    if user_code == 200:
+        return {"denied": False}, 2
+    if user_code in (401, 403, 404):
+        return {"denied": True}, 0
+    return {"error": "host"}, 3
+
+
+def checks_are_green(sha: str, statuses: list, runs: list) -> bool:
+    """True only when this sha has a successful checks context."""
+    if not sha:
+        return False
+    for item in statuses:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("context") or item.get("name") or "")
+        state = str(item.get("state") or item.get("status") or "")
+        if "checks" in name and state == "success":
+            return True
+    for row in runs:
+        if not isinstance(row, dict):
+            continue
+        if row.get("head_sha") != sha:
+            continue
+        name = str(row.get("name") or "")
+        state = str(row.get("status") or row.get("conclusion") or "")
+        if "checks" in name and state == "success":
+            return True
+    return False
+
+
+def list_exit(names: list) -> int:
+    return 0 if names else 2
+
+
 def cmd_clone_denied(user: str, owner: str, repo: str) -> int:
+    path = f"/api/v1/repos/{quote(owner)}/{quote(repo)}"
     try:
-        token = read_token(user)
+        admin_code, _admin = api("GET", path, "admin")
     except OSError:
-        return fail_host("token file missing")
-    url = f"{base_url()}/{quote(owner)}/{quote(repo)}.git"
-    with tempfile.TemporaryDirectory(prefix="osf-acme-") as tmp:
-        helper = Path(tmp) / "git-credential-osf"
-        gitconfig = Path(tmp) / "gitconfig"
-        helper.write_text(
-            "#!/bin/sh\n"
-            "while IFS= read -r line; do\n"
-            "  [ -z \"$line\" ] && break\n"
-            "done\n"
-            "printf 'username=%s\\n' \"$OSF_GIT_USER\"\n"
-            "printf 'password=%s\\n' \"$OSF_FORGEJO_TOKEN\"\n",
-            encoding="utf-8",
-        )
-        helper.chmod(0o700)
-        gitconfig.write_text(
-            "[credential]\n"
-            f"\thelper = !{helper}\n"
-            "\tuseHttpPath = true\n",
-            encoding="utf-8",
-        )
-        gitconfig.chmod(0o600)
-        env = os.environ.copy()
-        env["OSF_FORGEJO_TOKEN"] = token
-        env["OSF_GIT_USER"] = user
-        env["GIT_CONFIG_GLOBAL"] = str(gitconfig)
-        env["GIT_CONFIG_NOSYSTEM"] = "1"
-        env["GIT_TERMINAL_PROMPT"] = "0"
-        env["GCM_INTERACTIVE"] = "never"
-        try:
-            proc = subprocess.run(
-                ["git", "ls-remote", url],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=40,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return fail_host("clone probe timed out")
-    denied = proc.returncode != 0
-    return emit({"denied": denied, "user": user, "repo": f"{owner}/{repo}"}, 0 if denied else 2)
+        return fail_host("host unreachable")
+    try:
+        user_code, _user = api("GET", path, user)
+    except OSError:
+        user_code = None
+    payload, code = classify_access(admin_code, user_code)
+    payload["user"] = user
+    payload["repo"] = f"{owner}/{repo}"
+    return emit(payload, code)
+
+
+def api_list(path: str, who: str = "admin", limit: int = 50) -> tuple[int, list]:
+    page = 1
+    items: list = []
+    while page <= 40:
+        sep = "&" if "?" in path else "?"
+        code, payload = api("GET", f"{path}{sep}limit={limit}&page={page}", who)
+        if code != 200 or not isinstance(payload, list):
+            return code, items
+        items.extend(payload)
+        if len(payload) < limit:
+            break
+        page += 1
+    return 200, items
+
+
+def cmd_commits(owner: str, repo: str, ref: str, limit: int) -> int:
+    code, rows = api_list(
+        f"/api/v1/repos/{quote(owner)}/{quote(repo)}/commits?sha={quote(ref)}",
+        limit=limit,
+    )
+    if code == 404:
+        return emit({"commits": []}, 2)
+    if code != 200:
+        return fail_host(f"commits HTTP {code}")
+    commits = []
+    for row in rows[:limit]:
+        if not isinstance(row, dict):
+            continue
+        commit = row.get("commit") if isinstance(row.get("commit"), dict) else {}
+        message = commit.get("message") or ""
+        commits.append({
+            "sha": row.get("sha") or "",
+            "message": message,
+            "trailers": parse_trailers(message),
+        })
+    return emit({"commits": commits}, 0 if commits else 2)
+
+
+def cmd_branches(owner: str, repo: str) -> int:
+    code, rows = api_list(f"/api/v1/repos/{quote(owner)}/{quote(repo)}/branches")
+    if code == 404:
+        return emit({"branches": []}, 2)
+    if code != 200:
+        return fail_host(f"branches HTTP {code}")
+    names = [row.get("name") or "" for row in rows if isinstance(row, dict)]
+    return emit({"branches": names}, 0 if names else 2)
+
+
+def cmd_tags(owner: str, repo: str) -> int:
+    code, rows = api_list(f"/api/v1/repos/{quote(owner)}/{quote(repo)}/tags")
+    if code == 404:
+        return emit({"tags": []}, 2)
+    if code != 200:
+        return fail_host(f"tags HTTP {code}")
+    names = [row.get("name") or "" for row in rows if isinstance(row, dict)]
+    return emit({"tags": names}, list_exit(names))
 
 
 def cmd_wait_check(owner: str, repo: str, sha: str, timeout: int) -> int:
     import time
+    if not sha:
+        return fail_host("missing head sha")
     deadline = time.time() + timeout
     last = {"state": "waiting", "sha": sha}
     while time.time() < deadline:
+        statuses: list = []
         code, status = api("GET", f"/api/v1/repos/{quote(owner)}/{quote(repo)}/commits/{quote(sha)}/status")
-        states = []
         if code == 200 and isinstance(status, dict):
-            states = [item.get("state") for item in status.get("statuses") or [] if isinstance(item, dict)]
-            if "success" in states or status.get("state") == "success":
-                return emit({"state": "success", "sha": sha, "checks": states}, 0)
-            if any(item in ("failure", "error") for item in states):
-                return emit({"state": "failure", "sha": sha, "checks": states}, 2)
+            statuses = [item for item in status.get("statuses") or [] if isinstance(item, dict)]
+        runs: list = []
         rcode, runs_payload = api("GET", f"/api/v1/repos/{quote(owner)}/{quote(repo)}/actions/runs?limit=20")
         if rcode == 200:
-            for row in runs_for(runs_payload):
-                if row.get("head_sha") not in (None, "", sha):
-                    continue
-                state = str(row.get("status") or "")
-                last = {"state": state, "sha": sha, "name": row.get("name") or ""}
-                if state == "success":
-                    return emit(last, 0)
-                if state in ("failure", "cancelled", "error"):
-                    return emit(last, 2)
+            runs = [row for row in runs_for(runs_payload) if isinstance(row, dict) and row.get("head_sha") == sha]
+        if checks_are_green(sha, statuses, runs):
+            return emit({"state": "success", "sha": sha}, 0)
+        for row in runs:
+            state = str(row.get("status") or "")
+            if state in ("failure", "cancelled", "error"):
+                return emit({"state": state, "sha": sha, "name": row.get("name") or ""}, 2)
+        last = {"state": "waiting", "sha": sha}
         time.sleep(5)
     return emit(last, 2)
 
@@ -491,6 +565,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("repo")
     p.add_argument("sha")
     p.add_argument("--timeout", type=int, default=180)
+    p = sub.add_parser("commits")
+    p.add_argument("owner")
+    p.add_argument("repo")
+    p.add_argument("--ref", default="main")
+    p.add_argument("--limit", type=int, default=20)
+    p = sub.add_parser("branches")
+    p.add_argument("owner")
+    p.add_argument("repo")
+    p = sub.add_parser("tags")
+    p.add_argument("owner")
+    p.add_argument("repo")
     return parser
 
 
@@ -520,6 +605,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_runner_online()
         if args.cmd == "wait-check":
             return cmd_wait_check(args.owner, args.repo, args.sha, args.timeout)
+        if args.cmd == "commits":
+            return cmd_commits(args.owner, args.repo, args.ref, args.limit)
+        if args.cmd == "branches":
+            return cmd_branches(args.owner, args.repo)
+        if args.cmd == "tags":
+            return cmd_tags(args.owner, args.repo)
     except OSError as exc:
         return fail_host(str(exc))
     parser.error("unknown command")

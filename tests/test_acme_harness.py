@@ -63,6 +63,9 @@ class ComposeTests(unittest.TestCase):
         text = (ACME / "forgejo" / "runner-config.template.yml").read_text()
         self.assertIn("ubuntu-latest:docker://osf-acme-job:local", text)
         self.assertNotIn("{{", text)
+        self.assertIn("OS_REVIEW_FAKE: /opt/os-review-fake/verdicts.txt", text)
+        self.assertIn("-v /opt/os-review-fake:/opt/os-review-fake:ro", text)
+        self.assertIn("- /opt/os-review-fake", text)
 
 
 class RepoHygieneTests(unittest.TestCase):
@@ -79,13 +82,23 @@ class RepoHygieneTests(unittest.TestCase):
             "docker.sock",
         )
         for path in ACME.rglob("*"):
-            if not path.is_file() or "__pycache__" in path.parts:
+            if not path.is_file() or "__pycache__" in path.parts or ".out" in path.parts:
                 continue
             if path.suffix not in {".sh", ".py", ".md", ".yml", ".txt", ".Dockerfile"} and path.name != "job.Dockerfile":
                 continue
             text = path.read_text(encoding="utf-8")
             for word in banned:
                 self.assertNotIn(word, text, f"{path} contains {word}")
+
+    def test_keep_on_fail_is_wired(self):
+        text = (LIB / "scenario.sh").read_text()
+        self.assertIn("OSF_ACME_KEEP", text)
+        self.assertIn("osf_keep_on_fail", text)
+        for name in ("S3.sh", "S5.sh"):
+            scenario = (ACME / "scenarios" / name).read_text()
+            self.assertIn('osf_keep_on_fail "$org"', scenario)
+        readme = (ACME / "README.md").read_text()
+        self.assertIn("OSF_ACME_KEEP=1", readme)
 
     def test_readme_names_seats_and_token_locations(self):
         text = (ACME / "README.md").read_text()

@@ -20,6 +20,7 @@ runner:
     DOCKER_HOST: tcp://docker:2376
     DOCKER_TLS_VERIFY: "1"
     DOCKER_CERT_PATH: /certs/client
+    OS_REVIEW_FAKE: /opt/os-review-fake/verdicts.txt
 
 cache:
   enabled: false
@@ -27,9 +28,10 @@ cache:
 container:
   network: host
   privileged: false
-  options: "-v /certs/client:/certs/client:ro"
+  options: "-v /certs/client:/certs/client:ro -v /opt/os-review-fake:/opt/os-review-fake:ro"
   valid_volumes:
     - /certs/client
+    - /opt/os-review-fake
   docker_host: "-"
   force_pull: false
   force_rebuild: false

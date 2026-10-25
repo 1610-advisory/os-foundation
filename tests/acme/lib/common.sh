@@ -33,6 +33,19 @@ osf_acme_compose() {
   docker compose -p osf-acme -f "$root/tests/acme/forgejo/compose.yml" "$@"
 }
 
+# Copy the Tier A verdict file into DinD. Does not restart the runner.
+osf_place_review_fake() {
+  local root verdicts
+  root=$(osf_acme_root)
+  verdicts="$root/tests/acme/forgejo/verdicts.txt"
+  if [ ! -f "$verdicts" ]; then
+    echo "FAIL: verdicts file missing" >&2
+    return 1
+  fi
+  docker exec osf-acme-dind mkdir -p /opt/os-review-fake
+  docker exec -i osf-acme-dind sh -c 'cat > /opt/os-review-fake/verdicts.txt && chmod 644 /opt/os-review-fake/verdicts.txt' < "$verdicts"
+}
+
 osf_die() {
   echo "FAIL: $*" >&2
   exit 1

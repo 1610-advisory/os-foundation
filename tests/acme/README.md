@@ -24,7 +24,9 @@ Tier B is not available in this phase. `run.sh --tier b` prints `BLOCKED: gates 
 
 Forgejo listens on `http://localhost:3300`. Job containers run in the DinD sidecar. The host Docker socket is not mounted.
 
-The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into DinD as `osf-acme-job:local`. The runner label `ubuntu-latest` points at that image. The image has bash, git, curl, and jq.
+The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into DinD as `osf-acme-job:local`. The runner label `ubuntu-latest` points at that image. The image has bash, git, curl, and jq. The runner is registered for the whole Forgejo instance, not only org `acme`. An org-scoped runner never starts jobs for `acme2-*` orgs.
+
+The runner sets `OS_REVIEW_FAKE` to `/opt/os-review-fake/verdicts.txt` and mounts that folder read-only. `up.sh` copies `verdicts.txt` into the sidecar. Applying the runner config restarts the shared runner. Do that only when no other team is using it.
 
 ## Seats
 
@@ -42,7 +44,7 @@ The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into 
 tests/acme/seat.sh member-d prompt.txt --cwd <clone>
 ```
 
-A missing engine or sign-in prints `BLOCKED: <seat> <reason>` and exits 3. The vendor login stays the one already on the computer. Each seat gets its own git name, host token, and `XDG_CONFIG_HOME`.
+A missing engine or sign-in prints `BLOCKED: <seat> <reason>` and exits 3. The vendor login stays the one already on the computer. A scenario sandbox does not hide it: sign-in checks and the engine use `OSF_REAL_HOME`. Each seat gets its own git name, host token, `XDG_CONFIG_HOME`, and an empty `GH_CONFIG_DIR` so GitHub is not signed in. Claude loads no MCP servers. Pi runs with `--no-extensions` and `--no-mcp`.
 
 Cursor sign-in is checked with a real command, not the status line. If that command says authentication is required, the seat is BLOCKED.
 
@@ -65,6 +67,18 @@ Tokens are not in this repo and are not printed. The site admin login is `osf-ad
 | Seat tokens | `~/.cache/os-foundation/forgejo/tokens/<user>` |
 
 Files are mode 0600. The folder is mode 0700.
+
+## Scenarios
+
+`scenarios/S0.sh` through `scenarios/S14.sh` each print result lines. The last line is `S0`–`S14` plus `PASS`, `FAIL`, or `BLOCKED`. S13 also prints one line per engine before that summary.
+
+A scenario whose product code is not on this branch yet prints `BLOCKED not merged: <team>`. A missing engine or sign-in prints `BLOCKED` with the reason. Codex is gate G7. Cursor is blocked until sign-in works.
+
+When a scenario needs a second vendor and that seat is blocked, the script uses another vendor and names the substitution. It does not use the same vendor twice. A director approval is an API call with that seat's token. The director engine is not required.
+
+Each scenario deletes the repos it created. Repo names start with `acme2-`.
+
+`OSF_ACME_KEEP=1` leaves that scenario's org in place when the scenario fails. A pass still deletes it. The start wipe still runs, so a rerun does not reuse a kept org unless you skip the scenario's create step.
 
 ## Results
 

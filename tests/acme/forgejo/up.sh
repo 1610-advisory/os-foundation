@@ -60,6 +60,7 @@ until docker exec osf-acme-dind test -f /certs/client/cert.pem; do
   sleep 1
 done
 docker exec -u 0 osf-acme-dind chmod -R a+rX /certs/client
+osf_place_review_fake
 
 docker build -t osf-acme-job:local -f "$root/tests/acme/forgejo/job.Dockerfile" "$root/tests/acme/forgejo"
 docker save osf-acme-job:local | docker exec -i osf-acme-dind docker load

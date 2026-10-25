@@ -293,29 +293,16 @@ ensure_runner() {
   chmod 600 "$secret_file"
   out=$(mktemp)
   chmod 600 "$out"
+  # Empty scope is an instance runner. An org-scoped runner never starts jobs for acme2-* orgs.
   set +e
   docker exec -u git \
     -e PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     -e OSF_SECRET="$(tr -d '[:space:]' < "$secret_file")" \
     osf-acme-forgejo \
-    sh -c 'forgejo forgejo-cli actions register --name osf-acme-runner --scope acme --secret "$OSF_SECRET"' \
+    sh -c 'forgejo forgejo-cli actions register --name osf-acme-runner --secret "$OSF_SECRET"' \
     >"$out" 2>&1
   rc=$?
   set -e
-  if [ "$rc" -ne 0 ]; then
-    if ! grep -Eiq 'already|exist|duplicate' "$out"; then
-      # Org scope can fail on some builds. Fall back to an instance runner.
-      set +e
-      docker exec -u git \
-        -e PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-        -e OSF_SECRET="$(tr -d '[:space:]' < "$secret_file")" \
-        osf-acme-forgejo \
-        sh -c 'forgejo forgejo-cli actions register --name osf-acme-runner --secret "$OSF_SECRET"' \
-        >"$out" 2>&1
-      rc=$?
-      set -e
-    fi
-  fi
   if [ "$rc" -ne 0 ] && ! grep -Eiq 'already|exist|duplicate' "$out"; then
     scrub_file "$out"
     rm -f "$out"
@@ -349,8 +336,10 @@ dest = Path(os.environ["OSF_DEST"])
 dest.write_text(text)
 os.chmod(dest, 0o600)
 '
+  osf_place_review_fake
   docker cp "$cfg" osf-acme-runner:/data/config.yml
   docker exec -u 0 osf-acme-runner chmod 600 /data/config.yml
+  # This restarts the shared runner. Do not run bootstrap while other teams use it.
   docker restart osf-acme-runner >/dev/null
 }
 
