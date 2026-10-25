@@ -516,8 +516,164 @@ sync_push_one() {
   return 0
 }
 
+# Bot runs already committed on sync/<bot>. Push those commits as they are.
+# Do not commit again, and do not touch sync/<me>.
+sync_bot_git() {
+  local dir=$1 bot=$2 helper
+  shift 2
+  helper="${SYNC_ROOT}/skills/add-bot/git-credential-os-bot"
+  if [ ! -x "$helper" ]; then
+    return 1
+  fi
+  # Absolute helper path: git runs it directly. No token in an argument.
+  env -u GIT_ASKPASS \
+    OS_BOT="$bot" \
+    OS_ROOT="${OS_ROOT:-$SYNC_ROOT}" \
+    OS_PROFILE="${OS_PROFILE:-$SYNC_ROOT/company-profile.md}" \
+    GIT_TERMINAL_PROMPT=0 \
+    git -C "$dir" \
+      -c credential.helper= \
+      -c "credential.helper=${helper}" \
+      -c commit.gpgsign=false \
+      "$@"
+}
+
+# Only refs/heads/sync/<bot>. Never main, and never the person's branch.
+sync_bot_push_ref() {
+  local dir=$1 bot=$2 me ref
+  me=$(sync_me)
+  ref="refs/heads/sync/${bot}"
+  case "$ref" in
+    refs/heads/main|refs/heads/master)
+      return 1
+      ;;
+    "refs/heads/sync/${bot}")
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  if [ -n "$me" ] && [ "$me" != "$bot" ] && [ "$ref" = "refs/heads/sync/${me}" ]; then
+    return 1
+  fi
+  sync_bot_git "$dir" "$bot" push --force origin "${ref}:${ref}"
+}
+
+sync_bot_wait_merge() {
+  local name=$1 number=$2
+  local limit i status merged
+  limit=${OS_BOT_MERGE_WAIT:-180}
+  case "$limit" in
+    *[!0-9]*|"") return 1 ;;
+  esac
+  i=0
+  while [ "$i" -lt "$limit" ]; do
+    set +e
+    status=$("$HOST_SH" pr-status "$name" "$number" 2>/dev/null)
+    set -e
+    merged=$(printf '%s' "$status" | jq -r '.merged // empty' 2>/dev/null || true)
+    if [ "$merged" = "true" ]; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+  return 1
+}
+
+# Called from '||', so set -e does not stop this function. Check every step.
+sync_bot_push_repo() {
+  local repo=$1 id=$2 bot=$3
+  local ref rc name number out
+  ref="refs/heads/sync/${bot}"
+  if ! git -C "$repo" show-ref --verify --quiet "$ref"; then
+    return 0
+  fi
+  sync_bot_git "$repo" "$bot" fetch origin >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_log "push fail ${id} could not reach origin"
+    return 1
+  fi
+  if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    if git -C "$repo" merge-base --is-ancestor "$ref" origin/main; then
+      return 0
+    fi
+  fi
+  sync_bot_push_ref "$repo" "$bot" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_log "push fail ${id} could not reach origin"
+    return 1
+  fi
+  name=$(sync_remote_name "$repo") || {
+    sync_log "push fail ${id} could not open a pull request"
+    return 1
+  }
+  set +e
+  out=$(sync_open_pr "$name" "sync/${bot}" "sync: ${bot}")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_log "push fail ${id} could not open a pull request"
+    return 1
+  fi
+  number=$(printf '%s' "$out" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    sync_log "push fail ${id} could not open a pull request"
+    return 1
+  fi
+  "$HOST_SH" auto-merge "$name" "$number" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sync_log "push fail ${id} auto-merge"
+    return 1
+  fi
+  if ! sync_bot_wait_merge "$name" "$number"; then
+    sync_log "push fail ${id} auto-merge"
+    return 1
+  fi
+  sync_log "push ok ${id}"
+  return 0
+}
+
+sync_push_bot() {
+  local bot rc=0 d id
+  bot=${OS_BOT:-}
+  if ! sync_safe_slug "$bot"; then
+    sync_held_error "bot slug is not a plain name"
+    sync_log "push fail bot slug"
+    return 1
+  fi
+  if [ ! -f "$SYNC_ROOT/bots/${bot}/BOT.md" ]; then
+    sync_held_error "bot page is missing"
+    sync_log "push fail bot page"
+    return 1
+  fi
+  [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
+  if [ ! -x "${SYNC_ROOT}/skills/add-bot/git-credential-os-bot" ]; then
+    sync_held_error "bot credential helper is missing"
+    sync_log "push fail bot helper"
+    return 1
+  fi
+  if [ -e "$SYNC_ROOT/.git" ]; then
+    sync_bot_push_repo "$SYNC_ROOT" "root" "$bot" || rc=1
+  fi
+  for d in "$SYNC_ROOT"/areas/*; do
+    [ -d "$d" ] || continue
+    [ -e "$d/.git" ] || continue
+    id="area:$(basename "$d")"
+    sync_bot_push_repo "$d" "$id" "$bot" || rc=1
+  done
+  return "$rc"
+}
+
 cmd_push() {
   sync_lock
+  if [ -n "${OS_BOT:-}" ]; then
+    sync_push_bot || return 1
+    return 0
+  fi
   sync_identity || return 1
   [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
   local rc=0

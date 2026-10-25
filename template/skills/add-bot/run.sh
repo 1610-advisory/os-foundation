@@ -203,12 +203,13 @@ awk '
   { print }
 ' "$routine_file" > "$prompt"
 
+# OS_BOT tells sync.sh push this is the bot's branch, not the person's.
+export OS_BOT="$bot"
+export OS_ROOT="$BOT_ROOT"
 (
   cd "${BOT_ROOT}/bots/${bot}"
-  export OS_ROOT="$BOT_ROOT"
   export OS_RUN_ID="$run_id"
   export OS_BOT_OWNER="$owner"
-  export OS_BOT="$bot"
   if [ -n "$bot_email" ]; then
     export GIT_AUTHOR_EMAIL="$bot_email"
     export GIT_COMMITTER_EMAIL="$bot_email"

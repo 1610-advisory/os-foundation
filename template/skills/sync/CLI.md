@@ -13,7 +13,7 @@ skills/sync/sync.sh <command> [flags]
 | Command | Does |
 |---|---|
 | `pull` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. On failure, leave that repo's working copy unchanged and write one line to the log. |
-| `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. |
+| `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
 | `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
 | `status` | Print held files and the last error. The next session reads this. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
@@ -63,6 +63,18 @@ For each repo that has changes:
 Held files stay in the working copy, unchanged. Nothing held is pushed. After the pull request merges, the next `pull` is clean apart from held files. If it has not merged, `pull` still works and keeps local changes.
 
 Any failed step pushes nothing for that repo. A network failure writes one log line and pushes nothing.
+
+## Bot run push
+
+When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>`.
+
+For each company or area repo that already has commits on `sync/<bot>` that are not on `origin/main`:
+
+1. Push that branch as it is. The commits stay the same, including `Run-Id` and `Bot-Owner`. The token comes from `skills/add-bot/git-credential-os-bot`. The token is not an argument.
+2. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, the same way a person's standing pull request works.
+3. Wait until that pull request merges. If the checks do not pass in time, that repo fails. Nothing is committed by this path.
+
+`OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
 
 ## Pull and history rewrite
 

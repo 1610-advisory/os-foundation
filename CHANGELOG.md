@@ -25,6 +25,7 @@ The multi-user release. A solo owner gets a simpler setup. A team gets enforced 
 - **Joining terms and leaving.** `joining-terms.md` holds the delete promise each person accepts when they join. `remove-teammate` removes access first. A helper then deletes the company folder from that person's computer. Leave, holidays and offline days never trigger it.
 - **New skills:** `sync`, `remove-teammate`, `remove-leak`, `company-skills` (for chat-only agents).
 - **Bots (switch).** `add-bot` gives a bot its own GitHub App and one-hour tokens. Every bot commit carries a run ID, and `undo-run` reverts one run in one step.
+- **Bot runs push their own branch.** A bot run sends the commits already on `sync/<bot>`, run id included, and opens `sync: <bot>`. It does not commit that work again as the person.
 
 ### Not in v1
 
