@@ -36,7 +36,7 @@ So: **no personal-life facts** here. No health, family, home, beliefs or money t
 - Never move a draft, a note or a skill out of this workspace by yourself.
 - You may ask once: "Share this?" If they say no, or say nothing, it stays here.
 - When the person says yes, write it to the area as a plain fact. No quotes from a private source. No "X said in a DM".
-- A skill they want to share goes to the company by its own PR: `../../skills/sync/sync.sh propose <topic> <file>...`.
+- To share a skill: copy its folder to `skills/<name>/` (company) or `areas/<area>/skills/<name>/` (area). Then run `../../skills/sync/sync.sh propose <topic> <file>...` with each file from the company root, for example `skills/<name>/SKILL.md`. Never a folder. Never a `users/` path. Details: the `sync` skill.
 
 ## The profile
 

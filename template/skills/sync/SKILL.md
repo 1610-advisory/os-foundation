@@ -1,11 +1,11 @@
 ---
 name: sync
-description: Keep this computer and the company host in step. Pulls the newest files at session start and every 15 minutes. Pushes the day's work each night through a secret scan and a commit-or-hold check. Proposes a rules change on its own pull request. Use at the start of every session [team], when someone asks "why was my file held", "did my work go up", "sync now", "propose this rule", or when a teammate's computer needs its jobs.
+description: Keeps this computer and the company host in step. Pulls every 15 minutes, pushes each night through a secret scan and a commit-or-hold check, and proposes rules changes on their own pull requests. Use at the start of every session [team], when someone asks "why was my file held", "did my work go up", "sync now", "propose this rule", or when a teammate's computer needs its jobs.
 ---
 
 # Sync
 
-`sync` moves work between this computer and the company host. The person never runs git. You or an OS job run the script. For `team` and `app` only. At `solo`: commit to `main` (`AGENTS.md` section 7).
+`sync` moves work between this computer and the company host. The person never runs git. For `team` and `app` only. At `solo`: commit to `main` (`AGENTS.md` section 7).
 
 ## What sync does
 
@@ -16,11 +16,10 @@ description: Keep this computer and the company host in step. Pulls the newest f
   3. **Binary files and symlinks.** Images under `assets/` that end in `png`, `jpg`, `jpeg`, `gif` or `webp` go to the check like notes. Every other binary file is held: `binary file: add it by hand with a pull request`. A symlink or a folder in the change list stops the whole repo: nothing goes up from it.
   4. **Rules files** (`AGENTS.md` section 7) are held: `rules file: propose it with sync.sh propose`. Not in the workspace.
   5. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
-  6. **Commit and push** only the files that passed, to the person's branch `sync/<person>`, rebuilt on `main` each night.
+  6. **Push** only the files that passed, to `sync/<person>`, rebuilt on `main` each night.
   7. **Standing PR** `sync: <person>`, auto-merge on. Notes merge by themselves when the checks pass.
   8. **Pull** again.
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
-- **Held files stay** in the working copy, unchanged. The next session says why.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
 - **Nobody writes to `main`** in the company or an area repo. The admin is included.
 
@@ -33,7 +32,7 @@ Before other work, from the company root:
 3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`. For each held file, tell the person one line: the file and the reason in plain words (table below).
 4. If the last error is not `none`, tell the person that line as printed (see "Last errors"). Then go on with the work.
 
-If the pull fails, say so in one line and go on. If the script prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
+If the pull fails, say so and go on. If it prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
 
 ## When a file is held
 
@@ -47,31 +46,41 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
 | Belongs in the workspace | Move it to `users/<person>/`. |
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
-| `binary file: add it by hand with a pull request` | Large files stay in their own system: write a note with a link. If it must be in the repo, ask the admin. |
-| `symlink: add it by hand with a pull request` | One stop for the whole repo: every changed file shows it. Leave the other files alone. Find the symlink or folder. Replace it with the real file or a note, or delete it. |
+| `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
+| `symlink: add it by hand with a pull request` | The whole repo is stopped. Leave the other files alone. Replace the symlink or folder with the real file or a note, or delete it. |
 | `secret scan error` or `engine check failed` | The whole repo is held. Tell the person the line. Do not edit the files. Run `push` at most once more, then stop. The next night tries again. Three nights in a row: tell the admin. |
 
-After a fix, the next nightly push sends the file. The person does nothing more.
+After a fix, the next nightly push sends it.
 
 ## Last errors
 
 Tell the person the `last error:` line exactly as printed. Never ask for a password or token. Then:
-- `identity mismatch: signed in as <login>, people page for <me> says <github>`: nothing went up. Say: "The git account signed in here is not the one on your page in `people/`. I sent nothing up. Your files are safe here." Then: wrong account signed in → the person signs in again through the host's own sign-in; wrong `github:` on the page → write a one-line message to the admin; wrong `me` file → see the next line.
+- `identity mismatch: signed in as <login>, people page for <me> says <github>`: nothing went up. Say: "The git account here is not the one on your page in `people/`. Your files are safe here." Wrong account → sign in again through the host's own sign-in; wrong `github:` on the page → write a one-line message to the admin; wrong `me` file → see the next line.
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
-- `secret scan error`, `engine check failed`: see the table above.
 
 ## Propose a rules change
 
 One topic per proposal.
 
 1. Pick a short kebab-case topic, for example `invoice-skill-step`.
-2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Paths are relative to the company root.
-3. It checks identity, makes `rules/<person>/<topic>` from `main`, runs the secret scan, commits, pushes and opens a pull request on the company repo.
-4. If it prints `file not found: <path>`, `propose refused: secret scan hit` or `propose refused: secret scan error`, tell the person that line. Never pass `--no-verify` or skip the scan. Fix a wrong path once and try again. Remove a secret only when the person says so. Otherwise stop.
-5. **Area rules files:** in this version `propose` opens pull requests on the company repo only. For a file in `areas/<area>/`, tell the person: "This area rule cannot be proposed by `sync` yet. It stays held here." Then stop.
-6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves. When the approver is the author, the model review alone is enough. Example: the admin's own change.
+2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Give files, never a folder. Paths start at the company root: no leading `/`, no `..`. An area file is `areas/<area>/<file>`. A `users/` path is refused. To share a workspace skill, copy its folder to `skills/<name>/` or `areas/<area>/skills/<name>/`, then propose each file in the copy.
+3. It checks identity, every path and the secret scan first. A file under `areas/<area>/` goes to that area repo. A file outside `areas/<area>/` and outside `users/` goes to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request with auto-merge on. It prints one bare number per repo: the company repo first, then the areas in name order. Tell the person each number and its repo.
+4. **Refused.** Tell the person the line exactly, and every `opened: <repo> <n>` line before it (those pull requests stay open). Never pass `--no-verify`. Never ask for a token. After "run once more", if it stops again, stop.
+
+| Line | Do |
+|---|---|
+| `propose refused: bad path: <path>`, `file not found: <path>` | Fix the path once: a file, from the company root. Run once more. |
+| `propose refused: users paths stay in the workspace` | Copy the file out first (step 2) and run once more, or stop. |
+| `nothing to propose: areas` or `nothing to propose: areas/<area>` (no file) | Fix it once to `areas/<area>/<file>`. Run once more. |
+| `nothing to propose: <file>` | Same as on `main`. Stop. Do not run again. |
+| `propose refused: symlink: <path>`, `propose refused: symlink on main: <path>` | Stop. Tell the admin the line. Do not run again. |
+| `propose refused: secret scan hit` | Remove the secret only when the person says yes, then run once more. Else stop. |
+| `propose refused: secret scan error` | Run once more. |
+
+5. **Failed after the checks:** `propose fail <repo>: <step>` (`repo`, `fetch`, `worktree`, `copy <path>`, `commit`, `push`, `open-pr` or `auto-merge`), then `opened: <repo> <n>` for each pull request it already opened. Those stay open. Tell the person every line. Run the same command once more: it updates them. If it fails again, stop and tell the admin.
+6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves the company pull request, the area director the area one. When the approver is the author, the model review alone is enough. Example: the admin's own change.
 
 A failed review blocks the merge. Read the findings in plain words and offer a fix.
 
@@ -86,11 +95,11 @@ Exit 0: done (files may be held). Exit 1: usage, `another sync is running`, solo
 launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 
 - `add-teammate` installs them when the first teammate joins. Never at `solo`: `install-jobs` refuses.
-- Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux adds up to 30 random minutes); device helper daily at 4 am.
+- Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux: a random delay of up to 30 minutes); device helper at 4 am.
 - Admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
 - Bot's box (`--bot`): pull, push and helper, as the bot. `add-bot` installs them.
 - The jobs use the engine in `sync_engine:` in `company-profile.md`, for example `claude -p --model haiku`.
-- **Windows: not tested.** The files ship, but `sync.ps1` says "not tested" and stops. Tell a Windows user plainly: the jobs do not run there yet.
+- **Windows: not tested.** `sync.ps1` says "not tested" and stops. Tell a Windows user: the jobs do not run there yet.
 
 ## Device helper, traces, rewrites
 
