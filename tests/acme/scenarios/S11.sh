@@ -57,9 +57,8 @@ git -C "$dest" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
   commit -m "Company OS: start"
 git -C "$dest" checkout --orphan logs
 git -C "$dest" rm -rf . >/dev/null 2>&1 || true
-mkdir -p "$dest/memory/logs"
-printf '%s\n' "Old log line." > "$dest/memory/logs/${day}-ada.md"
-git -C "$dest" add memory/logs
+printf '%s\n' "Old log line." > "$dest/${day}-ada.md"
+git -C "$dest" add "${day}-ada.md"
 git -C "$dest" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
   commit -m "Log the day"
 git -C "$dest" checkout main

@@ -25,23 +25,21 @@ osf_sandbox "$work/box"
 dest="$work/company"
 osf_setup_solo "$dest" "$slug" >/dev/null
 osf_create_org "$org" || osf_result "S7 FAIL could not create org"
-osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/engine.sh"
+osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/review-engine.sh"
 osf_export_token acme-admin || osf_result "S7 FAIL admin token missing"
 export OS_ORG="$org"
-export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
+export OS_SYNC_ENGINE="$root/tests/acme/fixtures/review-engine.sh"
 export OS_NOW="$day"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
-bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
-  || osf_result "S7 FAIL team-on"
-
-mkdir -p "$dest/areas/marketing/notes"
+osf_seed_area "$dest" marketing
 printf '%s\n' "See [[Missing Person]] for the widget." > "$dest/areas/marketing/notes/widget.md"
 printf '%s\n' "Confirm the sample price before we print it." > "$dest/areas/marketing/notes/price.md"
 git -C "$dest/areas/marketing" add notes
 git -C "$dest/areas/marketing" -c user.name="Mia Member" -c user.email="mia.member@acme.test" \
-  commit -m "Add the widget notes"
-git -C "$dest/areas/marketing" push origin main || osf_result "S7 FAIL could not seed main"
+  commit -m "Add the widget notes" >&2
+bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
+  || osf_result "S7 FAIL team-on"
 
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/nightly-review/run.sh" --date "$day" --root "$dest" >"$work/review.log" 2>&1 \

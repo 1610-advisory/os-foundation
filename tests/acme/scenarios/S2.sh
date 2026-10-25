@@ -38,6 +38,7 @@ export OS_ORG="$org"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
 set +e
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$answers" >"$work/team-on.log" 2>&1
 rc=$?
 set -e

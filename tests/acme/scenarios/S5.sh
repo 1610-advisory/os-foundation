@@ -36,8 +36,8 @@ osf_create_org "$org" || osf_result "S5 FAIL could not create org"
 osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/engine.sh"
 osf_export_token acme-admin || osf_result "S5 FAIL admin token missing"
 export OS_ORG="$org"
-osf_me "$slug" ada
-osf_write_token_file "$slug" acme-admin
+osf_use_seat "$slug" ada acme-admin || osf_result "S5 FAIL admin token missing"
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S5 FAIL team-on"
 
@@ -52,8 +52,7 @@ if [ "$proposer" = "member-c" ]; then
   user="acme-member-c"
   me="noa"
 fi
-osf_me "$slug" "$me"
-osf_write_token_file "$slug" "$user"
+osf_use_seat "$slug" "$me" "$user" || osf_result "S5 FAIL proposer token missing"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
 # The model review reads OS_REVIEW_FAKE from the Tier A runner, not from this process.
@@ -74,8 +73,7 @@ if ! osf_results wait-check "$org" "${slug}-marketing" "$(osf_results pr "$org" 
   osf_result "S5 FAIL checks did not pass (OS_REVIEW_FAKE must be in the runner env)"
 fi
 
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
+osf_use_seat "$slug" mia acme-member-a || osf_result "S5 FAIL member token missing"
 bash "$dest/skills/sync/sync.sh" pull >"$work/pull.log" 2>&1 || osf_result "S5 FAIL pull"
 if ! grep -q 'Tuesday' "$dest/areas/marketing/skills/sample/SKILL.md"; then
   osf_result "S5 FAIL next pull did not pick up the new step"

@@ -30,15 +30,22 @@ osf_export_token acme-admin || osf_result "S8 FAIL admin token missing"
 export OS_ORG="$org"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S8 FAIL team-on"
 
 python3 - "$dest/company-profile.md" << 'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-text = text.replace("switches: []", "switches: [bots]")
-path.write_text(text, encoding="utf-8")
+lines = path.read_text(encoding="utf-8").splitlines(True)
+out = []
+for line in lines:
+    if line.startswith("switches:"):
+        out.append("switches:\n")
+        out.append("  - bots\n")
+        continue
+    out.append(line)
+path.write_text("".join(out), encoding="utf-8")
 PY
 token_path="$work/bot-token"
 cp "$(osf_token_file acme-bot)" "$token_path"

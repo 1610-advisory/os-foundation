@@ -27,6 +27,7 @@ osf_export_token acme-admin || osf_result "S9 FAIL admin token missing"
 export OS_ORG="$org"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S9 FAIL team-on"
 
@@ -48,8 +49,7 @@ export HOME="$seat_home"
 export XDG_CONFIG_HOME="$work/sam-xdg"
 export OS_TEST_MODE=1
 mkdir -p "$XDG_CONFIG_HOME"
-osf_me "$slug" sam
-osf_write_token_file "$slug" acme-member-d
+osf_use_seat "$slug" sam acme-member-d || osf_result "S9 FAIL member token missing"
 export OS_COMPANY_ROOT="$seat_home/company"
 n=0
 while [ "$n" -lt 14 ]; do

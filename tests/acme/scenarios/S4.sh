@@ -36,14 +36,14 @@ export OS_ORG="$org"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S4 FAIL team-on"
 
 fact="The sample widget code is W-14."
 mkdir -p "$dest/areas/marketing/notes"
 printf '%s\n' "$fact" > "$dest/areas/marketing/notes/learned.md"
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
+osf_use_seat "$slug" mia acme-member-a || osf_result "S4 FAIL member token missing"
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1 || true
 bash "$dest/skills/sync/sync.sh" pull >"$work/pull.log" 2>&1 || osf_result "S4 FAIL pull"
@@ -59,12 +59,10 @@ bash "$root/tests/acme/seat.sh" "$second" "$prompt" --cwd "$dest" >"$work/seat.l
 if ! grep -q 'W-14' "$dest/areas/marketing/notes/used.md"; then
   osf_result "S4 FAIL second seat did not cite the fact"
 fi
-osf_me "$slug" sam
 if [ "$second" = "member-b" ]; then
-  osf_me "$slug" max
-  osf_write_token_file "$slug" acme-member-b
+  osf_use_seat "$slug" max acme-member-b || osf_result "S4 FAIL member token missing"
 else
-  osf_write_token_file "$slug" acme-member-d
+  osf_use_seat "$slug" sam acme-member-d || osf_result "S4 FAIL member token missing"
 fi
 bash "$dest/skills/sync/sync.sh" push >"$work/push2.log" 2>&1 || true
 if ! osf_results file "$org" "${slug}-marketing" notes/used.md --ref "sync/sam" >/dev/null 2>&1 \

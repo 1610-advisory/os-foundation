@@ -330,6 +330,16 @@ osf_me() {
   chmod 600 "$dest/me"
 }
 
+# Host scripts prefer FORGEJO_TOKEN over the token file. Set both.
+osf_use_seat() {
+  local slug="$1"
+  local person="$2"
+  local user="$3"
+  osf_me "$slug" "$person"
+  osf_write_token_file "$slug" "$user"
+  osf_export_token "$user"
+}
+
 osf_delete_repo() {
   local owner="$1"
   local repo="$2"
@@ -353,9 +363,26 @@ osf_delete_org() {
   osf_api_discard
 }
 
+osf_seed_area() {
+  local dest="$1"
+  local area="$2"
+  local dir="$dest/areas/$area"
+  mkdir -p "$dir/notes" "$dir/memory/logs"
+  printf '%s\n' "# ${area}" > "$dir/AGENTS.md"
+  if [ ! -d "$dir/.git" ]; then
+    git -C "$dir" init -b main >&2
+  fi
+  git -C "$dir" add AGENTS.md
+  if ! git -C "$dir" diff --cached --quiet; then
+    git -C "$dir" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
+      commit -m "Area: start" >&2
+  fi
+}
+
 osf_create_org() {
   local org="$1"
   local token body code
+  osf_delete_org "$org" || true
   token=$(osf_token_file acme-admin)
   body=$(mktemp)
   chmod 600 "$body"
@@ -450,6 +477,8 @@ person.sam.email=sam.member@acme.test
 person.sam.role=writer
 person.sam.areas=marketing
 area.marketing.director=dana
+review_vendor=xai
+review_kind=same-vendor
 EOF
   chmod 600 "$file"
 }

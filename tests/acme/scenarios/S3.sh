@@ -31,6 +31,7 @@ export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_SECRET_SCAN=bundled
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S3 FAIL team-on"
 
@@ -49,8 +50,7 @@ log="$dest/memory/logs/$(osf_today)-mia.md"
 mkdir -p "$dest/memory/logs"
 printf '%s\n' "Filed the widget note." > "$log"
 
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
+osf_use_seat "$slug" mia acme-member-a || osf_result "S3 FAIL member token missing"
 export OS_COMPANY_ROOT="$dest"
 set +e
 bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1

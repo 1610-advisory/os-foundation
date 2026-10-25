@@ -26,17 +26,16 @@ osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/
 osf_export_token acme-admin || osf_result "S6 FAIL admin token missing"
 export OS_ORG="$org"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
-osf_me "$slug" ada
-osf_write_token_file "$slug" acme-admin
+osf_use_seat "$slug" ada acme-admin || osf_result "S6 FAIL admin token missing"
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S6 FAIL team-on"
 
 prompt="$work/prompt.txt"
 printf '%s\n' "Create 25 files notes/n-01.md through notes/n-25.md in areas/marketing. Each file is one plain sentence. Append a line that starts with Decision: to memory/logs for today and the slug mia. Do not change AGENTS.md." > "$prompt"
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
 export OS_COMPANY_ROOT="$dest"
 export OSF_ACME_SEAT_TIMEOUT=900
+osf_use_seat "$slug" mia acme-member-a || osf_result "S6 FAIL member token missing"
 bash "$root/tests/acme/seat.sh" member-a "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1 \
   || osf_result "S6 FAIL member seat"
 count=$(find "$dest/areas/marketing/notes" -name 'n-*.md' | wc -l | tr -d ' ')
@@ -69,8 +68,7 @@ fi
 osf_approve "$org" "${slug}-marketing" "$number" acme-director || osf_result "S6 FAIL director approval"
 
 printf '%s\n' "OSF_REVIEW_FAIL" >> "$dest/AGENTS.md"
-osf_me "$slug" ada
-osf_write_token_file "$slug" acme-admin
+osf_use_seat "$slug" ada acme-admin || osf_result "S6 FAIL admin token missing"
 bash "$dest/skills/sync/sync.sh" propose root-rules AGENTS.md >"$work/propose-root.log" 2>&1 \
   || osf_result "S6 FAIL admin propose"
 osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-os/pulls?state=open"

@@ -28,6 +28,7 @@ export OS_ORG="$org"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S14 FAIL team-on"
 
@@ -48,8 +49,7 @@ if grep -q '\.' "$dest/notes/styled.md" && grep -q ',' "$dest/notes/styled.md"; 
 fi
 
 printf '%s\n' "OSF-COMPANY-FACT Acme Co ships 40 widgets." >> "$profile"
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
+osf_use_seat "$slug" mia acme-member-a || osf_result "S14 FAIL member token missing"
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1 || true
 status=$(bash "$dest/skills/sync/sync.sh" status)

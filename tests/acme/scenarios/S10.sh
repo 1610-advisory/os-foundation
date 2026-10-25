@@ -32,6 +32,7 @@ osf_export_token acme-admin || osf_result "S10 FAIL admin token missing"
 export OS_ORG="$org"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
+osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S10 FAIL team-on"
 
@@ -42,7 +43,7 @@ export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine-commit.sh"
 export OS_SECRET_SCAN=bundled
 bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1 || osf_result "S10 FAIL push"
 i=0
-while [ "$i" -lt 24 ]; do
+while [ "$i" -lt 40 ]; do
   if osf_results file "$org" "${slug}-os" notes/leak.md >/dev/null 2>&1; then
     break
   fi
@@ -66,8 +67,7 @@ if ! osf_results tags "$org" "${slug}-os" | grep -q 'os-rewrite-'; then
   osf_result "S10 FAIL rewrite tag missing"
 fi
 
-osf_me "$slug" mia
-osf_write_token_file "$slug" acme-member-a
+osf_use_seat "$slug" mia acme-member-a || osf_result "S10 FAIL member token missing"
 export OS_COMPANY_ROOT="$other"
 bash "$other/skills/sync/sync.sh" pull >"$work/pull.log" 2>&1 || osf_result "S10 FAIL pull"
 if ! grep -q 'pull reclone' "$work/pull.log" "$XDG_CONFIG_HOME/${slug}-os/state/sync.log" 2>/dev/null; then
