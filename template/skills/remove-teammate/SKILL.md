@@ -27,9 +27,9 @@ The script refuses to remove the last admin. If this person is the last admin, h
 
 Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
-The script prints `revoked:` only when every revoke worked. If any revoke fails, it does not remove the person from the org, prints what is left, and exits with an error.
+After the revokes, the script asks the host what access the person still has on the company repo, each area repo and their workspace (`host.sh user-access`). It prints `revoked:` only when every one is `none`. Otherwise it lists each repo that still has access and exits with an error.
 
-If it exits with an error, tell the admin the exact message and what is left. Never say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
+If it exits with an error, tell the admin the exact message and each repo it lists. Never say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
 
 ## 3. What it does, in this order
 

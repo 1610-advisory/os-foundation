@@ -44,7 +44,7 @@ Run one of:
 
 Add `--pr <number> --head <branch>` when the leak is in an open pull request.
 
-**Protection off.** If the output has a line starting `PROTECTION IS OFF`, say it to the admin first: `main` has no protection now. Run the exact `skills/_host/host.sh protect ...` command on that line, once. That is the only protection command you ever run. If it fails too, tell the admin the exact message and stop.
+**Protection off.** If the output has a line `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`, say it to the admin first: `main` on that repo has no protection now. Give them that exact line. The admin runs it in their own terminal, in the company folder. Then stop. Never run a protection command yourself.
 
 **Stop rule.** If the script exits with an error (not 0), stop. Tell the admin the exact message. Do not say the history is clean. Do not run it again, and do not try the steps by hand. Only the script lifts and restores protection (`host.sh unprotect`, then `host.sh protect`).
 
