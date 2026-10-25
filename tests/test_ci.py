@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 import tempfile
@@ -238,6 +239,85 @@ class ToolCopyTests(unittest.TestCase):
         self.assertIn("host/forgejo.sh", seen)
         self.assertIn("host/github.sh", seen)
         self.assertIn("host/profile.sh", seen)
+
+    def test_no_placeholder_line_outside_skills(self):
+        # Setup fills these on purpose. They are the tracked template files
+        # outside skills/ that hold a named placeholder today, plus the rules
+        # files setup always fills. Do not add a tool or script here.
+        filled = {
+            "template/AGENTS.md",
+            "template/CLAUDE.md",
+            "template/company-profile.md",
+            "template/customers.md",
+            "template/joining-terms.md",
+            "template/memory/MEMORY.md",
+            "template/offers.md",
+            "template/voice.md",
+        }
+        named = re.compile(r"\{\{[A-Z][A-Z0-9_]*\}\}")
+        missing = [rel for rel in sorted(filled) if not (ROOT / rel).is_file()]
+        self.assertEqual(missing, [])
+        listed = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--", "template"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout.split(b"\0")
+        hits = []
+        for raw in listed:
+            if not raw:
+                continue
+            rel = raw.decode()
+            if rel.startswith("template/skills/"):
+                continue
+            path = ROOT / rel
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            under_scripts = rel.startswith("template/.github/scripts/")
+            for n, line in enumerate(text.splitlines(), 1):
+                if under_scripts and named.search(line):
+                    hits.append(f"{rel}:{n}: named placeholder")
+                    continue
+                if rel in filled or "${{" in line:
+                    continue
+                if "{{" in line and "}}" in line:
+                    hits.append(f"{rel}:{n}: placeholder line")
+        self.assertEqual(hits, [])
+
+    def test_fill_placeholders_still_replaces_the_four_names(self):
+        lib = ROOT / "template" / "skills" / "add-teammate" / "lib.sh"
+        with tempfile.TemporaryDirectory() as raw:
+            dest = Path(raw)
+            (dest / "note.md").write_text(
+                "Hello {{PERSON}} ({{PERSON_SLUG}}) at {{COMPANY_NAME}} / {{COMPANY_SLUG}}.\n"
+                "keep {{OTHER}} and {{PERSON_SLUG}}x\n",
+                encoding="utf-8",
+            )
+            (dest / "pic.png").write_bytes(b"{{PERSON}}\n")
+            result = run(
+                [
+                    "bash",
+                    "-c",
+                    'set -euo pipefail; . "$1"; os_fill_placeholders "$2" "$3" "$4" "$5" "$6"',
+                    "fill",
+                    str(lib),
+                    str(dest),
+                    "ada",
+                    "Ada Admin",
+                    "acme",
+                    "Acme Co",
+                ]
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(
+                (dest / "note.md").read_text(encoding="utf-8"),
+                "Hello Ada Admin (ada) at Acme Co / acme.\nkeep {{OTHER}} and adax\n",
+            )
+            self.assertEqual((dest / "pic.png").read_bytes(), b"{{PERSON}}\n")
 
     def test_lint_uses_the_base_profile_not_the_head(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")
