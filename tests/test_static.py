@@ -474,11 +474,14 @@ class PiiTests(unittest.TestCase):
 
     def test_other_addresses_are_still_counted(self):
         bad = "owner@" + "acme.invalid"
+        hidden = "notnoreply@" + "acme.invalid"
+        testing = "owner@" + "foo.testing"
+        lookalike = "owner@" + "example.com.invalid"
         similar = "\n".join([
-            "noreply@acme.invalid " + bad,
-            "notnoreply@acme.invalid",
-            "owner@foo.testing",
-            "owner@example.com.invalid",
+            "noreply@" + "acme.invalid " + bad,
+            hidden,
+            testing,
+            lookalike,
             "",
         ])
         with tempfile.TemporaryDirectory() as raw:
@@ -495,9 +498,9 @@ class PiiTests(unittest.TestCase):
         self.assertIn("email 4\n", result.stdout)
         self.assertNotIn(bad, result.stdout)
         self.assertNotIn(bad, result.stderr)
-        self.assertNotIn("foo.testing", result.stdout)
-        self.assertNotIn("example.com.invalid", result.stdout)
-        self.assertNotIn("notnoreply", result.stdout)
+        self.assertNotIn(hidden, result.stdout)
+        self.assertNotIn(testing, result.stdout)
+        self.assertNotIn(lookalike, result.stdout)
 
     def test_added_binary_is_a_finding(self):
         env = git_env()
