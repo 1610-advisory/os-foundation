@@ -40,7 +40,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `org-remove <user>` | Remove a user from the org |
 | `archive-repo <name>` | Archive the repo |
 | `open-pr <name> --head <branch> --base main --title <text> [--body-file <file>]` | Open a pull request, or update the open one from the same head. `{"number":N,"url":...}` |
-| `auto-merge <name> <number>` | Merge when required checks pass. Merge commit, not squash. |
+| `auto-merge <name> <number>` | Merge when required checks pass. Merge commit, not squash. A second call is success: `{"auto_merge":"already"}`. |
 | `pr-status <name> <number>` | `{"state","merged","checks":[{"name","state"}],"approved"}` |
 | `pr-comment <name> <number> --body-file <file>` | Comment on the pull request |
 | `set-secret <name>` | Set an org Actions secret. The value is on stdin. |
@@ -68,4 +68,4 @@ Forgejo bot: `token_path` in `BOT.md`, or `<config>/<slug>-os/bots/<bot>/token`.
 
 `HOST_DRY_RUN=1` on GitHub prints each call as one JSON object per line and changes nothing. The object has `method`, `path` and `body`. A real run updates an existing ruleset or pull request of the same name. The dry run prints the create call so the output does not depend on live state.
 
-`auto-merge` records `gh pr merge <number> --repo <org>/<name> --auto --merge`. That is the one GitHub verb that is not a `gh api` call. `set-secret` records the org secret call with the value redacted. A real run uses `gh secret set` because the seal step is not in `openssl`.
+`auto-merge` records `gh pr merge <number> --repo <org>/<name> --auto --merge`. That is the one GitHub verb that is not a `gh api` call. Dry-run records that same line every time. It does not know whether auto-merge is already on. A real second call exits 0 with `{"auto_merge":"already"}`: Forgejo when the merge response is 409 and the message says already scheduled, GitHub when `gh` says already enabled. Any other error is unchanged. `set-secret` records the org secret call with the value redacted. A real run uses `gh secret set` because the seal step is not in `openssl`.

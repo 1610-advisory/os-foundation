@@ -710,6 +710,7 @@ nr_open_and_merge() {
     return 1
   fi
   printf 'pr %s %s\n' "$name" "$number"
+  # Exit 0 is success, including {"auto_merge":"already"}.
   nr_host auto-merge "$name" "$number" >/dev/null
 }
 

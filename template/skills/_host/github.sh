@@ -724,7 +724,7 @@ cmd_auto_merge() {
     return 0
   fi
   host_require_bin gh
-  local err code
+  local err code low
   err=$(host_mktemp)
   set +e
   if [ -n "$GH_HOSTNAME" ]; then
@@ -735,10 +735,20 @@ cmd_auto_merge() {
   code=$?
   set -e
   if [ "$code" -ne 0 ]; then
+    low=$(tr '[:upper:]' '[:lower:]' < "$err")
+    case "$low" in
+      *"already enabled"*)
+        rm -f "$err"
+        jq -nc --arg name "$name" --argjson number "$number" \
+          '{ok:true, name:$name, number:$number, auto_merge:"already"}'
+        return 0
+        ;;
+    esac
     host_scrub_file "$err" >&2
     GH_STATUS=$(host_classify_gh "$err" "$code")
     exit "$GH_STATUS"
   fi
+  rm -f "$err"
   jq -nc --arg name "$name" --argjson number "$number" '{ok:true, name:$name, number:$number, merge:"merge"}'
 }
 
