@@ -5,8 +5,9 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 URL="${OSF_ACME_URL:-http://localhost:3300}"
 ORG=acme
-COMPANY_REPO=nightly-os
-AREA_REPO=nightly-finance
+# Per-run names so two runs do not share a repo. Cleanup deletes only these.
+COMPANY_REPO="nightly-t-$$-os"
+AREA_REPO="nightly-t-$$-finance"
 
 if ! curl -fsS --max-time 5 "$URL/api/v1/version" >/dev/null 2>&1; then
   printf '%s\n' "BLOCKED: Forgejo is not up"

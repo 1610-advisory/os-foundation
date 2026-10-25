@@ -448,6 +448,255 @@ class PiiTests(unittest.TestCase):
         self.assertNotIn("zebra-co", result.stdout)
         self.assertNotIn("zebra-co", result.stderr)
 
+    def test_noreply_and_test_domains_are_not_counted(self):
+        text = "\n".join([
+            "Co-Authored-By: Helper <noreply@acme.invalid>",
+            "Noreply@other.invalid",
+            "owner@foo.test",
+            "owner@bar.baz.test",
+            "noreply@foo.test",
+            "",
+        ])
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            hit = tmp / "hit.txt"
+            hit.write_text(text)
+            result = run(
+                "pii-check.sh",
+                ["--paths", str(hit)],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "pii-check: OK")
+        self.assertNotIn("acme.invalid", result.stdout)
+        self.assertNotIn("acme.invalid", result.stderr)
+
+    def test_other_addresses_are_still_counted(self):
+        bad = "owner@" + "acme.invalid"
+        hidden = "notnoreply@" + "acme.invalid"
+        testing = "owner@" + "foo.testing"
+        lookalike = "owner@" + "example.com.invalid"
+        similar = "\n".join([
+            "noreply@" + "acme.invalid " + bad,
+            hidden,
+            testing,
+            lookalike,
+            "",
+        ])
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            hit = tmp / "hit.txt"
+            hit.write_text(similar)
+            result = run(
+                "pii-check.sh",
+                ["--paths", str(hit)],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("email 4\n", result.stdout)
+        self.assertNotIn(bad, result.stdout)
+        self.assertNotIn(bad, result.stderr)
+        self.assertNotIn(hidden, result.stdout)
+        self.assertNotIn(testing, result.stdout)
+        self.assertNotIn(lookalike, result.stdout)
+
+    def test_added_binary_is_a_finding(self):
+        env = git_env()
+        marker = "/" + "Users" + "/" + "zebra" + "/secret"
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "secret.bin").write_bytes(b"prefix\x00" + marker.encode() + b"\x00suffix")
+            commit_all(tmp, env, "add binary")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary 1\n", result.stdout)
+        self.assertIn("binary: secret.bin", result.stdout)
+        self.assertNotIn(marker, result.stdout)
+        self.assertNotIn(marker, result.stderr)
+        self.assertNotIn("prefix", result.stdout)
+        self.assertNotIn("suffix", result.stdout)
+
+    def test_allowed_images_are_not_binary_findings(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "docs").mkdir()
+            (tmp / "assets").mkdir()
+            (tmp / "template" / "docs").mkdir(parents=True)
+            (tmp / "docs" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            (tmp / "assets" / "pic.jpg").write_bytes(b"\xff\xd8\xff\x00")
+            (tmp / "assets" / "mark.jpeg").write_bytes(b"\xff\xd8\xff\x00")
+            (tmp / "docs" / "anim.gif").write_bytes(b"GIF89a\x00\x00")
+            (tmp / "docs" / "photo.webp").write_bytes(b"RIFF\x00WEBP")
+            (tmp / "docs" / "diagram.svg").write_text("<svg></svg>\n")
+            (tmp / "template" / "docs" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            commit_all(tmp, env, "add images")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "pii-check: OK")
+        self.assertNotIn("binary:", result.stdout)
+
+    def test_image_outside_docs_or_assets_is_a_finding(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            (tmp / "documentation").mkdir()
+            (tmp / "documentation" / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            commit_all(tmp, env, "add images")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary: logo.png", result.stdout)
+        self.assertIn("binary: documentation/pic.png", result.stdout)
+        self.assertIn("binary 2\n", result.stdout)
+
+    def test_bytecode_is_always_a_finding(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            cache = tmp / "docs" / "__pycache__"
+            cache.mkdir(parents=True)
+            (cache / "mod.pyc").write_bytes(b"\x00pyc")
+            (tmp / "docs" / "cache.pyc").write_text("not really bytecode\n")
+            (tmp / "pkg" / "__pycache__").mkdir(parents=True)
+            (tmp / "pkg" / "__pycache__" / "note.txt").write_text("plain\n")
+            commit_all(tmp, env, "add bytecode")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary: docs/__pycache__/mod.pyc", result.stdout)
+        self.assertIn("binary: docs/cache.pyc", result.stdout)
+        self.assertIn("binary: pkg/__pycache__/note.txt", result.stdout)
+        self.assertIn("binary 3\n", result.stdout)
+        self.assertNotIn("not really bytecode", result.stdout)
+
+    def test_untracked_binary_is_a_finding(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "loose.bin").write_bytes(b"loose\x00bytes")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary: loose.bin", result.stdout)
+        self.assertNotIn("loose", result.stdout.split("binary: loose.bin", 1)[-1])
+        self.assertNotIn("bytes", result.stdout)
+
+    def test_changed_existing_binary_is_not_an_added_finding(self):
+        env = git_env()
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            (tmp / "old.bin").write_bytes(b"old\x00")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "old.bin").write_bytes(b"new\x00value")
+            commit_all(tmp, env, "change binary")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "pii-check: OK")
+        self.assertNotIn("binary:", result.stdout)
+
+    def test_binary_added_then_deleted_is_a_finding(self):
+        env = git_env()
+        marker = "/" + "Users" + "/" + "zebra" + "/secret"
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            slug_dir, terms = slug_fixture(tmp)
+            (tmp / "note.md").write_text("clean\n")
+            init_repo(tmp, env)
+            commit_all(tmp, env, "base")
+            base = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "docs").mkdir()
+            (tmp / "docs" / "mod.pyc").write_bytes(b"\x00" + marker.encode())
+            (tmp / "docs" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+            (tmp / "secret.bin").write_bytes(b"bin\x00" + marker.encode())
+            commit_all(tmp, env, "add files")
+            short = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=tmp, text=True, env=env
+            ).strip()
+            (tmp / "docs" / "mod.pyc").unlink()
+            (tmp / "docs" / "logo.png").unlink()
+            (tmp / "secret.bin").unlink()
+            commit_all(tmp, env, "drop files")
+            result = run(
+                "pii-check.sh",
+                ["--root", str(tmp), "--base", base],
+                env=pii_env(slug_dir, terms),
+            )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("binary: docs/mod.pyc (commit " + short + ")", result.stdout)
+        self.assertIn("binary: secret.bin (commit " + short + ")", result.stdout)
+        self.assertNotIn("logo.png", result.stdout)
+        self.assertIn("binary 2\n", result.stdout)
+        self.assertNotIn(marker, result.stdout)
+        self.assertNotIn(marker, result.stderr)
+
 
 class ShellcheckTests(unittest.TestCase):
     def test_no_scripts_passes(self):
