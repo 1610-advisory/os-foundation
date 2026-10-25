@@ -75,46 +75,36 @@ for engine in claude codex cursor pi; do
     fi
     continue
   fi
-  if [ -f "$dest/notes/admin.md" ]; then
-    git -C "$dest" add notes/admin.md
-    if ! git -C "$dest" diff --cached --quiet; then
-      name=$(awk -F'|' -v s="$seat" '$1 == s { print $4 }' "$root/tests/acme/lib/seats.txt")
-      email=$(awk -F'|' -v s="$seat" '$1 == s { print $5 }' "$root/tests/acme/lib/seats.txt")
-      git -C "$dest" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
-        commit -m "Admin run" >/dev/null
-    fi
-    cfg=$(mktemp)
-    chmod 600 "$cfg"
-    printf '[credential]\n\thelper = !%s\n\tuseHttpPath = true\n' \
-      "$root/tests/acme/lib/git-credential-seat.sh" > "$cfg"
-    GIT_CONFIG_GLOBAL="$cfg" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
-      GIT_SSH_COMMAND="$root/tests/acme/lib/ssh-off.sh" \
-      GIT_ALLOW_PROTOCOL="http:https:file" \
-      OSF_FORGEJO_TOKEN="$(tr -d '[:space:]' < "$(osf_token_file "$user")")" \
-      OSF_GIT_USER="$user" \
-      git -C "$dest" push -u origin HEAD:main >"$work/push.log" 2>&1 || true
-    rm -f "$cfg"
-  fi
   found=0
   i=0
+  trap - ERR
   while [ "$i" -lt 6 ]; do
     osf_host S13 file "$org" "$repo" notes/admin.md --ref main
     page=$(cat "$OSF_HOST_JSON")
-    if [ "$OSF_HOST_RC" -eq 0 ]; then
-      set +e
-      printf '%s\n' "$page" | grep -q 'the admin run wrote this'
-      rc=$?
-      set -e
-      if [ "$rc" -eq 0 ]; then
-        found=1
-        break
-      fi
+    if [ "$OSF_HOST_RC" -eq 0 ] && printf '%s\n' "$page" | grep -q 'the admin run wrote this'; then
+      found=1
+      break
     fi
     i=$((i + 1))
     sleep 2
   done
+  trap 'echo "$OSF_ID FAIL unexpected error"' ERR
   if [ "$found" -ne 1 ]; then
-    osf_line "S13 $engine FAIL note is not on the host"
+    tree="absent"
+    if [ -f "$dest/notes/admin.md" ]; then
+      tree="uncommitted"
+      if git -C "$dest" cat-file -e HEAD:notes/admin.md 2>/dev/null \
+        && git -C "$dest" diff --quiet -- notes/admin.md \
+        && git -C "$dest" diff --cached --quiet -- notes/admin.md; then
+        tree="committed, not pushed"
+      fi
+    fi
+    osf_line "S13 $engine FAIL note is not on the host (working tree: $tree)"
+    push_err=$(grep -E 'error:|fatal:|rejected|could not|Authentication failed' "$work/seat.log" | tail -n 1 || true)
+    if [ -n "$push_err" ]; then
+      push_err=$(printf '%s\n' "$push_err" | sed -E 's/[A-Za-z0-9_-]{20,}/[redacted]/g')
+      osf_line "S13 $engine push: $push_err"
+    fi
     fail=$((fail + 1))
     continue
   fi
