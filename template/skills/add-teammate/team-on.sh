@@ -337,7 +337,7 @@ printf '%s\n' "$ADMIN" > "$cfg/me"
 chmod 600 "$cfg/me"
 
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
-  OS_JOBS_DIR="${OS_JOBS_DIR:-}" "$ROOT/skills/sync/sync.sh" install-jobs --admin
+  OS_COMPANY_ROOT="$ROOT" OS_JOBS_DIR="${OS_JOBS_DIR:-}" "$ROOT/skills/sync/sync.sh" install-jobs --admin
 else
   printf '%s\n' "sync-jobs: skills/sync/sync.sh is not here yet"
 fi
