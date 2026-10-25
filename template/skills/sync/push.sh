@@ -577,6 +577,29 @@ sync_under_dir() {
   return 1
 }
 
+sync_propose_main_symlink() {
+  local root=$1
+  local rel=$2
+  local cur part oldifs
+  cur=$root
+  oldifs=$IFS
+  IFS=/
+  # shellcheck disable=SC2086
+  set -- $rel
+  IFS=$oldifs
+  for part in "$@"; do
+    [ -n "$part" ] || continue
+    cur="$cur/$part"
+    if [ -L "$cur" ]; then
+      return 0
+    fi
+    if [ ! -e "$cur" ]; then
+      return 1
+    fi
+  done
+  return 1
+}
+
 sync_propose_symlink() {
   local root=$1
   local rel=$2
@@ -686,6 +709,10 @@ sync_propose_repo() {
   while IFS=$(printf '\t') read -r rel userpath; do
     [ -n "$rel" ] || continue
     dest="$tmp/$rel"
+    if sync_propose_main_symlink "$tmp" "$rel"; then
+      printf '%s\n' "propose refused: symlink on main: ${userpath}" >&2
+      return 1
+    fi
     mkdir -p "$(dirname "$dest")"
     if ! sync_under_dir "$(dirname "$dest")" "$tmp" && [ "$(dirname "$dest")" != "$tmp" ]; then
       sync_propose_fail "$name" "copy ${userpath}" 1

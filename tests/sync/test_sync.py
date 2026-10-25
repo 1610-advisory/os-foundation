@@ -1021,6 +1021,35 @@ class ProposeTests(unittest.TestCase):
         self.assertIn("propose fail company: copy AGENTS.md", result.stderr)
         self.assertNotIn("nothing to propose", result.stderr)
 
+    def test_symlink_on_main_is_not_written_through(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        skills = self.company / "skills"
+        skills.mkdir()
+        (skills / "x").symlink_to(outside)
+        run(["git", "-C", str(self.company), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "link dir"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (skills / "x").unlink()
+        (skills / "x").mkdir()
+        (skills / "x" / "f.md").write_text("must not land outside\n")
+        result = self.propose("t", "skills/x/f.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: skills/x/f.md", result.stderr)
+        self.assertEqual(list(outside.iterdir()), [])
+        target = outside / "target.md"
+        target.write_text("kept\n")
+        (self.company / "link.md").symlink_to(target)
+        run(["git", "-C", str(self.company), "add", "link.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "file link"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "link.md").unlink()
+        (self.company / "link.md").write_text("overwrite\n")
+        result = self.propose("t", "link.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: link.md", result.stderr)
+        self.assertEqual(target.read_text(), "kept\n")
+
     def test_gitdir_file_is_refused(self):
         git_dir = self.area / ".git"
         shutil.rmtree(git_dir)
