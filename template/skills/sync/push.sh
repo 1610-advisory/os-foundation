@@ -583,10 +583,12 @@ sync_propose_main_symlink() {
   local cur part oldifs
   cur=$root
   oldifs=$IFS
+  set -f
   IFS=/
   # shellcheck disable=SC2086
   set -- $rel
   IFS=$oldifs
+  set +f
   for part in "$@"; do
     [ -n "$part" ] || continue
     cur="$cur/$part"
@@ -609,10 +611,12 @@ sync_propose_symlink() {
   fi
   cur=$root
   oldifs=$IFS
+  set -f
   IFS=/
   # shellcheck disable=SC2086
   set -- $rel
   IFS=$oldifs
+  set +f
   for part in "$@"; do
     [ -n "$part" ] || continue
     cur="$cur/$part"
@@ -710,6 +714,7 @@ sync_propose_repo() {
     [ -n "$rel" ] || continue
     dest="$tmp/$rel"
     if sync_propose_main_symlink "$tmp" "$rel"; then
+      sync_propose_print_opened
       printf '%s\n' "propose refused: symlink on main: ${userpath}" >&2
       return 1
     fi
@@ -728,6 +733,7 @@ sync_propose_repo() {
     fi
     git -C "$tmp" add -- "$rel"
     if git -C "$tmp" diff --cached --quiet -- "$rel"; then
+      sync_propose_print_opened
       sync_die 1 "nothing to propose: ${userpath}"
     fi
   done < "$list"
