@@ -32,6 +32,9 @@ sync_mktemp() {
 
 sync_cleanup() {
   local f
+  if type sync_propose_drop_trees >/dev/null 2>&1; then
+    sync_propose_drop_trees
+  fi
   # shellcheck disable=SC2086
   for f in $SYNC_TMP_FILES; do
     rm -f "$f"

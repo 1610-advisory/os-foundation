@@ -907,6 +907,131 @@ class ProposeTests(unittest.TestCase):
         heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
         self.assertNotIn("rules/mia", heads.stdout)
 
+    def test_bad_paths_are_refused(self):
+        outside = self.tmp / "outside.md"
+        outside.write_text("outside\n")
+        for path in ("areas/x/../../outside.md", "/etc/hosts", "a/../b", "bad\nname.md"):
+            result = self.propose("topic", path)
+            self.assertEqual(result.returncode, 1, path)
+            self.assertIn("propose refused: bad path", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_symlink_is_refused(self):
+        link = self.company / "link.md"
+        link.symlink_to(self.company / "AGENTS.md")
+        result = self.propose("topic", "link.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("propose refused: symlink: link.md", result.stderr)
+        nested = self.company / "realnest"
+        nested.mkdir()
+        (nested / "file.md").write_text("via link\n")
+        (self.company / "nest").symlink_to(nested)
+        result = self.propose("topic", "nest/file.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("propose refused: symlink: nest/file.md", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_scan_stops_before_any_push(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        secret = "gh" + "p_" + ("ab12" * 9)
+        (self.area / "AGENTS.md").write_text(f"token = {secret}\n")
+        result = self.propose("topic", "AGENTS.md", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("secret scan hit", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_fetch_is_checked_before_the_first_push(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "AGENTS.md").write_text("# area change\n")
+        run(
+            ["git", "-C", str(self.area), "remote", "set-url", "origin", "http://127.0.0.1:9/area.git"],
+            env=self.env,
+            check=True,
+        )
+        result = self.propose("topic", "AGENTS.md", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail area: fetch", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_later_failure_lists_opened_pull_requests(self):
+        host = self.tmp / "host-fail"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\n"
+            "case \"$1\" in\n"
+            "  whoami) printf '%s\\n' '{\"login\":\"acme-member-a\"}' ;;\n"
+            "  get-token) printf '%s\\n' local-token ;;\n"
+            "  open-pr)\n"
+            "    n=$(wc -l < \"$COUNT\" | tr -d ' ')\n"
+            "    printf 'x\\n' >> \"$COUNT\"\n"
+            "    if [ \"$n\" != \"0\" ]; then exit 3; fi\n"
+            "    printf '%s\\n' '{\"number\":1,\"url\":\"http://example.test/1\"}'\n"
+            "    ;;\n"
+            "  auto-merge) printf '%s\\n' '{\"ok\":true}' ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        count = self.tmp / "count"
+        count.write_text("")
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["COUNT"] = str(count)
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "AGENTS.md").write_text("# area change\n")
+        result = run(
+            ["bash", str(SYNC / "sync.sh"), "propose", "topic", "AGENTS.md", "areas/shop/AGENTS.md"],
+            env=env,
+            cwd=self.company,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("propose fail area: open-pr", result.stderr)
+        self.assertIn("opened: company 1", result.stderr)
+
+    def test_copy_failure_names_the_step(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in\n"
+            "    */AGENTS.md) exit 1 ;;\n"
+            "  esac\n"
+            "done\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        (self.company / "AGENTS.md").write_text("# changed\n")
+        result = run(
+            ["bash", str(SYNC / "sync.sh"), "propose", "topic", "AGENTS.md"],
+            env=env,
+            cwd=self.company,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail company: copy AGENTS.md", result.stderr)
+        self.assertNotIn("nothing to propose", result.stderr)
+
+    def test_gitdir_file_is_refused(self):
+        git_dir = self.area / ".git"
+        shutil.rmtree(git_dir)
+        git_dir.write_text("gitdir: /tmp/not-this-repo\n")
+        (self.area / "AGENTS.md").write_text("# changed area rules\n")
+        result = self.propose("topic", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail shop: repo", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
