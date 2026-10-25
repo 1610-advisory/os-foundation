@@ -3,6 +3,8 @@
 set -euo pipefail
 
 input=$(cat)
+# The prompt names the hold rules. Judge only the diff, not that text.
+diff=$(printf '%s\n' "$input" | awk 'BEGIN { p = 0 } /^DIFF:/ { p = 1; next } p { print }')
 file=$(printf '%s\n' "$input" | awk '/^FILE: / { sub(/^FILE: /, ""); print; exit }')
 decision="commit"
 reason="ok"
@@ -19,24 +21,24 @@ case "$file" in
     ;;
 esac
 
-if printf '%s\n' "$input" | grep -q 'source: private'; then
+if printf '%s\n' "$diff" | grep -q 'source: private'; then
   decision="hold"
   reason="private source"
   message=""
 fi
-if printf '%s\n' "$input" | grep -q 'OSF-LIFE'; then
+if printf '%s\n' "$diff" | grep -q 'OSF-LIFE'; then
   decision="hold"
   reason="personal-life fact"
   message=""
 fi
-if printf '%s\n' "$input" | grep -q 'OSF-DM'; then
+if printf '%s\n' "$diff" | grep -q 'OSF-DM'; then
   decision="hold"
   reason="private source"
   message=""
 fi
 case "$file" in
   profile/PROFILE.md|*/profile/PROFILE.md)
-    if printf '%s\n' "$input" | grep -q 'OSF-COMPANY-FACT'; then
+    if printf '%s\n' "$diff" | grep -q 'OSF-COMPANY-FACT'; then
       decision="hold"
       reason="company fact in a profile"
       message=""

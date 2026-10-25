@@ -36,7 +36,7 @@ printf '%s\n' "Create 25 files notes/n-01.md through notes/n-25.md in areas/mark
 export OS_COMPANY_ROOT="$dest"
 export OSF_ACME_SEAT_TIMEOUT=900
 osf_use_seat "$slug" mia acme-member-a || osf_result "S6 FAIL member token missing"
-bash "$root/tests/acme/seat.sh" member-a "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1 \
+osf_run_seat S6 member-a "$prompt" "$dest" \
   || osf_result "S6 FAIL member seat"
 count=$(find "$dest/areas/marketing/notes" -name 'n-*.md' | wc -l | tr -d ' ')
 if [ "$count" -lt 25 ]; then

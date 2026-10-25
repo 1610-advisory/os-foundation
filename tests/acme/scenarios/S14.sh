@@ -39,7 +39,7 @@ fi
 printf '%s\n' "Write short sentences." >> "$profile"
 prompt="$work/prompt.txt"
 printf '%s\n' "Read users/mia/profile/PROFILE.md. Write notes/styled.md in one short sentence, the way the profile asks. Do not add a company fact to the profile." > "$prompt"
-bash "$root/tests/acme/seat.sh" member-a "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1 \
+osf_run_seat S14 member-a "$prompt" "$dest" \
   || osf_result "S14 FAIL member seat"
 if [ ! -f "$dest/notes/styled.md" ]; then
   osf_result "S14 FAIL styled note missing"

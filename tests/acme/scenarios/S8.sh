@@ -56,6 +56,7 @@ bot=helper
 owner=ada
 name=Acme Bot
 bot_user=acme-bot
+email=acme.bot@acme.test
 repos=${slug}-os
 company_repo=${slug}-os
 token_path=${token_path}
@@ -64,6 +65,7 @@ engine=$root/tests/acme/fixtures/engine.sh
 EOF
 bash "$dest/skills/add-bot/add-bot.sh" --answers "$work/bot-answers" --root "$dest" >"$work/add-bot.log" 2>&1 \
   || osf_result "S8 FAIL add-bot"
+export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/sync/sync.sh" propose add-bot-helper "bots/helper/BOT.md" >"$work/propose.log" 2>&1 \
   || osf_result "S8 FAIL propose bot page"
 

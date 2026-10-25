@@ -56,7 +56,7 @@ osf_use_seat "$slug" "$me" "$user" || osf_result "S5 FAIL proposer token missing
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
 # The model review reads OS_REVIEW_FAKE from the Tier A runner, not from this process.
-bash "$root/tests/acme/seat.sh" "$proposer" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1 \
+osf_run_seat S5 "$proposer" "$prompt" "$dest" \
   || osf_result "S5 FAIL proposer seat"
 
 # Director approval is an API call with the director token. The engine is not required.

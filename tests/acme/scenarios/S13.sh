@@ -38,8 +38,14 @@ for engine in claude codex cursor pi; do
   prompt="$work/prompt.txt"
   printf '%s\n' "Read company-profile.md. Add one sentence to notes/admin.md: the admin run wrote this. Do not change git identity." > "$prompt"
   if ! bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$dest" >"$work/seat.log" 2>&1; then
-    osf_line "S13 $engine FAIL seat"
-    fail=$((fail + 1))
+    if grep -q '^BLOCKED:' "$work/seat.log"; then
+      reason=$(sed -n 's/^BLOCKED: //p' "$work/seat.log" | head -n 1)
+      osf_line "S13 $engine BLOCKED $reason"
+      blocked=$((blocked + 1))
+    else
+      osf_line "S13 $engine FAIL seat"
+      fail=$((fail + 1))
+    fi
     continue
   fi
   if [ ! -f "$dest/notes/admin.md" ]; then

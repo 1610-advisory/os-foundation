@@ -244,7 +244,7 @@ osf_solo_problems() {
       return 0
     fi
   done
-  if [ -e "$dest/.github" ] || [ -e "$dest/CODEOWNERS" ] || [ -d "$dest/users" ] || [ -d "$dest/bots" ]; then
+  if [ -d "$dest/users" ] || [ -d "$dest/bots" ] || [ -f "$dest/.github/CODEOWNERS" ]; then
     printf '%s\n' "team parts are present"
     return 0
   fi
@@ -272,8 +272,11 @@ for dirpath, dirnames, filenames in os.walk(dest):
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if "{{" in text and "}}" in text:
-            sys.exit(1)
+        for line in text.splitlines():
+            if "${{" in line:
+                continue
+            if "{{" in line and "}}" in line:
+                sys.exit(1)
 sys.exit(0)
 PY
   then
@@ -338,6 +341,28 @@ osf_use_seat() {
   osf_me "$slug" "$person"
   osf_write_token_file "$slug" "$user"
   osf_export_token "$user"
+}
+
+# seat.sh exit 3 is a missing engine or sign-in. That is BLOCKED, not FAIL.
+osf_run_seat() {
+  local id="$1"
+  local seat="$2"
+  local prompt="$3"
+  local cwd="$4"
+  local root out rc
+  root=$(osf_acme_root)
+  set +e
+  out=$(bash "$root/tests/acme/seat.sh" "$seat" "$prompt" --cwd "$cwd" 2>&1)
+  rc=$?
+  set -e
+  printf '%s\n' "$out" >&2
+  if [ "$rc" -eq 3 ]; then
+    osf_result "$id BLOCKED ${out#BLOCKED: }"
+  fi
+  if [ "$rc" -ne 0 ]; then
+    return 1
+  fi
+  return 0
 }
 
 osf_delete_repo() {
