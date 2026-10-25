@@ -24,7 +24,7 @@ Tier B is not available in this phase. `run.sh --tier b` prints `BLOCKED: gates 
 
 Forgejo listens on `http://localhost:3300`. Job containers run in the DinD sidecar. The host Docker socket is not mounted.
 
-The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into DinD as `osf-acme-job:local`. The runner label `ubuntu-latest` points at that image. The image has bash, git, curl, and jq.
+The job image is built from `tests/acme/forgejo/job.Dockerfile` and loaded into DinD as `osf-acme-job:local`. The runner label `ubuntu-latest` points at that image. The image has bash, git, curl, and jq. The runner is registered for the whole Forgejo instance, not only org `acme`. An org-scoped runner never starts jobs for `acme2-*` orgs.
 
 The runner sets `OS_REVIEW_FAKE` to `/opt/os-review-fake/verdicts.txt` and mounts that folder read-only. `up.sh` copies `verdicts.txt` into the sidecar. Applying the runner config restarts the shared runner. Do that only when no other team is using it.
 
@@ -77,6 +77,8 @@ A scenario whose product code is not on this branch yet prints `BLOCKED not merg
 When a scenario needs a second vendor and that seat is blocked, the script uses another vendor and names the substitution. It does not use the same vendor twice. A director approval is an API call with that seat's token. The director engine is not required.
 
 Each scenario deletes the repos it created. Repo names start with `acme2-`.
+
+`OSF_ACME_KEEP=1` leaves that scenario's org in place when the scenario fails. A pass still deletes it. The start wipe still runs, so a rerun does not reuse a kept org unless you skip the scenario's create step.
 
 ## Results
 

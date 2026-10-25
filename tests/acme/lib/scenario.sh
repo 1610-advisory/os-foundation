@@ -16,8 +16,24 @@ osf_line() {
 }
 
 osf_result() {
+  case "$*" in
+    *" PASS"|*" PASS "*) ;;
+    *) export OSF_FAILED=1 ;;
+  esac
   printf '%s\n' "$*"
   exit 0
+}
+
+# OSF_ACME_KEEP=1 leaves the org when the scenario fails. A pass still deletes it.
+# Start-of-run wipes still use osf_delete_org.
+osf_keep_on_fail() {
+  local rc=$?
+  local org="$1"
+  if [ "${OSF_ACME_KEEP:-}" = "1" ] && { [ "$rc" -ne 0 ] || [ "${OSF_FAILED:-}" = "1" ]; }; then
+    printf 'keep: %s\n' "$org" >&2
+    return 0
+  fi
+  osf_delete_org "$org"
 }
 
 # Exit with BLOCKED when a product file is not on this tree yet.

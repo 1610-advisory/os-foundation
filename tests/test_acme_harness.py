@@ -90,6 +90,16 @@ class RepoHygieneTests(unittest.TestCase):
             for word in banned:
                 self.assertNotIn(word, text, f"{path} contains {word}")
 
+    def test_keep_on_fail_is_wired(self):
+        text = (LIB / "scenario.sh").read_text()
+        self.assertIn("OSF_ACME_KEEP", text)
+        self.assertIn("osf_keep_on_fail", text)
+        for name in ("S3.sh", "S5.sh"):
+            scenario = (ACME / "scenarios" / name).read_text()
+            self.assertIn('osf_keep_on_fail "$org"', scenario)
+        readme = (ACME / "README.md").read_text()
+        self.assertIn("OSF_ACME_KEEP=1", readme)
+
     def test_readme_names_seats_and_token_locations(self):
         text = (ACME / "README.md").read_text()
         self.assertIn("member-d", text)

@@ -19,7 +19,7 @@ org="acme2-s2"
 root=$(osf_acme_root)
 work=$(osf_work s2)
 cleanup() {
-  osf_delete_org "$org"
+  osf_keep_on_fail "$org"
 }
 trap cleanup EXIT
 

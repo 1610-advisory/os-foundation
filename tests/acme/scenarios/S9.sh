@@ -16,7 +16,7 @@ slug="acme2-s9"
 org="acme2-s9"
 root=$(osf_acme_root)
 work=$(osf_work s9)
-cleanup() { osf_delete_org "$org"; }
+cleanup() { osf_keep_on_fail "$org"; }
 trap cleanup EXIT
 osf_sandbox "$work/box"
 dest="$work/company"
