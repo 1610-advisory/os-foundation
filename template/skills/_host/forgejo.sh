@@ -415,8 +415,19 @@ cmd_unprotect() {
       ;;
   esac
   if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "404" ]; then
-    fj_call POST "$(host_repo "$name")/branch_protections" "$(cat "$saved")" >/dev/null || true
-    host_die 3 "unprotect could not confirm the delete. The saved rule was sent back."
+    if ! fj_call POST "$(host_repo "$name")/branch_protections" "$(cat "$saved")"; then
+      host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+    fi
+    case "$FJ_HTTP" in
+      200|201|204) ;;
+      *)
+        host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+        ;;
+    esac
+    if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "200" ]; then
+      host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
+    fi
+    host_die 3 "unprotect failed. The main rule was restored."
   fi
   jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main"}'
 }
@@ -445,6 +456,41 @@ cmd_secret_exists() {
       ;;
     *) fj_fail ;;
   esac
+}
+
+cmd_user_access() {
+  local name user perm access
+  [ -n "$POS1" ] || host_die 1 "name is required"
+  [ -n "$POS2" ] || host_die 1 "user is required"
+  [ -z "$POS3" ] || host_die 1 "too many arguments"
+  host_require_name "name" "$POS1"
+  host_require_name "user" "$POS2"
+  name=$POS1
+  user=$POS2
+  if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+    host_emit_call GET "$(host_repo "$name")/collaborators/${user}/permission"
+    return 0
+  fi
+  if ! fj_call GET "$(host_repo "$name")/collaborators/${user}/permission"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    404)
+      jq -nc '{access:"none"}'
+      return 0
+      ;;
+    200) ;;
+    401|403) host_die 4 "auth failed" ;;
+    *) fj_fail ;;
+  esac
+  perm=$(printf '%s' "$FJ_BODY" | jq -r '.permission // .role_name // "none"')
+  case "$perm" in
+    admin|owner) access="admin" ;;
+    write|maintain|push) access="write" ;;
+    read|pull|triage) access="read" ;;
+    *) access="none" ;;
+  esac
+  jq -nc --arg access "$access" '{access:$access}'
 }
 
 cmd_team_create() {
@@ -829,6 +875,7 @@ case "$VERB" in
   protect) cmd_protect ;;
   unprotect) cmd_unprotect ;;
   secret-exists) cmd_secret_exists ;;
+  user-access) cmd_user_access ;;
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;

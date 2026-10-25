@@ -136,7 +136,7 @@ if [ -n "$PR_N" ]; then
     if [ -n "$LEAK_PATH" ]; then
       if ! git -C "$LOCAL" cat-file -e "origin/main:$LEAK_PATH" 2>/dev/null; then
         printf '%s\n' "remove-leak: ok"
-        printf '%s\n' "rule: path"
+        printf 'path: %s\n' "$LEAK_PATH"
         printf '%s\n' "pr: $PR_N"
         exit 0
       fi

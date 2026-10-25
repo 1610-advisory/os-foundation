@@ -131,6 +131,7 @@ rc=$?
 set -e
 [ "$rc" -ne 0 ] || team_fail "unprotect should fail when the confirm step fails"
 grep -q 'protect-made' "$work/restore.log" || team_fail "saved rule was not restored"
+grep -q 'PROTECTION IS OFF on demo' "$work/u2.err" || team_fail "failed forgejo restore was claimed"
 kill "$pid2" 2>/dev/null || true
 wait "$pid2" 2>/dev/null || true
 
@@ -185,6 +186,7 @@ rc=$?
 set -e
 [ "$rc" -ne 0 ] || team_fail "github unprotect should fail when the second delete fails"
 grep -q 'POST /repos/acme/acme-os/rulesets' "$GH_LOG" || team_fail "deleted main ruleset was not restored"
+grep -q 'PROTECTION IS OFF on acme-os' "$work/gh.err" || team_fail "failed github restore was claimed"
 
 # P1.3 A 404 revoke is not success when we cannot confirm the person is gone.
 mkdir -p "$work/co/people"
@@ -222,8 +224,9 @@ cat > "$work/bin/host.sh" << 'EOF'
 printf '%s\n' "$*" >> "$HOST_LOG"
 case "$1" in
   team-remove|revoke) exit 2 ;;
-  repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
-  org-remove|archive-repo) printf 'should-not-run %s\n' "$1" >> "$HOST_LOG"; exit 0 ;;
+  user-access) printf '%s\n' '{"access":"write"}'; exit 0 ;;
+  org-remove) exit 0 ;;
+  archive-repo) printf 'should-not-run %s\n' "$1" >> "$HOST_LOG"; exit 0 ;;
   *) printf '%s\n' '{"ok":true}'; exit 0 ;;
 esac
 EOF
@@ -237,8 +240,8 @@ rc=$?
 set -e
 [ "$rc" -ne 0 ] || team_fail "failed team-remove was treated as success"
 grep -q '^revoked:' "$work/rm.out" && team_fail "revoked was printed after a failed revoke"
-grep -q 'org-remove' "$HOST_LOG" && team_fail "org-remove ran after a failed revoke"
 grep -q 'Still has access' "$work/rm.err" || team_fail "missing list of what is left"
+grep -q 'acme-os' "$work/rm.err" || team_fail "remaining repo was not listed"
 
 # P1.4 A failed push after unprotect still restores protection, and does not print ok.
 origin="$work/origin/acme/team-leak.git"

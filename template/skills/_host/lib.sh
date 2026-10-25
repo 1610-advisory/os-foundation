@@ -654,6 +654,7 @@ Verbs:
   protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]
   unprotect <name>
   secret-exists <name>
+  user-access <repo> <user>
   team-create <team>
   team-add <team> <user>
   team-remove <team> <user>
