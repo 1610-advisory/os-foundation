@@ -1075,28 +1075,25 @@ class ProposeTests(unittest.TestCase):
         self.assertEqual(list(outside.iterdir()), [])
 
     def test_symlink_walk_does_not_glob(self):
+        # Glob is a later component. The only cwd match is a decoy, not the symlink.
         outside = self.tmp / "outside-glob"
         outside.mkdir()
-        (self.company / "a-decoy").write_text("decoy\n")
-        (self.company / "a-star").symlink_to(outside)
-        run(["git", "-C", str(self.company), "add", "a-star"], env=self.env, check=True)
-        run(["git", "-C", str(self.company), "commit", "-q", "-m", "star link"], env=self.env, check=True)
-        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
-        # The committed name is the literal a-star. Rename the worktree path is not the glob case.
-        # Commit a symlink whose name is the glob a*.
-        run(["git", "-C", str(self.company), "rm", "-q", "a-star"], env=self.env, check=True)
-        (self.company / "a-star").unlink(missing_ok=True)
-        (self.company / "a*").symlink_to(outside)
-        run(["git", "-C", str(self.company), "add", "--", "a*"], env=self.env, check=True)
+        target = outside / "target.md"
+        target.write_text("kept\n")
+        (self.company / "x-only").write_text("decoy\n")
+        skills = self.company / "skills"
+        skills.mkdir()
+        (skills / "x*").symlink_to(target)
+        run(["git", "-C", str(self.company), "add", "--", "skills/x*"], env=self.env, check=True)
         run(["git", "-C", str(self.company), "commit", "-q", "-m", "glob link"], env=self.env, check=True)
         run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
-        (self.company / "a*").unlink()
-        (self.company / "a*").mkdir()
-        (self.company / "a*" / "f.md").write_text("must stay out\n")
-        result = self.propose("topic", "a*/f.md")
+        (skills / "x*").unlink()
+        (skills / "x*").write_text("overwrite\n")
+        result = self.propose("topic", "skills/x*")
+        self.assertEqual(target.read_text(), "kept\n")
+        self.assertEqual(list(outside.iterdir()), [target])
         self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
-        self.assertIn("propose refused: symlink on main: a*/f.md", result.stderr)
-        self.assertEqual(list(outside.iterdir()), [])
+        self.assertIn("propose refused: symlink on main: skills/x*", result.stderr)
 
     def test_gitdir_file_is_refused(self):
         git_dir = self.area / ".git"
