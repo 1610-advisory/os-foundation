@@ -133,7 +133,7 @@ skills/sync/secret-scan.sh --range <a>..<b>
 skills/sync/secret-scan.sh --files -- <file>...
 ```
 
-Paths are separate arguments. They are not split or globbed. Exit 0 is clean. Exit 1 is a hit. The line is `file:line:rule`. The value is not printed. Exit 2 is an error. `--files` with no paths is an error. A missing path, a directory, or a symlink is an error.
+Paths are separate arguments. They are not split or globbed. Exit 0 is clean. Exit 1 is a hit. The line is `file:line:rule`. The value is not printed. Exit 2 is an error. `--files` with no paths is an error. A missing path, a directory, or a symlink is an error. The bundled scan checks a known-bad sample first. If that sample is not flagged, it exits 2 and prints `secret scan error: self-test failed`.
 
 On push, a deleted file is not scanned. There is nothing to read. A symlink or a directory in the change list is a scan error: that repo pushes nothing.
 

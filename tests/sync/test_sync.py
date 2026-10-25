@@ -1107,5 +1107,94 @@ class ProposeTests(unittest.TestCase):
         self.assertNotIn("rules/mia", heads.stdout)
 
 
+class SecretScanAwkTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-scan-"))
+        self.env = os.environ.copy()
+        self.env["OS_SECRET_SCAN"] = "bundled"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def scan(self, text, env=None):
+        path = self.tmp / "note.txt"
+        path.write_text(text if text.endswith("\n") else text + "\n")
+        return run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--files", "--", str(path)],
+            env=env or self.env,
+        )
+
+    def test_known_bad_fixtures_hit_and_hide_the_value(self):
+        cases = [
+            ("gh" + "p_" + ("ab12" * 9), "github-pat"),
+            ("github" + "_pat_" + "abcdefghij1234567890ab", "github-pat"),
+            ("xo" + "xb-" + "1234567890abcdef", "slack-bot-token"),
+            ("xo" + "xp-" + "1234567890abcdef", "slack-bot-token"),
+            ("AK" + "IA" + "0123456789ABCDEF", "aws-access-key"),
+            ("token = abcdefghijklmnop", "generic-api-key"),
+            ("api_key=abcdefghijklmnop", "generic-api-key"),
+            ('token = "' + ("e" * 16), "generic-api-key"),
+            ("token = " + ("d" * 16) + " secret = x", "generic-api-key"),
+            ("token = no token = " + ("d" * 16), "generic-api-key"),
+            ("password = aB3xQ9mZ2kL8pR4sT6uV1wY5nC7dE0fG2hJ4", "high-entropy"),
+            ("-----BE" + "GIN OPENSSH PRIVATE KEY-----", "private-key"),
+            ("-----BE" + "GIN RSA PRIVATE KEY-----", "private-key"),
+        ]
+        for text, rule in cases:
+            result = self.scan(text)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn(rule, result.stdout)
+            self.assertNotIn(text, result.stdout)
+            self.assertNotIn(text, result.stderr)
+
+    def test_clean_lines_stay_clean(self):
+        for text in ("notes: no secret here", "password = short", "-----BE" + "GIN OPENSSH"):
+            result = self.scan(text)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "")
+
+    def test_self_test_fails_closed_when_awk_does_not_flag(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "awk"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.scan("hello\n", env=env)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("secret scan error: self-test failed", result.stderr)
+        self.assertNotIn("hello", result.stdout)
+        self.assertNotIn("self-test ok", result.stdout)
+
+    def test_empty_staged_self_test_fails_closed(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "awk"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        run(["git", "init", "-q", "-b", "main", str(repo)], env=env, check=True)
+        result = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--staged"],
+            env=env,
+            cwd=repo,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("secret scan error: self-test failed", result.stderr)
+
+    def test_same_fixtures_under_bsd_mawk_and_gawk(self):
+        result = run(["bash", str(ROOT / "tests" / "sync" / "scan-awks.sh")])
+        text = result.stdout + result.stderr
+        if "BLOCKED: docker" in text:
+            self.fail(text)
+        self.assertEqual(result.returncode, 0, text)
+        for label in ("bsd", "bookworm-mawk", "stable-mawk", "gawk"):
+            self.assertIn(f"PASS {label}", text)
+
+
 if __name__ == "__main__":
     unittest.main()
