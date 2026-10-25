@@ -61,37 +61,82 @@ repos=${slug}-os
 company_repo=${slug}-os
 token_path=${token_path}
 box=no
-engine=$root/tests/acme/fixtures/engine.sh
+engine=$root/tests/acme/fixtures/bot-engine.sh
 EOF
 bash "$dest/skills/add-bot/add-bot.sh" --answers "$work/bot-answers" --root "$dest" >"$work/add-bot.log" 2>&1 \
   || osf_result "S8 FAIL add-bot"
+routine="$dest/bots/helper/routines/note.md"
+mkdir -p "$(dirname "$routine")"
+printf '%s\n' "Write one line to notes/bot.md: the bot ran." > "$routine"
 export OS_COMPANY_ROOT="$dest"
-bash "$dest/skills/sync/sync.sh" propose add-bot-helper "bots/helper/BOT.md" >"$work/propose.log" 2>&1 \
+bash "$dest/skills/sync/sync.sh" propose add-bot-helper \
+  "company-profile.md" "bots/helper/BOT.md" "bots/helper/routines/note.md" >"$work/propose.log" 2>&1 \
   || osf_result "S8 FAIL propose bot page"
+number=$(awk 'NF { n = $0 } END { print n }' "$work/propose.log")
+if ! grep -q "propose ok .* add-bot-helper ${number}" "$XDG_CONFIG_HOME/${slug}-os/state/sync.log"; then
+  osf_result "S8 FAIL propose did not open a pull request"
+fi
+if [ -z "$number" ]; then
+  osf_result "S8 FAIL propose did not open a pull request"
+fi
+osf_approve "$org" "${slug}-os" "$number" acme-director || osf_result "S8 FAIL director approval"
+head_sha=$(osf_results pr "$org" "${slug}-os" "$number" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_sha",""))')
+if ! osf_results wait-check "$org" "${slug}-os" "$head_sha" --timeout 180 >/dev/null; then
+  osf_result "S8 FAIL bot page checks did not pass"
+fi
+i=0
+while [ "$i" -lt 24 ]; do
+  osf_host S8 file "$org" "${slug}-os" bots/helper/routines/note.md --ref main
+  if [ "$OSF_HOST_RC" -eq 0 ]; then
+    break
+  fi
+  i=$((i + 1))
+  sleep 5
+done
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S8 FAIL routine is not on main"
+fi
+cfg=$(mktemp)
+chmod 600 "$cfg"
+cat > "$cfg" << EOF
+[credential]
+	helper = !$root/tests/acme/lib/git-credential-seat.sh
+	useHttpPath = true
+EOF
+osf_export_token acme-admin || osf_result "S8 FAIL admin token missing"
+GIT_CONFIG_GLOBAL="$cfg" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+  GIT_SSH_COMMAND="$root/tests/acme/lib/ssh-off.sh" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
+  OSF_FORGEJO_TOKEN="$FORGEJO_TOKEN" OSF_GIT_USER="acme-admin" \
+  git -C "$dest" fetch origin >"$work/fetch.log" 2>&1 \
+  || osf_result "S8 FAIL could not fetch main"
+rm -f "$cfg"
+git -C "$dest" checkout -B main origin/main >"$work/checkout.log" 2>&1 \
+  || osf_result "S8 FAIL could not match origin/main"
 
 trace="$work/token-trace"
 export OS_BOT=helper
+export OS_ROOT="$dest"
+export OS_PROFILE="$dest/company-profile.md"
 export OS_BOT_TOKEN_TTL=60
 export OS_BOT_TOKEN_TRACE="$trace"
 export OS_NOW=1000
+# The helper answers only when protocol and host match host_url.
 bash "$dest/skills/add-bot/git-credential-os-bot" get >/dev/null << 'EOF'
-protocol=https
-host=localhost
+protocol=http
+host=localhost:3300
 
 EOF
 export OS_NOW=1070
 bash "$dest/skills/add-bot/git-credential-os-bot" get >/dev/null << 'EOF'
-protocol=https
-host=localhost
+protocol=http
+host=localhost:3300
 
 EOF
 if ! grep -q 'refresh' "$trace"; then
   osf_result "S8 FAIL token did not refresh after forced expiry"
 fi
 
-routine="$dest/bots/helper/routines/note.md"
-mkdir -p "$(dirname "$routine")"
-printf '%s\n' "Write one line to notes/bot.md: the bot ran." > "$routine"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/add-bot/run.sh" helper note --root "$dest" >"$work/run.log" 2>&1 \
@@ -105,13 +150,18 @@ if [ -z "$run_id" ]; then
 fi
 bash "$dest/skills/undo-run/undo-run.sh" "$run_id" --root "$dest" >"$work/undo.log" 2>&1 \
   || osf_result "S8 FAIL undo-run"
-if ! grep -q 'Reverts:' "$work/undo.log" && ! osf_results branches "$org" "${slug}-os" | grep -q "undo/"; then
-  osf_result "S8 FAIL undo branch missing"
+osf_host S8 branches "$org" "${slug}-os"
+branches=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$branches" | grep -q "undo/${run_id}"; then
+  osf_result "S8 FAIL undo branch is not on the host"
 fi
-if osf_results file "$org" "${slug}-marketing" notes/widget.md --ref main >/dev/null 2>&1; then
-  :
+osf_host S8 file "$org" "${slug}-os" notes/bot.md --ref "undo/${run_id}"
+note=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -eq 0 ] && printf '%s\n' "$note" | grep -q 'the bot ran'; then
+  osf_result "S8 FAIL undo branch still has the bot note"
 fi
-if ! osf_results clone-denied acme-bot "$org" "${slug}-marketing" >/dev/null; then
+osf_host S8 clone-denied acme-bot "$org" "${slug}-marketing" >/dev/null
+if [ "$OSF_HOST_RC" -ne 0 ]; then
   osf_result "S8 FAIL bot could read an area outside its grant"
 fi
 

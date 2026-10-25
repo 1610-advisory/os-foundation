@@ -42,6 +42,17 @@ export OS_COMPANY_ROOT="$dest"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine-commit.sh"
 export OS_SECRET_SCAN=bundled
 bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1 || osf_result "S10 FAIL push"
+osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-os/pulls?state=open"
+if [ "$OSF_HTTP_CODE" = "200" ]; then
+  number=$(jq -r '.[0].number // empty' "$OSF_HTTP_BODY")
+  osf_api_discard
+  if [ -n "$number" ]; then
+    osf_approve "$org" "${slug}-os" "$number" acme-director || osf_result "S10 FAIL director approval"
+  fi
+else
+  osf_api_discard
+  osf_result "S10 FAIL host error reading pull requests"
+fi
 i=0
 while [ "$i" -lt 40 ]; do
   if osf_results file "$org" "${slug}-os" notes/leak.md >/dev/null 2>&1; then
@@ -50,7 +61,9 @@ while [ "$i" -lt 40 ]; do
   i=$((i + 1))
   sleep 5
 done
-if ! osf_results file "$org" "${slug}-os" notes/leak.md >/dev/null; then
+osf_host S10 file "$org" "${slug}-os" notes/leak.md --ref main
+leak=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$leak" | grep -q 'piano'; then
   osf_result "S10 FAIL private fact did not reach main"
 fi
 
@@ -60,18 +73,32 @@ osf_clone_as acme-member-a "$(osf_acme_url)/${org}/${slug}-os.git" "$other" >"$w
 
 bash "$dest/skills/remove-leak/remove-leak.sh" --repo "${slug}-os" --path notes/leak.md --root "$dest" \
   >"$work/leak.log" 2>&1 || osf_result "S10 FAIL remove-leak"
-if osf_results file "$org" "${slug}-os" notes/leak.md >/dev/null; then
+osf_host S10 file "$org" "${slug}-os" notes/leak.md --ref main
+gone=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 2 ] || ! printf '%s\n' "$gone" | grep -q '"found": false'; then
   osf_result "S10 FAIL private fact still on main"
 fi
-if ! osf_results tags "$org" "${slug}-os" | grep -q 'os-rewrite-'; then
+osf_host S10 tags "$org" "${slug}-os"
+tags=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$tags" | grep -q 'os-rewrite-'; then
   osf_result "S10 FAIL rewrite tag missing"
 fi
 
+osf_host S10 commits "$org" "${slug}-os" --ref main --limit 1
+commits=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S10 FAIL could not read rewritten main"
+fi
+host_sha=$(printf '%s\n' "$commits" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commits"][0]["sha"])')
+if [ -z "$host_sha" ]; then
+  osf_result "S10 FAIL could not read rewritten main"
+fi
 osf_use_seat "$slug" mia acme-member-a || osf_result "S10 FAIL member token missing"
 export OS_COMPANY_ROOT="$other"
 bash "$other/skills/sync/sync.sh" pull >"$work/pull.log" 2>&1 || osf_result "S10 FAIL pull"
-if ! grep -q 'pull reclone' "$work/pull.log" "$XDG_CONFIG_HOME/${slug}-os/state/sync.log" 2>/dev/null; then
-  osf_result "S10 FAIL other seat did not re-clone"
+clone_sha=$(git -C "$other" rev-parse HEAD)
+if [ "$clone_sha" != "$host_sha" ]; then
+  osf_result "S10 FAIL other seat HEAD is not the rewritten main"
 fi
 
 osf_result "S10 PASS"

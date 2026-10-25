@@ -38,13 +38,14 @@ if [ ! -f "$profile" ]; then
 fi
 printf '%s\n' "Write short sentences." >> "$profile"
 prompt="$work/prompt.txt"
-printf '%s\n' "Read users/mia/profile/PROFILE.md. Write notes/styled.md in one short sentence, the way the profile asks. Do not add a company fact to the profile." > "$prompt"
+printf '%s\n' "- Write exactly this line: Short lines only." >> "$profile"
+printf '%s\n' "Read users/mia/profile/PROFILE.md. Write notes/styled.md as exactly the line the profile names. A normal sentence is wrong." > "$prompt"
 osf_run_seat S14 member-a "$prompt" "$dest" \
   || osf_result "S14 FAIL member seat"
 if [ ! -f "$dest/notes/styled.md" ]; then
   osf_result "S14 FAIL styled note missing"
 fi
-if grep -q '\.' "$dest/notes/styled.md" && grep -q ',' "$dest/notes/styled.md"; then
+if ! grep -qx 'Short lines only.' "$dest/notes/styled.md"; then
   osf_result "S14 FAIL style rule was not followed"
 fi
 
@@ -56,7 +57,12 @@ status=$(bash "$dest/skills/sync/sync.sh" status)
 if ! printf '%s\n' "$status" | grep -q 'PROFILE.md'; then
   osf_result "S14 FAIL company fact in the profile was not held"
 fi
-if osf_results file "$org" "${slug}-user-mia" profile/PROFILE.md --ref main 2>/dev/null | grep -q 'OSF-COMPANY-FACT'; then
+osf_host S14 file "$org" "${slug}-user-mia" profile/PROFILE.md --ref main
+page=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S14 FAIL could not read the profile on the host"
+fi
+if printf '%s\n' "$page" | grep -q 'OSF-COMPANY-FACT'; then
   osf_result "S14 FAIL company fact reached the workspace repo"
 fi
 

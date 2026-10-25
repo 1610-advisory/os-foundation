@@ -62,15 +62,24 @@ for name in leak.md life.md dm.md; do
     osf_result "S3 FAIL status does not name $name"
   fi
 done
-if osf_results file "$org" "${slug}-marketing" notes/leak.md --ref main >/dev/null 2>&1; then
-  osf_result "S3 FAIL secret reached main"
+osf_host S3 file "$org" "${slug}-marketing" notes/widget.md --ref "sync/mia"
+widget=$(cat "$OSF_HOST_JSON")
+found=0
+if [ "$OSF_HOST_RC" -eq 0 ]; then
+  if printf '%s\n' "$widget" | grep -q 'Tuesdays'; then
+    found=1
+  fi
 fi
-if osf_results file "$org" "${slug}-marketing" notes/life.md --ref main >/dev/null 2>&1; then
-  osf_result "S3 FAIL personal-life fact reached main"
+if [ "$found" -ne 1 ]; then
+  osf_result "S3 FAIL widget note is not on the host"
 fi
-if osf_results file "$org" "${slug}-marketing" notes/dm.md --ref main >/dev/null 2>&1; then
-  osf_result "S3 FAIL private-source quote reached main"
-fi
+for held in leak.md life.md dm.md; do
+  osf_host S3 file "$org" "${slug}-marketing" "notes/$held" --ref "sync/mia"
+  miss=$(cat "$OSF_HOST_JSON")
+  if [ "$OSF_HOST_RC" -ne 2 ] || ! printf '%s\n' "$miss" | grep -q '"found": false'; then
+    osf_result "S3 FAIL $held was not a clean miss on the host"
+  fi
+done
 if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
   osf_result "S3 FAIL push exit $rc"
 fi

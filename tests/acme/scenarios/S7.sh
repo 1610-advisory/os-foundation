@@ -53,6 +53,18 @@ weekly="$dest/areas/marketing/reports/${week}.md"
 if [ ! -f "$decide" ]; then
   osf_result "S7 FAIL to-decide file missing"
 fi
+osf_host S7 file "$org" "${slug}-marketing" notes/widget.md --ref "review/${day}"
+fixed=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_host S7 file "$org" "${slug}-marketing" notes/widget.md --ref main
+  fixed=$(cat "$OSF_HOST_JSON")
+fi
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$fixed" | grep -q 'Ada Admin'; then
+  osf_result "S7 FAIL clear-error fix is not on the host"
+fi
+if printf '%s\n' "$fixed" | grep -q 'Missing Person'; then
+  osf_result "S7 FAIL broken link is still on the host"
+fi
 if ! grep -q 'price' "$decide"; then
   osf_result "S7 FAIL judgment call is not in to-decide"
 fi

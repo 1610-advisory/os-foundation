@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import re
 import subprocess
 import unittest
@@ -9,11 +11,159 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ACME = ROOT / "tests" / "acme"
+LIB = ACME / "lib"
 STEP_RE = re.compile(r"^[0-9]+\. ")
+
+
+def load(name: str):
+    spec = importlib.util.spec_from_file_location(name, LIB / f"{name}.py")
+    if spec is None or spec.loader is None:
+        raise RuntimeError(name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+results = load("results")
 
 
 def numbered_steps(text: str) -> int:
     return sum(1 for line in text.splitlines() if STEP_RE.match(line))
+
+
+class ResultRuleTests(unittest.TestCase):
+    def test_missing_repo_is_a_host_error(self):
+        payload, code = results.classify_access(404, 404)
+        self.assertEqual(code, 3)
+        self.assertEqual(payload["error"], "missing")
+
+    def test_user_404_on_a_visible_repo_is_a_denial(self):
+        payload, code = results.classify_access(200, 404)
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["denied"])
+
+    def test_user_200_is_not_a_denial(self):
+        payload, code = results.classify_access(200, 200)
+        self.assertEqual(code, 2)
+        self.assertFalse(payload["denied"])
+
+    def test_network_error_is_a_host_error(self):
+        _payload, code = results.classify_access(None, None)
+        self.assertEqual(code, 3)
+
+    def test_checks_need_a_sha_and_the_checks_context(self):
+        self.assertFalse(results.checks_are_green("", [{"context": "checks", "state": "success"}], []))
+        self.assertFalse(results.checks_are_green("abc", [{"context": "other", "state": "success"}], []))
+        self.assertTrue(results.checks_are_green("abc", [{"context": "checks / checks", "state": "success"}], []))
+        self.assertFalse(results.checks_are_green(
+            "abc", [], [{"name": "checks", "status": "success", "head_sha": "other"}]
+        ))
+        self.assertTrue(results.checks_are_green(
+            "abc", [], [{"name": "checks", "status": "success", "head_sha": "abc"}]
+        ))
+
+    def test_empty_tag_list_is_not_a_pass(self):
+        self.assertEqual(results.list_exit([]), 2)
+        self.assertEqual(results.list_exit(["os-rewrite-1"]), 0)
+
+
+class EngineFixtureTests(unittest.TestCase):
+    def test_rules_text_does_not_hold_a_safe_note(self):
+        prompt = (
+            "Hold if it carries the tag source: private.\n"
+            "DIFF:\n"
+            "<the diff of that one file>\n"
+            "REPO: area\n"
+            "FILE: notes/widget.md\n"
+            "DIFF:\n"
+            "+The widget ships on Tuesdays.\n"
+        )
+        proc = subprocess.run(
+            ["bash", str(ACME / "fixtures" / "engine.sh")],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('"decision":"commit"', proc.stdout)
+
+    def test_private_source_in_the_diff_is_a_hold(self):
+        prompt = "FILE: notes/dm.md\nDIFF:\n+source: private\n"
+        proc = subprocess.run(
+            ["bash", str(ACME / "fixtures" / "engine.sh")],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('"decision":"hold"', proc.stdout)
+
+    def test_company_fact_in_a_profile_is_a_hold(self):
+        prompt = (
+            "FILE: <path inside that repo>\n"
+            "DIFF:\n"
+            "<the diff of that one file>\n"
+            "FILE: profile/PROFILE.md\n"
+            "DIFF:\n"
+            "+OSF-COMPANY-FACT Acme Co ships 40 widgets.\n"
+        )
+        proc = subprocess.run(
+            ["bash", str(ACME / "fixtures" / "engine.sh")],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn('"decision":"hold"', proc.stdout)
+        self.assertIn("company fact", proc.stdout)
+
+
+class SeatLockTests(unittest.TestCase):
+    def test_helper_returns_nothing_for_github(self):
+        helper = LIB / "git-credential-seat.sh"
+        proc = subprocess.run(
+            ["sh", str(helper)],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "OSF_GIT_USER": "ada", "OSF_FORGEJO_TOKEN": "secret-value"},
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotIn("username=", proc.stdout)
+        self.assertNotIn("password=", proc.stdout)
+        self.assertNotIn("secret-value", proc.stdout)
+
+    def test_ssh_to_github_is_off(self):
+        ssh_off = LIB / "ssh-off.sh"
+        proc = subprocess.run(
+            [
+                "git",
+                "-c", f"core.sshCommand={ssh_off}",
+                "ls-remote",
+                "git" + "@" + "github.com:octocat/Hello-World.git",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={
+                **os.environ,
+                "GIT_SSH_COMMAND": str(ssh_off),
+                "GIT_ALLOW_PROTOCOL": "http:https:file",
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(
+            "ssh is off in Acme seats" in proc.stderr or "not allowed" in proc.stderr,
+            proc.stderr,
+        )
+        direct = subprocess.run([str(ssh_off)], capture_output=True, text=True, check=False)
+        self.assertEqual(direct.returncode, 1)
+        self.assertIn("ssh is off in Acme seats", direct.stderr)
 
 
 class ScenarioScriptTests(unittest.TestCase):

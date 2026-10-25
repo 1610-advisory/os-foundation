@@ -184,16 +184,9 @@ seat_dir="$root/tests/acme/.out/$run_id/$seat"
 mkdir -p "$seat_dir/xdg" "$seat_dir/logs" "$seat_dir/work"
 chmod 700 "$root/tests/acme/.out" "$seat_dir" "$seat_dir/xdg"
 
-helper="$seat_dir/git-credential-osf"
-cat > "$helper" << 'EOF'
-#!/bin/sh
-while IFS= read -r line; do
-  [ -z "$line" ] && break
-done
-printf 'username=%s\n' "$OSF_GIT_USER"
-printf 'password=%s\n' "$OSF_FORGEJO_TOKEN"
-EOF
-chmod 700 "$helper"
+helper="$root/tests/acme/lib/git-credential-seat.sh"
+ssh_off="$root/tests/acme/lib/ssh-off.sh"
+chmod 700 "$helper" "$ssh_off"
 
 gitconfig="$seat_dir/gitconfig"
 cat > "$gitconfig" << EOF
@@ -207,6 +200,10 @@ cat > "$gitconfig" << EOF
 	defaultBranch = main
 EOF
 chmod 600 "$gitconfig"
+
+unset SSH_AUTH_SOCK
+export GIT_SSH_COMMAND="$ssh_off"
+export GIT_ALLOW_PROTOCOL="http:https:file"
 
 token=$(tr -d '[:space:]' < "$token_file")
 
@@ -297,6 +294,8 @@ run_engine() {
   GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_AUTHOR_NAME="$git_name" \
   GIT_AUTHOR_EMAIL="$git_email" \
   GIT_COMMITTER_NAME="$git_name" \
@@ -351,6 +350,8 @@ if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
   GH_CONFIG_DIR="$seat_dir" \
   GIT_CONFIG_GLOBAL="$gitconfig" \
   GIT_CONFIG_NOSYSTEM=1 \
+  GIT_SSH_COMMAND="$ssh_off" \
+  GIT_ALLOW_PROTOCOL="http:https:file" \
   GIT_AUTHOR_NAME="$git_name" \
   GIT_AUTHOR_EMAIL="$git_email" \
   GIT_COMMITTER_NAME="$git_name" \

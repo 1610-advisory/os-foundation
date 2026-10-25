@@ -3,9 +3,10 @@
 set -euo pipefail
 
 input=$(cat)
-# The prompt names the hold rules. Judge only the diff, not that text.
-diff=$(printf '%s\n' "$input" | awk 'BEGIN { p = 0 } /^DIFF:/ { p = 1; next } p { print }')
-file=$(printf '%s\n' "$input" | awk '/^FILE: / { sub(/^FILE: /, ""); print; exit }')
+# The prompt names the hold rules and includes an example DIFF: line.
+# Judge only the diff after the last DIFF: line.
+diff=$(printf '%s\n' "$input" | awk '/^DIFF:$/ { buf=""; on=1; next } on { buf = buf $0 ORS } END { printf "%s", buf }')
+file=$(printf '%s\n' "$input" | awk '/^FILE: / { f = $0; sub(/^FILE: /, "", f) } END { print f }')
 decision="commit"
 reason="ok"
 message="Update note"

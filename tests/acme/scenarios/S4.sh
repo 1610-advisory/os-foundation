@@ -65,9 +65,14 @@ else
   osf_use_seat "$slug" sam acme-member-d || osf_result "S4 FAIL member token missing"
 fi
 bash "$dest/skills/sync/sync.sh" push >"$work/push2.log" 2>&1 || true
-if ! osf_results file "$org" "${slug}-marketing" notes/used.md --ref "sync/sam" >/dev/null 2>&1 \
-  && ! osf_results file "$org" "${slug}-marketing" notes/learned.md >/dev/null; then
-  osf_result "S4 FAIL fact is not on the host"
+branch="sync/sam"
+if [ "$second" = "member-b" ]; then
+  branch="sync/max"
+fi
+osf_host S4 file "$org" "${slug}-marketing" notes/used.md --ref "$branch"
+used=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$used" | grep -q 'W-14'; then
+  osf_result "S4 FAIL used note is not on $branch"
 fi
 
 if [ -n "$sub" ]; then

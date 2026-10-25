@@ -34,7 +34,8 @@ bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/te
 export OS_NOW=2026-10-24
 bash "$dest/skills/remove-teammate/remove.sh" --person sam --root "$dest" --date 2026-10-24 \
   >"$work/remove.log" 2>&1 || osf_result "S9 FAIL remove"
-if ! osf_results clone-denied acme-member-d "$org" "${slug}-os" >/dev/null; then
+osf_host S9 clone-denied acme-member-d "$org" "${slug}-os" >/dev/null
+if [ "$OSF_HOST_RC" -ne 0 ]; then
   osf_result "S9 FAIL access was not revoked"
 fi
 if ! grep -q 'left: 2026-10-24' "$dest/people/"*.md; then
@@ -63,7 +64,9 @@ if [ -d "$seat_home/company" ]; then
 fi
 
 offline="$work/offline-home/company"
-mkdir -p "$offline"
+mkdir -p "$(dirname "$offline")"
+rm -rf "$offline"
+cp -R "$dest" "$offline"
 printf '%s\n' keep > "$offline/keep.txt"
 export HOME="$work/offline-home"
 export XDG_CONFIG_HOME="$work/offline-xdg"
@@ -71,7 +74,10 @@ mkdir -p "$XDG_CONFIG_HOME"
 export OS_HOST_URL="http://127.0.0.1:9"
 export OS_COMPANY_ROOT="$offline"
 export OS_NOW=2026-11-20
-bash "$dest/skills/sync/sync.sh" helper >"$work/offline.log" 2>&1 || true
+bash "$offline/skills/sync/sync.sh" helper >"$work/offline.log" 2>&1 || true
+if ! grep -q 'helper offline' "$work/offline.log" "$work/offline-xdg/${slug}-os/state/sync.log" 2>/dev/null; then
+  osf_result "S9 FAIL offline helper did not record a no-wipe decision"
+fi
 if [ ! -f "$offline/keep.txt" ]; then
   osf_result "S9 FAIL offline seat was wiped"
 fi

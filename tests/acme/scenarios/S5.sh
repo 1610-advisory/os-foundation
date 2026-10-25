@@ -73,10 +73,17 @@ if ! osf_results wait-check "$org" "${slug}-marketing" "$(osf_results pr "$org" 
   osf_result "S5 FAIL checks did not pass (OS_REVIEW_FAKE must be in the runner env)"
 fi
 
-osf_use_seat "$slug" mia acme-member-a || osf_result "S5 FAIL member token missing"
-bash "$dest/skills/sync/sync.sh" pull >"$work/pull.log" 2>&1 || osf_result "S5 FAIL pull"
-if ! grep -q 'Tuesday' "$dest/areas/marketing/skills/sample/SKILL.md"; then
-  osf_result "S5 FAIL next pull did not pick up the new step"
+osf_host S5 file "$org" "${slug}-marketing" skills/sample/SKILL.md --ref main
+skill=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$skill" | grep -q 'Tuesday'; then
+  osf_result "S5 FAIL new step is not on host main"
+fi
+other="$work/other"
+if ! osf_clone_as acme-member-a "$(osf_acme_url)/${org}/${slug}-marketing.git" "$other"; then
+  osf_result "S5 FAIL second clone failed"
+fi
+if ! grep -q 'Tuesday' "$other/skills/sample/SKILL.md"; then
+  osf_result "S5 FAIL second clone did not have the new step"
 fi
 
 if [ -n "$sub" ]; then

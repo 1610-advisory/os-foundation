@@ -41,6 +41,7 @@ osf_work() {
   dir="$root/tests/acme/.out/${name}-$$"
   mkdir -p "$dir"
   chmod 700 "$root/tests/acme/.out" "$dir"
+  export OSF_WORK="$dir"
   printf '%s\n' "$dir"
 }
 
@@ -373,23 +374,82 @@ osf_delete_repo() {
   local owner="$1"
   local repo="$2"
   local token
+  while IFS= read -r token; do
+    [ -n "$token" ] || continue
+    osf_api "$token" DELETE "/api/v1/repos/${owner}/${repo}" || true
+    if [ "$OSF_HTTP_CODE" = "204" ] || [ "$OSF_HTTP_CODE" = "404" ]; then
+      osf_api_discard
+      return 0
+    fi
+    osf_api_discard
+  done << EOF
+$(osf_owner_tokens)
+EOF
+  return 1
+}
+
+osf_owner_tokens() {
+  local token
   token=$(osf_acme_admin_token)
-  if [ ! -s "$token" ]; then
-    token=$(osf_token_file acme-admin)
+  if [ -s "$token" ]; then
+    printf '%s\n' "$token"
   fi
-  osf_api "$token" DELETE "/api/v1/repos/${owner}/${repo}" || true
-  osf_api_discard
+  token=$(osf_token_file acme-admin)
+  if [ -s "$token" ]; then
+    printf '%s\n' "$token"
+  fi
+}
+
+# Delete repos this scenario owns, then the org. Seat users stay.
+osf_wipe_owned() {
+  local org="$1"
+  local token count name
+  [ -n "$org" ] || return 0
+  case "$org" in
+    acme2-*) ;;
+    *) return 0 ;;
+  esac
+  while IFS= read -r token; do
+    [ -n "$token" ] || continue
+    while true; do
+      osf_api "$token" GET "/api/v1/orgs/${org}/repos?limit=50&page=1" || true
+      if [ "$OSF_HTTP_CODE" = "404" ]; then
+        osf_api_discard
+        break
+      fi
+      if [ "$OSF_HTTP_CODE" != "200" ]; then
+        osf_api_discard
+        return 1
+      fi
+      count=$(jq 'length' "$OSF_HTTP_BODY")
+      if [ "$count" -eq 0 ]; then
+        osf_api_discard
+        break
+      fi
+      names=$(jq -r '.[].name // empty' "$OSF_HTTP_BODY")
+      osf_api_discard
+      while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        if ! osf_delete_repo "$org" "$name"; then
+          return 1
+        fi
+      done << EOF
+$names
+EOF
+    done
+    osf_api "$token" DELETE "/api/v1/orgs/${org}" || true
+    if [ "$OSF_HTTP_CODE" != "204" ] && [ "$OSF_HTTP_CODE" != "404" ]; then
+      osf_api_discard
+      return 1
+    fi
+    osf_api_discard
+  done << EOF
+$(osf_owner_tokens)
+EOF
 }
 
 osf_delete_org() {
-  local org="$1"
-  local token
-  token=$(osf_acme_admin_token)
-  if [ ! -s "$token" ]; then
-    token=$(osf_token_file acme-admin)
-  fi
-  osf_api "$token" DELETE "/api/v1/orgs/${org}" || true
-  osf_api_discard
+  osf_wipe_owned "$1"
 }
 
 osf_seed_area() {
@@ -522,31 +582,50 @@ osf_clone_as() {
     return 1
   fi
   token=$(tr -d '[:space:]' < "$file")
-  helper=$(mktemp)
+  root=$(osf_acme_root)
+  helper="$root/tests/acme/lib/git-credential-seat.sh"
+  ssh_off="$root/tests/acme/lib/ssh-off.sh"
   cfg=$(mktemp)
-  chmod 700 "$helper"
   chmod 600 "$cfg"
-  cat > "$helper" << 'EOF'
-#!/bin/sh
-while IFS= read -r line; do
-  [ -z "$line" ] && break
-done
-printf 'username=%s\n' "$OSF_GIT_USER"
-printf 'password=%s\n' "$OSF_FORGEJO_TOKEN"
-EOF
   cat > "$cfg" << EOF
 [credential]
 	helper = !$helper
 	useHttpPath = true
 EOF
+  set +e
   GIT_CONFIG_GLOBAL="$cfg" \
     GIT_CONFIG_NOSYSTEM=1 \
     GIT_TERMINAL_PROMPT=0 \
+    GIT_SSH_COMMAND="$ssh_off" \
+    GIT_ALLOW_PROTOCOL="http:https:file" \
     OSF_FORGEJO_TOKEN="$token" \
     OSF_GIT_USER="$user" \
     git clone "$url" "$dest"
+  rc=$?
+  set -e
   token=""
-  rm -f "$helper" "$cfg"
+  rm -f "$cfg"
+  return "$rc"
+}
+
+# Run results.py in this shell. Exit 3 fails the scenario. JSON is in OSF_HOST_JSON.
+osf_host() {
+  local id="$1"
+  shift
+  local rc dest
+  dest="${OSF_WORK:-}"
+  if [ -z "$dest" ]; then
+    dest="$(osf_acme_root)/tests/acme/.out"
+  fi
+  OSF_HOST_JSON="$dest/host.json"
+  set +e
+  osf_results "$@" > "$OSF_HOST_JSON"
+  rc=$?
+  set -e
+  export OSF_HOST_RC=$rc
+  if [ "$rc" -eq 3 ]; then
+    osf_result "$id FAIL host error"
+  fi
 }
 
 osf_approve() {

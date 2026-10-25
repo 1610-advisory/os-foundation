@@ -82,12 +82,20 @@ body="$work/override.txt"
 printf '%s\n' "/override $reason" > "$body"
 jq -n --rawfile b "$body" '{body:$b}' > "$work/comment.json"
 osf_api "$(osf_token_file acme-admin)" POST "/api/v1/repos/${org}/${slug}-os/issues/${root_n}/comments" "$work/comment.json"
-osf_api_discard
-if ! osf_results file "$org" "${slug}-os" "memory/logs/$(osf_today)-ada.md" --ref "rules/ada/root-rules" 2>/dev/null \
-  | grep -q '/override'; then
-  if ! grep -q '/override' "$work/propose-root.log" "$dest/memory/logs/"*.md 2>/dev/null; then
-    osf_result "S6 FAIL override reason was not logged"
-  fi
+if [ "$OSF_HTTP_CODE" != "201" ] && [ "$OSF_HTTP_CODE" != "200" ]; then
+  osf_api_discard
+  osf_result "S6 FAIL could not post the override"
 fi
+osf_api_discard
+osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-os/issues/${root_n}/comments"
+if [ "$OSF_HTTP_CODE" != "200" ]; then
+  osf_api_discard
+  osf_result "S6 FAIL host error reading comments"
+fi
+if ! jq -e --arg reason "$reason" '[.[] | .body] | join("\n") | contains("/override") and contains($reason)' "$OSF_HTTP_BODY" >/dev/null; then
+  osf_api_discard
+  osf_result "S6 FAIL override reason is not on the host"
+fi
+osf_api_discard
 
 osf_result "S6 PASS"

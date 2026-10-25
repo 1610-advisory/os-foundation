@@ -82,7 +82,7 @@ class RepoHygieneTests(unittest.TestCase):
             "docker.sock",
         )
         for path in ACME.rglob("*"):
-            if not path.is_file() or "__pycache__" in path.parts:
+            if not path.is_file() or "__pycache__" in path.parts or ".out" in path.parts:
                 continue
             if path.suffix not in {".sh", ".py", ".md", ".yml", ".txt", ".Dockerfile"} and path.name != "job.Dockerfile":
                 continue

@@ -63,7 +63,8 @@ fi
 if ! osf_results repo-exists "$owner" "${slug}-user-mia" >/dev/null; then
   osf_result "S2 FAIL workspace repo missing"
 fi
-if ! osf_results clone-denied acme-member-c "$owner" "${slug}-marketing" >/dev/null; then
+osf_host S2 clone-denied acme-member-c "$owner" "${slug}-marketing" >/dev/null
+if [ "$OSF_HOST_RC" -ne 0 ]; then
   osf_result "S2 FAIL member without marketing could read marketing"
 fi
 level=$(OS_PROFILE="$dest/company-profile.md" bash "$root/template/skills/_host/profile.sh" level)
