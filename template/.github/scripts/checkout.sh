@@ -29,6 +29,26 @@ if [ $# -ne 0 ]; then
   exit 1
 fi
 
+save_base_tools() {
+  local base_commit=$1 tools path dest list
+  tools="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/os-checks"
+  rm -rf "$tools"
+  mkdir -p "$tools"
+  list=$(ci_mktemp)
+  git ls-tree -r --name-only "$base_commit" > "$list"
+  while IFS= read -r path; do
+    case "$path" in
+      .github/scripts/*.sh|.github/review.conf|review-rules.md|skills/sync/secret-scan.sh|skills/lint/lint.sh|skills/_host/*.sh)
+        dest="${tools}/${path}"
+        mkdir -p "$(dirname "$dest")"
+        git show "${base_commit}:${path}" > "$dest"
+        ;;
+    esac
+  done < "$list"
+  find "$tools" -name '*.sh' -exec chmod 700 {} \;
+  ci_write_state tools-dir "$tools"
+}
+
 if [ -z "${JOB_TOKEN:-}" ]; then
   ci_die 1 "checkout failed: the job token is missing"
 fi
@@ -135,6 +155,8 @@ fi
 if [ -z "$base_sha" ]; then
   ci_die 1 "checkout failed: the base commit is missing"
 fi
+
+save_base_tools "$base_sha"
 
 ci_write_state event-name "$event_name"
 ci_write_state skip no

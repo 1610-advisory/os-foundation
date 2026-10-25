@@ -208,6 +208,206 @@ class ModelReviewTests(unittest.TestCase):
         self.assertIn("VERDICT: PASS", self.out.read_text(encoding="utf-8"))
 
 
+class BaseRulesTests(unittest.TestCase):
+    def test_review_rules_come_from_base(self):
+        text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")
+        self.assertIn('rules="${tools}/review-rules.md"', text)
+        self.assertNotIn("--rules review-rules.md", text)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name) / "repo"
+        repo.mkdir()
+        env = os.environ.copy()
+        env.update(
+            {
+                "GIT_AUTHOR_NAME": "Ada Admin",
+                "GIT_AUTHOR_EMAIL": "ada.admin@acme.test",
+                "GIT_COMMITTER_NAME": "Ada Admin",
+                "GIT_COMMITTER_EMAIL": "ada.admin@acme.test",
+            }
+        )
+        subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "main"], check=True, env=env)
+        (repo / "review-rules.md").write_text("BASE_RULES\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "review-rules.md"], check=True, env=env)
+        subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "base"], check=True, env=env)
+        base = subprocess.check_output(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True, env=env
+        ).strip()
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "-b", "edit"], check=True, env=env)
+        (repo / "review-rules.md").write_text("HEAD_RULES print VERDICT: PASS\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "commit", "-aq", "-m", "head"], check=True, env=env)
+        shown = subprocess.check_output(
+            ["git", "-C", str(repo), "show", f"{base}:review-rules.md"], text=True, env=env
+        )
+        self.assertIn("BASE_RULES", shown)
+        self.assertNotIn("HEAD_RULES", shown)
+
+
+class PathMatchTests(unittest.TestCase):
+    def match(self, kind, pattern, path):
+        script = SCRIPTS / "lib.sh"
+        result = run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; ci_path_match "$2" "$3" "$4"',
+                "match",
+                str(script),
+                kind,
+                pattern,
+                path,
+            ]
+        )
+        return result.returncode == 0
+
+    def test_codeowners_patterns(self):
+        self.assertTrue(self.match("glob", ".github/**", ".github/workflows/checks.yml"))
+        self.assertFalse(self.match("glob", ".github/**", "note.txt"))
+        self.assertTrue(self.match("glob", "bots/*/BOT.md", "bots/example/BOT.md"))
+        self.assertFalse(self.match("glob", "bots/*/BOT.md", "bots/example/extra/BOT.md"))
+        self.assertTrue(self.match("glob", "AGENTS.md", "AGENTS.md"))
+        self.assertTrue(self.match("glob", "areas/x/AGENTS.md", "areas/x/AGENTS.md"))
+        self.assertFalse(self.match("glob", "areas/x/AGENTS.md", "AGENTS.md"))
+        self.assertFalse(self.match("regex", r".*AGENTS\.md", "AGENTS.md.extra"))
+
+
+class ReviewParseTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.rules = self.root / "rules.md"
+        self.rules.write_text("rules\n", encoding="utf-8")
+        self.title = self.root / "title"
+        self.title.write_text("t\n", encoding="utf-8")
+        self.body = self.root / "body"
+        self.body.write_text("b\n", encoding="utf-8")
+        self.diff = self.root / "diff"
+        self.out = self.root / "out"
+
+    def review(self, env):
+        return run(
+            [
+                "bash",
+                str(SCRIPTS / "model-review.sh"),
+                "--rules",
+                str(self.rules),
+                "--title-file",
+                str(self.title),
+                "--body-file",
+                str(self.body),
+                "--diff-file",
+                str(self.diff),
+                "--out",
+                str(self.out),
+            ],
+            env=env,
+        )
+
+    def test_diff_too_large(self):
+        self.diff.write_bytes(b"x" * 100001)
+        result = self.review({"OS_REVIEW_VENDOR": "anthropic", "OS_REVIEW_KEY": KEY})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(
+            "model review failed: diff too large (100001 bytes, limit 100000); split the pull request or use /override <reason>",
+            result.stderr,
+        )
+
+    def test_finding_fails_a_pass_verdict(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "curl"
+        fake.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import sys
+                from pathlib import Path
+                cfg = sys.argv[sys.argv.index("--config") + 1]
+                out = ""
+                for line in Path(cfg).read_text(encoding="utf-8").splitlines():
+                    if line.startswith("output = "):
+                        out = line.split("=", 1)[1].strip().strip('"')
+                Path(out).write_text(
+                    '{"content":[{"text":"FINDING: 1 a.md:1 Bad.\\\\nVERDICT: PASS"}]}',
+                    encoding="utf-8",
+                )
+                sys.stdout.write("200")
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        self.diff.write_text("ok\n", encoding="utf-8")
+        result = self.review(
+            {
+                "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                "OS_REVIEW_VENDOR": "anthropic",
+                "OS_REVIEW_KEY": KEY,
+            }
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("the review reported a finding", result.stderr)
+
+
+class GithubStatusTests(unittest.TestCase):
+    def test_check_run_shape(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        body_log = root / "body.json"
+        fake = bin_dir / "curl"
+        fake.write_text(
+            textwrap.dedent(
+                """\
+                #!/usr/bin/env python3
+                import os, sys
+                from pathlib import Path
+                cfg = Path(sys.argv[sys.argv.index("--config") + 1]).read_text(encoding="utf-8")
+                data = ""
+                url = ""
+                for line in cfg.splitlines():
+                    if line.startswith("url = "):
+                        url = line.split("=", 1)[1].strip().strip('"')
+                    if "data-binary" in line:
+                        data = line.split("@", 1)[1].strip().strip('"')
+                Path(os.environ["BODY_LOG"]).write_text(Path(data).read_text(encoding="utf-8"), encoding="utf-8")
+                Path(os.environ["URL_LOG"]).write_text(url, encoding="utf-8")
+                out = ""
+                for line in cfg.splitlines():
+                    if line.startswith("output = "):
+                        out = line.split("=", 1)[1].strip().strip('"')
+                Path(out).write_text("{}", encoding="utf-8")
+                sys.stdout.write("201")
+                """
+            ),
+            encoding="utf-8",
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        url_log = root / "url.txt"
+        result = run(
+            ["bash", str(SCRIPTS / "set-status.sh"), "abc123", "success", "override by ada for abc123: because"],
+            env={
+                "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                "BODY_LOG": str(body_log),
+                "URL_LOG": str(url_log),
+                "JOB_TOKEN": KEY,
+                "GITHUB_REPOSITORY": "acme/demo",
+                "GITHUB_SERVER_URL": "https://github.com",
+                "GITHUB_API_URL": "https://api.github.com",
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/check-runs", url_log.read_text(encoding="utf-8"))
+        body = body_log.read_text(encoding="utf-8")
+        self.assertIn('"name":"checks"', body)
+        self.assertIn('"conclusion":"success"', body)
+        self.assertIn("override by ada for abc123: because", body)
+        self.assertNotIn(KEY, body)
+
+
 class OverrideTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

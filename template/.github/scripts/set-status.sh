@@ -42,20 +42,20 @@ if [ -z "$token" ]; then
 fi
 owner=${GITHUB_REPOSITORY%%/*}
 repo=${GITHUB_REPOSITORY#*/}
-if ci_is_github; then
-  context="checks"
-else
-  context="checks / checks (pull_request)"
-fi
-
 base=$(ci_api_base)
 body=$(ci_mktemp)
-jq -nc --arg context "$context" --arg state "$state" --arg description "$message" \
-  '{context:$context, state:$state, description:$description}' > "$body"
+if ci_is_github; then
+  url="${base}/repos/${owner}/${repo}/check-runs"
+  jq -nc --arg sha "$sha" --arg conclusion "$state" --arg summary "$message" \
+    '{name:"checks", head_sha:$sha, status:"completed", conclusion:$conclusion, output:{title:"override", summary:$summary}}' > "$body"
+else
+  url="${base}/repos/${owner}/${repo}/statuses/${sha}"
+  jq -nc --arg context "checks / checks (pull_request)" --arg state "$state" --arg description "$message" \
+    '{context:$context, state:$state, description:$description}' > "$body"
+fi
 out=$(ci_mktemp)
 err=$(ci_mktemp)
 cfg=$(ci_mktemp)
-url="${base}/repos/${owner}/${repo}/statuses/${sha}"
 auth=$(ci_auth_header "$token")
 {
   printf '%s\n' "header = \"${auth}\""

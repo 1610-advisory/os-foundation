@@ -38,6 +38,12 @@ base=$(ci_read_state base-sha)
 owner=${GITHUB_REPOSITORY%%/*}
 repo=${GITHUB_REPOSITORY#*/}
 
+tools=$(ci_read_state tools-dir || true)
+if [ -z "$tools" ]; then
+  ci_die 1 "checks failed: the base tools are missing"
+fi
+export OS_CHECK_TOOLS=$tools
+
 if [ -z "${JOB_TOKEN:-}" ]; then
   ci_die 1 "checks failed: the job token is missing"
 fi
@@ -56,7 +62,7 @@ prepare_host() {
 
 post_comment() {
   local file=$1 host_bin out err rc
-  host_bin="skills/_host/host.sh"
+  host_bin="${tools}/skills/_host/host.sh"
   if [ ! -f "$host_bin" ]; then
     ci_die 1 "could not post the review comment: the host layer is missing"
   fi
@@ -73,10 +79,12 @@ post_comment() {
 }
 
 run_gates() {
-  local range="${base}..${head}" scan_rc=0 lint_rc=0
-  if [ -f skills/sync/secret-scan.sh ]; then
+  local range="${base}..${head}" scan_rc=0 lint_rc=0 scan lint
+  scan="${tools}/skills/sync/secret-scan.sh"
+  lint="${tools}/skills/lint/lint.sh"
+  if [ -f "$scan" ]; then
     set +e
-    bash skills/sync/secret-scan.sh --range "$range"
+    bash "$scan" --range "$range"
     scan_rc=$?
     set -e
   elif command -v gitleaks >/dev/null 2>&1; then
@@ -92,9 +100,9 @@ run_gates() {
     ci_summary_add "secret scan failed"
     return 1
   fi
-  if [ -f skills/lint/lint.sh ]; then
+  if [ -f "$lint" ]; then
     set +e
-    bash skills/lint/lint.sh --ci
+    bash "$lint" --ci
     lint_rc=$?
     set -e
     if [ "$lint_rc" -ne 0 ]; then
@@ -118,7 +126,7 @@ if [ "$event" = "issue_comment" ]; then
       if ! run_gates; then
         exit 1
       fi
-      msg="override by ${user}: ${reason}"
+      msg="override by ${user} for ${head}: ${reason}"
       bash "$DIR/set-status.sh" "$head" success "$msg"
       note=$(ci_mktemp)
       printf '%s\n' "$msg" > "$note"
@@ -156,51 +164,21 @@ git diff --no-color "$range" > "$diff_file"
 
 review_rc=0
 out=$(ci_mktemp)
-override_line=""
-if [ -n "$pr" ]; then
-  comments=$(ci_mktemp)
-  read_err=$(ci_mktemp)
-  if bash "$DIR/host-read.sh" comments "$owner" "$repo" "$pr" >"$comments" 2>"$read_err"; then
-    count=$(jq 'length' "$comments")
-    echo "comments: ${count}"
-    i=0
-    while [ "$i" -lt "$count" ]; do
-      login=$(jq -r ".[$i].login" "$comments")
-      one=$(ci_mktemp)
-      jq -r ".[$i].body" "$comments" > "$one"
-      decision=$(bash "$DIR/override.sh" --user "$login" --comment-file "$one" --base "$base" --event-file "${GITHUB_EVENT_PATH:-}")
-      echo "override ${login}: ${decision}"
-      case "$decision" in
-        valid\ *)
-          override_line="override by ${login}: ${decision#valid }"
-          ;;
-      esac
-      i=$((i + 1))
-    done
-  else
-    echo "could not list comments" >&2
-  fi
+rules="${tools}/review-rules.md"
+if [ ! -f "$rules" ]; then
+  ci_die 1 "model review failed: review-rules.md is missing"
 fi
-
-if [ -n "$override_line" ]; then
-  printf '%s\n' "$override_line" > "$out"
-  review_rc=0
-else
-  if [ ! -f review-rules.md ]; then
-    ci_die 1 "model review failed: review-rules.md is missing"
-  fi
-  set +e
-  bash "$DIR/model-review.sh" \
-    --rules review-rules.md \
-    --title-file "$title_file" \
-    --body-file "$body_file" \
-    --diff-file "$diff_file" \
-    --out "$out"
-  review_rc=$?
-  set -e
-  if [ ! -s "$out" ]; then
-    ci_die 1 "model review failed: no review text"
-  fi
+set +e
+bash "$DIR/model-review.sh" \
+  --rules "$rules" \
+  --title-file "$title_file" \
+  --body-file "$body_file" \
+  --diff-file "$diff_file" \
+  --out "$out"
+review_rc=$?
+set -e
+if [ ! -s "$out" ] && [ "$review_rc" -ne 0 ]; then
+  ci_die 1 "model review failed: no review text"
 fi
 
 ci_summary_add "$(cat "$out")"

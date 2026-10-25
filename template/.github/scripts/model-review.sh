@@ -168,6 +168,9 @@ default_model() {
 
 load_review_settings() {
   local file=".github/review.conf"
+  if [ -n "${OS_CHECK_TOOLS:-}" ]; then
+    file="${OS_CHECK_TOOLS}/.github/review.conf"
+  fi
   local line key val file_vendor="" file_model="" file_kind="" saw_file=0
   if [ -f "$file" ]; then
     saw_file=1
@@ -244,14 +247,11 @@ if [ -z "${model:-}" ]; then
   model=$(default_model "$vendor")
 fi
 
-diff_cut=$(ci_mktemp)
 size=$(wc -c < "$diff_file" | tr -d ' ')
 if [ "$size" -gt 100000 ]; then
-  head -c 100000 "$diff_file" > "$diff_cut"
-  printf '\n\nThe diff was cut here. Review the part above.\n' >> "$diff_cut"
-else
-  cp "$diff_file" "$diff_cut"
+  fail "model review failed: diff too large (${size} bytes, limit 100000); split the pull request or use /override <reason>"
 fi
+diff_cut=$diff_file
 
 prompt=$(ci_mktemp)
 {
@@ -321,11 +321,26 @@ esac
 if [ -z "$text" ]; then
   fail "model review failed: no verdict"
 fi
+if printf '%s\n' "$text" | grep -q '^FINDING:'; then
+  fail "model review failed: the review reported a finding"
+fi
 verdict=$(last_verdict "$text")
 case "$verdict" in
   "VERDICT: PASS"|"VERDICT: FAIL") ;;
   *) fail "model review failed: no verdict" ;;
 esac
+text_file=$(ci_mktemp)
+printf '%s\n' "$text" > "$text_file"
+after=0
+while IFS= read -r line; do
+  line=$(ci_trim "$line")
+  if [ "$after" -eq 1 ] && [ -n "$line" ]; then
+    fail "model review failed: text after the verdict"
+  fi
+  case "$line" in
+    "VERDICT: PASS"|"VERDICT: FAIL") after=1 ;;
+  esac
+done < "$text_file"
 write_out "$text"
 if [ "$verdict" = "VERDICT: FAIL" ]; then
   exit 1

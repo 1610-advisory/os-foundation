@@ -105,6 +105,63 @@ ci_git() {
     git -c credential.helper= "$@"
 }
 
+# kind is glob (GitHub CODEOWNERS) or regex (Forgejo CODEOWNERS).
+# Exit 0 when the pattern matches the path. Anchored on path boundaries.
+ci_path_match() {
+  local kind=$1 pattern=$2 path=$3
+  awk -v kind="$kind" -v pat="$pattern" -v path="$path" '
+    function gm(p, s,   rest, n) {
+      if (p == "" ) return s == ""
+      if (substr(p, 1, 2) == "**") {
+        rest = substr(p, 3)
+        if (substr(rest, 1, 1) == "/") rest = substr(rest, 2)
+        if (gm(rest, s)) return 1
+        n = index(s, "/")
+        if (n == 0) return gm(rest, "")
+        return gm(p, substr(s, n + 1))
+      }
+      if (substr(p, 1, 1) == "*") {
+        rest = substr(p, 2)
+        if (gm(rest, s)) return 1
+        if (s != "" && substr(s, 1, 1) != "/") return gm(p, substr(s, 2))
+        return 0
+      }
+      if (s == "" || substr(p, 1, 1) != substr(s, 1, 1)) return 0
+      return gm(substr(p, 2), substr(s, 2))
+    }
+    BEGIN {
+      if (kind == "regex") {
+        if (substr(pat, 1, 1) != "^") pat = "^(" pat ")$"
+        if (path ~ pat) exit 0
+        exit 1
+      }
+      anchored = 0
+      if (substr(pat, 1, 1) == "/") {
+        anchored = 1
+        pat = substr(pat, 2)
+      }
+      if (pat != "" && substr(pat, length(pat), 1) == "/") {
+        pat = substr(pat, 1, length(pat) - 1)
+        if (index(path, pat) == 1 && (length(path) == length(pat) || substr(path, length(pat) + 1, 1) == "/")) exit 0
+        exit 1
+      }
+      if (anchored || index(pat, "/") > 0) {
+        if (gm(pat, path)) exit 0
+        exit 1
+      }
+      if (gm(pat, path)) exit 0
+      n = split(path, segs, "/")
+      acc = ""
+      for (i = n; i >= 1; i--) {
+        if (acc == "") acc = segs[i]
+        else acc = segs[i] "/" acc
+        if (gm(pat, acc)) exit 0
+      }
+      exit 1
+    }
+  '
+}
+
 ci_is_github() {
   case "${GITHUB_SERVER_URL:-}" in
     *://github.com|*://www.github.com|*://github.com/*) return 0 ;;

@@ -103,7 +103,7 @@ skills/example/SKILL.md
 bots/example/BOT.md"
 
 pattern_hits_rules() {
-  local pattern=$1 path
+  local kind=$1 pattern=$2 path
   pattern=$(ci_trim "$pattern")
   [ -n "$pattern" ] || return 1
   case "$pattern" in
@@ -111,31 +111,15 @@ pattern_hits_rules() {
   esac
   printf '%s\n' "$rules_paths" | while IFS= read -r path; do
     [ -n "$path" ] || continue
-    case "$pattern" in
-      *.*)
-        if printf '%s\n' "$path" | grep -E -q "$pattern"; then
-          echo hit
-          break
-        fi
-        ;;
-      *)
-        # The pattern is a path glob on purpose.
-        # shellcheck disable=SC2254
-        case "$path" in
-          $pattern|$pattern*) echo hit; break ;;
-        esac
-        bare=$(printf '%s' "$pattern" | sed 's:^/::;s:/$::')
-        # shellcheck disable=SC2254
-        case "$path" in
-          $bare|$bare/*) echo hit; break ;;
-        esac
-        ;;
-    esac
+    if ci_path_match "$kind" "$pattern" "$path"; then
+      echo hit
+      break
+    fi
   done | head -n 1 | grep -q hit
 }
 
 load_codeowners() {
-  local spec=$1 text line pattern rest owner
+  local spec=$1 kind=$2 text line pattern rest owner
   if ! git cat-file -e "$spec" 2>/dev/null; then
     return 0
   fi
@@ -148,7 +132,7 @@ load_codeowners() {
     pattern=${line%%[[:space:]]*}
     rest=${line#"$pattern"}
     rest=$(ci_trim "$rest")
-    if ! pattern_hits_rules "$pattern"; then
+    if ! pattern_hits_rules "$kind" "$pattern"; then
       continue
     fi
     for owner in $rest; do
@@ -160,10 +144,10 @@ load_codeowners() {
   done
 }
 
-load_codeowners "${base}:CODEOWNERS"
-load_codeowners "${base}:.github/CODEOWNERS"
-load_codeowners "${base}:.forgejo/CODEOWNERS"
-load_codeowners "${base}:docs/CODEOWNERS"
+load_codeowners "${base}:CODEOWNERS" regex
+load_codeowners "${base}:.github/CODEOWNERS" glob
+load_codeowners "${base}:.forgejo/CODEOWNERS" regex
+load_codeowners "${base}:docs/CODEOWNERS" regex
 
 if git cat-file -e "${base}:people" 2>/dev/null || git ls-tree -d --name-only "$base" people >/dev/null 2>&1; then
   git ls-tree -r --name-only "$base" -- people 2>/dev/null | while IFS= read -r page; do

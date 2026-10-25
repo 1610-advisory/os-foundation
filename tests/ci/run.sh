@@ -436,7 +436,7 @@ while [ "$i" -lt 36 ]; do
   state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
   osf_api_discard
   recorded=$(comments_text "$review_pr" || true)
-  if [ "$state" = "success" ] && printf '%s\n' "$recorded" | grep -q 'override by acme-admin: the marker is a test'; then
+  if [ "$state" = "success" ] && printf '%s\n' "$recorded" | grep -q "override by acme-admin for ${review_sha}: the marker is a test"; then
     overrode=1
     break
   fi
@@ -447,6 +447,79 @@ if [ "$overrode" = "1" ]; then
   pass "admin override"
 else
   fail "admin override"
+fi
+
+# P1: a later push runs the review again. The old override does not stick.
+git -C "$src" checkout -q review
+printf '%s\n' 'still failing' >> "$src/review.txt"
+git -C "$src" add review.txt
+git -C "$src" commit -q -m "another review change"
+push_branch "$member" review
+later_sha=$(pr_sha "$review_pr")
+set +e
+wait_sha "$review_pr" "$later_sha"
+later_rc=$?
+set -e
+if [ "$later_sha" != "$review_sha" ] && [ "$later_rc" -eq 2 ]; then
+  pass "override does not stick"
+else
+  fail "override does not stick"
+fi
+
+# P1: head scripts are not executed. A planted secret still fails.
+new_branch hijack
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/run-checks.sh"
+chmod +x "$src/.github/scripts/run-checks.sh"
+printf '%s\n' 'OSF_PLANTED_SECRET' > "$src/secret.txt"
+git -C "$src" add .github/scripts/run-checks.sh secret.txt
+git -C "$src" commit -q -m "replace the check"
+push_branch "$member" hijack
+hijack_pr=$(open_pr "$member" hijack "Replace the check")
+hijack_sha=$(pr_sha "$hijack_pr")
+set +e
+wait_sha "$hijack_pr" "$hijack_sha"
+hijack_rc=$?
+set -e
+if [ "$hijack_rc" -eq 2 ]; then
+  pass "head script ignored"
+else
+  fail "head script ignored"
+fi
+
+# P1: a head lint script that writes a marker is never run.
+new_branch lint-hijack
+printf '%s\n' '#!/bin/bash' 'echo OSF_LINT_RAN' 'exit 0' > "$src/skills/lint/lint.sh"
+chmod +x "$src/skills/lint/lint.sh"
+printf '%s\n' 'OSF_LINT_FAIL' > "$src/lint.txt"
+git -C "$src" add skills/lint/lint.sh lint.txt
+git -C "$src" commit -q -m "replace lint"
+push_branch "$member" lint-hijack
+lint_hijack_pr=$(open_pr "$member" lint-hijack "Replace lint")
+lint_hijack_sha=$(pr_sha "$lint_hijack_pr")
+set +e
+wait_sha "$lint_hijack_pr" "$lint_hijack_sha"
+lint_hijack_rc=$?
+set -e
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs?limit=10"
+run_id=$(python3 -c 'import json,sys; raw=json.load(open(sys.argv[1])); rows=raw if isinstance(raw,list) else raw.get("workflow_runs") or raw.get("runs") or []; print(next((str(r.get("id")) for r in rows if r.get("head_sha")==sys.argv[2]), ""))' "$OSF_HTTP_BODY" "$lint_hijack_sha")
+osf_api_discard
+log_hit=0
+if [ -n "$run_id" ]; then
+  osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs/${run_id}/jobs"
+  job_id=$(jq -r 'if type=="array" then .[0].id else (.jobs[0].id // empty) end' "$OSF_HTTP_BODY")
+  osf_api_discard
+  if [ -n "$job_id" ] && [ "$job_id" != "null" ]; then
+    osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/jobs/${job_id}/logs"
+    if grep -q 'OSF_LINT_RAN' "$OSF_HTTP_BODY"; then
+      log_hit=1
+    fi
+    osf_api_discard
+  fi
+fi
+if [ "$lint_hijack_rc" -eq 2 ] && [ "$log_hit" -eq 0 ]; then
+  pass "head lint ignored"
+else
+  fail "head lint ignored"
 fi
 
 # Rules file waits for the owner.
