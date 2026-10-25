@@ -79,6 +79,9 @@ fi
 
 fail() {
   printf '%s\n' "$1" >&2
+  if [ -n "${out_file:-}" ]; then
+    printf '%s\n' "$1" > "$out_file"
+  fi
   exit 1
 }
 

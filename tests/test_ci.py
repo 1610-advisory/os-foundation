@@ -308,10 +308,9 @@ class ReviewParseTests(unittest.TestCase):
         self.diff.write_bytes(b"x" * 100001)
         result = self.review({"OS_REVIEW_VENDOR": "anthropic", "OS_REVIEW_KEY": KEY})
         self.assertEqual(result.returncode, 1)
-        self.assertIn(
-            "model review failed: diff too large (100001 bytes, limit 100000); split the pull request or use /override <reason>",
-            result.stderr,
-        )
+        line = "model review failed: diff too large (100001 bytes, limit 100000); split the pull request or use /override <reason>"
+        self.assertIn(line, result.stderr)
+        self.assertIn(line, self.out.read_text(encoding="utf-8"))
 
     def test_finding_fails_a_pass_verdict(self):
         bin_dir = self.root / "bin"
@@ -348,6 +347,7 @@ class ReviewParseTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the review reported a finding", result.stderr)
+        self.assertIn("the review reported a finding", self.out.read_text(encoding="utf-8"))
 
 
 class GithubStatusTests(unittest.TestCase):
@@ -403,7 +403,9 @@ class GithubStatusTests(unittest.TestCase):
         self.assertIn("/check-runs", url_log.read_text(encoding="utf-8"))
         body = body_log.read_text(encoding="utf-8")
         self.assertIn('"name":"checks"', body)
+        self.assertIn('"status":"completed"', body)
         self.assertIn('"conclusion":"success"', body)
+        self.assertRegex(body, r'"completed_at":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"')
         self.assertIn("override by ada for abc123: because", body)
         self.assertNotIn(KEY, body)
 

@@ -45,9 +45,11 @@ repo=${GITHUB_REPOSITORY#*/}
 base=$(ci_api_base)
 body=$(ci_mktemp)
 if ci_is_github; then
+  # GitHub override check run: Tier B verifies.
   url="${base}/repos/${owner}/${repo}/check-runs"
-  jq -nc --arg sha "$sha" --arg conclusion "$state" --arg summary "$message" \
-    '{name:"checks", head_sha:$sha, status:"completed", conclusion:$conclusion, output:{title:"override", summary:$summary}}' > "$body"
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  jq -nc --arg sha "$sha" --arg conclusion "$state" --arg summary "$message" --arg completed_at "$completed_at" \
+    '{name:"checks", head_sha:$sha, status:"completed", conclusion:$conclusion, completed_at:$completed_at, output:{title:"override", summary:$summary}}' > "$body"
 else
   url="${base}/repos/${owner}/${repo}/statuses/${sha}"
   jq -nc --arg context "checks / checks (pull_request)" --arg state "$state" --arg description "$message" \

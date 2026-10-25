@@ -3,6 +3,8 @@ name: checks
 # One job. GitHub bills each job as a whole minute.
 # OS_REVIEW_FAKE is test-only. Set that path in the runner environment.
 # This file does not read a verdict from the repository.
+# The review key is readable by anyone with write on the repo (host property).
+# Use a key made only for this review, with a spend cap.
 on:
   pull_request:
     branches: [main]
