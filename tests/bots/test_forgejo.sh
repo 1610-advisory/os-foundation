@@ -1,5 +1,6 @@
 #!/bin/bash
-# Bot flow on the local Forgejo. Repos use the bots- prefix. Never wipe the volume.
+# Bot flow on the local Forgejo. Repos use a per-run prefix. Never wipe the volume.
+# Cleanup deletes only this run's repos.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,13 +29,17 @@ if [ ! -f "$admin_file" ] || [ ! -f "$bot_file" ]; then
 fi
 
 tmp=$(mktemp -d)
+slug="bots-t-$$"
+repo_os="${slug}-os"
+repo_area="${slug}-marketing"
+repo_secret="${slug}-secret"
 cleanup() {
   if [ -n "${company:-}" ] && [ -f "${company}/skills/_host/host.sh" ]; then
     export FORGEJO_TOKEN
     FORGEJO_TOKEN=$(tr -d '[:space:]' < "$admin_file")
     export OS_TEST_MODE=1
     export OS_PROFILE="${company}/company-profile.md"
-    for name in bots-os bots-marketing bots-secret; do
+    for name in "$repo_os" "$repo_area" "$repo_secret"; do
       bash "${company}/skills/_host/host.sh" delete-repo "$name" --yes-test-only \
         >"$tmp/del.out" 2>"$tmp/del.err" || true
     done
@@ -54,7 +59,7 @@ bots_git_env
 
 company="$tmp/company"
 mkdir -p "$company/notes" "$company/areas/marketing/notes" "$company/skills"
-bots_profile "$company" forgejo "bots" bots
+bots_profile "$company" forgejo "bots" "$slug"
 bots_people "$company"
 bots_copy_skills "$company"
 printf '%s\n' "areas/" > "$company/.gitignore"
@@ -87,12 +92,12 @@ export FORGEJO_TOKEN
 FORGEJO_TOKEN=$(tr -d '[:space:]' < "$admin_file")
 export OS_PROFILE="$company/company-profile.md"
 host="$company/skills/_host/host.sh"
-for name in bots-os bots-marketing bots-secret; do
+for name in "$repo_os" "$repo_area" "$repo_secret"; do
   bash "$host" delete-repo "$name" --yes-test-only >"$tmp/del.out" 2>"$tmp/del.err" || true
 done
-bash "$host" create-repo bots-os --private --source "$company" --push >"$tmp/create-os.out"
-bash "$host" create-repo bots-marketing --private --source "$company/areas/marketing" --push >"$tmp/create-mkt.out"
-bash "$host" create-repo bots-secret --private >"$tmp/create-secret.out"
+bash "$host" create-repo "$repo_os" --private --source "$company" --push >"$tmp/create-os.out"
+bash "$host" create-repo "$repo_area" --private --source "$company/areas/marketing" --push >"$tmp/create-mkt.out"
+bash "$host" create-repo "$repo_secret" --private >"$tmp/create-secret.out"
 
 token_path="$tmp/secrets/bot-token"
 mkdir -p "$tmp/secrets"
@@ -105,9 +110,9 @@ bot=helper
 name=Acme helper
 owner=ada
 bot_user=acme-bot
-repos=bots-os,bots-marketing
-scope.bots-os=company
-scope.bots-marketing=marketing
+repos=${repo_os},${repo_area}
+scope.${repo_os}=company
+scope.${repo_area}=marketing
 email=acme.bot@acme.test
 token_path=$token_path
 box=yes
@@ -125,10 +130,10 @@ bots_pass "add-bot company bot on Forgejo"
 
 # Bot can see granted repos and cannot see the other repo.
 FORGEJO_TOKEN=$(tr -d '[:space:]' < "$token_path")
-bash "$host" repo-access bots-os >"$tmp/access-os.out"
-grep -q '"access":"ok"' "$tmp/access-os.out" || bash "$host" repo-access bots-os | grep -q 'ok'
+bash "$host" repo-access "$repo_os" >"$tmp/access-os.out"
+grep -q '"access":"ok"' "$tmp/access-os.out" || bash "$host" repo-access "$repo_os" | grep -q 'ok'
 set +e
-bash "$host" repo-access bots-secret >"$tmp/access-secret.out" 2>"$tmp/access-secret.err"
+bash "$host" repo-access "$repo_secret" >"$tmp/access-secret.out" 2>"$tmp/access-secret.err"
 code=$?
 set -e
 [ "$code" -eq 2 ] || bots_fail "outside repo access exit $code"
@@ -147,7 +152,7 @@ export OS_GIT_TOKEN
 OS_GIT_TOKEN=$(tr -d '[:space:]' < "$token_path")
 set +e
 GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
-  git -c credential.helper= clone "${url}/acme/bots-secret.git" "$tmp/denied" >"$tmp/clone.out" 2>"$tmp/clone.err"
+  git -c credential.helper= clone "${url}/acme/${repo_secret}.git" "$tmp/denied" >"$tmp/clone.out" 2>"$tmp/clone.err"
 code=$?
 set -e
 [ "$code" -ne 0 ] || bots_fail "bot cloned a repo outside its grant"
@@ -192,7 +197,7 @@ bots_pass "trailers present on main after merge"
 # Token refresh across a real token life. No person step.
 trace="$tmp/trace"
 : > "$trace"
-rm -f "$XDG_CONFIG_HOME/bots-os/bots/helper/token-cache"
+rm -f "$XDG_CONFIG_HOME/${slug}-os/bots/helper/token-cache"
 printf 'protocol=http\nhost=localhost:3300\n\n' | \
   OS_BOT=helper OS_ROOT="$company" OS_BOT_TOKEN_TTL=1 OS_BOT_TOKEN_TRACE="$trace" \
   bash "$company/skills/add-bot/git-credential-os-bot" get >"$tmp/cred1.out"
@@ -241,8 +246,8 @@ reverts=$(git -C "$company" log origin/main --grep "^Revert run ${run_id}$" --fo
 [ "$reverts" = "1" ] || bots_fail "company revert count $reverts"
 area_reverts=$(git -C "$company/areas/marketing" log origin/main --grep "^Revert run ${run_id}$" --format='%H' | wc -l | tr -d ' ')
 [ "$area_reverts" = "1" ] || bots_fail "area revert count $area_reverts"
-grep -q "repo: bots-os" "$tmp/undo.out"
-grep -q "repo: bots-marketing" "$tmp/undo.out"
+grep -q "repo: ${repo_os}" "$tmp/undo.out"
+grep -q "repo: ${repo_area}" "$tmp/undo.out"
 bots_pass "undo-run reverts the run in one commit per repo"
 
 bots_pass "forgejo suite"
