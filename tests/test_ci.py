@@ -680,6 +680,23 @@ class OverrideTests(unittest.TestCase):
         empty = self.decide("acme-admin", "/override")
         self.assertEqual(empty.stdout.strip(), "ignored empty")
 
+    def test_gitea_codeowners_names_an_override_owner(self):
+        (self.repo / "CODEOWNERS").unlink()
+        gitea = self.repo / ".gitea"
+        gitea.mkdir()
+        (gitea / "CODEOWNERS").write_text("^AGENTS\\.md$ @acme-admin\n", encoding="utf-8")
+        (self.repo / "people" / "Ada.md").unlink()
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "gitea owners only")
+        self.base = subprocess.check_output(
+            ["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True
+        ).strip()
+        admin = self.decide("acme-admin", "/override the gitea file")
+        self.assertEqual(admin.returncode, 0, admin.stderr + admin.stdout)
+        self.assertTrue(admin.stdout.startswith("valid "))
+        member = self.decide("acme-member-a", "/override please")
+        self.assertEqual(member.stdout.strip(), "ignored not-owner")
+
 
 class SetStatusTests(unittest.TestCase):
     def test_token_not_in_argv(self):

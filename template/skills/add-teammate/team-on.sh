@@ -204,7 +204,7 @@ while IFS= read -r area; do
       cp "$rules_src" "$ROOT/areas/$area/review-rules.md"
     fi
   fi
-  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")"
+  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")" "$(os_forgejo_owner "$ADMIN_GH" "$director_gh")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF

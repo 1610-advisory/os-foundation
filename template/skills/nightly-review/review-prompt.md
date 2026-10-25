@@ -47,7 +47,7 @@ Anything a person should look at. No fix. Examples:
 - Two notes that disagree, or a change that disagrees with an older note. The summary must say `disagree`, `contradict` or `does not match`, so the weekly report lists it under Contradictions.
 - A fact that looks out of date, or a guess written as a fact.
 - A note in the wrong area or the wrong folder.
-- Any problem in a rules file. You never fix a rules file. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, or `.claude/`. Even a typo there is a judgment call.
+- Any problem in a rules file. You never fix a rules file. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`. Even a typo there is a judgment call.
 - **A possible leak:** a password, key or token; a fact about a person's private life (health, family, home, beliefs); a quote or close paraphrase of a private source (a DM, a private channel, a personal mailbox, a 1:1, HR or pay); or a `source: private` tag. Start the summary with `Possible leak:`. Name the file and the kind of leak only. Never send a `fix` for it: an edit does not remove it from history. This flag goes to the admin only.
 
 ## Skip these

@@ -608,6 +608,65 @@ else
   fi
 fi
 
+# A root CODEOWNERS is read before .gitea/CODEOWNERS. Owning that path blocks the add.
+new_branch root-owners
+printf '%s\n' '* @acme-member-a' > "$src/CODEOWNERS"
+git -C "$src" add CODEOWNERS
+git -C "$src" commit -q -m "add a root owners file"
+push_branch "$member" root-owners
+root_pr=$(open_pr "$member" root-owners "Add root owners")
+root_sha=$(pr_sha "$root_pr")
+if wait_sha "$root_pr" "$root_sha"; then
+  pass "root owners checks"
+else
+  fail "root owners checks"
+fi
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+root_reviewers=$(jq -r '[.requested_reviewers[]?.login] | join(" ")' "$OSF_HTTP_BODY" 2>/dev/null || true)
+osf_api_discard
+if printf '%s' "$root_reviewers" | grep -q acme-admin; then
+  pass "root owners requests owner"
+else
+  fail "root owners requests owner"
+fi
+as_user "$admin"
+set +e
+"$work/host/host.sh" auto-merge "$repo" "$root_pr" >>"$log" 2>&1
+set -e
+sleep 3
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+root_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+osf_api_discard
+if [ "$root_merged" != "true" ]; then
+  pass "root owners blocked"
+else
+  fail "root owners blocked"
+fi
+root_body=$(mktemp)
+printf '%s\n' '{"event":"APPROVED","body":"ok"}' > "$root_body"
+osf_api "$admin" POST "/api/v1/repos/acme/${repo}/pulls/${root_pr}/reviews" "$root_body"
+osf_api_discard
+rm -f "$root_body"
+as_user "$admin"
+"$work/host/host.sh" auto-merge "$repo" "$root_pr" >>"$log" 2>&1 || true
+root_i=0
+root_merged=false
+while [ "$root_i" -lt 20 ]; do
+  osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${root_pr}"
+  root_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+  osf_api_discard
+  if [ "$root_merged" = "true" ]; then
+    break
+  fi
+  root_i=$((root_i + 1))
+  sleep 3
+done
+if [ "$root_merged" = "true" ]; then
+  pass "root owners merges after approval"
+else
+  fail "root owners merges after approval"
+fi
+
 # Deleting the company profile on the head must not switch to the size-only lint.
 new_branch drop-profile
 rm -f "$src/company-profile.md"
@@ -1082,8 +1141,8 @@ fi
 repo="ci-checks-${stamp}"
 
 # Area rules PR. Owners are os_codeowners output, not a hand-written file.
-# A member changes a skill. Forgejo must ask the director and block the merge
-# until that review is approved. Admin approval does not clear the director.
+# Forgejo names only the director. A member's skill change is blocked until
+# that director approves, then it merges. GitHub still names both.
 own_repo="ci-own-${stamp}"
 EXTRA_REPOS="${EXTRA_REPOS} ${own_repo}"
 src="$work/own"
@@ -1099,9 +1158,10 @@ printf '%s\n' 'A note.' > "$src/note.txt"
 printf '%s\n' '# Sample' > "$src/skills/sample/SKILL.md"
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
-os_codeowners "$src" "$(os_at_users acme-admin acme-director)"
+os_codeowners "$src" "$(os_at_users acme-admin acme-director)" "$(os_forgejo_owner acme-admin acme-director)"
 if [ -f "$src/CODEOWNERS" ] || [ ! -f "$src/.gitea/CODEOWNERS" ] \
-  || ! grep -F -q '^skills/.* @acme-director @acme-admin' "$src/.gitea/CODEOWNERS" \
+  || ! grep -F -x -q '^skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \
+  || grep -q acme-admin "$src/.gitea/CODEOWNERS" \
   || ! grep -F -q '/.gitea/ @acme-director @acme-admin' "$src/.github/CODEOWNERS"; then
   fail "area rules uses product owners"
 else
@@ -1161,7 +1221,8 @@ else
       own_i=$((own_i + 1))
       sleep 1
     done
-    if printf '%s' "$own_reviewers" | grep -q acme-director; then
+    if printf '%s' "$own_reviewers" | grep -q acme-director \
+      && ! printf '%s' "$own_reviewers" | grep -q acme-admin; then
       pass "area rules requests director"
     else
       fail "area rules requests director"
@@ -1182,21 +1243,6 @@ else
       fi
       own_body=$(mktemp)
       printf '%s\n' '{"event":"APPROVED","body":"ok"}' > "$own_body"
-      osf_api "$admin" POST "/api/v1/repos/acme/${repo}/pulls/${own_pr}/reviews" "$own_body"
-      osf_api_discard
-      as_user "$admin"
-      set +e
-      "$work/host/host.sh" auto-merge "$repo" "$own_pr" >>"$log" 2>&1
-      set -e
-      sleep 3
-      osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
-      own_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
-      osf_api_discard
-      if [ "$own_merged" != "true" ]; then
-        pass "area rules still blocked after admin"
-      else
-        fail "area rules still blocked after admin"
-      fi
       osf_api "$director" POST "/api/v1/repos/acme/${repo}/pulls/${own_pr}/reviews" "$own_body"
       own_approve=$OSF_HTTP_CODE
       osf_api_discard
@@ -1226,7 +1272,6 @@ else
       fi
     else
       fail "area rules blocked"
-      fail "area rules still blocked after admin"
       fail "area rules merges after director"
     fi
   fi

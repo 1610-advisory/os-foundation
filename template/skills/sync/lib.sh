@@ -226,7 +226,7 @@ sync_is_rules() {
     AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS) return 0 ;;
   esac
   case "$path" in
-    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|bots/*/BOT.md) return 0 ;;
+    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|bots/*/BOT.md) return 0 ;;
   esac
   return 1
 }

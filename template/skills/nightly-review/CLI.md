@@ -109,7 +109,7 @@ Fold call, one line:
 
 ## What it does with findings
 
-`clear-error` on a note, log, or link: apply the fix. A rules file is never edited. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, or `.claude/`. A clear error on a rules file becomes a flag to the approver.
+`clear-error` on a note, log, or link: apply the fix. A rules file is never edited. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`. A clear error on a rules file becomes a flag to the approver.
 
 A finding whose `summary` starts with `Possible leak:` goes to the admin digest under the state dir, not the author. It is never written into a repo file, a pull request title, or a pull request body. Its fix is never applied, even when the model sends one. The admin runs `remove-leak`. An edit does not remove a leak from history.
 

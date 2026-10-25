@@ -25,7 +25,7 @@ This skill is for `team` and `app`. At `team` it runs on the admin's computer. [
 - A duplicated note: it keeps one and links the other to it.
 - A typo in a name of a person, customer or product.
 
-It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, or `.claude/`). An error there becomes a flag to the approver.
+It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`). An error there becomes a flag to the approver.
 
 **Judgment calls: it flags them.** Examples: two notes that disagree, a fact that looks out of date, a note in the wrong place, a rules file that looks wrong.
 - A flag goes first to the last author.

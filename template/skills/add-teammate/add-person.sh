@@ -129,10 +129,18 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   abranch="rules/${ADMIN}/add-${PERSON}"
   os_with_git_token git -C "$ROOT/areas/$a" fetch origin
   git -C "$ROOT/areas/$a" checkout -q -B "$abranch" origin/main
-  os_codeowners "$ROOT/areas/$a" "$(os_at_users "$ADMIN_GH" "$gh")"
+  os_codeowners "$ROOT/areas/$a" "$(os_at_users "$ADMIN_GH" "$gh")" "$(os_forgejo_owner "$ADMIN_GH" "$gh")"
   os_git_commit "$ROOT/areas/$a" "Rules: director for ${a}"
   os_with_git_token git -C "$ROOT/areas/$a" push --set-upstream origin "$abranch"
-  os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}" >/dev/null || true
+  set +e
+  pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}")
+  pr_rc=$?
+  set -e
+  area_number=$(printf '%s' "$pr" | jq -r '.number // empty' 2>/dev/null || true)
+  if [ "$pr_rc" -ne 0 ] || [ -z "$area_number" ]; then
+    printf '%s\n' "could not open a pull request for $(os_area_repo "$SLUG" "$a")" >&2
+    exit 2
+  fi
 done
 
 printf 'add-person: ok\n'
