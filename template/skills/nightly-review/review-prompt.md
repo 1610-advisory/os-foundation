@@ -14,23 +14,26 @@ date: <YYYY-MM-DD>
 range: <from>..<to>
 
 commits:
-<sha> <subject>
+<sha> <author-slug> <subject>
+
+files:
+<path on main>
 
 diff:
 <unified diff of the day's merged changes>
 ---END---
 ```
 
-If the last diff line is `diff truncated`, review only what you see.
+`author-slug` is `-` when the script found no matching person. `files:` lists paths on `main` (never workspaces, profiles or traces). If it ends with `and N more files`, the list is cut. If the last diff line is `diff truncated`, review only what you see.
 
 ## Kind 1: clear-error
 
 A clear error has one right fix that anyone would agree with. Only these four count:
 
-1. **Broken link.** A `[[wiki-link]]` or relative link that the diff itself shows is wrong: it points at a file the same diff renamed or deleted, or at a name spelled right elsewhere in the diff.
+1. **Broken link.** A `[[wiki-link]]` or relative link whose target is not in `files:`, and exactly one path in `files:` is plainly the right target (a typo or a rename). If the list is cut and the target is not in it, do not call it broken.
 2. **Wrong date.** A date that cannot be true (2026-02-30), or a date that does not match the file's own name (a note `meetings/2026-10-21 Kickoff.md` that says `date: 2026-10-12`).
 3. **Duplicated note.** The same note added twice, or the same fact written twice in one note. Keep the first one. Make the other a one-line link to it.
-4. **Typo in a name.** A name of a person, customer or product spelled two ways in the diff, where one spelling is plainly right (it matches a file name or a `[[link]]` target).
+4. **Typo in a name.** A name of a person, customer or product that differs by one or two letters from a page in `files:` (for example `people/Dana Director.md`) or from a spelling used elsewhere in the diff, where one spelling is plainly right.
 
 A clear error needs a fix:
 - `"action":"replace"`: `old` is one line copied exactly from the file after the change. It must occur once in that file. `new` is the corrected line.
@@ -45,7 +48,7 @@ Anything a person should look at. No fix. Examples:
 - A fact that looks out of date, or a guess written as a fact.
 - A note in the wrong area or the wrong folder.
 - Any problem in a rules file. You never fix a rules file. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/` or `.claude/`. Even a typo there is a judgment call.
-- **A possible leak:** a password, key or token; a fact about a person's private life (health, family, home, beliefs); a quote or close paraphrase of a private source (a DM, a private channel, a personal mailbox, a 1:1, HR or pay); or a `source: private` tag. Start the summary with `Possible leak:`. Never fix it: editing does not remove it from history.
+- **A possible leak:** a password, key or token; a fact about a person's private life (health, family, home, beliefs); a quote or close paraphrase of a private source (a DM, a private channel, a personal mailbox, a 1:1, HR or pay); or a `source: private` tag. Start the summary with `Possible leak:`. Name the file and the kind of leak only. Never send a `fix` for it: an edit does not remove it from history. This flag goes to the admin only.
 
 ## Skip these
 
@@ -57,7 +60,7 @@ Anything a person should look at. No fix. Examples:
 
 - `path`: the file path inside this repo, as in the diff. No leading slash. No `..`.
 - `summary`: one plain sentence, at most 20 words. Start with the line number when you know it: "Line 7: ...".
-- `author`: the person slug when the diff shows it (a log file `memory/logs/YYYY-MM-DD-<slug>.md` in the same commit). Otherwise `""`.
+- `author`: the `author-slug` of the commit that made the change. If it is `-`, write `""`. Never guess a slug from a file name.
 - Never copy a secret value. Never quote private content: say "a quote from a private message", not the quote.
 - Never comment on a person's work style, speed or hours. Never score or compare people.
 - Add no new facts. A fix only corrects what is there.

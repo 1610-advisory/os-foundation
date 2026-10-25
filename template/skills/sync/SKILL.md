@@ -15,11 +15,12 @@ This skill is for `team` and `app`. At `solo` there is no host and no `sync`: co
 - **Nightly push.** At 2 am, or the first wake after. Steps:
   1. **Identity check.** The signed-in git account must match `github:` on the person's page in `people/`. If not, nothing goes up from any repo.
   2. **Secret scan.** A script, no AI. A hit holds that file. The reason names the rule, never the value.
-  3. **Rules files are held** with the reason `rules file: propose it with sync.sh propose`. Rules files: any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, anything under `skills/`, `bots/*/BOT.md`, `.github/`. In the workspace they are the person's own: not held.
-  4. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
-  5. **Commit and push** to the person's branch `sync/<person>`, rebuilt on `main` each night.
-  6. **Standing PR** `sync: <person>`, auto-merge on. Notes merge by themselves when the checks pass.
-  7. **Pull** again.
+  3. **Binary files and symlinks are held.** A binary file is held (images under `assets/` are checked like notes). A symlink or a folder in the change list stops that repo: nothing goes up from it.
+  4. **Rules files are held** with the reason `rules file: propose it with sync.sh propose`. Rules files: any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, anything under `skills/`, `bots/*/BOT.md`, `.github/`. In the workspace they are the person's own: not held.
+  5. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
+  6. **Commit and push** only the files that passed, to the person's branch `sync/<person>`, rebuilt on `main` each night.
+  7. **Standing PR** `sync: <person>`, auto-merge on. Notes merge by themselves when the checks pass.
+  8. **Pull** again.
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
 - **Held files stay** in the working copy, unchanged. The next session says why.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
@@ -48,6 +49,8 @@ Say what happened and what fixes it. Offer to do the fix. If the person says no,
 | Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
 | Belongs in the workspace | Move it to `users/<person>/`. |
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
+| `binary file: add it by hand with a pull request` | Ask if it must be in the repo. Large files stay in their own system; write a note with a link. If it must be in the repo, ask the admin to add it by pull request. |
+| `symlink: add it by hand with a pull request` | Nothing from this repo goes up until it is gone. Replace the link with the real file or a note with a path, or delete it. Ask the admin if a link must stay. |
 | The check did not run | Nothing. The next night tries again. If it repeats three nights, tell the admin. |
 
 After a fix, the next nightly push sends the file. The person does nothing more.

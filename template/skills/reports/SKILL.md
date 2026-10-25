@@ -21,7 +21,12 @@ Weeks are ISO weeks that start on Monday, such as `2026-W43`.
 
 **To decide** lists what needs a person in that area: the nightly review's flags, and rules branches not yet merged. One line each. If the review did not run, it says `The review did not run.` Nothing to decide: no file that day.
 
-**What happened** lists, per person, actions and results from the logs and merged commits. Then plain counts for the area: commits merged, people with actions, and log files. People are in slug order, never by how much they did.
+**What happened** has these sections, in this order:
+1. **Per person:** actions and results, from the logs and merged commits. People are in slug order, never by how much they did.
+2. **New facts and skill changes:** the paths added or changed that week, as links, and a count. Not the note text.
+3. **Stuck work:** project files under `projects/` whose status is fail. If none, one line says so.
+4. **Contradictions:** review flags that say two notes disagree. Path and summary only. If none, one line says so.
+5. **Counts:** commits merged, people with actions, and log files.
 
 **Company page** has plain counts per area. It does not copy area sentences into the company repo.
 
@@ -36,7 +41,7 @@ Weeks are ISO weeks that start on Monday, such as `2026-W43`.
 
 ## What a report may show
 
-Only what the area already holds: merged commits and logs on `main`, the nightly review's flags, and open rules branches.
+Only what the area already holds: merged commits and logs on `main`, project status files, the nightly review's flags, and open rules branches. A `Possible leak:` flag never goes into a report: it stays in the admin's digest.
 
 About a person, a report shows **what they did** (actions and results) and **plain counts**. Nothing more.
 

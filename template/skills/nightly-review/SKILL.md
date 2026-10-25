@@ -14,7 +14,7 @@ This skill is for `team` and `app`. At `team` it runs on the admin's computer. [
 - An OS job runs it at 3:30 am, after the nightly push window. Then the reports run. `sync.sh install-jobs --admin` installs that job.
 - The job runs `skills/nightly-review/run.sh` from the company root. By hand, for one day: `skills/nightly-review/run.sh --date YYYY-MM-DD`.
 - For the company repo and each area repo, it reads the commits merged into `main` that day, since its last run. It skips its own fixes.
-- It sends the day's diff to the company's headless engine with `review-prompt.md`, once per repo.
+- It sends the day's diff, each commit's author and the list of files on `main` to the company's headless engine with `review-prompt.md`, once per repo. The author is matched to a page in `people/`; it is never guessed from a file name.
 - It writes as an area-scoped identity: the company bot (or that area's bot) when `bots` is on, else the admin's agent. Every commit carries `Run-Id: review-<date>-...`, and `Bot-Owner:` when a bot writes.
 
 ## What it does
@@ -34,19 +34,20 @@ It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `C
 - `Decision:` lines from the day's logs (the "agent decides and logs" tier) are listed first.
 - The digest becomes the area's daily "to decide" report (`reports` skill).
 
-**A possible leak** (a secret, a personal-life fact, or a private-source quote on `main`) is a flag that starts with `Possible leak:`. It is never fixed: an edit does not remove it from history. Whoever sees it tells the admin. The admin runs `remove-leak`.
+**A possible leak** (a secret, a personal-life fact, or a private-source quote on `main`) is a flag that starts with `Possible leak:`. It goes to the admin's digest only, on the admin's computer. It is never written into a repo file, a report, or a pull request title or body. It is never fixed: an edit does not remove it from history. The admin runs `remove-leak`.
 
 **Log fold.** A daily log more than 30 days old folds into one `memory/logs/YYYY-MM-summary.md` per repo per month. The model writes the summary in plain sentences: no scores, no ranking, no private quotes. The fold removes the old daily files from `main`. History keeps them.
 
 ## Privacy
 
-- It reads only what is merged on `main`. Never `users/` (workspaces), profiles or traces.
+- It reads only what is merged on `main`.
+- It never sends `users/`, profiles or traces to the engine, not even as file names.
 - A flag names the file and the kind of problem. It never quotes private content and never copies a secret.
 - Its fixes add no new facts.
 
 ## Fails closed
 
-If the engine fails (no answer, bad JSON, timeout), the review makes no edits. It writes one line to the log on the admin's computer. The digest says plainly: `The review did not run.` The next night tries again. Nobody needs to act unless it fails three nights in a row: then tell the admin.
+Every engine call runs and is checked before any edit. If one fails (no answer, bad JSON, timeout), or the prompt or the engine is missing, the review makes no edits, no fold and no pull request. It writes one line to the log on the admin's computer. The digest says plainly: `The review did not run.` The next night tries again. Nobody needs to act unless it fails three nights in a row: then tell the admin.
 
 ## Where things are
 
