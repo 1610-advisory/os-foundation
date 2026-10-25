@@ -34,9 +34,9 @@ The regex goes in a mode-600 file passed to `git filter-repo --replace-text`. It
 3. Lift protection with `host.sh unprotect <name>`, force-push every branch and tag, then `host.sh protect <name> --code-owners --approvals 0`.
 4. `host.sh purge-request <name>`.
 5. Push an annotated tag `os-rewrite-<YYYYMMDDHHMMSS>`. The message is `rule: <id>` or `path: <p>`. It does not contain the secret.
-6. Write one audit line in `memory/logs/YYYY-MM-DD-<person>.md` on the rewritten `main`. The line names the repo and the rule id or path. It does not name the secret.
+6. Write one audit line in `memory/logs/YYYY-MM-DD-<person>.md` on the rewritten `main`. The line is `path: <p>` or `rule: <id>`. It does not name the secret.
 
-`unprotect` lifts what `protect` set. `protect` restores it after the force-push.
+`unprotect` lifts what `protect` set. After that, an exit trap always runs `protect` again. If the restore fails, the script prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0` and does not print ok.
 
 ## Exit codes
 

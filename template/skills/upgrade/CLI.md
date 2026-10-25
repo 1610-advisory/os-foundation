@@ -15,7 +15,7 @@ Moves a v0 company folder to v1. Dry-run first. Then one branch and one pull req
 | `--root <dir>` | Company folder. Default: the current directory. |
 | `--template <dir>` | v1 template folder. Default: the `template/` next to this skill when that folder is still the os-foundation template. |
 | `--level solo\|team\|app` | Level to write. Default: `solo`, or the `level` key in the answers file. |
-| `--answers <file>` | Optional `key=value` lines: `level`, `os_version`, `host`, `host_url`, `org`, `sync_engine`, `runner`. |
+| `--answers <file>` | Optional `key=value` lines: `level`, `os_version`, `host`, `host_url`, `org`, `sync_engine`, `runner`. A missing key is left as it is. |
 | `--help` | Print usage and exit 0. |
 
 ## v0 shape
@@ -29,7 +29,7 @@ Any of these means v0:
 
 ## What a real run does
 
-One merge commit on branch `upgrade/v1`:
+A real run refuses a dirty tree. It stages only the upgrade paths. The result is always one merge commit on `upgrade/v1`, so `git revert -m 1` restores the old state even when there was no `logs` branch.
 
 - committed links `.agents/skills` and `.claude/skills` pointing at `../skills`
 - the `logs` branch merged under `memory/logs/` with its history

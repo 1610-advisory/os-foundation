@@ -86,12 +86,12 @@ kind=second-vendor
 
 ### What it does
 
-1. Refuses a company folder under iCloud Drive, `Library/CloudStorage`, Dropbox, OneDrive, or Google Drive.
+1. Refuses a company folder in a synced folder. The message names the reason: iCloud Drive, iCloud Desktop, iCloud Documents, a cloud storage folder, Dropbox (any suffix), OneDrive, Google Drive, or a Google Drive volume.
 2. Sets `level: team` and writes `host`, `host_url`, `org`, `sync_engine`, `runner`, and `review` in `company-profile.md`.
 3. Writes `people/<Name>.md` with `slug`, `github`, `email`, `role`, `areas`, and `manager` when set.
 4. Writes `CODEOWNERS` for rules paths only. The company repo names the admin. An area repo names that area's director and the admin.
 5. Copies `.github/` from the company root into each area repo when that folder exists, then writes the area `CODEOWNERS`.
-6. Commits those files on `main` only when `main` is not protected yet.
+6. Puts `CODEOWNERS` and `review.conf` on `main` before protection. If the repo already exists and is not protected, it pushes them. If `main` is already protected and those files are missing, it stops and names `sync.sh propose`.
 7. `host.sh create-repo <name> --source --push` for the company repo `<slug>-os` and each area repo `<slug>-<area>`. History is kept. The push happens before protection.
 8. `host.sh protect <name> --code-owners --approvals 0` on the company repo and each area repo. Workspace repos are not protected: they push to their own `main`.
 9. Creates team `company` (everyone, write on the company repo) and team `area-<area>` (that area's people, write on the area repo). The area director is on the area team.
@@ -162,7 +162,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 1. Refuses a synced folder.
 2. If `company-profile.md` is already in `root`, the company clone is done.
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
-4. Clones `users/<me>/` from `<slug>-user-<me>`.
+4. Clones `users/<me>/` from `<slug>-user-<me>`. A missing workspace is an error: `your workspace <repo> is not reachable: ask the admin`. Join exits non-zero.
 5. Writes `me` under the config dir.
 6. Runs `skills/sync/sync.sh install-jobs` when that file exists.
 7. Writes one profile pointer in each agent config that exists. It does not overwrite other lines. A second run does not add a second line.

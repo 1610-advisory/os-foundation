@@ -94,31 +94,66 @@ export OS_PROFILE="$ROOT/company-profile.md"
 COMPANY_REPO=$(os_company_repo "$SLUG")
 WS_REPO=$(os_user_repo "$SLUG" "$PERSON")
 
-try_host() {
-  local rc
-  set +e
-  os_host "$@" >/dev/null
-  rc=$?
-  set -e
-  if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then
-    return 0
-  fi
-  return "$rc"
+LEFT_BEHIND=""
+note_left() {
+  LEFT_BEHIND="${LEFT_BEHIND} $1"
 }
 
+# Exit 0 is success. A 404 counts only when the repo still exists for the admin,
+# which means the person is not a collaborator. A 403 never counts.
+drop_repo() {
+  local repo=$1 label=$2 rc access
+  set +e
+  os_host revoke "$repo" "$GH" >/dev/null
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    return 0
+  fi
+  if [ "$rc" -eq 2 ]; then
+    set +e
+    os_host repo-access "$repo" >/dev/null
+    access=$?
+    set -e
+    if [ "$access" -eq 0 ]; then
+      return 0
+    fi
+  fi
+  note_left "$label"
+  return 1
+}
+
+drop_team() {
+  local team=$1 label=$2 rc
+  set +e
+  os_host team-remove "$team" "$GH" >/dev/null
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    return 0
+  fi
+  note_left "$label"
+  return 1
+}
+
+failed=0
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
-  try_host team-remove "$(os_team_area "$area")" "$GH"
-  try_host revoke "$(os_area_repo "$SLUG" "$area")" "$GH"
+  drop_team "$(os_team_area "$area")" "team:$(os_team_area "$area")" || failed=1
+  drop_repo "$(os_area_repo "$SLUG" "$area")" "repo:$(os_area_repo "$SLUG" "$area")" || failed=1
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
 
-try_host team-remove company "$GH"
-try_host revoke "$COMPANY_REPO" "$GH"
-try_host revoke "$WS_REPO" "$GH"
-try_host org-remove "$GH"
+drop_team company "team:company" || failed=1
+drop_repo "$COMPANY_REPO" "repo:${COMPANY_REPO}" || failed=1
+drop_repo "$WS_REPO" "repo:${WS_REPO}" || failed=1
+if [ "$failed" -ne 0 ]; then
+  printf 'revoke failed. Still has access:%s\n' "$LEFT_BEHIND" >&2
+  exit 3
+fi
+os_host org-remove "$GH" >/dev/null
 os_host archive-repo "$WS_REPO" >/dev/null
 
 printf 'revoked: %s\n' "$PERSON"
@@ -170,7 +205,18 @@ if [ -f "$ROOT/architecture.md" ]; then
     BEGIN { on = 0 }
     /^#+[ ]+Connections[ ]*$/ { on = 1; next }
     on && /^#+[ ]/ { exit }
-    on && /^- / { sub(/^- /, ""); print }
+    on && /^- / {
+      sub(/^- /, "")
+      print
+      next
+    }
+    on && /^\|/ && $0 !~ /^\|[[:space:]:|-]+\|/ {
+      line = $0
+      gsub(/^\|[[:space:]]*/, "", line)
+      gsub(/[[:space:]]*\|$/, "", line)
+      gsub(/[[:space:]]*\|[[:space:]]*/, " ", line)
+      if (line != "" && line !~ /^Tool / && line !~ /^What /) print line
+    }
   ' "$ROOT/architecture.md" | while IFS= read -r line; do
     [ -n "$line" ] || continue
     printf 'seat: %s\n' "$line"

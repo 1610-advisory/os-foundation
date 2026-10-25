@@ -117,31 +117,57 @@ os_person_slugs() {
   done < "$file" | awk '!seen[$0]++'
 }
 
-os_synced_path() {
+os_synced_reason() {
   local path=$1 home base
   [ -d "$path" ] || return 1
   path=$(cd "$path" && pwd -P)
+  case "$path" in
+    /Volumes/GoogleDrive*) printf '%s\n' "Google Drive volume"; return 0 ;;
+  esac
   home=${HOME:-}
   [ -n "$home" ] || return 1
   base=$(cd "$home" && pwd -P)
   case "$path" in
-    "$base/Library/Mobile Documents"|"$base/Library/Mobile Documents"/*) return 0 ;;
-    "$base/Library/CloudStorage"|"$base/Library/CloudStorage"/*) return 0 ;;
-    "$base/Dropbox"|"$base/Dropbox"/*) return 0 ;;
-    "$base"/OneDrive|"$base"/OneDrive/*) return 0 ;;
-    "$base/Google Drive"|"$base/Google Drive"/*) return 0 ;;
+    "$base/Library/Mobile Documents"|"$base/Library/Mobile Documents"/*)
+      printf '%s\n' "iCloud Drive"
+      return 0
+      ;;
+    "$base/Library/CloudStorage"|"$base/Library/CloudStorage"/*)
+      printf '%s\n' "a cloud storage folder"
+      return 0
+      ;;
+    "$base"/Dropbox*)
+      printf '%s\n' "Dropbox"
+      return 0
+      ;;
+    "$base"/OneDrive*)
+      printf '%s\n' "OneDrive"
+      return 0
+      ;;
+    "$base/Google Drive"|"$base/Google Drive"/*)
+      printf '%s\n' "Google Drive"
+      return 0
+      ;;
   esac
-  # OneDrive* (OneDrive - Company)
-  case "$path" in
-    "$base"/OneDrive*) return 0 ;;
-  esac
+  if [ -d "$base/Library/Mobile Documents/com~apple~CloudDocs/Desktop" ]; then
+    case "$path" in
+      "$base/Desktop"|"$base/Desktop"/*)
+        printf '%s\n' "iCloud Desktop"
+        return 0
+        ;;
+      "$base/Documents"|"$base/Documents"/*)
+        printf '%s\n' "iCloud Documents"
+        return 0
+        ;;
+    esac
+  fi
   return 1
 }
 
 os_refuse_synced() {
-  local path=$1
-  if os_synced_path "$path"; then
-    os_die 2 "refusing a company folder in a synced folder"
+  local path=$1 reason
+  if reason=$(os_synced_reason "$path"); then
+    os_die 2 "refusing a company folder in a synced folder: ${reason}"
   fi
 }
 

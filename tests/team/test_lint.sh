@@ -114,4 +114,19 @@ printf '%s\n' "$out" | grep -q 'offer: You have used this OS for two weeks' || t
 out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver")
 printf '%s\n' "$out" | grep -q 'offer:' && team_fail "bot offer must be once"
 
+# A link whose text is ../skills but whose target is missing is a finding.
+dangle="$work/dangle"
+mkdir -p "$dangle/.agents" "$dangle/.claude" "$dangle/skills"
+ln -s ../skills "$dangle/.agents/skills"
+ln -s ../missing "$dangle/.claude/skills"
+rmdir "$dangle/skills"
+cp "$pass/company-profile.md" "$dangle/company-profile.md"
+cp "$pass/scale.md" "$dangle/scale.md"
+set +e
+out=$("$lint" --ci --root "$dangle")
+rc=$?
+set -e
+[ "$rc" -eq 1 ] || team_fail "dangling link should fail"
+printf '%s\n' "$out" | grep -q 'target is missing' || team_fail "dangling link was accepted"
+
 printf '%s\n' "PASS lint"

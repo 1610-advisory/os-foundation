@@ -360,8 +360,20 @@ cmd_protect() {
   jq -nc --arg name "$name" '{ok:true, name:$name, rulesets:["main","rules-review"]}'
 }
 
+host_ruleset_id() {
+  local list=$1 ruleset=$2
+  printf '%s' "$list" | jq -r --arg ruleset "$ruleset" '.[] | select(.name==$ruleset) | .id' | head -n 1
+}
+
+host_restore_ruleset() {
+  local name=$1 file=$2 body
+  [ -s "$file" ] || return 0
+  body=$(jq 'del(.id, .node_id, .created_at, .updated_at, .source, .source_type, .current_user_can_bypass, ._links)' "$file")
+  host_gh_call POST "$(host_repo "$name")/rulesets" "$body" >/dev/null
+}
+
 cmd_unprotect() {
-  local name list id ruleset
+  local name list id rc saved_main saved_review deleted_main
   host_need_name
   name=$POS1
   if host_dry; then
@@ -370,20 +382,43 @@ cmd_unprotect() {
     return 0
   fi
   list=$(host_gh_all "$(host_repo "$name")/rulesets")
-  for ruleset in main rules-review; do
-    id=$(printf '%s' "$list" | jq -r --arg ruleset "$ruleset" '.[] | select(.name==$ruleset) | .id' | head -n 1)
-    if [ -n "$id" ]; then
-      host_gh_ok DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null
+  saved_main=$(host_mktemp)
+  saved_review=$(host_mktemp)
+  deleted_main=0
+  id=$(host_ruleset_id "$list" main)
+  if [ -n "$id" ]; then
+    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main"
+  fi
+  id=$(host_ruleset_id "$list" rules-review)
+  if [ -n "$id" ]; then
+    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review"
+  fi
+  id=$(host_ruleset_id "$list" main)
+  if [ -n "$id" ]; then
+    if host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
+      deleted_main=1
+    else
+      exit 3
     fi
-  done
+  fi
+  id=$(host_ruleset_id "$list" rules-review)
+  if [ -n "$id" ]; then
+    if ! host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
+      if [ "$deleted_main" -eq 1 ]; then
+        host_restore_ruleset "$name" "$saved_main" || true
+      fi
+      exit 3
+    fi
+  fi
   jq -nc --arg name "$name" '{ok:true, name:$name}'
 }
 
 cmd_secret_exists() {
-  local name rc
+  local name out err code
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
+  host_require_bin gh
   case "$POS1" in
     *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
   esac
@@ -392,15 +427,30 @@ cmd_secret_exists() {
     host_emit GET "/orgs/${OS_ORG}/actions/secrets/${name}"
     return 0
   fi
+  out=$(host_mktemp)
+  err=$(host_mktemp)
   set +e
-  host_gh_call GET "/orgs/${OS_ORG}/actions/secrets/${name}" >/dev/null
-  rc=$?
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
+  else
+    gh api --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
+  fi
+  code=$?
   set -e
-  case "$rc" in
-    0) jq -nc '{exists:true}' ;;
-    2) jq -nc '{exists:false}' ;;
-    *) exit "$rc" ;;
-  esac
+  if [ "$code" -eq 0 ]; then
+    jq -nc '{exists:true}'
+    return 0
+  fi
+  if grep -q 'HTTP 404' "$err"; then
+    jq -nc '{exists:false}'
+    return 0
+  fi
+  if grep -q 'HTTP 403' "$err"; then
+    host_scrub_file "$err" >&2
+    host_die 4 "cannot read org secrets: sign in as an org owner"
+  fi
+  host_scrub_file "$err" >&2
+  host_die 3 "host error"
 }
 
 cmd_team_create() {

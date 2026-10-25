@@ -77,4 +77,28 @@ git -C "$company" cat-file -e HEAD:memory/logs/2026-10-01-ada.md 2>/dev/null && 
 git -C "$company" show HEAD:.gitignore | grep -q '/memory/logs/' || team_fail "revert did not restore gitignore"
 git -C "$company" show HEAD:company-profile.md | grep -q '^level:' && team_fail "revert kept level"
 
+# No logs branch: still one merge commit, and revert -m 1 restores it.
+nologs="$work/nologs"
+mkdir -p "$nologs"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$nologs/"
+rm -rf "$work/template"
+git -C "$nologs" init -q
+git -C "$nologs" checkout -q -b main
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$nologs" add -A
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$nologs" commit -q -m "v0 no logs"
+"$upgrade" --root "$nologs" --template "$root/template" --level solo >"$work/nologs.out"
+grep -q 'upgrade: ok' "$work/nologs.out" || team_fail "no-logs upgrade failed"
+nparents=$(git -C "$nologs" rev-list --parents -n 1 HEAD | awk '{print NF}')
+[ "$nparents" -ge 3 ] || team_fail "no-logs upgrade is not a merge"
+oldn=$(git -C "$nologs" rev-parse 'HEAD^1')
+git -C "$nologs" revert -m 1 --no-edit HEAD >/dev/null
+git -C "$nologs" rev-parse HEAD:company-profile.md >/dev/null
+git -C "$nologs" show HEAD:company-profile.md | grep -q '^level:' && team_fail "no-logs revert kept level"
+[ "$(git -C "$nologs" rev-parse "HEAD:company-profile.md")" = "$(git -C "$nologs" rev-parse "$oldn:company-profile.md")" ] || team_fail "no-logs revert did not restore the profile"
+
 printf '%s\n' "PASS upgrade"

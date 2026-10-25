@@ -105,7 +105,26 @@ for area in $AREAS; do
   clone_one "$(os_area_repo "$SLUG" "$area")" "$ROOT/areas/$area"
 done
 
-clone_one "$(os_user_repo "$SLUG" "$ME")" "$ROOT/users/$ME"
+ws_name=$(os_user_repo "$SLUG" "$ME")
+ws_dest="$ROOT/users/$ME"
+if [ -e "$ws_dest/.git" ]; then
+  printf 'cloned: %s\n' "$ws_name"
+else
+  set +e
+  os_host repo-access "$ws_name" >/dev/null
+  ws_rc=$?
+  set -e
+  if [ "$ws_rc" -ne 0 ]; then
+    printf 'your workspace %s is not reachable: ask the admin\n' "$ws_name" >&2
+    exit 3
+  fi
+  mkdir -p "$(dirname "$ws_dest")"
+  if ! os_with_git_token git clone "$(os_clone_url "$HOST_KIND" "$HOST_URL" "$ORG" "$ws_name")" "$ws_dest"; then
+    printf 'your workspace %s is not reachable: ask the admin\n' "$ws_name" >&2
+    exit 3
+  fi
+  printf 'cloned: %s\n' "$ws_name"
+fi
 
 cfg=$(os_config_dir "$SLUG")
 mkdir -p "$cfg"

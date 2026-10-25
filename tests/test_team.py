@@ -35,6 +35,9 @@ class TeamScripts(unittest.TestCase):
     def test_upgrade(self):
         run_script("test_upgrade.sh")
 
+    def test_p1(self):
+        run_script("test_p1.sh")
+
     def test_forgejo(self):
         run_script("test_forgejo.sh")
 

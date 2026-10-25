@@ -370,13 +370,14 @@ cmd_protect() {
 }
 
 cmd_unprotect() {
-  local name page n rule
+  local name page n saved rule
   host_need_name
   name=$POS1
   if [ "${HOST_DRY_RUN:-}" = "1" ]; then
     host_emit_call DELETE "$(host_repo "$name")/branch_protections/main"
     return 0
   fi
+  saved=$(host_mktemp)
   page=1
   while true; do
     if ! fj_call GET "$(host_repo "$name")/branch_protections?limit=50&page=${page}"; then
@@ -385,19 +386,38 @@ cmd_unprotect() {
     if [ "$FJ_HTTP" = "404" ]; then
       break
     fi
-    fj_ok
+    case "$FJ_HTTP" in
+      200) ;;
+      *) fj_fail ;;
+    esac
+    printf '%s' "$FJ_BODY" | jq -c '.[] | select(.rule_name=="main")' | head -n 1 > "$saved"
+    if [ -s "$saved" ]; then
+      break
+    fi
     n=$(printf '%s' "$FJ_BODY" | jq 'if type == "array" then length else 0 end')
-    for rule in $(printf '%s' "$FJ_BODY" | jq -r '.[] | select(.rule_name=="main" or .branch_name=="main") | (.rule_name // .branch_name)'); do
-      [ -n "$rule" ] || continue
-      if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${rule}"; then
-        fj_offline
-      fi
-    done
     if [ "$n" -lt 50 ]; then
       break
     fi
     page=$((page + 1))
   done
+  if [ ! -s "$saved" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main", removed:false}'
+    return 0
+  fi
+  rule=main
+  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/${rule}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200|201|204) ;;
+    *)
+      fj_fail
+      ;;
+  esac
+  if ! fj_call GET "$(host_repo "$name")/branch_protections/${rule}" || [ "$FJ_HTTP" != "404" ]; then
+    fj_call POST "$(host_repo "$name")/branch_protections" "$(cat "$saved")" >/dev/null || true
+    host_die 3 "unprotect could not confirm the delete. The saved rule was sent back."
+  fi
   jq -nc --arg name "$name" '{ok:true, name:$name, branch:"main"}'
 }
 
@@ -420,7 +440,9 @@ cmd_secret_exists() {
   case "$FJ_HTTP" in
     200) jq -nc '{exists:true}' ;;
     404) jq -nc '{exists:false}' ;;
-    401) jq -nc '{error:"auth"}'; exit 4 ;;
+    401|403)
+      host_die 4 "cannot read org secrets: sign in as an org owner"
+      ;;
     *) fj_fail ;;
   esac
 }

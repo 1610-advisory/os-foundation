@@ -110,6 +110,10 @@ check_link() {
   target=$(readlink "$path")
   if [ "$target" != "$expected" ]; then
     finding "link: $path points to $target, not $expected"
+    return 0
+  fi
+  if ! (cd "$(dirname "$path")" && cd "$target") >/dev/null 2>&1; then
+    finding "link: $path target is missing"
   fi
 }
 

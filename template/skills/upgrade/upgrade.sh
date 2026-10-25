@@ -235,6 +235,15 @@ if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
 
+if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
+  os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
+fi
+if [ -e "$ROOT/memory/logs/.git" ]; then
+  if [ -n "$(git -C "$ROOT/memory/logs" status --porcelain)" ]; then
+    os_die 2 "memory/logs has uncommitted changes. Commit them on the logs branch, then run upgrade again."
+  fi
+fi
+
 if ! git filter-repo -h >/dev/null 2>&1; then
   os_die 3 "git filter-repo is not installed"
 fi
@@ -242,20 +251,16 @@ fi
 # Save logs, drop the worktree, tag the old tip.
 if [ "$V0_LOGS" -eq 1 ]; then
   if [ -d "$ROOT/memory/logs" ]; then
-    if [ -e "$ROOT/memory/logs/.git" ]; then
-      git -C "$ROOT/memory/logs" add -A
-      if ! git -C "$ROOT/memory/logs" diff --cached --quiet; then
-        os_git_commit "$ROOT/memory/logs" "Logs: save before upgrade"
-      fi
+    if ! git -C "$ROOT" worktree remove --force "$ROOT/memory/logs"; then
+      os_die 3 "could not remove the logs worktree. Upgrade stopped. The logs files are still in place."
     fi
-    git -C "$ROOT" worktree remove --force "$ROOT/memory/logs" 2>/dev/null || rm -rf "$ROOT/memory/logs"
   fi
   if ! git -C "$ROOT" rev-parse --verify "refs/tags/logs-archive-$(os_today)" >/dev/null 2>&1; then
     git -C "$ROOT" tag -a "logs-archive-$(os_today)" logs -m "Kept for 90 days. Delete this tag after 90 days."
   fi
 fi
 
-git -C "$ROOT" checkout -q -B upgrade/v1 main
+git -C "$ROOT" checkout -q -B upgrade/work main
 
 if [ "$V0_LOGS" -eq 1 ]; then
   tmp=$(mktemp -d)
@@ -300,8 +305,8 @@ os_fm_set "$ROOT/company-profile.md" os_version "$OS_VER"
 if [ -n "${HOST_KIND:-}" ]; then
   os_fm_set "$ROOT/company-profile.md" host "$HOST_KIND"
 fi
-if [ -n "${HOST_URL+x}" ] && [ -n "${ANSWERS:-}" ]; then
-  os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "${HOST_URL:-}")"
+if [ -n "${ANSWERS:-}" ] && val=$(os_answer host_url "$ANSWERS"); then
+  os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "$val")"
 fi
 if [ -n "${ORG:-}" ]; then
   os_fm_set "$ROOT/company-profile.md" org "$ORG"
@@ -345,19 +350,41 @@ if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
 fi
 
-git -C "$ROOT" add -A
-# Force-add logs files in case gitignore still matches.
-if [ -d "$ROOT/memory/logs" ]; then
-  git -C "$ROOT" add -f memory/logs || true
-fi
-if git -C "$ROOT" diff --cached --quiet; then
+stage_upgrade() {
+  local path
+  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md; do
+    if [ -e "$ROOT/$path" ]; then
+      git -C "$ROOT" add -- "$path"
+    fi
+  done
+  if [ -e "$ROOT/.agents" ] || [ -L "$ROOT/.agents/skills" ]; then
+    git -C "$ROOT" add -- .agents .claude
+  fi
+  if [ -d "$ROOT/skills" ]; then
+    git -C "$ROOT" add -- skills
+  fi
+  if [ -d "$ROOT/memory/logs" ]; then
+    git -C "$ROOT" add -f -- memory/logs
+  fi
+}
+stage_upgrade
+if git -C "$ROOT" diff --cached --quiet && [ "$V0_LOGS" -eq 0 ]; then
   os_die 3 "upgrade had nothing to commit"
 fi
+if ! git -C "$ROOT" diff --cached --quiet; then
+  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    git -C "$ROOT" commit -q -m "Upgrade to v1"
+fi
+git -C "$ROOT" checkout -q main
+git -C "$ROOT" checkout -q -B upgrade/v1 main
 GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
   GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-  git -C "$ROOT" commit -q -m "Upgrade to v1"
+  git -C "$ROOT" merge --no-ff --no-edit upgrade/work -m "Upgrade to v1"
 
 if [ -f "$ROOT/company-profile.md" ]; then
   HOST_KIND=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)

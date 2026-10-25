@@ -198,25 +198,58 @@ else
   printf '%s\n' "privacy: skills/privacy/privacy.sh is not here yet"
 fi
 
-# Commit on main only before the first push. After origin/main exists, main is protected.
-if ! os_origin_exists "$ROOT"; then
-  os_git_commit "$ROOT" "Team: turn on"
-fi
+rules_on_main() {
+  local dir=$1
+  git -C "$dir" cat-file -e origin/main:.github/CODEOWNERS 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null
+}
 
-(
-  cd "$ROOT" || exit 1
-  os_host create-repo "$COMPANY_REPO" --private --source "$ROOT" --push >/dev/null
-)
-printf 'repo: %s\n' "$COMPANY_REPO"
+repo_exists() {
+  local rc
+  set +e
+  os_host repo-access "$1" >/dev/null
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ]
+}
+
+# Rules files must be on main before protect. Never push to a protected main.
+commit_rules_before_protect() {
+  local dir=$1 msg=$2
+  if ! os_origin_exists "$dir"; then
+    os_git_commit "$dir" "$msg"
+    return 0
+  fi
+  os_with_git_token git -C "$dir" fetch origin
+  if rules_on_main "$dir"; then
+    return 0
+  fi
+  os_git_commit "$dir" "$msg"
+  if os_with_git_token git -C "$dir" push origin HEAD:main; then
+    return 0
+  fi
+  printf '%s\n' "main is protected and .github/CODEOWNERS or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
+  exit 2
+}
+
+push_new_repo() {
+  local name=$1 source=$2
+  if repo_exists "$name"; then
+    printf 'repo: %s\n' "$name"
+    return 0
+  fi
+  os_host create-repo "$name" --private --source "$source" --push >/dev/null
+  printf 'repo: %s\n' "$name"
+}
+
+commit_rules_before_protect "$ROOT" "Team: turn on"
+push_new_repo "$COMPANY_REPO" "$ROOT"
 
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
-  if ! os_origin_exists "$ROOT/areas/$area"; then
-    os_git_commit "$ROOT/areas/$area" "Team: area rules"
-  fi
-  os_host create-repo "$(os_area_repo "$SLUG" "$area")" --private --source "$ROOT/areas/$area" --push >/dev/null
-  printf 'repo: %s\n' "$(os_area_repo "$SLUG" "$area")"
+  commit_rules_before_protect "$ROOT/areas/$area" "Team: area rules"
+  push_new_repo "$(os_area_repo "$SLUG" "$area")" "$ROOT/areas/$area"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
@@ -231,8 +264,12 @@ while IFS= read -r slug; do
   if [ ! -d "$ws_dir/.git" ]; then
     os_write_workspace "$ws_dir" "$slug" "$name" "$SLUG" "$COMPANY_NAME" "$WS_TEMPLATE"
   fi
-  os_host create-repo "$(os_user_repo "$SLUG" "$slug")" --private --source "$ws_dir" --push >/dev/null
-  printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$slug")"
+  if repo_exists "$(os_user_repo "$SLUG" "$slug")"; then
+    printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$slug")"
+  else
+    os_host create-repo "$(os_user_repo "$SLUG" "$slug")" --private --source "$ws_dir" --push >/dev/null
+    printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$slug")"
+  fi
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF

@@ -146,23 +146,50 @@ fi
 
 URL=$(os_clone_url "$HOST_KIND" "$HOST_URL" "$ORG" "$REPO_NAME")
 WORK=$(mktemp -d)
+EXPR=""
+LEAK_PROTECT=0
 chmod 700 "$WORK"
+leak_cleanup() {
+  local status=$?
+  if [ "$LEAK_PROTECT" = "1" ]; then
+    if ! os_host protect "$REPO_NAME" --code-owners --approvals 0 >/dev/null; then
+      printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$REPO_NAME" "$REPO_NAME" >&2
+      status=3
+    fi
+    LEAK_PROTECT=0
+  fi
+  rm -rf "$WORK"
+  if [ -n "$EXPR" ]; then
+    rm -f "$EXPR"
+  fi
+  exit "$status"
+}
+trap leak_cleanup EXIT
 os_with_git_token git clone --quiet "$URL" "$WORK/repo"
-git -C "$WORK/repo" fetch --quiet origin '+refs/heads/*:refs/heads/*' || true
+if ! os_with_git_token git -C "$WORK/repo" fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'; then
+  printf '%s\n' "fetch failed. History was not rewritten." >&2
+  exit 3
+fi
+git -C "$WORK/repo" for-each-ref --format '%(refname:strip=3)' refs/remotes/origin | while IFS= read -r branch; do
+  [ -n "$branch" ] || continue
+  [ "$branch" = "HEAD" ] && continue
+  if ! git -C "$WORK/repo" show-ref --verify --quiet "refs/heads/${branch}"; then
+    git -C "$WORK/repo" branch "$branch" "origin/${branch}"
+  fi
+done
 
 if [ -n "$LEAK_PATH" ]; then
   git -C "$WORK/repo" filter-repo --invert-paths --path "$LEAK_PATH" --force
-  RULE_LABEL="path"
   TAG_MSG="path: $LEAK_PATH"
 else
   regex=$(rule_regex "$RULE" || true)
   [ -n "$regex" ] || os_die 2 "unknown pattern rule"
-  expr=$(mktemp)
-  chmod 600 "$expr"
-  printf 'regex:%s==>[removed]\n' "$regex" > "$expr"
-  git -C "$WORK/repo" filter-repo --replace-text "$expr" --force
-  rm -f "$expr"
-  RULE_LABEL="$RULE"
+  EXPR=$(mktemp)
+  chmod 600 "$EXPR"
+  printf 'regex:%s==>[removed]\n' "$regex" > "$EXPR"
+  git -C "$WORK/repo" filter-repo --replace-text "$EXPR" --force
+  rm -f "$EXPR"
+  EXPR=""
   TAG_MSG="rule: $RULE"
 fi
 
@@ -173,28 +200,19 @@ if [ -f "$cfg/me" ]; then
 fi
 [ -n "$ME" ] || ME="admin"
 mkdir -p "$WORK/repo/memory/logs"
-printf '%s\n' "- remove-leak: repo ${REPO_NAME} rule ${RULE_LABEL}" >> "$WORK/repo/memory/logs/$(os_today)-${ME}.md"
+if [ -n "$LEAK_PATH" ]; then
+  printf '%s\n' "- remove-leak: repo ${REPO_NAME} path: ${LEAK_PATH}" >> "$WORK/repo/memory/logs/$(os_today)-${ME}.md"
+else
+  printf '%s\n' "- remove-leak: repo ${REPO_NAME} rule: ${RULE}" >> "$WORK/repo/memory/logs/$(os_today)-${ME}.md"
+fi
 os_git_commit "$WORK/repo" "Audit: remove leak"
 
 git -C "$WORK/repo" remote add origin "$URL"
 
-set +e
 os_host unprotect "$REPO_NAME" >/dev/null
-unprotect_rc=$?
-set -e
-if [ "$unprotect_rc" -ne 0 ] && [ "$unprotect_rc" -ne 2 ]; then
-  printf '%s\n' "unprotect: host.sh has no unprotect verb yet" >&2
-fi
+LEAK_PROTECT=1
 
-set +e
 os_with_git_token git -C "$WORK/repo" push --force --all origin
-push_rc=$?
-set -e
-if [ "$push_rc" -ne 0 ]; then
-  printf '%s\n' "force-push failed. main is still protected. host.sh needs unprotect." >&2
-  rm -rf "$WORK"
-  exit 3
-fi
 os_with_git_token git -C "$WORK/repo" push --force --tags origin
 
 STAMP=$(os_stamp)
@@ -202,10 +220,19 @@ TAG="os-rewrite-${STAMP}"
 git -C "$WORK/repo" tag -a "$TAG" -m "$TAG_MSG"
 os_with_git_token git -C "$WORK/repo" push origin "$TAG"
 
-os_host protect "$REPO_NAME" --code-owners --approvals 0 >/dev/null || true
+if ! os_host protect "$REPO_NAME" --code-owners --approvals 0 >/dev/null; then
+  printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$REPO_NAME" "$REPO_NAME" >&2
+  LEAK_PROTECT=0
+  exit 3
+fi
+LEAK_PROTECT=0
 os_host purge-request "$REPO_NAME" >/dev/null || true
 
 printf '%s\n' "remove-leak: ok"
 printf 'tag: %s\n' "$TAG"
-printf 'rule: %s\n' "$RULE_LABEL"
-rm -rf "$WORK"
+if [ -n "$LEAK_PATH" ]; then
+  printf 'rule: path\n'
+  printf 'path: %s\n' "$LEAK_PATH"
+else
+  printf 'rule: %s\n' "$RULE"
+fi
