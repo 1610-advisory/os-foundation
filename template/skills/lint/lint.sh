@@ -210,10 +210,11 @@ if [ -d "$ROOT/areas" ]; then
   done
 fi
 
-# Placeholders outside skills/.
+# Placeholders outside skills/. Skip .github/: workflow files use ${{ }}.
 ph=$(mktemp)
 find "$ROOT" -type f \
   -not -path "$ROOT/skills/*" \
+  -not -path "$ROOT/.github/*" \
   -not -path "$ROOT/.git/*" \
   -not -path "$ROOT/areas/*/.git/*" \
   -not -path "$ROOT/users/*/.git/*" \

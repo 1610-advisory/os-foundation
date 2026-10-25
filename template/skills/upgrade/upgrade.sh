@@ -231,6 +231,16 @@ if [ "$V0_LOGS" -eq 1 ]; then
   printf '%s\n' "keep: 90 days"
 fi
 
+if [ -d "$TEMPLATE/.github/scripts/tools" ]; then
+  printf '%s\n' "change: .github/scripts/tools"
+  if [ -d "$ROOT/areas" ]; then
+    for area in "$ROOT"/areas/*; do
+      [ -d "$area" ] || continue
+      printf 'change: areas/%s/.github/scripts/tools\n' "$(basename "$area")"
+    done
+  fi
+fi
+
 if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
@@ -350,6 +360,24 @@ if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
 fi
 
+refresh_check_tools() {
+  local src area
+  src="$TEMPLATE/.github/scripts/tools"
+  [ -d "$src" ] || return 0
+  mkdir -p "$ROOT/.github/scripts"
+  rm -rf "$ROOT/.github/scripts/tools"
+  cp -R "$src" "$ROOT/.github/scripts/tools"
+  if [ -d "$ROOT/areas" ]; then
+    for area in "$ROOT"/areas/*; do
+      [ -d "$area" ] || continue
+      mkdir -p "$area/.github/scripts"
+      rm -rf "$area/.github/scripts/tools"
+      cp -R "$src" "$area/.github/scripts/tools"
+    done
+  fi
+}
+refresh_check_tools
+
 stage_upgrade() {
   local path
   for path in .gitignore company-profile.md AGENTS.md CLAUDE.md; do
@@ -362,6 +390,9 @@ stage_upgrade() {
   fi
   if [ -d "$ROOT/skills" ]; then
     git -C "$ROOT" add -- skills
+  fi
+  if [ -d "$ROOT/.github/scripts/tools" ]; then
+    git -C "$ROOT" add -- .github/scripts/tools
   fi
   if [ -d "$ROOT/memory/logs" ]; then
     git -C "$ROOT" add -f -- memory/logs

@@ -38,7 +38,7 @@ save_base_tools() {
   git ls-tree -r --name-only "$base_commit" > "$list"
   while IFS= read -r path; do
     case "$path" in
-      .github/scripts/*.sh|.github/review.conf|review-rules.md|skills/sync/secret-scan.sh|skills/lint/lint.sh|skills/_host/*.sh)
+      .github/scripts/*|.github/review.conf|review-rules.md)
         dest="${tools}/${path}"
         mkdir -p "$(dirname "$dest")"
         git show "${base_commit}:${path}" > "$dest"

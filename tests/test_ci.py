@@ -208,6 +208,61 @@ class ModelReviewTests(unittest.TestCase):
         self.assertIn("VERDICT: PASS", self.out.read_text(encoding="utf-8"))
 
 
+class ToolCopyTests(unittest.TestCase):
+    def test_secret_scan_copy_matches_source(self):
+        source = ROOT / "template" / "skills" / "sync" / "secret-scan.sh"
+        copy = ROOT / "template" / ".github" / "scripts" / "tools" / "secret-scan.sh"
+        self.assertEqual(source.read_bytes(), copy.read_bytes())
+
+    def test_lint_copy_includes_what_it_sources(self):
+        lint_src = ROOT / "template" / "skills" / "lint" / "lint.sh"
+        lint_copy = ROOT / "template" / ".github" / "scripts" / "tools" / "lint" / "lint.sh"
+        lib_src = ROOT / "template" / "skills" / "add-teammate" / "lib.sh"
+        lib_copy = ROOT / "template" / ".github" / "scripts" / "tools" / "add-teammate" / "lib.sh"
+        self.assertEqual(lint_src.read_bytes(), lint_copy.read_bytes())
+        self.assertEqual(lib_src.read_bytes(), lib_copy.read_bytes())
+
+    def test_copied_tools_run_from_an_empty_dir(self):
+        tools = ROOT / "template" / ".github" / "scripts" / "tools"
+        empty = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(empty, ignore_errors=True))
+        dest = empty / "tools"
+        __import__("shutil").copytree(tools, dest)
+        self.assertFalse((dest / "skills").exists())
+
+        def repo(kind):
+            path = empty / kind
+            path.mkdir()
+            (path / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+            (path / "note.txt").write_text("A note.\n", encoding="utf-8")
+            if kind == "company":
+                (path / "skills").mkdir()
+                (path / ".agents").mkdir()
+                (path / ".claude").mkdir()
+                (path / ".agents" / "skills").symlink_to("../skills")
+                (path / ".claude" / "skills").symlink_to("../skills")
+                (path / "company-profile.md").write_text(
+                    "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+                    encoding="utf-8",
+                )
+            return path
+
+        company = repo("company")
+        area = repo("area")
+        lint = dest / "lint.sh"
+        scan = dest / "secret-scan.sh"
+        company_lint = run(["bash", str(lint), "--ci", "--root", str(company)])
+        self.assertEqual(company_lint.returncode, 0, company_lint.stdout + company_lint.stderr)
+        self.assertNotIn("No such file", company_lint.stderr)
+        area_lint = run(["bash", str(lint), "--ci", "--root", str(area)])
+        self.assertEqual(area_lint.returncode, 0, area_lint.stdout + area_lint.stderr)
+        self.assertNotIn("No such file", area_lint.stderr)
+        clean = empty / "clean.txt"
+        clean.write_text("a note\n", encoding="utf-8")
+        scanned = run(["bash", str(scan), "--files", "--", str(clean)], env={"OS_SECRET_SCAN": "bundled"})
+        self.assertEqual(scanned.returncode, 0, scanned.stdout + scanned.stderr)
+
+
 class BaseRulesTests(unittest.TestCase):
     def test_review_rules_come_from_base(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")

@@ -183,6 +183,7 @@ while IFS= read -r area; do
     fi
     if [ -d "$ROOT/.github/scripts" ]; then
       mkdir -p "$ROOT/areas/$area/.github/scripts"
+      # Includes scripts/tools/, so the area check does not need skills/.
       cp -R "$ROOT/.github/scripts/." "$ROOT/areas/$area/.github/scripts/"
     fi
     if [ -f "$ROOT/.github/review.conf" ]; then

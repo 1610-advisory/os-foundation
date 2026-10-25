@@ -54,6 +54,7 @@ member="$(osf_acme_token_dir)/acme-member-a"
 lib=$(osf_acme_lib_dir)
 stamp="$(date +%s)-$$"
 repo="ci-checks-${stamp}"
+area_repo=""
 work=$(mktemp -d)
 log="$work/run.log"
 : > "$log"
@@ -81,7 +82,10 @@ cleanup() {
     export OS_TEST_MODE=1
     FORGEJO_TOKEN=$(tr -d '[:space:]' < "$admin")
     export FORGEJO_TOKEN
-    "$work/host/host.sh" delete-repo "$repo" --yes-test-only >>"$log" 2>&1 || true
+    for name in "$repo" ${area_repo:-}; do
+      [ -n "$name" ] || continue
+      "$work/host/host.sh" delete-repo "$name" --yes-test-only >>"$log" 2>&1 || true
+    done
   fi
   scrub_log "$log"
   rm -rf "$work"
@@ -102,16 +106,14 @@ cp "$host_src"/*.sh "$work/host/"
 chmod +x "$work/host/"*.sh
 
 src="$work/src"
-mkdir -p "$src/.github/workflows" "$src/.github/scripts" "$src/skills/sync" "$src/skills/lint" \
-  "$src/skills/_host" "$src/people"
+mkdir -p "$src/.github/workflows" "$src/.github/scripts" "$src/skills" "$src/.agents" "$src/.claude" "$src/people"
+printf '%s\n' 'Company skills live here.' > "$src/skills/README.md"
+ln -s ../skills "$src/.agents/skills"
+ln -s ../skills "$src/.claude/skills"
 cp "$root/template/.github/workflows/checks.yml" "$src/.github/workflows/checks.yml"
-cp "$root/template/.github/scripts/"*.sh "$src/.github/scripts/"
+cp -R "$root/template/.github/scripts/." "$src/.github/scripts/"
 cp "$root/template/review-rules.md" "$src/review-rules.md"
-cp "$here/fixtures/secret-scan.sh" "$src/skills/sync/secret-scan.sh"
-cp "$here/fixtures/lint.sh" "$src/skills/lint/lint.sh"
-cp "$work/host/"*.sh "$src/skills/_host/"
-chmod +x "$src/.github/scripts/"*.sh "$src/skills/sync/secret-scan.sh" "$src/skills/lint/lint.sh" \
-  "$src/skills/_host/"*.sh
+chmod +x "$src/.github/scripts/"*.sh "$src/.github/scripts/tools/"*.sh "$src/.github/scripts/tools/host/"*.sh
 cat > "$src/company-profile.md" << 'EOF'
 ---
 type: company-profile
@@ -355,7 +357,7 @@ fi
 
 # Planted secret.
 new_branch secret
-printf '%s\n' 'OSF_PLANTED_SECRET' > "$src/secret.txt"
+printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
 git -C "$src" add secret.txt
 git -C "$src" commit -q -m "add a file"
 push_branch "$member" secret
@@ -371,10 +373,10 @@ else
   fail "secret scan fails"
 fi
 
-# Lint failure.
+# Lint failure. The shipped lint fails when AGENTS.md is over 10000 characters.
 new_branch lint
-printf '%s\n' 'OSF_LINT_FAIL' > "$src/lint.txt"
-git -C "$src" add lint.txt
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text("x"*10001)' "$src/AGENTS.md"
+git -C "$src" add AGENTS.md
 git -C "$src" commit -q -m "mark lint"
 push_branch "$member" lint
 lint_pr=$(open_pr "$member" lint "Mark lint")
@@ -470,8 +472,10 @@ fi
 new_branch hijack
 printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/run-checks.sh"
 chmod +x "$src/.github/scripts/run-checks.sh"
-printf '%s\n' 'OSF_PLANTED_SECRET' > "$src/secret.txt"
-git -C "$src" add .github/scripts/run-checks.sh secret.txt
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/tools/secret-scan.sh"
+chmod +x "$src/.github/scripts/tools/secret-scan.sh"
+printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+git -C "$src" add .github/scripts/run-checks.sh .github/scripts/tools/secret-scan.sh secret.txt
 git -C "$src" commit -q -m "replace the check"
 push_branch "$member" hijack
 hijack_pr=$(open_pr "$member" hijack "Replace the check")
@@ -488,10 +492,10 @@ fi
 
 # P1: a head lint script that writes a marker is never run.
 new_branch lint-hijack
-printf '%s\n' '#!/bin/bash' 'echo OSF_LINT_RAN' 'exit 0' > "$src/skills/lint/lint.sh"
-chmod +x "$src/skills/lint/lint.sh"
-printf '%s\n' 'OSF_LINT_FAIL' > "$src/lint.txt"
-git -C "$src" add skills/lint/lint.sh lint.txt
+printf '%s\n' '#!/bin/bash' 'echo OSF_LINT_RAN' 'exit 0' > "$src/.github/scripts/tools/lint.sh"
+chmod +x "$src/.github/scripts/tools/lint.sh"
+python3 -c 'import pathlib,sys; pathlib.Path(sys.argv[1]).write_text("x"*10001)' "$src/AGENTS.md"
+git -C "$src" add .github/scripts/tools/lint.sh AGENTS.md
 git -C "$src" commit -q -m "replace lint"
 push_branch "$member" lint-hijack
 lint_hijack_pr=$(open_pr "$member" lint-hijack "Replace lint")
@@ -585,6 +589,77 @@ else
     fail "rules merges after approval"
   fi
 fi
+
+# Area-shaped repo: no skills/ directory. The check tools live under .github/scripts/tools/.
+area_repo="ci-area-${stamp}"
+src="$work/area"
+repo="$area_repo"
+mkdir -p "$src/.github/workflows" "$src/.github/scripts"
+cp "$root/template/.github/workflows/checks.yml" "$src/.github/workflows/checks.yml"
+cp -R "$root/template/.github/scripts/." "$src/.github/scripts/"
+cp "$root/template/review-rules.md" "$src/review-rules.md"
+chmod +x "$src/.github/scripts/"*.sh "$src/.github/scripts/tools/"*.sh "$src/.github/scripts/tools/host/"*.sh
+printf '%s\n' '# Area' > "$src/AGENTS.md"
+printf '%s\n' 'A note.' > "$src/note.txt"
+printf '%s\n' '.*AGENTS\.md @acme-admin' > "$src/CODEOWNERS"
+git -C "$src" init -q -b main
+git -C "$src" config user.email ada.admin@acme.test
+git -C "$src" config user.name "Ada Admin"
+git -C "$src" add .
+git -C "$src" commit -q -m "init"
+if ! "$work/host/host.sh" create-repo "$area_repo" --source "$src" --push >>"$log" 2>&1; then
+  fail "area create repo"
+else
+  "$work/host/host.sh" grant "$area_repo" acme-member-a write >>"$log" 2>&1
+  "$work/host/host.sh" protect "$area_repo" --code-owners --approvals 0 >>"$log" 2>&1
+  new_branch area-note
+  printf '%s\n' 'A longer note.' >> "$src/note.txt"
+  git -C "$src" add note.txt
+  git -C "$src" commit -q -m "extend the note"
+  push_branch "$admin" area-note
+  area_pr=$(open_pr "$admin" area-note "Area note")
+  area_sha=$(pr_sha "$area_pr")
+  if wait_sha "$area_pr" "$area_sha"; then
+    pass "area clean"
+  else
+    fail "area clean"
+  fi
+  new_branch area-secret
+  printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+  git -C "$src" add secret.txt
+  git -C "$src" commit -q -m "add a file"
+  push_branch "$member" area-secret
+  area_sec=$(open_pr "$member" area-secret "Area secret")
+  area_sec_sha=$(pr_sha "$area_sec")
+  set +e
+  wait_sha "$area_sec" "$area_sec_sha"
+  area_sec_rc=$?
+  set -e
+  if [ "$area_sec_rc" -eq 2 ]; then
+    pass "area secret fails"
+  else
+    fail "area secret fails"
+  fi
+  new_branch area-hijack
+  printf '%s\n' '#!/bin/bash' 'exit 0' > "$src/.github/scripts/tools/secret-scan.sh"
+  chmod +x "$src/.github/scripts/tools/secret-scan.sh"
+  printf '%s%s %s%s\n' '-----BE' 'GIN' 'PRIVATE' ' KEY' > "$src/secret.txt"
+  git -C "$src" add .github/scripts/tools/secret-scan.sh secret.txt
+  git -C "$src" commit -q -m "replace the scanner"
+  push_branch "$member" area-hijack
+  area_hijack_pr=$(open_pr "$member" area-hijack "Replace the scanner")
+  area_hijack_sha=$(pr_sha "$area_hijack_pr")
+  set +e
+  wait_sha "$area_hijack_pr" "$area_hijack_sha"
+  area_hijack_rc=$?
+  set -e
+  if [ "$area_hijack_rc" -eq 2 ]; then
+    pass "area head tools ignored"
+  else
+    fail "area head tools ignored"
+  fi
+fi
+repo="ci-checks-${stamp}"
 
 # One job duration, for the billed-minute estimate.
 osf_api "$admin" GET "/api/v1/repos/acme/${repo}/actions/runs?limit=20"
