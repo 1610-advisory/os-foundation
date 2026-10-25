@@ -14,7 +14,7 @@ skills/sync/sync.sh <command> [flags]
 |---|---|
 | `pull` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. On failure, leave that repo's working copy unchanged and write one line to the log. |
 | `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. |
-| `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. The nightly push never does this. |
+| `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. |
 | `status` | Print held files and the last error. The next session reads this. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
 | `uninstall-jobs` | Remove the job files this script wrote. |

@@ -525,27 +525,20 @@ cmd_push() {
   return "$rc"
 }
 
-cmd_propose() {
-  local topic=$1
-  shift
-  local me files path name number tmp author aname email msgfile
-  sync_lock
-  sync_identity || return 1
-  sync_safe_slug "$topic" || sync_die 1 "topic is not a plain name"
-  me=$(sync_me)
-  [ $# -ge 1 ] || sync_die 1 "propose needs at least one file"
-  files=$(sync_mktemp)
-  for path in "$@"; do
-    [ -f "$SYNC_ROOT/$path" ] || sync_die 1 "file not found: ${path}"
-    printf '%s\n' "$path" >> "$files"
-  done
-  set +e
+# List lines are repo-relative path, tab, the path the person gave.
+sync_propose_repo() {
+  local repo=$1
+  local topic=$2
+  local me=$3
+  local list=$4
+  local rel userpath tmp name number rc author aname email msgfile
   set --
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    set -- "$@" "$path"
-  done < "$files"
-  (cd "$SYNC_ROOT" && "$SYNC_DIR/secret-scan.sh" --files -- "$@") >/dev/null
+  while IFS=$(printf '\t') read -r rel userpath; do
+    [ -n "$rel" ] || continue
+    set -- "$@" "$SYNC_ROOT/$userpath"
+  done < "$list"
+  set +e
+  "$SYNC_DIR/secret-scan.sh" --files -- "$@" >/dev/null
   rc=$?
   set -e
   if [ "$rc" -eq 1 ]; then
@@ -554,38 +547,116 @@ cmd_propose() {
   if [ "$rc" -ne 0 ]; then
     sync_die 2 "propose refused: secret scan error"
   fi
-  if ! sync_git "$SYNC_ROOT" fetch origin >/dev/null 2>&1; then
+  if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
     sync_log "propose fail could not reach origin"
     return 2
   fi
   tmp=$(mktemp -d)
   chmod 700 "$tmp"
-  git -C "$SYNC_ROOT" worktree add --detach "$tmp" origin/main >/dev/null
-  while IFS= read -r path; do
-    mkdir -p "$tmp/$(dirname "$path")"
-    cp "$SYNC_ROOT/$path" "$tmp/$path"
-  done < "$files"
-  git -C "$tmp" add -A
+  if ! git -C "$repo" worktree add --detach "$tmp" origin/main >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    sync_log "propose fail could not reach origin"
+    return 2
+  fi
+  while IFS=$(printf '\t') read -r rel userpath; do
+    [ -n "$rel" ] || continue
+    mkdir -p "$tmp/$(dirname "$rel")"
+    if ! cp "$SYNC_ROOT/$userpath" "$tmp/$rel"; then
+      git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+      sync_die 1 "nothing to propose: ${userpath}"
+    fi
+    git -C "$tmp" add -- "$rel"
+    if git -C "$tmp" diff --cached --quiet -- "$rel"; then
+      git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+      sync_die 1 "nothing to propose: ${userpath}"
+    fi
+  done < "$list"
   author=$(sync_commit_author)
   aname=$(printf '%s\n' "$author" | head -n 1)
   email=$(printf '%s\n' "$author" | tail -n 1)
   msgfile=$(sync_mktemp)
   printf '%s\n' "propose ${topic}" > "$msgfile"
-  git -C "$tmp" -c user.name="$aname" -c user.email="$email" -c commit.gpgsign=false \
-    commit -F "$msgfile" >/dev/null
+  if ! git -C "$tmp" -c user.name="$aname" -c user.email="$email" -c commit.gpgsign=false \
+      commit -F "$msgfile" >/dev/null 2>&1; then
+    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+    sync_log "propose fail commit"
+    return 2
+  fi
   if ! sync_push_ref "$tmp" "refs/heads/rules/${me}/${topic}" 1; then
-    git -C "$SYNC_ROOT" worktree remove --force "$tmp" >/dev/null 2>&1 || true
+    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true
     sync_log "propose fail could not reach origin"
     return 2
   fi
-  git -C "$SYNC_ROOT" worktree remove --force "$tmp" >/dev/null 2>&1 || true
-  name=$(sync_remote_name "$SYNC_ROOT") || return 2
+  git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || true
+  name=$(sync_remote_name "$repo") || return 2
   number=$(sync_open_pr "$name" "rules/${me}/${topic}" "rules: ${topic}" | jq -r '.number // empty')
-  [ -n "$number" ] || {
+  if [ -z "$number" ]; then
     sync_log "propose fail could not open a pull request"
     return 2
-  }
-  "$HOST_SH" auto-merge "$name" "$number" >/dev/null || true
-  sync_log "propose ok ${topic} ${number}"
+  fi
+  "$HOST_SH" auto-merge "$name" "$number" >/dev/null 2>&1 || true
+  sync_log "propose ok ${name} ${topic} ${number}"
   printf '%s\n' "$number"
+}
+
+cmd_propose() {
+  local topic=$1
+  shift
+  local me path area rest company_list areas_list area_list
+  sync_lock
+  sync_identity || return 1
+  sync_safe_slug "$topic" || sync_die 1 "topic is not a plain name"
+  me=$(sync_me)
+  [ $# -ge 1 ] || sync_die 1 "propose needs at least one file"
+  [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
+  for path in "$@"; do
+    path=${path#./}
+    case "$path" in
+      users|users/*)
+        printf '%s\n' "propose refused: users paths stay in the workspace" >&2
+        return 1
+        ;;
+    esac
+    [ -f "$SYNC_ROOT/$path" ] || sync_die 1 "file not found: ${path}"
+  done
+  company_list=$(sync_mktemp)
+  areas_list=$(sync_mktemp)
+  : > "$company_list"
+  : > "$areas_list"
+  for path in "$@"; do
+    path=${path#./}
+    case "$path" in
+      areas/*/*)
+        area=${path#areas/}
+        area=${area%%/*}
+        printf '%s\n' "$area" >> "$areas_list"
+        ;;
+      areas|areas/*)
+        sync_die 1 "nothing to propose: ${path}"
+        ;;
+      *)
+        printf '%s\t%s\n' "$path" "$path" >> "$company_list"
+        ;;
+    esac
+  done
+  sort -u "$areas_list" -o "$areas_list"
+  if [ -s "$company_list" ]; then
+    sync_propose_repo "$SYNC_ROOT" "$topic" "$me" "$company_list" || return $?
+  fi
+  while IFS= read -r area; do
+    [ -n "$area" ] || continue
+    [ -e "$SYNC_ROOT/areas/$area/.git" ] || sync_die 1 "area repo is missing: ${area}"
+    area_list=$(sync_mktemp)
+    : > "$area_list"
+    for path in "$@"; do
+      path=${path#./}
+      case "$path" in
+        areas/"$area"/*)
+          rest=${path#areas/"$area"/}
+          printf '%s\t%s\n' "$rest" "$path" >> "$area_list"
+          ;;
+      esac
+    done
+    sync_propose_repo "$SYNC_ROOT/areas/$area" "$topic" "$me" "$area_list" || return $?
+  done < "$areas_list"
 }

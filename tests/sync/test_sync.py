@@ -808,5 +808,105 @@ class SyncForgejoTests(unittest.TestCase):
         self.assertIn("PASS forgejo", text)
 
 
+class ProposeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-propose-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
+        )
+        (self.company / ".gitignore").write_text("areas/\nusers/\n")
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        self.host = self.tmp / "host"
+        fake_host(self.host)
+        self.env = base_env(self.home, self.company, self.host)
+        self.env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+        self.company_bare = self.tmp / "company.git"
+        self.area_bare = self.tmp / "area.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(self.company_bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "--bare", "-b", "main", str(self.area_bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(self.company)], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "remote", "add", "origin", str(self.company_bare)], env=self.env, check=True)
+        (self.company / "AGENTS.md").write_text("# rules\n")
+        (self.company / "README.md").write_text("seed\n")
+        run(["git", "-C", str(self.company), "add", "AGENTS.md", "README.md", ".gitignore", "company-profile.md", "people"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        self.area = self.company / "areas" / "shop"
+        self.area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(self.area)], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "remote", "add", "origin", str(self.area_bare)], env=self.env, check=True)
+        (self.area / "AGENTS.md").write_text("# area rules\n")
+        run(["git", "-C", str(self.area), "add", "AGENTS.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def propose(self, *args):
+        return run(["bash", str(SYNC / "sync.sh"), "propose", *args], env=self.env, cwd=self.company)
+
+    def branch_file(self, bare, path):
+        return run(
+            ["git", "--git-dir", str(bare), "show", f"refs/heads/rules/mia/topic:{path}"],
+            env=self.env,
+        )
+
+    def test_company_path(self):
+        (self.company / "AGENTS.md").write_text("# changed company rules\n")
+        result = self.propose("topic", "AGENTS.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.strip(), "1")
+        shown = self.branch_file(self.company_bare, "AGENTS.md")
+        self.assertIn("changed company rules", shown.stdout)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("propose ok", log)
+
+    def test_area_path(self):
+        (self.area / "AGENTS.md").write_text("# changed area rules\n")
+        result = self.propose("topic", "areas/shop/AGENTS.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        shown = self.branch_file(self.area_bare, "AGENTS.md")
+        self.assertIn("changed area rules", shown.stdout)
+        company = self.branch_file(self.company_bare, "AGENTS.md")
+        self.assertNotEqual(company.returncode, 0)
+
+    def test_company_and_area_open_two_pull_requests(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "skills").mkdir()
+        (self.area / "skills" / "SKILL.md").write_text("# area skill\n")
+        result = self.propose("topic", "AGENTS.md", "areas/shop/skills/SKILL.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        numbers = [line for line in result.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(numbers), 2)
+        self.assertIn("company change", self.branch_file(self.company_bare, "AGENTS.md").stdout)
+        self.assertIn("area skill", self.branch_file(self.area_bare, "skills/SKILL.md").stdout)
+
+    def test_users_path_is_refused(self):
+        user = self.company / "users" / "mia"
+        user.mkdir(parents=True)
+        (user / "note.md").write_text("draft\n")
+        result = self.propose("topic", "users/mia/note.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("users paths stay in the workspace", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_nothing_staged(self):
+        result = self.propose("topic", "AGENTS.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("nothing to propose: AGENTS.md", result.stderr)
+        heads = run(["git", "--git-dir", str(self.company_bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
