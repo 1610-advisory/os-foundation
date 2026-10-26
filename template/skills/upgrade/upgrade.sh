@@ -5,6 +5,8 @@ set -euo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/../add-teammate/lib.sh"
+# shellcheck disable=SC1091
+. "$DIR/rules.sh"
 
 usage() {
   cat << 'EOF'
@@ -209,14 +211,12 @@ printf '%s\n' "change: level-block"
 if [ "$V0_LOGS" -eq 1 ]; then
   printf '%s\n' "change: logs-history"
 fi
+# Rules merge replaces the old stock-hash copy. A v1 file is left alone.
+rules_plan_company 0
+rules_maybe_attrs "$ROOT" "" 0 ""
 if [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; then
-  agents_hash=$(awk '$2 == "AGENTS.md" { print $1 }' "$HASHES")
-  if [ -n "$agents_hash" ] && [ -f "$ROOT/AGENTS.md" ] && [ "$(os_sha "$ROOT/AGENTS.md")" = "$agents_hash" ]; then
+  if [ -f "$ROOT/AGENTS.md" ]; then
     printf '%s\n' "change: tier-table"
-  elif [ -f "$ROOT/AGENTS.md" ] && grep -q 'Approval tiers' "$ROOT/AGENTS.md"; then
-    printf '%s\n' "change: tier-table"
-  else
-    printf '%s\n' "conflict: AGENTS.md"
   fi
 fi
 
@@ -287,6 +287,7 @@ plan_area_scripts() {
       files=".github/scripts review-rules.md"
     fi
     printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
+    rules_one_area "$area" 0
   done
 }
 plan_area_scripts
@@ -321,6 +322,14 @@ if [ "$V0_LOGS" -eq 1 ]; then
 fi
 
 git -C "$ROOT" checkout -q -B upgrade/work main
+
+# Rules merge is its own commit, first in the one upgrade pull request.
+rules_plan_company 1
+rules_maybe_attrs "$ROOT" "" 1 ""
+rules_stage_rules "$ROOT"
+if ! git -C "$ROOT" diff --cached --quiet; then
+  rules_commit_msg "$ROOT" "Upgrade: rules merge"
+fi
 
 if [ "$V0_LOGS" -eq 1 ]; then
   tmp=$(mktemp -d)
@@ -378,19 +387,6 @@ if [ -n "${RUNNER:-}" ]; then
   os_fm_set "$ROOT/company-profile.md" runner "$RUNNER"
 fi
 
-agents_hash=$(awk '$2 == "AGENTS.md" { print $1 }' "$HASHES")
-if [ -n "$agents_hash" ] && [ -f "$ROOT/AGENTS.md" ] && [ "$(os_sha "$ROOT/AGENTS.md")" = "$agents_hash" ]; then
-  if [ -f "$TEMPLATE/AGENTS.md" ]; then
-    cp "$TEMPLATE/AGENTS.md" "$ROOT/AGENTS.md"
-  fi
-fi
-claude_hash=$(awk '$2 == "CLAUDE.md" { print $1 }' "$HASHES")
-if [ -n "$claude_hash" ] && [ -f "$ROOT/CLAUDE.md" ] && [ "$(os_sha "$ROOT/CLAUDE.md")" = "$claude_hash" ]; then
-  if [ -f "$TEMPLATE/CLAUDE.md" ]; then
-    cp "$TEMPLATE/CLAUDE.md" "$ROOT/CLAUDE.md"
-  fi
-fi
-
 apply_skills
 if [ "$LOGS_FOLDER_SAME" -eq 1 ]; then
   rm -rf "$ROOT/skills/logs-folder"
@@ -443,6 +439,11 @@ push_area_scripts() {
       os_die 3 "could not fetch ${repo}"
     fi
     git -C "$area" checkout -q -f -B "$branch" origin/main
+    rules_one_area "$area" 1
+    rules_stage_rules "$area"
+    if ! git -C "$area" diff --cached --quiet; then
+      rules_commit_msg "$area" "Upgrade: rules merge"
+    fi
     mkdir -p "$area/.github"
     rm -rf "$area/.github/scripts"
     cp -R "$src" "$area/.github/scripts"
@@ -459,19 +460,24 @@ push_area_scripts() {
       fi
     fi
     git -C "$area" add -- .github/scripts
-    if git -C "$area" diff --cached --quiet; then
+    if ! git -C "$area" diff --cached --quiet; then
+      GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+        GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+        GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+        GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+        git -C "$area" commit -q -m "Upgrade: check scripts"
+    fi
+    if git -C "$area" diff --quiet origin/main..HEAD; then
       printf 'pr-plan: %s nothing to commit\n' "$repo"
       continue
     fi
-    GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
-      GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-      GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
-      GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-      git -C "$area" commit -q -m "Upgrade: check scripts"
     if ! os_with_git_token git -C "$area" push origin "HEAD:${branch}"; then
       os_die 3 "could not push ${branch} for ${repo}"
     fi
-    pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts")
+    area_body=$(mktemp)
+    rules_pr_body "$area" origin/main "$area_body"
+    pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts" --body-file "$area_body")
+    rm -f "$area_body"
     number=$(printf '%s' "$pr" | jq -r '.number // empty')
     if [ -z "$number" ]; then
       os_die 3 "could not open a pull request for ${repo}"
@@ -483,7 +489,7 @@ push_area_scripts() {
 
 stage_upgrade() {
   local path
-  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md; do
+  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md .gitattributes; do
     if [ -e "$ROOT/$path" ]; then
       git -C "$ROOT" add -- "$path"
     fi
@@ -503,7 +509,9 @@ stage_upgrade() {
 }
 stage_upgrade
 if git -C "$ROOT" diff --cached --quiet && [ "$V0_LOGS" -eq 0 ]; then
-  os_die 3 "upgrade had nothing to commit"
+  if ! git -C "$ROOT" log --format='%s' main..HEAD | grep -qx 'Upgrade: rules merge'; then
+    os_die 3 "upgrade had nothing to commit"
+  fi
 fi
 if ! git -C "$ROOT" diff --cached --quiet; then
   GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
@@ -512,6 +520,8 @@ if ! git -C "$ROOT" diff --cached --quiet; then
     GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
     git -C "$ROOT" commit -q -m "Upgrade to v1"
 fi
+pr_body=$(mktemp)
+rules_pr_body "$ROOT" main "$pr_body"
 git -C "$ROOT" checkout -q main
 git -C "$ROOT" checkout -q -B upgrade/v1 main
 GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
@@ -532,12 +542,28 @@ if [ "$HOST_KIND" = "github" ] || [ "$HOST_KIND" = "forgejo" ]; then
     export OS_PROFILE="$ROOT/company-profile.md"
     push_area_scripts
     os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
-    pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1")
+    pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
     number=$(printf '%s' "$pr" | jq -r '.number // empty')
     if [ -n "$number" ]; then
       printf 'pr: %s\n' "$number"
     fi
   fi
+elif [ -d "$ROOT/areas" ]; then
+  # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    if [ -n "$(git -C "$area" status --porcelain)" ]; then
+      os_die 2 "an area folder has uncommitted changes. Commit them, then run upgrade again."
+    fi
+    git -C "$area" checkout -q -B upgrade/scripts
+    rules_one_area "$area" 1
+    rules_stage_rules "$area"
+    if ! git -C "$area" diff --cached --quiet; then
+      rules_commit_msg "$area" "Upgrade: rules merge"
+    fi
+  done
 fi
+rm -f "$pr_body"
 
 printf '%s\n' "upgrade: ok"
