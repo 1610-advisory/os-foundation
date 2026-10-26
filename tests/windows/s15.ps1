@@ -343,6 +343,19 @@ esac
   Write-Output ("NOTE steady-pull {0}" -f $steadySecs)
   if ($steadyCode -eq 0 -and $steadySecs -le 60) { Pass 'steady-pull' } else { Fail 'steady-pull' "$steadySecs" }
 
+  $savedRefresh = $env:OS_SYNC_NO_COPY_REFRESH
+  $env:OS_SYNC_NO_COPY_REFRESH = '1'
+  $swBase = [Diagnostics.Stopwatch]::StartNew()
+  Invoke-Sync @('pull') | Out-Null
+  $swBase.Stop()
+  if ($null -eq $savedRefresh) {
+    Remove-Item Env:OS_SYNC_NO_COPY_REFRESH -ErrorAction SilentlyContinue
+  } else {
+    $env:OS_SYNC_NO_COPY_REFRESH = $savedRefresh
+  }
+  $baseSecs = [math]::Round($swBase.Elapsed.TotalSeconds, 1)
+  Write-Output ("NOTE steady-pull-baseline {0}" -f $baseSecs)
+
   $newArea = Join-Path $script:work 'new-area'
   Copy-Tree (Join-Path $repo 'template\skills\add-area\templates\_area') $newArea
   $areaScript = Join-Path $script:work 'new-area.sh'

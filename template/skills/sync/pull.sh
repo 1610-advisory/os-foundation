@@ -320,13 +320,63 @@ sync_reclone() {
   sync_log "pull reclone ${id} ${tag}"
 }
 
+sync_pull_mark() {
+  SYNC_PULL_DONE="${SYNC_PULL_DONE:-}|$1|"
+}
+
+sync_pull_seen() {
+  case "${SYNC_PULL_DONE:-}" in
+    *"|$1|"*) return 0 ;;
+  esac
+  return 1
+}
+
+# OS_SYNC_NO_COPY_REFRESH=1 skips the fold. The timing check uses it.
+sync_pull_refresh_one() {
+  local repo=$1
+  if [ "${OS_SYNC_NO_COPY_REFRESH:-}" = "1" ]; then
+    return 0
+  fi
+  sync_materialize_repo "$repo"
+}
+
+# Repos sync_pull_one skipped (no origin) still get one pass.
+sync_materialize_undone() {
+  local root=$1
+  local area
+  if [ "${OS_SYNC_NO_COPY_REFRESH:-}" = "1" ]; then
+    return 0
+  fi
+  if [ -d "$root" ] && ! sync_pull_seen "$root"; then
+    sync_materialize_repo "$root"
+  fi
+  if [ -d "$root/areas" ]; then
+    for area in "$root"/areas/*; do
+      [ -d "$area" ] || continue
+      if ! sync_pull_seen "$area"; then
+        sync_materialize_repo "$area"
+      fi
+    done
+  fi
+}
+
 sync_pull_one() {
   local repo=$1
   local id=$2
-  local save tag old link_save
+  local rc=0
   if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
     return 0
   fi
+  sync_pull_fetched "$repo" "$id" || rc=$?
+  sync_pull_refresh_one "$repo"
+  sync_pull_mark "$repo"
+  return "$rc"
+}
+
+sync_pull_fetched() {
+  local repo=$1
+  local id=$2
+  local save tag old link_save
   if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
     sync_log "pull fail ${id} could not reach origin"
     return 1
@@ -348,6 +398,7 @@ sync_pull_one() {
       git -C "$repo" checkout -q HEAD -- .agents/skills .claude/skills 2>/dev/null || true
       sync_put_back_stashed_links "$repo" "$link_save"
       rm -rf "$link_save"
+      rm -f "${link_save}.has"
       sync_log "pull fail ${id} not fast-forward"
       return 1
     fi
@@ -355,7 +406,9 @@ sync_pull_one() {
     if [ "$old" != "$(git -C "$repo" rev-parse HEAD)" ]; then
       sync_log "pull ok ${id}"
     fi
-    sync_refresh_after_pull "$repo" "$old"
+    if [ -f "${link_save}.has" ]; then
+      sync_replace_plain_link_files "$repo"
+    fi
     sync_finish_stashed_links "$repo" "$link_save"
     return 0
   fi
@@ -390,7 +443,9 @@ sync_each() {
 cmd_pull() {
   sync_lock
   local rc=0
+  SYNC_PULL_DONE='|'
   sync_each sync_pull_one || rc=1
-  sync_materialize_links "$SYNC_ROOT" 0
+  sync_materialize_undone "$SYNC_ROOT"
+  SYNC_PULL_DONE='|'
   return "$rc"
 }

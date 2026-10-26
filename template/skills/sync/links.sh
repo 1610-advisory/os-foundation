@@ -249,10 +249,15 @@ sync_hash_rels() {
     printf '%s\n' "$root/$f"
   done < "$rels" > "$abs"
   # git does not rewrite paths it reads on stdin. On Windows those must be
-  # drive paths, or hash-object looks for /d/... and fails.
-  if sync_is_windows && command -v cygpath >/dev/null 2>&1; then
+  # drive paths, or hash-object looks for /d/... and fails. An empty list
+  # must not start cygpath.
+  if [ -s "$abs" ] && sync_is_windows && command -v cygpath >/dev/null 2>&1; then
     cygpath -m -f "$abs" > "$abs.win"
     mv "$abs.win" "$abs"
+  fi
+  if [ ! -s "$abs" ]; then
+    rm -f "$abs"
+    return 0
   fi
   git -C "$repo" hash-object --stdin-paths < "$abs" | paste - "$rels" > "$out"
   rm -f "$abs"
@@ -289,7 +294,7 @@ sync_link_sync_files() {
   local rel=$2
   local target=$3
   local dest man man_in copy_rels skills_rels copy_hash skills_hash
-  local actions newman oldnorm verb f hash flag
+  local actions newman verb f hash flag changed=0
   dest="$repo/$rel"
   man=$(sync_copy_manifest_path "$repo" "$rel")
   mkdir -p "$(dirname "$man")"
@@ -297,9 +302,8 @@ sync_link_sync_files() {
   skills_rels=$(mktemp)
   copy_hash=$(mktemp)
   skills_hash=$(mktemp)
-  actions=$(mktemp)
-  newman=$(mktemp)
-  oldnorm=$(mktemp)
+  newman="${man}.new"
+  rm -f "$newman"
   sync_copy_list "$dest" "$copy_rels"
   sync_copy_list "$target" "$skills_rels"
   sync_hash_rels "$repo" "$dest" "$copy_rels" "$copy_hash"
@@ -307,13 +311,14 @@ sync_link_sync_files() {
   if [ -f "$man" ]; then
     man_in=$man
   else
-    man_in=$(mktemp)
+    man_in=/dev/null
   fi
-  awk -F '\t' -v cf="$copy_hash" -v sf="$skills_hash" -v mf="$man_in" -v manout="$newman" '
+  actions=$(awk -F '\t' -v cf="$copy_hash" -v sf="$skills_hash" -v mf="$man_in" -v manout="$newman" '
     FILENAME == cf { c[$2] = $1; keys[$2] = 1; next }
     FILENAME == sf { s[$2] = $1; keys[$2] = 1; next }
     FILENAME == mf { if (NF >= 2) { m[$2] = $1; keys[$2] = 1 } next }
     END {
+      nkeep = 0
       for (k in keys) {
         ch = (k in c) ? c[k] : ""
         sh = (k in s) ? s[k] : ""
@@ -353,34 +358,42 @@ sync_link_sync_files() {
             keep = mh
           }
         }
-        if (keep != "") print keep "\t" k > manout
+        if (keep != "") {
+          want[k] = keep
+          nkeep++
+        }
+      }
+      changed = 0
+      for (k in want) {
+        if (!(k in m) || m[k] != want[k]) changed = 1
+      }
+      for (k in m) {
+        if (!(k in want)) changed = 1
+      }
+      if (changed) {
+        if (nkeep == 0) printf "" > manout
+        for (k in want) print want[k] "\t" k > manout
       }
     }
-  ' "$copy_hash" "$skills_hash" "$man_in" > "$actions"
-  if [ -s "$actions" ]; then
-    while IFS=$(printf '\t') read -r verb f hash; do
+  ' "$copy_hash" "$skills_hash" "$man_in") || return 1
+  if [ -n "$actions" ]; then
+    printf '%s\n' "$actions" | while IFS=$(printf '\t') read -r verb f hash; do
       [ -n "$verb" ] || continue
       sync_link_apply "$repo" "$rel" "$target" "$dest" "$verb" "$f"
-    done < "$actions"
+    done
   fi
-  if [ -f "$man" ]; then
-    sort -t "$(printf '\t')" -k2,2 "$man" > "$oldnorm"
-  fi
-  if [ -s "$newman" ]; then
-    sort -t "$(printf '\t')" -k2,2 "$newman" -o "$newman"
-  fi
-  if ! cmp -s "$newman" "$oldnorm"; then
+  if [ -f "$newman" ]; then
+    changed=1
     if [ -s "$newman" ]; then
+      sort -t "$(printf '\t')" -k2,2 "$newman" -o "$newman"
       cp "$newman" "$man"
     elif [ -f "$man" ]; then
       : > "$man"
     fi
+    rm -f "$newman"
   fi
-  rm -f "$copy_rels" "$skills_rels" "$copy_hash" "$skills_hash" "$actions" "$newman" "$oldnorm"
-  if [ "$man_in" != "$man" ]; then
-    rm -f "$man_in"
-  fi
-  if [ -d "$repo/.git" ] || [ -f "$repo/.git" ]; then
+  rm -f "$copy_rels" "$skills_rels" "$copy_hash" "$skills_hash"
+  if [ "$changed" = "1" ] && { [ -d "$repo/.git" ] || [ -f "$repo/.git" ]; }; then
     if git -C "$repo" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
       flag=$(git -C "$repo" ls-files -v -- "$rel" | head -n 1)
       case "$flag" in
@@ -388,12 +401,13 @@ sync_link_sync_files() {
         *) git -C "$repo" update-index --skip-worktree -- "$rel" ;;
       esac
     fi
-    sync_link_exclude_add "$repo" "$rel"
   fi
+  sync_link_exclude_add "$repo" "$rel"
 }
 
-# A real link is left alone. A plain file becomes a copy. A copy folder is
-# folded and refreshed per file on every call, even when skills/ did not change.
+# A real link is left alone. The link test is a shell builtin: a real link
+# starts no process. A plain file becomes a copy. A copy folder is folded
+# and refreshed per file on every call, even when skills/ did not change.
 sync_materialize_repo() {
   local repo=$1
   local rel path target
@@ -456,6 +470,7 @@ sync_stash_link_dirs() {
       fi
       mkdir -p "$save/$(dirname "$relpath")"
       cp "$f" "$save/$relpath"
+      : > "${save}.has"
     done
     rm -rf "$path"
   done << EOF
@@ -477,12 +492,35 @@ sync_put_back_stashed_links() {
   done
 }
 
+# Put stashed files back. An empty stash starts no copy and no second pass.
+# The caller runs the one refresh after this returns.
 sync_finish_stashed_links() {
   local repo=$1
   local save=$2
-  sync_put_back_stashed_links "$repo" "$save"
-  sync_materialize_repo "$repo"
+  if [ -f "${save}.has" ]; then
+    sync_put_back_stashed_links "$repo" "$save"
+  fi
   rm -rf "$save"
+  rm -f "${save}.has"
+}
+
+# Turn a plain link file into a folder so a stashed file can land in it.
+# A real link and an existing folder are left alone.
+sync_replace_plain_link_files() {
+  local repo=$1
+  local rel path target
+  [ -d "$repo" ] || return 0
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    path="$repo/$rel"
+    if [ -L "$path" ] || [ ! -f "$path" ]; then
+      continue
+    fi
+    target=$(sync_link_target "$repo" "$rel") || continue
+    sync_link_replace "$repo" "$rel" "$target"
+  done << EOF
+$(sync_link_rels)
+EOF
 }
 
 # Drop a Windows copy from a path list. A real link stays in the list.
