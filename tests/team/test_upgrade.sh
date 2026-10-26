@@ -20,8 +20,10 @@ rm -rf "$work/template"
 mkdir -p "$company/notes"
 printf '%s\n' "ours-keep-this" > "$company/notes/ours.md"
 printf '%s\n' "edited-by-company" >> "$company/skills/lint/SKILL.md"
+printf '%s\n' "company-added-skill-file" > "$company/skills/lint/ours.md"
 before_notes=$(team_sha "$company/notes/ours.md")
 before_skill=$(team_sha "$company/skills/lint/SKILL.md")
+before_ours=$(team_sha "$company/skills/lint/ours.md")
 
 git -C "$company" init -q
 git -C "$company" checkout -q -b main
@@ -50,6 +52,7 @@ printf '%s\n' "$dry" | grep -q 'v0: logs-branch' || team_fail "missing logs sign
 printf '%s\n' "$dry" | grep -q 'v0: no-level' || team_fail "missing level signal"
 printf '%s\n' "$dry" | grep -q 'v0: logs-folder' || team_fail "missing logs-folder signal"
 printf '%s\n' "$dry" | grep -q 'conflict: skills/lint/SKILL.md' || team_fail "missing conflict"
+printf '%s\n' "$dry" | grep -q 'change: skill-files skills/add-teammate new=' || team_fail "missing new skill files"
 printf '%s\n' "$dry" | grep -q 'change: tier-table' || team_fail "missing tier table"
 printf '%s\n' "$dry" | grep -q 'keep: 90 days' || team_fail "missing 90 day note"
 git -C "$company" status --porcelain | grep -q . && team_fail "dry-run changed the tree"
@@ -67,6 +70,10 @@ grep -q '^level: team$' "$company/company-profile.md" || team_fail "level not se
 grep -q '/memory/logs/' "$company/.gitignore" && team_fail "logs ignore line remains"
 [ "$(team_sha "$company/notes/ours.md")" = "$before_notes" ] || team_fail "company note changed"
 [ "$(team_sha "$company/skills/lint/SKILL.md")" = "$before_skill" ] || team_fail "edited skill changed"
+[ "$(team_sha "$company/skills/lint/ours.md")" = "$before_ours" ] || team_fail "company skill file changed"
+[ -x "$company/skills/add-teammate/team-on.sh" ] || team_fail "new skill file was not copied"
+[ -x "$company/skills/sync/sync.sh" ] || team_fail "new sync skill was not copied"
+git -C "$company" show-ref --verify --quiet refs/heads/upgrade/work && team_fail "upgrade/work branch remains"
 grep -q 'Approval tiers' "$company/AGENTS.md" || team_fail "tier table missing"
 
 # One-commit revert restores the old state.

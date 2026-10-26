@@ -177,8 +177,13 @@ fi
 export OS_ORG="$org"
 osf_me "$org" ada
 osf_write_token_file "$org" acme-admin
-# v0 already has skills/add-teammate/, so upgrade does not copy the new team-on.sh into it.
-bash "$root/template/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on.log" 2>&1 \
+if [ ! -x "$dest/skills/add-teammate/team-on.sh" ]; then
+  osf_result "S11 FAIL upgraded folder has no team-on.sh"
+fi
+if [ ! -x "$dest/skills/sync/sync.sh" ]; then
+  osf_result "S11 FAIL upgraded folder has no sync"
+fi
+bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S11 FAIL team-on"
 if ! grep -q '/company-rules.md' "$dest/.github/CODEOWNERS"; then
   osf_result "S11 FAIL code owners do not cover company-rules.md"

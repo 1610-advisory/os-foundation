@@ -113,7 +113,6 @@ text = text.replace("## Memory\\n\\n", "## Memory\\n\\n- Acme keeps a paper ledg
 text += "\\n## Acme notes\\n\\n- Acme writes its own rules here.\\n"
 p.write_text(text)
 PY
-before_agents=$(team_sha "$custom/AGENTS.md")
 git -C "$custom" init -q
 git -C "$custom" checkout -q -b main
 commit_all "$custom" "v0 custom"
@@ -242,5 +241,48 @@ commit_all "$attrs/areas/marketing" "area"
 grep -q 'change: .gitattributes' "$work/attrs.out" || team_fail "dry-run missed gitattributes"
 cmp -s "$attrs/.gitattributes" "$tpl/.gitattributes" || team_fail "company gitattributes was not copied"
 cmp -s "$attrs/areas/marketing/.gitattributes" "$tpl/skills/add-area/templates/marketing/.gitattributes" || team_fail "area gitattributes was not copied"
+
+# COMPANY_SLUG comes only from an area rules file. No answers, no profile key, no remote, folder name is not <slug>-os.
+slugco="$work/slugonly"
+mkdir -p "$slugco/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$slugco/"
+rm -rf "$work/template"
+fill_company "$slugco"
+printf '%s\n' 'Use only files inside ~/acme-os/.' > "$slugco/areas/shop/AGENTS.md"
+git -C "$slugco" init -q
+git -C "$slugco" checkout -q -b main
+commit_all "$slugco" "v0 slug"
+git -C "$slugco/areas/shop" init -q
+git -C "$slugco/areas/shop" checkout -q -b main
+commit_all "$slugco/areas/shop" "area"
+"$upgrade" --root "$slugco" --template "$root/template" --level solo > "$work/slug.out"
+grep -q 'acme-os/me' "$slugco/AGENTS.md" || team_fail "slug was not taken from the area file"
+grep -q 'todo: fill {{COMPANY_SLUG}}' "$work/slug.out" && team_fail "todo for a slug the area file held"
+grep -q 'todo: fill {{APP}}' "$work/slug.out" && team_fail "todo for a marker the template keeps"
+
+# Answers can fill a value the old file never filled.
+plain="$work/plainco"
+mkdir -p "$plain"
+cp "$root/template/skills/upgrade/v0/AGENTS.md" "$plain/AGENTS.md"
+cp "$root/template/skills/upgrade/v0/CLAUDE.md" "$plain/CLAUDE.md"
+cp "$root/template/company-profile.md" "$plain/company-profile.md"
+git -C "$plain" init -q
+git -C "$plain" checkout -q -b main
+commit_all "$plain" "v0 plain"
+printf '%s\n' 'one_liner=Acme Co makes widgets.' 'areas=the shop' > "$work/plain.answers"
+"$upgrade" --dry-run --root "$plain" --template "$root/template" --level solo \
+  --answers "$work/plain.answers" > "$work/plain.out"
+grep -q 'todo: fill {{ONE_LINER}}' "$work/plain.out" && team_fail "todo for a filled one_liner"
+grep -q 'todo: fill {{AREAS}}' "$work/plain.out" && team_fail "todo for filled areas"
+"$upgrade" --root "$plain" --template "$root/template" --level solo \
+  --answers "$work/plain.answers" > "$work/plain-apply.out"
+grep -q 'Acme Co makes widgets.' "$plain/AGENTS.md" || team_fail "answers one_liner was not filled"
+grep -q 'the shop' "$plain/AGENTS.md" || team_fail "answers areas was not filled"
+
+# shellcheck disable=SC1091
+. "$root/template/skills/sync/lib.sh"
+sync_is_rules "company-rules.md" || team_fail "company-rules.md is not a rules file"
+sync_is_rules "areas/shop/area-rules.md" || team_fail "area-rules.md is not a rules file"
 
 printf '%s\n' "PASS rules-merge"
