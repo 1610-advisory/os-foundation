@@ -1235,5 +1235,362 @@ class SecretScanAwkTests(unittest.TestCase):
             self.assertIn(f"PASS {label}", text)
 
 
+class QuickPullTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-quick-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
+        )
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        self.host = self.tmp / "host"
+        fake_host(self.host)
+        self.env = base_env(self.home, self.company, self.host)
+        self.env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sync(self, *args, env=None):
+        return run(["bash", str(SYNC / "sync.sh"), *args], env=env or self.env, cwd=self.company)
+
+    def clock(self, now, mid, base=None):
+        env = (base or self.env).copy()
+        env["OS_SYNC_CLOCK"] = f"{now} {mid}"
+        return env
+
+    def make_repo(self, path, bare, name="README.md", text="seed\n"):
+        path.mkdir(parents=True, exist_ok=True)
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(path)], env=self.env, check=True)
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run(["git", "-C", str(path), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(path), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+        return bare
+
+    def commit_push(self, path, rel, text, message="more"):
+        target = path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run(["git", "-C", str(path), "add", rel], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", message], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def stamp(self, repo):
+        fetch = Path(repo) / ".git" / "FETCH_HEAD"
+        if not fetch.exists():
+            return None
+        return fetch.stat().st_mtime_ns
+
+    def state_path(self):
+        return self.company / ".git" / "os-foundation" / "pull-state"
+
+    def state_lines(self):
+        raw = self.state_path().read_bytes()
+        self.assertNotIn(b"\r", raw)
+        self.assertTrue(raw.endswith(b"\n"))
+        text = raw.decode("ascii")
+        lines = text.split("\n")
+        self.assertEqual(lines[-1], "")
+        return lines[:-1]
+
+    def log_text(self):
+        path = self.home / ".config" / "acme-os" / "state" / "sync.log"
+        if not path.exists():
+            return ""
+        return path.read_text()
+
+    def line_for(self, rel):
+        for line in self.state_lines():
+            if line.startswith("repo ") and line.endswith(" " + rel):
+                return line
+        return ""
+
+    def test_no_state_is_a_full_pull_and_status_names_it(self):
+        never = self.sync("status")
+        self.assertEqual(never.returncode, 0, never.stderr)
+        self.assertIn("last full pull: never", never.stdout)
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        workspace = self.company / "users" / "mia"
+        self.make_repo(workspace, self.tmp / "mia.git")
+        env = self.clock(1700000000, 72000)
+        result = self.sync("pull", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        lines = self.state_lines()
+        self.assertEqual(lines[0], "os-sync-state 1")
+        self.assertEqual(lines[1], "full 1700000000")
+        self.assertEqual(lines[2], "me mia")
+        self.assertEqual(lines[3], "bot 0")
+        self.assertTrue(self.line_for(".").startswith("repo ok "))
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+        self.assertTrue(self.line_for("users/mia").startswith("repo ok "))
+        self.assertEqual(
+            [line.split()[-1] for line in lines if line.startswith("repo ")],
+            [".", "areas/lab", "users/mia"],
+        )
+        status = self.sync("status", env=env)
+        self.assertIn("last full pull: 2023-11-14T22:13:20Z", status.stdout)
+        self.assertNotIn("pull-state", run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout)
+
+    def test_nothing_changed_does_not_fetch_or_log(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        (self.company / "skills" / "lint").mkdir(parents=True)
+        (self.company / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (self.company / ".agents" / "skills").mkdir(parents=True)
+        (self.company / ".claude" / "skills").mkdir(parents=True)
+        first = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        copied = self.company / ".agents" / "skills" / "lint" / "SKILL.md"
+        self.assertEqual(copied.read_text(), "base\n")
+        copied.unlink()
+        root_stamp = self.stamp(self.company)
+        area_stamp = self.stamp(area)
+        before = self.log_text()
+        quiet = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertEqual(self.stamp(area), area_stamp)
+        self.assertEqual(self.log_text(), before)
+        self.assertFalse(copied.exists())
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_full_flag_still_fetches_and_copies(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        (self.company / "skills" / "lint").mkdir(parents=True)
+        (self.company / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (self.company / ".agents" / "skills").mkdir(parents=True)
+        (self.company / ".claude" / "skills").mkdir(parents=True)
+        run(["git", "-C", str(self.company), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        (self.company / ".agents" / "skills" / "lint" / "SKILL.md").unlink()
+        before = self.stamp(self.company)
+        full = self.sync("pull", "--full", env=self.clock(100100, 18000))
+        self.assertEqual(full.returncode, 0, full.stderr + full.stdout)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual((self.company / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertEqual(self.state_lines()[1], "full 100100")
+
+    def test_one_area_changed_leaves_the_others(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        lab = self.company / "areas" / "lab"
+        shop = self.company / "areas" / "shop"
+        self.make_repo(lab, self.tmp / "lab.git")
+        self.make_repo(shop, self.tmp / "shop.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        root_line = self.line_for(".")
+        lab_line = self.line_for("areas/lab")
+        root_stamp = self.stamp(self.company)
+        lab_stamp = self.stamp(lab)
+        side = self.tmp / "shop-side"
+        run(["git", "clone", "-q", str(self.tmp / "shop.git"), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/new.md", "from the host\n")
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((shop / "notes" / "new.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertEqual(self.stamp(lab), lab_stamp)
+        self.assertNotEqual(self.stamp(shop), None)
+        self.assertEqual(self.line_for("."), root_line)
+        self.assertEqual(self.line_for("areas/lab"), lab_line)
+        self.assertNotEqual(self.line_for("areas/shop"), "")
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_retry_line_is_pulled(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        lines = self.state_lines()
+        swapped = []
+        for line in lines:
+            if line.endswith(" areas/lab") and line.startswith("repo ok "):
+                swapped.append("repo retry " + line[len("repo ok ") :])
+            else:
+                swapped.append(line)
+        self.state_path().write_text("\n".join(swapped) + "\n")
+        before = self.stamp(self.company)
+        area_before = self.stamp(area)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertEqual(self.stamp(self.company), before)
+        self.assertNotEqual(self.stamp(area), area_before)
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+
+    def test_new_area_is_pulled_with_its_copy_pass(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        root_stamp = self.stamp(self.company)
+        area = self.company / "areas" / "shop"
+        self.make_repo(area, self.tmp / "shop.git")
+        (area / "skills" / "lint").mkdir(parents=True)
+        (area / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (area / ".agents" / "skills").mkdir(parents=True)
+        (area / ".claude" / "skills").mkdir(parents=True)
+        run(["git", "-C", str(area), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        run(["git", "-C", str(area), "push", "-q", "origin", "main"], env=self.env, check=True)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertIsNotNone(self.stamp(area))
+        self.assertEqual((area / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertEqual((area / ".claude" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+
+    def test_new_area_without_origin_still_gets_the_copy_pass(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        area = self.company / "areas" / "shop"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "skills" / "lint").mkdir(parents=True)
+        (area / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (area / ".agents" / "skills").mkdir(parents=True)
+        (area / ".claude" / "skills").mkdir(parents=True)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertEqual((area / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertTrue(self.line_for("areas/shop").startswith("repo retry none "))
+
+    def test_ls_remote_failure_uses_the_normal_fail_line(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        run(
+            ["git", "-C", str(area), "remote", "set-url", "origin", str(self.tmp / "missing.git")],
+            env=self.env,
+            check=True,
+        )
+        before = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertNotEqual(pulled.returncode, 0)
+        self.assertEqual(self.stamp(self.company), before)
+        self.assertIn("pull fail area:lab could not reach origin", self.log_text())
+        self.assertTrue(self.line_for("areas/lab").startswith("repo retry "))
+
+    def test_daily_due_is_full_and_not_due_is_quick(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 10800))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        quiet_root = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(100100, 10800))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        self.assertEqual(self.stamp(self.company), quiet_root)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        due = self.sync("pull", env=self.clock(200000, 10800))
+        self.assertEqual(due.returncode, 0, due.stderr)
+        self.assertNotEqual(self.stamp(self.company), quiet_root)
+        self.assertNotEqual(self.stamp(area), None)
+        self.assertEqual(self.state_lines()[1], "full 200000")
+
+    def test_local_changes_that_block_fast_forward_are_retry(self):
+        bare = self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        side = self.tmp / "side"
+        run(["git", "clone", "-q", str(bare), str(side)], env=self.env, check=True)
+        self.commit_push(side, "README.md", "from the host\n")
+        (self.company / "README.md").write_text("local edit\n")
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertNotEqual(pulled.returncode, 0)
+        self.assertIn("pull fail root local changes", self.log_text())
+        line = self.line_for(".")
+        self.assertTrue(line.startswith("repo retry "), line)
+        self.assertNotIn("repo ok ", line)
+        head = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        origin = run(
+            ["git", "-C", str(self.company), "rev-parse", "refs/remotes/origin/main"],
+            env=self.env,
+            check=True,
+        ).stdout.strip()
+        self.assertNotEqual(head, origin)
+        ancestor = run(
+            ["git", "-C", str(self.company), "merge-base", "--is-ancestor", "refs/remotes/origin/main", "HEAD"],
+            env=self.env,
+        )
+        self.assertNotEqual(ancestor.returncode, 0)
+
+    def test_bad_flag_and_broken_state(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        bad = self.sync("pull", "--nope")
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("unknown flag", bad.stderr)
+        extra = self.sync("pull", "--full", "--extra")
+        self.assertEqual(extra.returncode, 1)
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        self.state_path().write_text("not a state\n")
+        before = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual(self.state_lines()[0], "os-sync-state 1")
+        self.assertEqual(self.state_lines()[1], "full 100100")
+
+    def test_quick_path_does_not_put_the_token_in_argv(self):
+        marker = "ARGVTOKENquickmarker0123456789abcdef"
+        spy = self.tmp / "spy"
+        spy.mkdir()
+        log = self.tmp / "argv.log"
+        token_file = self.tmp / "token"
+        token_file.write_text(marker + "\n")
+        token_file.chmod(0o600)
+        (spy / "git").write_text(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\nexec /usr/bin/git \"$@\"\n"
+        )
+        (spy / "git").chmod(0o755)
+        (spy / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\n"
+            "case \"$1\" in\n"
+            "  get-token) tr -d '\\r\\n' < \"$OS_FAKE_TOKEN_FILE\" ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        (spy / "host.sh").chmod(0o755)
+        shutil.copy(self.host / "profile.sh", spy / "profile.sh")
+        self.make_repo(self.company, self.tmp / "root.git")
+        env = self.clock(100000, 18000)
+        env["PATH"] = str(spy) + os.pathsep + env.get("PATH", "")
+        env["ARGV_LOG"] = str(log)
+        env["OS_FAKE_TOKEN_FILE"] = str(token_file)
+        env["OS_HOST_SH"] = str(spy / "host.sh")
+        first = self.sync("pull", env=env)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        log.write_text("")
+        second = self.sync("pull", env=self.clock(100100, 18000, env))
+        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+        text = log.read_text() if log.exists() else ""
+        self.assertNotIn(marker, text)
+        self.assertNotIn(marker, second.stdout + second.stderr)
+        self.assertNotIn(marker, self.log_text())
+
+
 if __name__ == "__main__":
     unittest.main()

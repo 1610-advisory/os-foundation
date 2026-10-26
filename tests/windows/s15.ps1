@@ -121,6 +121,19 @@ function Clear-TaskUserEnv {
   }
 }
 
+
+function Get-FetchStamp([string]$Repo) {
+  $path = Join-Path $Repo '.git\FETCH_HEAD'
+  if (-not (Test-Path -LiteralPath $path)) { return 'missing' }
+  return (Get-Item -LiteralPath $path).LastWriteTimeUtc.Ticks.ToString()
+}
+
+function Read-SyncOut {
+  $path = Join-Path $script:work 'sync-out.txt'
+  if (-not (Test-Path -LiteralPath $path)) { return '' }
+  return [System.IO.File]::ReadAllText($path)
+}
+
 function Wait-PullOk {
   param([hashtable]$Before, [int]$Seconds)
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -337,7 +350,7 @@ esac
   if (-not $status -and -not $areaStatus) { Pass 'links-status' } else { Fail 'links-status' 'git status is not empty' }
 
   $sw = [Diagnostics.Stopwatch]::StartNew()
-  $steadyCode = Invoke-Sync @('pull')
+  $steadyCode = Invoke-Sync @('pull', '--full')
   $sw.Stop()
   $steadySecs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
   Write-Output ("NOTE steady-pull {0}" -f $steadySecs)
@@ -346,7 +359,7 @@ esac
   $savedRefresh = $env:OS_SYNC_NO_COPY_REFRESH
   $env:OS_SYNC_NO_COPY_REFRESH = '1'
   $swBase = [Diagnostics.Stopwatch]::StartNew()
-  Invoke-Sync @('pull') | Out-Null
+  Invoke-Sync @('pull', '--full') | Out-Null
   $swBase.Stop()
   if ($null -eq $savedRefresh) {
     Remove-Item Env:OS_SYNC_NO_COPY_REFRESH -ErrorAction SilentlyContinue
@@ -355,6 +368,101 @@ esac
   }
   $baseSecs = [math]::Round($swBase.Elapsed.TotalSeconds, 1)
   Write-Output ("NOTE steady-pull-baseline {0}" -f $baseSecs)
+
+
+  $rootStamp = Get-FetchStamp $member
+  $areaStamp = Get-FetchStamp $areaDest
+  $env:OS_SYNC_PS_NO_BASH = '1'
+  $swQuick = [Diagnostics.Stopwatch]::StartNew()
+  $quickCode = Invoke-Sync @('pull')
+  $swQuick.Stop()
+  Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+  $quickSecs = [math]::Round($swQuick.Elapsed.TotalSeconds, 1)
+  Write-Output ("NOTE quick-nochange-ps {0}" -f $quickSecs)
+  $quickOut = Read-SyncOut
+  $quickOk = ($quickCode -eq 0 -and $quickSecs -le 10 -and $quickOut -match 'sync: no change')
+  $quickOk = $quickOk -and ((Get-FetchStamp $member) -eq $rootStamp) -and ((Get-FetchStamp $areaDest) -eq $areaStamp)
+  if ($quickOk) { Pass 'quick-nochange-ps' } else { Fail 'quick-nochange-ps' "exit $quickCode ${quickSecs}s" }
+
+  $syncSh = Join-Path (Split-Path -Parent $script:syncPs1) 'sync.sh'
+  $bashBeforeRoot = Get-FetchStamp $member
+  $bashBeforeArea = Get-FetchStamp $areaDest
+  $bashOut = Join-Path $script:work 'bash-quick-out.txt'
+  $bashErr = Join-Path $script:work 'bash-quick-err.txt'
+  $swBash = [Diagnostics.Stopwatch]::StartNew()
+  & $bash $syncSh pull > $bashOut 2> $bashErr
+  $bashCode = $LASTEXITCODE
+  if ($null -eq $bashCode) { $bashCode = 1 }
+  $swBash.Stop()
+  $bashSecs = [math]::Round($swBash.Elapsed.TotalSeconds, 1)
+  Write-Output ("NOTE quick-nochange-bash {0}" -f $bashSecs)
+  if (Test-Path -LiteralPath $bashOut) { Get-Content -LiteralPath $bashOut | Out-Host }
+  if (Test-Path -LiteralPath $bashErr) { Get-Content -LiteralPath $bashErr | Out-Host }
+  $bashFetched = ((Get-FetchStamp $member) -ne $bashBeforeRoot) -or ((Get-FetchStamp $areaDest) -ne $bashBeforeArea)
+  if ($bashCode -eq 0 -and $bashSecs -le 30 -and -not $bashFetched) {
+    Pass 'quick-nochange-bash'
+  } else {
+    Fail 'quick-nochange-bash' "exit $bashCode ${bashSecs}s"
+  }
+
+  $beforeChangeRoot = Get-FetchStamp $member
+  Write-Utf8 (Join-Path $areaSeed 'notes\quick.md') "quick change`n"
+  Invoke-Git $areaSeed @('add', 'notes/quick.md')
+  Invoke-Git $areaSeed @('commit', '-q', '-m', 'quick change')
+  Invoke-Git $areaSeed @('push', '-q', 'origin', 'main')
+  $swChange = [Diagnostics.Stopwatch]::StartNew()
+  $changeCode = Invoke-Sync @('pull')
+  $swChange.Stop()
+  $changeSecs = [math]::Round($swChange.Elapsed.TotalSeconds, 1)
+  Write-Output ("NOTE quick-change {0}" -f $changeSecs)
+  $changeFile = Join-Path $areaDest 'notes\quick.md'
+  $rootStill = (Get-FetchStamp $member) -eq $beforeChangeRoot
+  if ($changeCode -eq 0 -and (Test-Path -LiteralPath $changeFile) -and $rootStill) {
+    Pass 'quick-change'
+  } else {
+    Fail 'quick-change' "exit $changeCode"
+  }
+
+  $statePath = Join-Path $member '.git\os-foundation\pull-state'
+  $stateText = ''
+  if (Test-Path -LiteralPath $statePath) { $stateText = [System.IO.File]::ReadAllText($statePath) }
+  $fullLine = ''
+  foreach ($stateLine in ($stateText -split "`n")) {
+    if ($stateLine -match '^full (\d+)$') { $fullLine = $Matches[1] }
+  }
+  if (-not $fullLine) {
+    Fail 'quick-due' 'no full line'
+  } else {
+    $dueNow = [int64]$fullLine + 7200
+    $env:OS_SYNC_CLOCK = ('{0} {1}' -f $dueNow, (5 * 3600))
+    $env:OS_SYNC_PS_NO_BASH = '1'
+    $dueSkip = Invoke-Sync @('pull')
+    $dueSkipOut = Read-SyncOut
+    Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+    $dueRoot = Get-FetchStamp $member
+    $dueArea = Get-FetchStamp $areaDest
+    $dueCode = Invoke-Sync @('pull')
+    $dueFetched = ((Get-FetchStamp $member) -ne $dueRoot) -and ((Get-FetchStamp $areaDest) -ne $dueArea)
+    Remove-Item Env:OS_SYNC_CLOCK -ErrorAction SilentlyContinue
+    if ($dueSkip -eq 9 -and $dueSkipOut -match 'sync: bash needed' -and $dueCode -eq 0 -and $dueFetched) {
+      Pass 'quick-due'
+    } else {
+      Fail 'quick-due' "skip $dueSkip pull $dueCode"
+    }
+  }
+
+  if (Test-Path -LiteralPath $statePath) {
+    Remove-Item -LiteralPath $statePath -Force
+  }
+  $nostateCode = Invoke-Sync @('pull')
+  $nostateText = ''
+  if (Test-Path -LiteralPath $statePath) { $nostateText = [System.IO.File]::ReadAllText($statePath) }
+  if ($nostateCode -eq 0 -and $nostateText.StartsWith("os-sync-state 1`n")) {
+    Pass 'quick-nostate'
+  } else {
+    Fail 'quick-nostate' "exit $nostateCode"
+  }
+
 
   $newArea = Join-Path $script:work 'new-area'
   Copy-Tree (Join-Path $repo 'template\skills\add-area\templates\_area') $newArea
