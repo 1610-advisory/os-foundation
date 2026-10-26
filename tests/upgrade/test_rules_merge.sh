@@ -550,4 +550,109 @@ printf '%s\n' "$old_area" | while IFS= read -r line; do
   grep -F -x -q -- "$line" "$own/areas/shop/.github/CODEOWNERS" || team_fail "old area owner line changed"
 done
 
+# origin/main has the area spill file. The work tree does not. Do not append to it.
+remote="$work/remote"
+mkdir -p "$remote/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$remote/"
+rm -rf "$work/template"
+python3 - << PY
+from pathlib import Path
+p = Path("$remote/company-profile.md")
+text = p.read_text().replace("---\n", "---\ncompany_slug: acme\n", 1)
+p.write_text(text)
+PY
+git -C "$remote" init -q
+git -C "$remote" checkout -q -b main
+commit_all "$remote" "v0 remote"
+head_remote=$(git -C "$remote" rev-parse HEAD)
+printf '%s\n' '# Shop' > "$remote/areas/shop/AGENTS.md"
+git -C "$remote/areas/shop" init -q
+git -C "$remote/areas/shop" checkout -q -b main
+commit_all "$remote/areas/shop" "area"
+area_head=$(git -C "$remote/areas/shop" rev-parse HEAD)
+printf '%s\n' 'keep this area spill' > "$remote/areas/shop/area-rules.md"
+commit_all "$remote/areas/shop" "spill on main"
+bare="$work/shop.git"
+git init -q --bare "$bare"
+git -C "$remote/areas/shop" remote add origin "$bare"
+git -C "$remote/areas/shop" push -q origin main
+git -C "$remote/areas/shop" reset --hard "$area_head"
+cat > "$work/host-ok.sh" << 'EOF'
+#!/bin/bash
+case "$1" in
+  get-token) printf '%s\n' token; exit 0 ;;
+  whoami) printf '%s\n' '{"login":"ada"}'; exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$work/host-ok.sh"
+printf '%s\n' 'host=forgejo' 'org=acme' 'slug=acme' > "$work/remote.answers"
+set +e
+OS_HOST_SH="$work/host-ok.sh" "$upgrade" --root "$remote" --template "$root/template" --level solo \
+  --answers "$work/remote.answers" > "$work/remote.out" 2>&1
+remote_rc=$?
+set -e
+[ "$remote_rc" -eq 2 ] || team_fail "origin spill exit was $remote_rc"
+grep -q 'conflict: areas/shop/area-rules.md exists' "$work/remote.out" || team_fail "origin spill conflict missing"
+[ "$(git -C "$remote" rev-parse HEAD)" = "$head_remote" ] || team_fail "origin spill committed the company"
+git -C "$remote" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "origin spill created upgrade/v1"
+[ "$(git -C "$remote/areas/shop" rev-parse HEAD)" = "$area_head" ] || team_fail "origin spill committed the area"
+[ ! -f "$remote/areas/shop/area-rules.md" ] || team_fail "origin spill wrote the work tree"
+
+# main has the company spill file. The work tree is on another branch without it.
+side="$work/side"
+mkdir -p "$side"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$side/"
+rm -rf "$work/template"
+git -C "$side" init -q
+git -C "$side" checkout -q -b main
+printf '%s\n' 'keep this company spill' > "$side/company-rules.md"
+commit_all "$side" "v0 with spill"
+git -C "$side" checkout -q -b side
+git -C "$side" rm -q company-rules.md
+commit_all "$side" "drop spill on side"
+head_side=$(git -C "$side" rev-parse HEAD)
+set +e
+"$upgrade" --root "$side" --template "$root/template" --level solo > "$work/side.out" 2>&1
+side_rc=$?
+set -e
+[ "$side_rc" -eq 2 ] || team_fail "main spill exit was $side_rc"
+grep -q 'conflict: company-rules.md exists' "$work/side.out" || team_fail "main spill conflict missing"
+[ "$(git -C "$side" rev-parse HEAD)" = "$head_side" ] || team_fail "main spill made a commit"
+git -C "$side" rev-parse --abbrev-ref HEAD | grep -qx side || team_fail "main spill left the side branch"
+[ ! -f "$side/company-rules.md" ] || team_fail "main spill wrote the work tree"
+git -C "$side" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "main spill created upgrade/v1"
+
+# A dry run must not die when the token step fails.
+tok="$work/token"
+mkdir -p "$tok/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$tok/"
+rm -rf "$work/template"
+python3 - << PY
+from pathlib import Path
+p = Path("$tok/company-profile.md")
+text = p.read_text().replace("---\n", "---\ncompany_slug: acme\n", 1)
+p.write_text(text)
+PY
+git -C "$tok" init -q
+git -C "$tok" checkout -q -b main
+commit_all "$tok" "v0 token"
+printf '%s\n' '# Shop' > "$tok/areas/shop/AGENTS.md"
+git -C "$tok/areas/shop" init -q
+git -C "$tok/areas/shop" checkout -q -b main
+commit_all "$tok/areas/shop" "area"
+printf '%s\n' '#!/bin/bash' 'exit 1' > "$work/host-fail.sh"
+chmod +x "$work/host-fail.sh"
+printf '%s\n' 'host=forgejo' 'org=acme' 'slug=acme' > "$work/token.answers"
+set +e
+OS_HOST_SH="$work/host-fail.sh" "$upgrade" --dry-run --root "$tok" --template "$root/template" --level solo \
+  --answers "$work/token.answers" > "$work/token.out" 2>&1
+tok_rc=$?
+set -e
+[ "$tok_rc" -eq 0 ] || team_fail "dry run token failure exit was $tok_rc"
+grep -q 'could not fetch acme-shop' "$work/token.out" || team_fail "dry run hid the fetch failure"
+
 printf '%s\n' "PASS rules-merge"

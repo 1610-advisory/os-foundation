@@ -240,10 +240,29 @@ rules_best_kind() {
   printf '%s\n' "$best"
 }
 
+# Paths this run created. Append only to these. Any other spill file is a conflict.
+# The list lives in this shell. A command substitution would drop the path.
+rules_spill_ensure() {
+  if [ -z "${RULES_SPILL_LIST:-}" ]; then
+    RULES_SPILL_LIST=$(mktemp)
+  fi
+}
+
+rules_spill_ours() {
+  rules_spill_ensure
+  grep -Fxq -- "$1" "$RULES_SPILL_LIST" && return 0
+  return 1
+}
+
+rules_spill_note() {
+  rules_spill_ensure
+  printf '%s\n' "$1" >> "$RULES_SPILL_LIST"
+}
+
 # write=1 copies the result onto the real file. Dry-run passes 0.
 rules_merge_one() {
   local rel=$1 real=$2 base=$3 v1=$4 scope=$5 role=$6 area_slug=$7 write=$8
-  local tmp lines chars spill link stats dest_spill
+  local tmp lines chars spill link stats dest_spill rel_spill
   [ -f "$real" ] || return 0
   [ -f "$base" ] || return 0
   [ -f "$v1" ] || return 0
@@ -271,17 +290,27 @@ rules_merge_one() {
     printf 'change: rules-spill %s -> %s\n' "$rel" "$link"
   fi
   rules_todos "$tmp/out.md"
+  if [ "$write" = "1" ] && [ "$spill" = "1" ]; then
+    dest_spill="$(dirname "$real")/$link"
+    if [ -f "$dest_spill" ] && ! rules_spill_ours "$dest_spill"; then
+      rel_spill=${dest_spill#"$ROOT"/}
+      printf 'conflict: %s exists\n' "$rel_spill"
+      rm -rf "$tmp"
+      exit 2
+    fi
+  fi
   if [ "$write" = "1" ]; then
     cp "$tmp/out.md" "$real"
     if [ "$spill" = "1" ]; then
       dest_spill="$(dirname "$real")/$link"
-      if [ -f "$dest_spill" ]; then
+      if rules_spill_ours "$dest_spill"; then
         {
           printf '\n## From %s\n' "$(basename "$real")"
           cat "$tmp/spill.md"
         } >> "$dest_spill"
       else
         cp "$tmp/spill.md" "$dest_spill"
+        rules_spill_note "$dest_spill"
       fi
     fi
   fi

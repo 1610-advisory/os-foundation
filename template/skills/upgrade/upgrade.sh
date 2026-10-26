@@ -163,8 +163,9 @@ HASHES="$DIR/v0-hashes.txt"
 
 # die=1 stops the real run. Dry run only prints.
 preflight_spills() {
-  local die=$1 path rel hit=0
-  if [ -f "$ROOT/company-rules.md" ]; then
+  local die=$1 path rel hit=0 area name
+  if [ -f "$ROOT/company-rules.md" ] \
+    || git -C "$ROOT" cat-file -e main:company-rules.md 2>/dev/null; then
     printf '%s\n' "conflict: company-rules.md exists"
     hit=1
   fi
@@ -175,6 +176,20 @@ preflight_spills() {
       printf 'conflict: %s exists\n' "$rel"
       hit=1
     done
+    # Hosted areas are checked after fetch, against origin/main.
+    if ! preflight_wants_host; then
+      for area in "$ROOT"/areas/*; do
+        [ -d "$area" ] || continue
+        [ -e "$area/.git" ] || continue
+        name=$(basename "$area")
+        rel="areas/$name/area-rules.md"
+        [ -f "$area/area-rules.md" ] && continue
+        if git -C "$area" cat-file -e "main:area-rules.md" 2>/dev/null; then
+          printf 'conflict: %s exists\n' "$rel"
+          hit=1
+        fi
+      done
+    fi
   fi
   if [ "$hit" -eq 1 ] && [ "$die" -eq 1 ]; then
     exit 2
@@ -235,10 +250,20 @@ preflight_areas() {
       ""|*'{{'*) ;;
       *) repo=$(os_area_repo "$slug" "$name") ;;
     esac
-    if ! os_with_git_token git -C "$area" fetch origin; then
+    if [ "$die" -eq 0 ]; then
+      if ! (os_with_git_token git -C "$area" fetch origin); then
+        printf 'could not fetch %s\n' "$repo" >&2
+        continue
+      fi
+    elif ! os_with_git_token git -C "$area" fetch origin; then
       printf 'could not fetch %s\n' "$repo" >&2
+      exit 3
+    fi
+    if git -C "$area" cat-file -e "origin/main:area-rules.md" 2>/dev/null \
+      && [ ! -f "$area/area-rules.md" ]; then
+      printf 'conflict: areas/%s/area-rules.md exists\n' "$name"
       if [ "$die" -eq 1 ]; then
-        exit 3
+        exit 2
       fi
     fi
   done
