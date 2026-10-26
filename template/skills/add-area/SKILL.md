@@ -19,10 +19,14 @@ Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` 
 
 ## 2. Build it
 
-1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`, hidden files included (`cp -R skills/add-area/templates/_area/. areas/{{AREA_SLUG}}/`). The copy keeps two committed links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. No link step is needed. If either arrived as a plain file (Windows, or a file-by-file copy), replace it with the link. If links fail, copy `skills/` there instead: `lint` finds drift later.
+1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`, hidden files included (`cp -R skills/add-area/templates/_area/. areas/{{AREA_SLUG}}/`). The copy keeps two committed links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. No link step is needed. If either arrived as a plain file from a file-by-file copy, replace it with the link. Windows (symlinks off): leave the plain files and see step 4. Never make a real symlink there.
 2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (marketing, finance, apps), copy it on top. Its files replace the generic ones.
 3. Replace placeholders in every new file: `{{AREA_NAME}}` (for example "Marketing"), `{{AREA_SLUG}}`, `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{DATE}}` (today, YYYY-MM-DD).
-4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. Check with `git -C areas/{{AREA_SLUG}} rev-parse --show-toplevel` that the answer is the area folder, not the company folder.
+4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. **Windows:** before that commit, write each link as a git link entry. A plain file would reach Mac users as a file, not a link. In Git Bash, in `areas/{{AREA_SLUG}}/`:
+   ```
+   for P in .claude/skills .agents/skills; do git update-index --add --cacheinfo 120000,$(printf '%s' ../skills | git hash-object -w --stdin),$P; done
+   ```
+   Then commit. Then run `skills/sync/sync.sh pull` from the company root: it makes the local skill copies. Check with `git -C areas/{{AREA_SLUG}} rev-parse --show-toplevel` that the answer is the area folder, not the company folder.
 5. Check the pointer line near the top of the new `AGENTS.md` (and in `CLAUDE.md`): company skills are in `../../skills/`; if that folder is missing, read them from the company repo on the host. The template has it. Do not copy company skills into the area.
 6. Logs need no setup: they are per-person files in the area's `memory/logs/`, committed like any file.
 

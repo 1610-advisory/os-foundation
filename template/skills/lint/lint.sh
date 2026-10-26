@@ -98,23 +98,34 @@ finding() {
 }
 
 check_link() {
-  local path=$1 expected=$2 target
+  local path=$1 expected=$2 target skills
   if [ ! -e "$path" ] && [ ! -L "$path" ]; then
     finding "link: $path is missing"
     return 0
   fi
-  if [ ! -L "$path" ]; then
-    finding "link: $path is not a link"
+  if [ -L "$path" ]; then
+    target=$(readlink "$path")
+    if [ "$target" != "$expected" ]; then
+      finding "link: $path points to $target, not $expected"
+      return 0
+    fi
+    if ! (cd "$(dirname "$path")" && cd "$target") >/dev/null 2>&1; then
+      finding "link: $path target is missing"
+    fi
     return 0
   fi
-  target=$(readlink "$path")
-  if [ "$target" != "$expected" ]; then
-    finding "link: $path points to $target, not $expected"
+  if [ -d "$path" ]; then
+    if ! (cd "$(dirname "$path")" && cd "$expected") >/dev/null 2>&1; then
+      finding "skills copy drift: $path"
+      return 0
+    fi
+    skills=$(cd "$(dirname "$path")" && cd "$expected" && pwd)
+    if ! diff -rq "$path" "$skills" >/dev/null 2>&1; then
+      finding "skills copy drift: $path"
+    fi
     return 0
   fi
-  if ! (cd "$(dirname "$path")" && cd "$target") >/dev/null 2>&1; then
-    finding "link: $path target is missing"
-  fi
+  finding "link: $path is not a link"
 }
 
 check_link "$ROOT/.agents/skills" "../skills"
@@ -139,14 +150,6 @@ if [ -d "$ROOT/areas" ]; then
     fi
   done
 fi
-
-for linkdir in "$ROOT/.agents/skills" "$ROOT/.claude/skills"; do
-  if [ -d "$linkdir" ] && [ ! -L "$linkdir" ]; then
-    if ! diff -rq "$linkdir" "$ROOT/skills" >/dev/null 2>&1; then
-      finding "copy: $linkdir differs from skills"
-    fi
-  fi
-done
 
 PROFILE="$ROOT/company-profile.md"
 if [ ! -f "$PROFILE" ]; then

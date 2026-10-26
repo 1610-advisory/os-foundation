@@ -5,6 +5,8 @@ set -euo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/lib.sh"
+# shellcheck disable=SC1091
+. "$DIR/../sync/links.sh"
 
 usage() {
   cat << 'EOF'
@@ -38,6 +40,16 @@ done
 
 [ -n "$ANSWERS" ] || os_die 1 "pass --answers <file>"
 [ -f "$ANSWERS" ] || os_die 1 "answers file is missing"
+if sync_is_windows; then
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '%s\n' "install jq: winget install --id jqlang.jq -e" >&2
+    exit 3
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    printf '%s\n' "install GitHub CLI: winget install --id GitHub.cli -e" >&2
+    exit 3
+  fi
+fi
 os_need git jq
 
 ROOT=$(os_answer_or root "$ANSWERS" "$(pwd)")
@@ -131,6 +143,25 @@ mkdir -p "$cfg"
 printf '%s\n' "$ME" > "$cfg/me"
 chmod 600 "$cfg/me"
 
+engine=${OS_SYNC_ENGINE:-}
+if [ -z "$engine" ]; then
+  engine=$(os_fm_get "$ROOT/company-profile.md" sync_engine 2>/dev/null || true)
+fi
+engine=$(os_unquote "$engine")
+engine=$(os_trim "$engine")
+word=${engine%% *}
+word=$(os_trim "$word")
+if [ -z "$word" ] || ! command -v "$word" >/dev/null 2>&1; then
+  if [ -n "$word" ] && [ "$word" != "claude" ]; then
+    printf '%s\n' "install ${word} and put it on PATH" >&2
+  elif sync_is_windows; then
+    printf '%s\n' "Claude Code CLI: irm https://claude.ai/install.ps1 | iex" >&2
+  else
+    printf '%s\n' "Claude Code CLI: curl -fsSL https://claude.ai/install.sh | bash" >&2
+  fi
+  exit 3
+fi
+sync_materialize_links "$ROOT" 1
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
   OS_COMPANY_ROOT="$ROOT" "$ROOT/skills/sync/sync.sh" install-jobs
 else

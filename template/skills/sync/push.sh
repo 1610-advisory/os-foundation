@@ -335,6 +335,7 @@ sync_apply_commit() {
     sync_apply_fail "$repo" "$tmp" "$id" "add"
     return 1
   fi
+  sync_unstage_link_copies "$tmp"
   git -C "$tmp" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
     commit -F "$message" >/dev/null 2>&1
   rc=$?
@@ -393,6 +394,7 @@ sync_push_one() {
     workspace) kind=workspace ;;
     *) kind=root ;;
   esac
+  sync_materialize_repo "$repo"
   changed=$(sync_mktemp)
   SYNC_RENAMES=$(sync_mktemp)
   sync_changed_names "$repo" > "$changed" || true
@@ -401,6 +403,7 @@ sync_push_one() {
     git -C "$repo" diff --name-only origin/main HEAD >> "$changed" || true
   fi
   sort -u "$changed" -o "$changed"
+  sync_drop_link_copies "$repo" "$changed"
   if [ ! -s "$changed" ]; then
     return 0
   fi
