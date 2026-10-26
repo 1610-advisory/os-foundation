@@ -195,6 +195,7 @@ size_file() {
 
 size_file "$ROOT/AGENTS.md"
 size_file "$ROOT/CLAUDE.md"
+size_file "$ROOT/company-rules.md"
 size_file "$ROOT/review-rules.md"
 if [ -d "$ROOT/bots" ]; then
   for bot in "$ROOT"/bots/*/BOT.md; do
@@ -206,11 +207,12 @@ if [ -d "$ROOT/areas" ]; then
     [ -d "$area" ] || continue
     size_file "$area/AGENTS.md"
     size_file "$area/CLAUDE.md"
+    size_file "$area/area-rules.md"
     size_file "$area/review-rules.md"
   done
 fi
 
-# Placeholders outside skills/. Skip .github/: workflow files use ${{ }}.
+# Placeholders outside skills/. Skip .github/: workflow files use the actions form.
 ph=$(mktemp)
 find "$ROOT" -type f \
   -not -path "$ROOT/skills/*" \
