@@ -1,0 +1,36 @@
+name: windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - template/skills/sync/**
+      - template/skills/add-teammate/**
+      - template/skills/lint/**
+      - template/.gitattributes
+      - .gitattributes
+      - tests/windows/**
+      - .github/workflows/windows.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  s15:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    steps:
+      - name: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: S15
+        shell: ${{ matrix.shell }}
+        run: |
+          & .\tests\windows\s15.ps1
