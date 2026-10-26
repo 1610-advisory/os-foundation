@@ -336,6 +336,49 @@ esac
   $areaStatus = & git -C $areaDest status --porcelain
   if (-not $status -and -not $areaStatus) { Pass 'links-status' } else { Fail 'links-status' 'git status is not empty' }
 
+  $newArea = Join-Path $script:work 'new-area'
+  Copy-Tree (Join-Path $repo 'template\skills\add-area\templates\_area') $newArea
+  $areaScript = Join-Path $script:work 'new-area.sh'
+  $areaBody = @'
+set -euo pipefail
+cd "$AREA"
+git init -q -b main
+git config user.email mia.member@acme.test
+git config user.name "Mia Member"
+git config core.symlinks false
+for P in .claude/skills .agents/skills; do
+  rm -rf "$P"
+  mkdir -p "$(dirname "$P")"
+  printf '%s' '../skills' > "$P"
+done
+git add -A
+for P in .claude/skills .agents/skills; do
+  git update-index --add --cacheinfo 120000,$(printf '%s' ../skills | git hash-object -w --stdin),$P
+done
+git commit -q -m "New area: start"
+listed=$(git ls-files -s -- .claude/skills .agents/skills)
+printf '%s\n' "$listed"
+count=$(printf '%s\n' "$listed" | grep -c '^120000 ')
+[ "$count" -eq 2 ]
+extra=$(git ls-files -- .claude/skills .agents/skills | grep -v -x -e '.claude/skills' -e '.agents/skills' || true)
+[ -z "$extra" ]
+git checkout -q -- .claude/skills .agents/skills
+# shellcheck disable=SC1091
+. "$LINKS"
+SYNC_LOG="$LOG" sync_materialize_repo "$AREA" 1
+status=$(git status --porcelain)
+[ -z "$status" ]
+[ -d .claude/skills ] && [ ! -L .claude/skills ]
+[ -d .agents/skills ] && [ ! -L .agents/skills ]
+'@
+  Write-Utf8 $areaScript ($areaBody -replace "`r`n", "`n")
+  $areaLog = Join-Path $script:work 'new-area.log'
+  $env:AREA = ($newArea -replace '\\', '/')
+  $env:LINKS = (($repo + '\template\skills\sync\links.sh') -replace '\\', '/')
+  $env:LOG = ($areaLog -replace '\\', '/')
+  & $bash $areaScript
+  if ($LASTEXITCODE -eq 0) { Pass 'area-links' } else { Fail 'area-links' "exit $LASTEXITCODE" }
+
   Write-Utf8 (Join-Path $member 'notes\clean.md') "a clean note`n"
   $pushCode = Invoke-Sync @('push')
   $tree = & git --git-dir=$bare ls-tree -r --name-only refs/heads/sync/mia
