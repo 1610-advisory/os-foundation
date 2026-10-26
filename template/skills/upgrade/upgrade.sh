@@ -147,6 +147,8 @@ plan_skills() {
       if [ -f "$TEMPLATE/$path" ]; then
         printf 'change: %s\n' "$path"
       fi
+    elif [ -f "$TEMPLATE/$path" ] && cmp -s "$ROOT/$path" "$TEMPLATE/$path"; then
+      :
     else
       printf 'conflict: %s\n' "$path"
     fi
@@ -169,23 +171,61 @@ apply_skills() {
     fi
     got=$(os_sha "$ROOT/$path")
     if [ "$got" = "$hash" ]; then
-      cp "$TEMPLATE/$path" "$ROOT/$path"
+      cp -p "$TEMPLATE/$path" "$ROOT/$path"
     fi
   done < "$HASHES"
 }
 
-plan_skills
-
-if [ -d "$TEMPLATE/skills" ]; then
+# New files inside a skill the company already has. A company-added file is not here.
+plan_skill_files() {
+  local skill name rel new f
+  [ -d "$TEMPLATE/skills" ] || return 0
   for skill in "$TEMPLATE"/skills/*; do
     [ -d "$skill" ] || continue
     name=$(basename "$skill")
     [ "$name" = "logs-folder" ] && continue
     if [ ! -e "$ROOT/skills/$name" ]; then
       printf 'change: skills/%s\n' "$name"
+      continue
+    fi
+    new=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      rel="skills/${name}/${f#"$skill"/}"
+      if [ ! -e "$ROOT/$rel" ]; then
+        new=$((new + 1))
+      fi
+    done < <(find "$skill" \( -type f -o -type l \) -print)
+    if [ "$new" -gt 0 ]; then
+      printf 'change: skill-files skills/%s new=%s\n' "$name" "$new"
     fi
   done
-fi
+}
+
+copy_skill_files() {
+  local skill name rel f
+  [ -d "$TEMPLATE/skills" ] || return 0
+  for skill in "$TEMPLATE"/skills/*; do
+    [ -d "$skill" ] || continue
+    name=$(basename "$skill")
+    [ "$name" = "logs-folder" ] && continue
+    if [ ! -e "$ROOT/skills/$name" ]; then
+      mkdir -p "$ROOT/skills"
+      cp -Rp "$skill" "$ROOT/skills/$name"
+      continue
+    fi
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      rel="skills/${name}/${f#"$skill"/}"
+      [ -e "$ROOT/$rel" ] && continue
+      mkdir -p "$(dirname "$ROOT/$rel")"
+      cp -Pp "$f" "$ROOT/$rel"
+    done < <(find "$skill" \( -type f -o -type l \) -print)
+  done
+}
+
+plan_skills
+plan_skill_files
 
 LOGS_FOLDER_SAME=0
 if [ -d "$ROOT/skills/logs-folder" ]; then
@@ -391,16 +431,7 @@ apply_skills
 if [ "$LOGS_FOLDER_SAME" -eq 1 ]; then
   rm -rf "$ROOT/skills/logs-folder"
 fi
-if [ -d "$TEMPLATE/skills" ]; then
-  for skill in "$TEMPLATE"/skills/*; do
-    [ -d "$skill" ] || continue
-    name=$(basename "$skill")
-    [ "$name" = "logs-folder" ] && continue
-    if [ ! -e "$ROOT/skills/$name" ]; then
-      cp -R "$skill" "$ROOT/skills/$name"
-    fi
-  done
-fi
+copy_skill_files
 
 if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
@@ -529,6 +560,7 @@ GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
   git -C "$ROOT" merge --no-ff --no-edit upgrade/work -m "Upgrade to v1"
+git -C "$ROOT" branch -D upgrade/work >/dev/null
 
 if [ -f "$ROOT/company-profile.md" ]; then
   HOST_KIND=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
