@@ -32,6 +32,9 @@ sync_mktemp() {
 
 sync_cleanup() {
   local f
+  if type sync_pull_clear_secret >/dev/null 2>&1; then
+    sync_pull_clear_secret
+  fi
   if type sync_propose_drop_trees >/dev/null 2>&1; then
     sync_propose_drop_trees
   fi
