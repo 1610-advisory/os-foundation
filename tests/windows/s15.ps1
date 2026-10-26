@@ -121,10 +121,10 @@ try {
   if (-not $base) { $base = $env:TEMP }
   $script:work = Join-Path $base ('osf-s15-' + [guid]::NewGuid().ToString('n').Substring(0, 12))
   New-Item -ItemType Directory -Path $script:work -Force | Out-Null
-  $home = Join-Path $script:work 'home'
-  $xdg = Join-Path $home '.config'
+  $sandbox = Join-Path $script:work 'home'
+  $xdg = Join-Path $sandbox '.config'
   New-Item -ItemType Directory -Path $xdg -Force | Out-Null
-  $env:HOME = ($home -replace '\\', '/')
+  $env:HOME = ($sandbox -replace '\\', '/')
   $env:XDG_CONFIG_HOME = ($xdg -replace '\\', '/')
   $env:OS_TEST_MODE = '1'
   $env:OS_SECRET_SCAN = 'bundled'
@@ -145,7 +145,7 @@ try {
   Copy-Tree (Join-Path $repo 'template') $seed
   Remove-LinkPath $seed '.agents/skills'
   Remove-LinkPath $seed '.claude/skills'
-  $profile = @"
+  $profileText = @"
 ---
 type: company-profile
 summary: "Acme Co test"
@@ -163,7 +163,7 @@ runner: ubuntu-latest
 
 # Acme Co
 "@
-  Write-Utf8 (Join-Path $seed 'company-profile.md') ($profile -replace "`r`n", "`n")
+  Write-Utf8 (Join-Path $seed 'company-profile.md') ($profileText -replace "`r`n", "`n")
   $person = @"
 ---
 type: person
@@ -369,13 +369,13 @@ esac
     if ($task.Principal.RunLevel.ToString() -ne 'Limited') { $registered = $false }
     $action = $task.Actions[0]
     $cmd = $action.Execute
-    $args = [string]$action.Arguments
+    $taskArgs = [string]$action.Arguments
     if ($cmd -notmatch 'powershell\.exe$') { $registered = $false }
-    if ($args -notmatch '-NoProfile') { $registered = $false }
-    if ($args -notmatch '-NonInteractive') { $registered = $false }
-    if ($args -notmatch '-ExecutionPolicy Bypass') { $registered = $false }
-    if ($args -notmatch '-WindowStyle Hidden') { $registered = $false }
-    if ($args -notmatch 'sync\.ps1') { $registered = $false }
+    if ($taskArgs -notmatch '-NoProfile') { $registered = $false }
+    if ($taskArgs -notmatch '-NonInteractive') { $registered = $false }
+    if ($taskArgs -notmatch '-ExecutionPolicy Bypass') { $registered = $false }
+    if ($taskArgs -notmatch '-WindowStyle Hidden') { $registered = $false }
+    if ($taskArgs -notmatch 'sync\.ps1') { $registered = $false }
   }
   $pullTask = Get-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
   $pushTask = Get-ScheduledTask -TaskName 'osfoundation-acme-push' -ErrorAction SilentlyContinue
