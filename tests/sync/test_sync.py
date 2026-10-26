@@ -183,6 +183,31 @@ class SyncLocalTests(unittest.TestCase):
         self.assertIn("InteractiveToken", xml)
         self.assertIn("LeastPrivilege", xml)
 
+    def test_render_escapes_ampersand_in_the_root_path(self):
+        root = self.tmp / "acme & co"
+        root.mkdir()
+        write_profile(root / "company-profile.md", "team", [])
+        jobs = self.tmp / "amp-jobs"
+        env = self.env.copy()
+        env["OS_COMPANY_ROOT"] = str(root)
+        env["OS_PROFILE"] = str(root / "company-profile.md")
+        env["OS_JOBS_DIR"] = str(jobs)
+        env["OS_JOBS_LOAD"] = "0"
+        env["OS_JOBS_PLATFORM"] = "macos"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
+        plist = "\n".join(p.read_text() for p in jobs.glob("*.plist"))
+        self.assertIn("acme &amp; co", plist)
+        self.assertNotIn("acme & co", plist)
+        windows = self.tmp / "amp-win"
+        env["OS_JOBS_DIR"] = str(windows)
+        env["OS_JOBS_PLATFORM"] = "windows"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
+        xml = "\n".join(p.read_text() for p in windows.glob("*.xml"))
+        self.assertIn("acme &amp; co", xml)
+        self.assertNotIn("acme & co", xml)
+
     def test_helper_day_count(self):
         host = self.tmp / "fake-host"
         host.mkdir()

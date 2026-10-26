@@ -36,9 +36,14 @@ sync_job_dir() {
 sync_render() {
   local src=$1
   local dest=$2
-  local line user delay
+  local line user delay patsub=0
   user=${USERID:-S-1-5-21-1}
   delay=${DELAY:-0}
+  if shopt -q patsub_replacement 2>/dev/null; then
+    patsub=1
+  fi
+  # Bash 5.2 treats & in a replacement as the matched text. Paths use &amp;.
+  shopt -u patsub_replacement 2>/dev/null || true
   : > "$dest"
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line//@LABEL@/$LABEL}
@@ -53,6 +58,9 @@ sync_render() {
     line=${line//@USER@/$user}
     printf '%s\n' "$line"
   done < "$src" > "$dest"
+  if [ "$patsub" -eq 1 ]; then
+    shopt -s patsub_replacement 2>/dev/null || true
+  fi
 }
 
 sync_win_path() {
@@ -77,9 +85,10 @@ sync_win_sid() {
 }
 
 sync_win_ps1() {
-  local ps line
-  ps=$(mktemp)
-  ps="${ps}.ps1"
+  local raw ps line
+  raw=$(mktemp)
+  ps="${raw}.ps1"
+  rm -f "$raw"
   : > "$ps"
   for line in "$@"; do
     printf '%s\r\n' "$line" >> "$ps"
@@ -90,12 +99,21 @@ sync_win_ps1() {
 sync_win_register() {
   local name=$1
   local xml=$2
-  local ps xml_win ps_win
-  # shellcheck disable=SC2016
-  ps=$(sync_win_ps1 'param([string]$TaskName, [string]$XmlPath)' '$ErrorActionPreference = "Stop"' '$xml = Get-Content -LiteralPath $XmlPath -Raw' 'Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null')
+  local raw ps xml_win ps_win
+  # The file stays UTF-8. The API string is Unicode, so the declaration must say UTF-16.
+  raw=$(mktemp)
+  ps="${raw}.ps1"
+  rm -f "$raw"
+  awk 'BEGIN { ORS="\r\n" } { print }' > "$ps" << 'EOF'
+param([string]$TaskName, [string]$XmlPath)
+$ErrorActionPreference = "Stop"
+$xml = Get-Content -LiteralPath $XmlPath -Raw
+$xml = $xml -replace 'encoding="UTF-8"', 'encoding="UTF-16"'
+Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
+EOF
   xml_win=$(sync_win_path "$xml")
   ps_win=$(sync_win_path "$ps")
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" -XmlPath "$xml_win"
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" -XmlPath "$xml_win"
   rm -f "$ps"
 }
 
@@ -105,7 +123,7 @@ sync_win_unregister() {
   # shellcheck disable=SC2016
   ps=$(sync_win_ps1 'param([string]$TaskName)' 'Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue')
   ps_win=$(sync_win_path "$ps")
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" || true
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" || true
   rm -f "$ps"
 }
 

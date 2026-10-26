@@ -94,12 +94,61 @@ function Copy-Tree {
 
 function Invoke-Sync {
   param([string[]]$CmdArgs)
-  & $script:syncPs1 @CmdArgs
+  $out = Join-Path $script:work 'sync-out.txt'
+  $err = Join-Path $script:work 'sync-err.txt'
+  & $script:syncPs1 @CmdArgs > $out 2> $err
   $code = $LASTEXITCODE
-  if ($null -eq $code) {
-    $code = 0
-  }
+  if ($null -eq $code) { $code = 0 }
+  if (Test-Path -LiteralPath $out) { Get-Content -LiteralPath $out | Out-Host }
+  if (Test-Path -LiteralPath $err) { Get-Content -LiteralPath $err | Out-Host }
   return $code
+}
+
+$script:userEnvNames = @('OS_HOST_SH', 'OS_PROFILE_SH', 'OS_COMPANY_ROOT', 'XDG_CONFIG_HOME', 'OS_TEST_MODE', 'OS_SECRET_SCAN', 'HOME')
+
+function Set-TaskUserEnv {
+  foreach ($name in $script:userEnvNames) {
+    $val = [Environment]::GetEnvironmentVariable($name, 'Process')
+    if ($val) {
+      [Environment]::SetEnvironmentVariable($name, $val, 'User')
+    }
+  }
+}
+
+function Clear-TaskUserEnv {
+  foreach ($name in $script:userEnvNames) {
+    [Environment]::SetEnvironmentVariable($name, $null, 'User')
+  }
+}
+
+function Wait-PullOk {
+  param([hashtable]$Before, [int]$Seconds)
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 2
+    foreach ($path in @($Before.Keys)) {
+      if (-not (Test-Path -LiteralPath $path)) { continue }
+      $now = [System.IO.File]::ReadAllText($path)
+      $old = [string]$Before[$path]
+      if ($now.Length -le $old.Length) { continue }
+      $fresh = $now.Substring($old.Length)
+      if ($fresh -match 'pull ok') { return $true }
+    }
+  }
+  return $false
+}
+
+function Snapshot-Logs {
+  param([string[]]$Paths)
+  $snap = @{}
+  foreach ($path in $Paths) {
+    if (Test-Path -LiteralPath $path) {
+      $snap[$path] = [System.IO.File]::ReadAllText($path)
+    } else {
+      $snap[$path] = ''
+    }
+  }
+  return $snap
 }
 
 function Cleanup-Tasks {
@@ -121,6 +170,7 @@ try {
   if (-not $base) { $base = $env:TEMP }
   $script:work = Join-Path $base ('osf-s15-' + [guid]::NewGuid().ToString('n').Substring(0, 12))
   New-Item -ItemType Directory -Path $script:work -Force | Out-Null
+  $script:spaced = Join-Path $script:work 'acme co'
   $sandbox = Join-Path $script:work 'home'
   $xdg = Join-Path $sandbox '.config'
   New-Item -ItemType Directory -Path $xdg -Force | Out-Null
@@ -211,7 +261,8 @@ role: writer
   Invoke-Git $areaSeed @('remote', 'add', 'origin', $areaBare)
   Invoke-Git $areaSeed @('push', '-q', 'origin', 'main')
 
-  $member = Join-Path $script:work 'member'
+  New-Item -ItemType Directory -Path $script:spaced -Force | Out-Null
+  $member = Join-Path $script:spaced 'acme-os'
   & git -c core.symlinks=false -c core.autocrlf=true clone -q -- $bare $member
   if ($LASTEXITCODE -ne 0) { throw 'member clone failed' }
   $areaDest = Join-Path $member 'areas\marketing'
@@ -247,7 +298,7 @@ esac
   $cfg = Join-Path $xdg 'acme-os'
   New-Item -ItemType Directory -Path $cfg -Force | Out-Null
   Write-Utf8 (Join-Path $cfg 'me') "mia`n"
-  $jobsDir = Join-Path $script:work 'jobs'
+  $jobsDir = Join-Path $script:spaced 'jobs'
   $env:OS_COMPANY_ROOT = ($member -replace '\\', '/')
   $env:OS_PROFILE = ((Join-Path $member 'company-profile.md') -replace '\\', '/')
   $env:OS_HOST_SH = ($hostSh -replace '\\', '/')
@@ -381,120 +432,103 @@ esac
   $pushTask = Get-ScheduledTask -TaskName 'osfoundation-acme-push' -ErrorAction SilentlyContinue
   if ($pullTask -and [string]$pullTask.Actions[0].Arguments -notmatch 'pull') { $registered = $false }
   if ($pushTask -and [string]$pushTask.Actions[0].Arguments -notmatch 'push') { $registered = $false }
-  if ($jobsCode -eq 0 -and $registered) { Pass 'install-jobs' } else { Fail 'install-jobs' "exit $jobsCode" }
+  $pullExport = ''
+  if ($pullTask) { $pullExport = Export-ScheduledTask -TaskName 'osfoundation-acme-pull' }
+  $pullFlat = $pullExport -replace '&quot;', '"' -replace '&amp;', '&'
+  if ($pullFlat -notmatch '-File "[^"]* [^"]*sync\.ps1"') { $registered = $false }
+  if ($pullExport -notmatch 'PT15M') { $registered = $false }
+  $pushExport = ''
+  if ($pushTask) { $pushExport = Export-ScheduledTask -TaskName 'osfoundation-acme-push' }
+  if ($pushExport -notmatch 'T02:00') { $registered = $false }
+  if ($jobsCode -eq 0 -and $registered) {
+    Pass 'install-jobs'
+  } else {
+    Fail 'install-jobs' ("exit {0} args {1}" -f $jobsCode, $pullFlat)
+  }
 
-  $log = Join-Path $xdg 'acme-os\state\sync.log'
-  $logBefore = ''
-  if (Test-Path -LiteralPath $log) { $logBefore = [System.IO.File]::ReadAllText($log) }
+  $logPaths = @(
+    (Join-Path $xdg 'acme-os\state\sync.log'),
+    (Join-Path $env:USERPROFILE '.config\acme-os\state\sync.log')
+  )
+  $startName = 'ta' + 'sk' + '-start'
   $started = $false
   $startReason = 'task did not write a log line'
+  Set-TaskUserEnv
+  Write-Utf8 (Join-Path $seed 'notes\task-start.md') "task start`n"
+  Invoke-Git $seed @('add', 'notes/task-start.md')
+  Invoke-Git $seed @('commit', '-q', '-m', 'task start note')
+  Invoke-Git $seed @('push', '-q', 'origin', 'main')
+  $beforeStart = Snapshot-Logs $logPaths
   try {
     Start-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction Stop
-    $deadline = (Get-Date).AddSeconds(45)
-    while ((Get-Date) -lt $deadline) {
-      Start-Sleep -Seconds 2
-      if (Test-Path -LiteralPath $log) {
-        $now = [System.IO.File]::ReadAllText($log)
-        if ($now.Length -gt $logBefore.Length) { $started = $true; break }
-      }
+    if (Wait-PullOk $beforeStart 60) {
+      $started = $true
+    } else {
       $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
-      if ($info -and $info.LastTaskResult -ne 267009) {
-        $startReason = "last result $($info.LastTaskResult)"
-      }
+      if ($info) { $startReason = "last result $($info.LastTaskResult)" }
     }
   } catch {
     $startReason = $_.Exception.Message
   }
-  $startName = 'ta' + 'sk' + '-start'
   if ($started) {
     Pass $startName
+    $probeOk = $false
+    $probeReason = 'probe did not write a log line'
+    try {
+      Write-Utf8 (Join-Path $seed 'notes\conhost.md') "conhost`n"
+      Invoke-Git $seed @('add', 'notes/conhost.md')
+      Invoke-Git $seed @('commit', '-q', '-m', 'conhost note')
+      Invoke-Git $seed @('push', '-q', 'origin', 'main')
+      $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull'
+      $inner = $pullNow.Actions[0]
+      $wrap = '--headless ' + $inner.Execute + ' ' + $inner.Arguments
+      $probeAction = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $wrap -WorkingDirectory $inner.WorkingDirectory
+      Register-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Action $probeAction -Trigger $pullNow.Triggers -Settings $pullNow.Settings -Principal $pullNow.Principal -Force | Out-Null
+      $beforeProbe = Snapshot-Logs $logPaths
+      Start-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction Stop
+      if (Wait-PullOk $beforeProbe 60) { $probeOk = $true }
+      else {
+        $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction SilentlyContinue
+        if ($info) { $probeReason = "last result $($info.LastTaskResult)" }
+      }
+    } catch {
+      $probeReason = $_.Exception.Message
+    }
+    Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
+    if ($probeOk) { Pass 'conhost' } else { Say 'conhost' 'BLOCKED' $probeReason }
   } else {
     Say $startName 'BLOCKED' $startReason
-    $xmlPath = Join-Path $jobsDir 'osfoundation-acme-pull.xml'
-    if (Test-Path -LiteralPath $xmlPath) {
-      [xml]$doc = Get-Content -LiteralPath $xmlPath
-      $cmd = [string]$doc.Task.Actions.Exec.Command
-      $arg = [string]$doc.Task.Actions.Exec.Arguments
-      $wd = [string]$doc.Task.Actions.Exec.WorkingDirectory
+    Say 'conhost' 'BLOCKED' 'task-start did not run'
+    $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
+    $actionName = 'ta' + 'sk' + '-action'
+    if ($pullNow) {
+      $cmd = [string]$pullNow.Actions[0].Execute
+      $arg = [string]$pullNow.Actions[0].Arguments
+      $wd = [string]$pullNow.Actions[0].WorkingDirectory
       if ($wd) { Set-Location $wd }
-      $actionCode = 1
+      $beforeAction = Snapshot-Logs $logPaths
       cmd.exe /c "$cmd $arg"
       $actionCode = $LASTEXITCODE
       Set-Location $member
-      $saw = $false
-      if (Test-Path -LiteralPath $log) {
-        $after = [System.IO.File]::ReadAllText($log)
-        if ($after.Length -gt $logBefore.Length) {
-          $fresh = $after.Substring($logBefore.Length)
-          if ($fresh -match 'pull ') { $saw = $true }
-        }
-      }
-      $actionName = 'ta' + 'sk' + '-action'
+      $saw = Wait-PullOk $beforeAction 20
       if ($actionCode -eq 0 -and $saw) { Pass $actionName } else { Fail $actionName "exit $actionCode" }
     } else {
-      $actionName = 'ta' + 'sk' + '-action'
-      Fail $actionName 'rendered xml missing'
+      Fail $actionName 'pull task missing'
     }
   }
 
+  Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
   $goneCode = Invoke-Sync @('uninstall-jobs')
-  $left = 0
+  $left = @()
   foreach ($name in $script:tasks) {
     $still = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-    if ($still) { $left++ }
+    if ($still) { $left += $name }
   }
-  if ($goneCode -eq 0 -and $left -eq 0) { Pass 'uninstall-jobs' } else { Fail 'uninstall-jobs' "$left tasks left" }
-
-  $probeXml = Join-Path $script:work 'conhost-probe.xml'
-  $probe = @'
-<?xml version="1.0" encoding="UTF-8"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Principals>
-    <Principal id="Author">
-      <LogonType>InteractiveToken</LogonType>
-      <RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
-  <Settings>
-    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-    <AllowStartOnDemand>true</AllowStartOnDemand>
-    <StartWhenAvailable>true</StartWhenAvailable>
-    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
-  </Settings>
-  <Actions Context="Author">
-    <Exec>
-      <Command>conhost.exe</Command>
-      <Arguments>--headless powershell.exe -NoProfile -NonInteractive -Command "exit 0"</Arguments>
-    </Exec>
-  </Actions>
-</Task>
-'@
-  Write-Utf8 $probeXml ($probe -replace "`r`n", "`n")
-  $probeOk = $false
-  $probeReason = 'probe did not finish'
-  try {
-    Register-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Xml ([System.IO.File]::ReadAllText($probeXml)) -Force | Out-Null
-    Start-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction Stop
-    $deadline = (Get-Date).AddSeconds(20)
-    while ((Get-Date) -lt $deadline) {
-      Start-Sleep -Seconds 2
-      $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction SilentlyContinue
-      if ($info -and $null -ne $info.LastTaskResult -and $info.LastTaskResult -ne 267009) {
-        if ($info.LastTaskResult -eq 0) { $probeOk = $true }
-        $probeReason = "last result $($info.LastTaskResult)"
-        break
-      }
-    }
-  } catch {
-    $probeReason = $_.Exception.Message
-  }
-  Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
-  if ($probeOk) { Pass 'conhost' } else { Say 'conhost' 'BLOCKED' $probeReason }
+  if ($goneCode -eq 0 -and $left.Count -eq 0) { Pass 'uninstall-jobs' } else { Fail 'uninstall-jobs' ("exit {0} left {1}" -f $goneCode, ($left -join ',')) }
 } catch {
   Say 'setup' 'FAIL' $_.Exception.Message
 } finally {
+  Clear-TaskUserEnv
   Cleanup-Tasks
   if ($script:work -and (Test-Path -LiteralPath $script:work)) {
     Set-Location $env:TEMP

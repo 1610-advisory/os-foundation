@@ -348,7 +348,9 @@ sync_pull_one() {
       return 1
     fi
     rm -rf "$save"
-    sync_log "pull ok ${id}"
+    if [ "$old" != "$(git -C "$repo" rev-parse HEAD)" ]; then
+      sync_log "pull ok ${id}"
+    fi
     sync_refresh_after_pull "$repo" "$old"
     return 0
   fi
