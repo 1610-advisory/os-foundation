@@ -70,6 +70,21 @@ p.write_text(text, encoding="utf-8")
 PY
 mkdir -p "$dest/notes"
 printf '%s\n' "Keep this company sentence." > "$dest/notes/keep.md"
+# A committed copy folder, the way an old setup did it when the link failed.
+rm -rf "$dest/.claude/skills"
+mkdir -p "$dest/.claude"
+cp -R "$dest/skills" "$dest/.claude/skills"
+mkdir -p "$dest/.claude/skills/acme-only"
+printf '%s\n' 'Acme keeps this skill in the copy only.' > "$dest/.claude/skills/acme-only/SKILL.md"
+cp "$dest/.claude/skills/acme-only/SKILL.md" "$work/only-skill.md"
+# Leave the summary placeholder so answers one_liner fills it.
+python3 - << PY
+from pathlib import Path
+p = Path("$dest/company-profile.md")
+text = p.read_text(encoding="utf-8")
+text = text.replace('summary: "Acme Co makes sample goods."', 'summary: "{{ONE_LINER}}"')
+p.write_text(text, encoding="utf-8")
+PY
 before=$(cksum "$dest/notes/keep.md" | awk '{print $1}')
 git -C "$dest" init -b main
 git -C "$dest" add -A
@@ -106,7 +121,7 @@ git -C "$area" init -b main
 git -C "$area" add -A
 git -C "$area" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
   commit -m "Marketing area: start"
-printf '%s\n' "slug=acme" > "$work/answers"
+printf '%s\n' 'slug=acme' 'one_liner=Acme Co makes sample goods.' > "$work/answers"
 
 bash "$root/template/skills/upgrade/upgrade.sh" --dry-run --root "$dest" --template "$root/template" \
   --answers "$work/answers" >"$work/dry.log" 2>&1 || osf_result "S11 FAIL dry-run"
@@ -143,6 +158,27 @@ for line in "Acme ships sample goods on Tuesdays." "Acme locks the shop at six."
 done
 if ! grep -q '## Acme notes' "$dest/AGENTS.md"; then
   osf_result "S11 FAIL company section was dropped"
+fi
+claude_mode=$(git -C "$dest" ls-files -s .claude/skills | awk '{print $1}')
+agents_mode=$(git -C "$dest" ls-files -s .agents/skills | awk '{print $1}')
+if [ "$claude_mode" != "120000" ] || [ "$agents_mode" != "120000" ]; then
+  osf_result "S11 FAIL skill links are not committed links"
+fi
+if ! cmp -s "$dest/skills/acme-only/SKILL.md" "$work/only-skill.md"; then
+  osf_result "S11 FAIL company skill was rewritten"
+fi
+if find "$dest" -name logs-folder -print | grep -q .; then
+  osf_result "S11 FAIL logs-folder remains"
+fi
+if ! grep -q 'Acme Co makes sample goods.' "$dest/company-profile.md"; then
+  osf_result "S11 FAIL one_liner did not fill the profile"
+fi
+set +e
+bash "$dest/skills/lint/lint.sh" --root "$dest" >"$work/lint.log" 2>&1
+lint_rc=$?
+set -e
+if [ "$lint_rc" -ne 0 ]; then
+  osf_result "S11 FAIL lint exit $lint_rc"
 fi
 if ! grep -q '## Must-have rules' "$dest/CLAUDE.md" || ! grep -q 'Level first' "$dest/CLAUDE.md"; then
   osf_result "S11 FAIL CLAUDE.md missed v1 rules"

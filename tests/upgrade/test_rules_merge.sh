@@ -211,8 +211,11 @@ grep -q 'Rules for numbers' "$work/area-finance-out.md" || team_fail "finance us
 grep -q 'Marketing Toolkit' "$work/area-_area-out.md" && team_fail "_area used the marketing template"
 
 # Best match picks the area kind, not always _area.
+# shellcheck disable=SC2034
 DIR="$root/template/skills/upgrade"
+# shellcheck disable=SC2034
 ROOT="$work"
+# shellcheck disable=SC2034
 ANSWERS=""
 # shellcheck disable=SC1091
 . "$root/template/skills/upgrade/rules.sh"
@@ -284,5 +287,23 @@ grep -q 'the shop' "$plain/AGENTS.md" || team_fail "answers areas was not filled
 . "$root/template/skills/sync/lib.sh"
 sync_is_rules "company-rules.md" || team_fail "company-rules.md is not a rules file"
 sync_is_rules "areas/shop/area-rules.md" || team_fail "area-rules.md is not a rules file"
+
+# A copy folder that differs from both the live skill and the v0 hash stays a folder.
+conf="$work/conflict"
+mkdir -p "$conf"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$conf/"
+rm -rf "$work/template"
+mkdir -p "$conf/.claude/skills/lint"
+cp "$conf/skills/lint/SKILL.md" "$conf/.claude/skills/lint/SKILL.md"
+printf '%s\n' 'company-changed-this-copy' >> "$conf/.claude/skills/lint/SKILL.md"
+git -C "$conf" init -q
+git -C "$conf" checkout -q -b main
+commit_all "$conf" "v0 copies"
+"$upgrade" --root "$conf" --template "$root/template" --level solo > "$work/conflict.out"
+grep -q 'conflict: .claude/skills/lint/SKILL.md' "$work/conflict.out" || team_fail "missing copy conflict"
+grep -q 'conflict: .claude/skills left:' "$work/conflict.out" || team_fail "did not say the folder stays"
+[ -d "$conf/.claude/skills" ] && [ ! -L "$conf/.claude/skills" ] || team_fail "conflict folder was replaced"
+[ ! -e "$conf/.claude/skills/skills" ] || team_fail "link was nested inside the copy folder"
 
 printf '%s\n' "PASS rules-merge"

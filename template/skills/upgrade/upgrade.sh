@@ -224,6 +224,118 @@ copy_skill_files() {
   done
 }
 
+# .agents/skills and .claude/skills. A folder of copies is not a link.
+# Never ln -sfn onto that folder: it nests a link inside the copies.
+skill_link_hash() {
+  awk -v p="$1" '$2 == p { print $1; exit }' "$HASHES"
+}
+
+fix_skill_link() {
+  local repo=$1 linkrel=$2 write=$3
+  local dest="$repo/$linkrel" target conflict rel f got want moves
+  if [ -L "$dest" ]; then
+    target=$(readlink "$dest")
+    if [ "$target" = "../skills" ]; then
+      return 0
+    fi
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      rm -f "$dest"
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    return 0
+  fi
+  if [ ! -e "$dest" ] || [ ! -d "$dest" ]; then
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      if [ -e "$dest" ]; then
+        if git -C "$repo" ls-files --error-unmatch -- "$linkrel" >/dev/null 2>&1; then
+          git -C "$repo" rm -q -- "$linkrel"
+        else
+          rm -f "$dest"
+        fi
+      fi
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    return 0
+  fi
+  conflict=0
+  moves=$(mktemp)
+  : > "$moves"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel="${f#"$dest"/}"
+    if [ -f "$repo/skills/$rel" ] && cmp -s "$f" "$repo/skills/$rel"; then
+      continue
+    fi
+    want=$(skill_link_hash "skills/$rel")
+    if [ -n "$want" ]; then
+      got=$(os_sha "$f")
+      if [ "$got" = "$want" ]; then
+        continue
+      fi
+    fi
+    if [ ! -e "$repo/skills/$rel" ]; then
+      printf '%s\n' "$rel" >> "$moves"
+      continue
+    fi
+    printf 'conflict: %s/%s\n' "$linkrel" "$rel"
+    conflict=1
+  done < <(find "$dest" -type f -print)
+  if [ "$conflict" -eq 1 ]; then
+    printf 'conflict: %s left: resolve the files above first\n' "$linkrel"
+    rm -f "$moves"
+    return 0
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    printf 'change: skill-moved skills/%s\n' "$rel"
+    if [ "$write" = "1" ]; then
+      mkdir -p "$(dirname "$repo/skills/$rel")"
+      cp -p "$dest/$rel" "$repo/skills/$rel"
+      git -C "$repo" add -- "skills/$rel"
+    fi
+  done < "$moves"
+  rm -f "$moves"
+  printf 'change: %s\n' "$linkrel"
+  if [ "$write" != "1" ]; then
+    return 0
+  fi
+  if git -C "$repo" ls-files -- "$linkrel" | grep -q .; then
+    git -C "$repo" rm -r -q -- "$linkrel"
+  fi
+  if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+    rm -rf "$dest"
+  fi
+  mkdir -p "$(dirname "$dest")" "$repo/skills"
+  ln -s ../skills "$dest"
+  git -C "$repo" add -- "$linkrel"
+}
+
+fix_skill_links() {
+  local repo=$1 write=$2
+  fix_skill_link "$repo" .agents/skills "$write"
+  fix_skill_link "$repo" .claude/skills "$write"
+}
+
+fill_profile_one_liner() {
+  local val cur
+  [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ] || return 0
+  val=$(os_answer_or one_liner "$ANSWERS" "")
+  [ -n "$val" ] || return 0
+  [ -f "$ROOT/company-profile.md" ] || return 0
+  cur=$(os_fm_get "$ROOT/company-profile.md" summary 2>/dev/null || true)
+  case "$cur" in
+    '{{ONE_LINER}}')
+      os_fm_set "$ROOT/company-profile.md" summary "$(os_yaml_quote "$val")"
+      ;;
+  esac
+}
+
 plan_skills
 plan_skill_files
 
@@ -254,6 +366,7 @@ fi
 # Rules merge replaces the old stock-hash copy. A v1 file is left alone.
 rules_plan_company 0
 rules_maybe_attrs "$ROOT" "" 0 ""
+fix_skill_links "$ROOT" 0
 if [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; then
   if [ -f "$ROOT/AGENTS.md" ]; then
     printf '%s\n' "change: tier-table"
@@ -328,6 +441,7 @@ plan_area_scripts() {
     fi
     printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
     rules_one_area "$area" 0
+    fix_skill_links "$area" 0
   done
 }
 plan_area_scripts
@@ -383,9 +497,7 @@ if [ "$V0_LOGS" -eq 1 ]; then
   rm -rf "$tmp"
 fi
 
-mkdir -p "$ROOT/.agents" "$ROOT/.claude"
-ln -sfn ../skills "$ROOT/.agents/skills"
-ln -sfn ../skills "$ROOT/.claude/skills"
+fix_skill_links "$ROOT" 1
 
 if [ -f "$ROOT/.gitignore" ]; then
   grep -v '^/memory/logs/$' "$ROOT/.gitignore" | grep -v 'skills/logs-folder' > "$ROOT/.gitignore.tmp" || true
@@ -407,6 +519,7 @@ case "$OS_VER" in
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"
+fill_profile_one_liner
 if ! os_fm_get "$ROOT/company-profile.md" switches >/dev/null 2>&1; then
   os_fm_set "$ROOT/company-profile.md" switches "[]"
 fi
@@ -475,6 +588,7 @@ push_area_scripts() {
     if ! git -C "$area" diff --cached --quiet; then
       rules_commit_msg "$area" "Upgrade: rules merge"
     fi
+    fix_skill_links "$area" 1
     mkdir -p "$area/.github"
     rm -rf "$area/.github/scripts"
     cp -R "$src" "$area/.github/scripts"
@@ -591,6 +705,7 @@ elif [ -d "$ROOT/areas" ]; then
     git -C "$area" checkout -q -B upgrade/scripts
     rules_one_area "$area" 1
     rules_stage_rules "$area"
+    fix_skill_links "$area" 1
     if ! git -C "$area" diff --cached --quiet; then
       rules_commit_msg "$area" "Upgrade: rules merge"
     fi
