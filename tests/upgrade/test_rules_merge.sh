@@ -204,7 +204,7 @@ out.write_text("\n".join(lines) + "\n")
 PY
 head_before=$(git -C "$v1f" rev-parse HEAD)
 "$upgrade" --root "$v1f" --template "$root/template" --level solo > "$work/v1.out"
-grep -q 'upgrade: already v1' "$work/v1.out" || team_fail "second run did not say already v1"
+grep -q 'upgrade: pending upgrade/v1' "$work/v1.out" || team_fail "second run did not say pending"
 [ "$(git -C "$v1f" rev-parse HEAD)" = "$head_before" ] || team_fail "second run made a commit"
 git -C "$v1f" status --porcelain | grep -q . && team_fail "second run left a dirty tree"
 python3 - << PY
@@ -224,6 +224,12 @@ if got != want:
     raise SystemExit("a file changed on the second run")
 print("hashes-ok")
 PY
+git -C "$v1f" checkout -q main
+GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+  GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+  git -C "$v1f" merge --no-ff --no-edit upgrade/v1 -m "Merge upgrade" >/dev/null
+"$upgrade" --root "$v1f" --template "$root/template" --level solo > "$work/v1-merged.out"
+grep -q 'upgrade: already v1' "$work/v1-merged.out" || team_fail "merged main did not say already v1"
 
 # Each area kind merges with its own v1 template.
 for kind in _area apps finance marketing; do
@@ -407,7 +413,141 @@ OS_HOST_SH="$work/host.sh" "$upgrade" --root "$dirty" --template "$root/template
 dirty_rc=$?
 set -e
 [ "$dirty_rc" -eq 2 ] || team_fail "dirty area exit was $dirty_rc"
-grep -q 'uncommitted changes' "$work/dirty.out" || team_fail "dirty area message missing"
+grep -q 'the area areas/shop has uncommitted changes' "$work/dirty.out" || team_fail "dirty area message missing"
+OS_HOST_SH="$work/host.sh" "$upgrade" --dry-run --root "$dirty" --template "$root/template" --level solo \
+  --answers "$work/dirty.answers" > "$work/dirty-dry.out" 2>&1
+grep -q 'the area areas/shop has uncommitted changes' "$work/dirty-dry.out" || team_fail "dry run hid the dirty area"
 grep -q 'uncommitted area note' "$dirty/areas/shop/note.md" || team_fail "dirty area work was discarded"
+git -C "$dirty" rev-parse --abbrev-ref HEAD | grep -qx main || team_fail "dirty area moved the company off main"
+git -C "$dirty" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "dirty area created upgrade/v1"
+[ "$(git -C "$dirty" rev-parse HEAD)" = "$(git -C "$dirty" rev-parse main)" ] || team_fail "dirty area committed on main"
+
+# Both rules files over the cap append into one spill file.
+# shellcheck disable=SC1091
+. "$root/template/skills/add-teammate/lib.sh"
+DIR="$root/template/skills/upgrade"
+ROOT="$work/bothspill"
+ANSWERS=""
+mkdir -p "$ROOT"
+printf '%s\n' '---' 'type: company-profile' '---' > "$ROOT/company-profile.md"
+python3 - << PY
+from pathlib import Path
+root = Path("$root/template/skills/upgrade/v0")
+dest = Path("$work/bothspill")
+for name, marker in (("AGENTS.md", "AGENTS-SPILL-LINE"), ("CLAUDE.md", "CLAUDE-SPILL-LINE")):
+    text = (root / name).read_text()
+    line = f"- Acme {marker} keeps this long rule line so the file spills over the cap.\n"
+    text += "\n## Acme notes\n\n" + (line * 200)
+    (dest / name).write_text(text)
+    (dest / f"{name}.line").write_text(line)
+PY
+rules_merge_one AGENTS.md "$ROOT/AGENTS.md" "$DIR/v0/AGENTS.md" "$root/template/AGENTS.md" company company "" 1 >/dev/null
+rules_merge_one CLAUDE.md "$ROOT/CLAUDE.md" "$DIR/v0/CLAUDE.md" "$root/template/CLAUDE.md" claude company "" 1 >/dev/null
+python3 - << PY
+from pathlib import Path
+root = Path("$work/bothspill")
+spill = (root / "company-rules.md").read_text()
+agents = (root / "AGENTS.md.line").read_text().rstrip("\n")
+claude = (root / "CLAUDE.md.line").read_text().rstrip("\n")
+head = "## From CLAUDE.md\n"
+idx = spill.find(head)
+if idx < 0:
+    raise SystemExit("heading missing")
+before, after = spill[:idx], spill[idx + len(head):]
+if agents not in before:
+    raise SystemExit("agents lines missing before the heading")
+if claude not in after:
+    raise SystemExit("claude lines missing after the heading")
+if agents not in before.splitlines():
+    raise SystemExit("agents line was not kept byte for byte")
+if claude not in after.splitlines():
+    raise SystemExit("claude line was not kept byte for byte")
+print("spill-append-ok")
+PY
+
+# A spill file that already exists is company content. Do not overwrite it.
+oldspill="$work/oldspill"
+mkdir -p "$oldspill"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$oldspill/"
+rm -rf "$work/template"
+printf '%s\n' 'keep this company spill' > "$oldspill/company-rules.md"
+before_spill=$(team_sha "$oldspill/company-rules.md")
+git -C "$oldspill" init -q
+git -C "$oldspill" checkout -q -b main
+commit_all "$oldspill" "v0 spill"
+head_spill=$(git -C "$oldspill" rev-parse HEAD)
+set +e
+"$upgrade" --root "$oldspill" --template "$root/template" --level solo > "$work/oldspill.out" 2>&1
+oldspill_rc=$?
+set -e
+[ "$oldspill_rc" -eq 2 ] || team_fail "existing spill exit was $oldspill_rc"
+grep -q 'conflict: company-rules.md exists' "$work/oldspill.out" || team_fail "missing existing spill conflict"
+[ "$(team_sha "$oldspill/company-rules.md")" = "$before_spill" ] || team_fail "existing spill was rewritten"
+[ "$(git -C "$oldspill" rev-parse HEAD)" = "$head_spill" ] || team_fail "existing spill made a commit"
+git -C "$oldspill" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "existing spill created upgrade/v1"
+
+# Windows Git Bash must not commit a copy where a link was asked for.
+win="$work/windows"
+mkdir -p "$win"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$win/"
+rm -rf "$work/template"
+git -C "$win" init -q
+git -C "$win" checkout -q -b main
+commit_all "$win" "v0 win"
+head_win=$(git -C "$win" rev-parse HEAD)
+set +e
+OS_UPGRADE_UNAME=MINGW64_NT-10.0 "$upgrade" --root "$win" --template "$root/template" --level solo > "$work/win.out" 2>&1
+win_rc=$?
+set -e
+[ "$win_rc" -eq 2 ] || team_fail "windows guard exit was $win_rc"
+grep -q 'run the upgrade from a Mac or Linux clone of the company repo' "$work/win.out" || team_fail "windows guard message missing"
+[ "$(git -C "$win" rev-parse HEAD)" = "$head_win" ] || team_fail "windows guard wrote a commit"
+
+# An existing team folder that spills keeps every old owner line and gains the spill paths.
+own="$work/owners"
+mkdir -p "$own/.github" "$own/.gitea" "$own/areas/shop/.github" "$own/areas/shop/.gitea"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$own/"
+rm -rf "$work/template"
+printf '%s\n' '# Rules files only. Notes have no code owner.' '/AGENTS.md @ada' '/CLAUDE.md @ada' '/skills/ @ada' > "$own/.github/CODEOWNERS"
+printf '%s\n' '# Rules files only. Notes have no code owner.' '^AGENTS\.md$ @ada' '^CLAUDE\.md$ @ada' '^skills/.* @ada' > "$own/.gitea/CODEOWNERS"
+cp "$own/.github/CODEOWNERS" "$own/areas/shop/.github/CODEOWNERS"
+cp "$own/.gitea/CODEOWNERS" "$own/areas/shop/.gitea/CODEOWNERS"
+python3 - << PY
+from pathlib import Path
+p = Path("$own/AGENTS.md")
+text = p.read_text()
+text += "\n## Acme notes\n\n" + ("- Acme keeps this long rule line so the file spills over the cap.\n" * 80)
+p.write_text(text)
+PY
+git -C "$own" init -q
+git -C "$own" checkout -q -b main
+commit_all "$own" "v0 owners"
+printf '%s\n' '# Shop' > "$own/areas/shop/AGENTS.md"
+git -C "$own/areas/shop" init -q
+git -C "$own/areas/shop" checkout -q -b main
+commit_all "$own/areas/shop" "area owners"
+old_gh=$(cat "$own/.github/CODEOWNERS")
+old_gitea=$(cat "$own/.gitea/CODEOWNERS")
+"$upgrade" --root "$own" --template "$root/template" --level solo > "$work/owners.out"
+grep -q 'change: rules-spill AGENTS.md -> company-rules.md' "$work/owners.out" || team_fail "owners fixture did not spill"
+printf '%s\n' "$old_gh" | while IFS= read -r line; do
+  grep -F -x -q -- "$line" "$own/.github/CODEOWNERS" || team_fail "old github owner line changed"
+done
+grep -F -x -q -- '/company-rules.md @ada' "$own/.github/CODEOWNERS" || team_fail "github spill line missing"
+grep -F -x -q -- '/area-rules.md @ada' "$own/.github/CODEOWNERS" || team_fail "github area spill line missing"
+printf '%s\n' "$old_gitea" | while IFS= read -r line; do
+  grep -F -x -q -- "$line" "$own/.gitea/CODEOWNERS" || team_fail "old forgejo owner line changed"
+done
+grep -F -x -q -- '^company-rules\.md$ @ada' "$own/.gitea/CODEOWNERS" || team_fail "forgejo spill line missing"
+grep -F -x -q -- '^area-rules\.md$ @ada' "$own/.gitea/CODEOWNERS" || team_fail "forgejo area spill line missing"
+grep -F -x -q -- '/company-rules.md @ada' "$own/areas/shop/.github/CODEOWNERS" || team_fail "area github spill line missing"
+grep -F -x -q -- '^company-rules\.md$ @ada' "$own/areas/shop/.gitea/CODEOWNERS" || team_fail "area forgejo spill line missing"
+old_area=$(git -C "$own/areas/shop" show HEAD:.github/CODEOWNERS)
+printf '%s\n' "$old_area" | while IFS= read -r line; do
+  grep -F -x -q -- "$line" "$own/areas/shop/.github/CODEOWNERS" || team_fail "old area owner line changed"
+done
 
 printf '%s\n' "PASS rules-merge"

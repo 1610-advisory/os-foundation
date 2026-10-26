@@ -95,20 +95,36 @@ os_sha() {
   fi
 }
 
-committed_skill_link() {
-  local rel=$1 mode target
-  [ -L "$ROOT/$rel" ] || return 1
-  target=$(readlink "$ROOT/$rel")
-  [ "$target" = "../skills" ] || return 1
-  mode=$(git -C "$ROOT" ls-files -s -- "$rel" | awk '{print $1}')
-  [ "$mode" = "120000" ]
+upgrade_uname() {
+  if [ -n "${OS_UPGRADE_UNAME:-}" ]; then
+    printf '%s\n' "$OS_UPGRADE_UNAME"
+    return 0
+  fi
+  uname -s
 }
 
-# level: plus both committed skill links. A leftover logs branch does not matter.
-if os_fm_get "$ROOT/company-profile.md" level >/dev/null 2>&1 \
-  && committed_skill_link .agents/skills \
-  && committed_skill_link .claude/skills; then
+case "$(upgrade_uname)" in
+  MINGW*|MSYS*|CYGWIN*)
+    os_die 2 "run the upgrade from a Mac or Linux clone of the company repo"
+    ;;
+esac
+
+main_link_mode() {
+  git -C "$ROOT" ls-tree main -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# Read main, not the work tree. A leftover logs branch does not matter.
+if git -C "$ROOT" cat-file -e main:company-profile.md 2>/dev/null \
+  && git -C "$ROOT" show main:company-profile.md | grep -q '^level:' \
+  && [ "$(main_link_mode .agents/skills)" = "120000" ] \
+  && [ "$(main_link_mode .claude/skills)" = "120000" ]; then
   printf '%s\n' "upgrade: already v1"
+  exit 0
+fi
+
+if git -C "$ROOT" show-ref --verify --quiet refs/heads/upgrade/v1; then
+  printf '%s\n' "upgrade: pending upgrade/v1"
+  printf '%s\n' "To start over: git checkout main, then delete the upgrade/v1 branch and any area upgrade/scripts branch."
   exit 0
 fi
 
@@ -144,6 +160,89 @@ fi
 
 HASHES="$DIR/v0-hashes.txt"
 [ -f "$HASHES" ] || os_die 3 "v0-hashes.txt is missing"
+
+# die=1 stops the real run. Dry run only prints.
+preflight_spills() {
+  local die=$1 path rel hit=0
+  if [ -f "$ROOT/company-rules.md" ]; then
+    printf '%s\n' "conflict: company-rules.md exists"
+    hit=1
+  fi
+  if [ -d "$ROOT/areas" ]; then
+    for path in "$ROOT"/areas/*/area-rules.md; do
+      [ -f "$path" ] || continue
+      rel=${path#"$ROOT"/}
+      printf 'conflict: %s exists\n' "$rel"
+      hit=1
+    done
+  fi
+  if [ "$hit" -eq 1 ] && [ "$die" -eq 1 ]; then
+    exit 2
+  fi
+}
+
+preflight_wants_host() {
+  local kind=""
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    kind=$(os_answer_or host "$ANSWERS" "")
+  fi
+  if [ -z "$kind" ] && [ -f "$ROOT/company-profile.md" ]; then
+    kind=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
+  fi
+  case "$kind" in
+    github|forgejo) ;;
+    *) return 1 ;;
+  esac
+  os_find_host "$ROOT" "$DIR" >/dev/null
+}
+
+preflight_areas() {
+  local die=$1 area name rel repo slug found=0 bin
+  [ -d "$ROOT/areas" ] || return 0
+  slug=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    case "$slug" in
+      ""|*'{{'*) slug=$(os_answer_or slug "$ANSWERS" "$slug") ;;
+    esac
+    case "$slug" in
+      ""|*'{{'*) slug=$(os_answer_or company_slug "$ANSWERS" "$slug") ;;
+    esac
+  fi
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    name=$(basename "$area")
+    rel="areas/$name"
+    if [ -n "$(git -C "$area" status --porcelain)" ]; then
+      printf 'the area %s has uncommitted changes. Commit or stash them, then run upgrade again.\n' "$rel" >&2
+      found=1
+      if [ "$die" -eq 1 ]; then
+        exit 2
+      fi
+    fi
+  done
+  [ "$found" -eq 0 ] || return 0
+  preflight_wants_host || return 0
+  bin=$(os_find_host "$ROOT" "$DIR")
+  export OS_HOST_BIN="$bin"
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    name=$(basename "$area")
+    rel="areas/$name"
+    repo=$rel
+    case "$slug" in
+      ""|*'{{'*) ;;
+      *) repo=$(os_area_repo "$slug" "$name") ;;
+    esac
+    if ! os_with_git_token git -C "$area" fetch origin; then
+      printf 'could not fetch %s\n' "$repo" >&2
+      if [ "$die" -eq 1 ]; then
+        exit 3
+      fi
+    fi
+  done
+}
 
 plan_skills() {
   local hash path got
@@ -576,9 +675,15 @@ plan_area_scripts() {
 }
 plan_area_scripts
 
+preflight_spills 0
+preflight_areas 0
+
 if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
+
+preflight_spills 1
+preflight_areas 1
 
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
   os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
@@ -709,9 +814,6 @@ push_area_scripts() {
       printf 'pr-plan: %s skipped: not a git repo\n' "$repo" >&2
       continue
     fi
-    if [ -n "$(git -C "$area" status --porcelain)" ]; then
-      os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
-    fi
     branch="upgrade/scripts"
     if ! os_with_git_token git -C "$area" fetch origin; then
       os_die 3 "could not fetch ${repo}"
@@ -834,9 +936,6 @@ elif [ -d "$ROOT/areas" ]; then
   for area in "$ROOT"/areas/*; do
     [ -d "$area" ] || continue
     [ -e "$area/.git" ] || continue
-    if [ -n "$(git -C "$area" status --porcelain)" ]; then
-      os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
-    fi
     git -C "$area" checkout -q -B upgrade/scripts
     rules_one_area "$area" 1
     rules_stage_rules "$area"

@@ -243,7 +243,7 @@ rules_best_kind() {
 # write=1 copies the result onto the real file. Dry-run passes 0.
 rules_merge_one() {
   local rel=$1 real=$2 base=$3 v1=$4 scope=$5 role=$6 area_slug=$7 write=$8
-  local tmp lines chars spill link stats
+  local tmp lines chars spill link stats dest_spill
   [ -f "$real" ] || return 0
   [ -f "$base" ] || return 0
   [ -f "$v1" ] || return 0
@@ -274,7 +274,15 @@ rules_merge_one() {
   if [ "$write" = "1" ]; then
     cp "$tmp/out.md" "$real"
     if [ "$spill" = "1" ]; then
-      cp "$tmp/spill.md" "$(dirname "$real")/$link"
+      dest_spill="$(dirname "$real")/$link"
+      if [ -f "$dest_spill" ]; then
+        {
+          printf '\n## From %s\n' "$(basename "$real")"
+          cat "$tmp/spill.md"
+        } >> "$dest_spill"
+      else
+        cp "$tmp/spill.md" "$dest_spill"
+      fi
     fi
   fi
   rm -rf "$tmp"
