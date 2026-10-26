@@ -305,7 +305,7 @@ rp_week_sections() {
     [ -n "$path" ] || continue
     case "$path" in
       users/*|profile/*|traces/*|reports/*|memory/logs/*) continue ;;
-      skills/*|*/skills/*|AGENTS.md|CLAUDE.md|*/AGENTS.md|*/CLAUDE.md|review-rules.md|CODEOWNERS|docs/CODEOWNERS|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*)
+      skills/*|*/skills/*|AGENTS.md|CLAUDE.md|*/AGENTS.md|*/CLAUDE.md|review-rules.md|company-rules.md|area-rules.md|*/company-rules.md|*/area-rules.md|CODEOWNERS|docs/CODEOWNERS|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*)
         printf -- '- Skill or rules: [%s](%s)\n' "$path" "$path"
         n=$((n + 1))
         continue

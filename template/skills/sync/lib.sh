@@ -223,7 +223,7 @@ sync_is_rules() {
   local base
   base=$(basename "$path")
   case "$base" in
-    AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS) return 0 ;;
+    AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS|company-rules.md|area-rules.md) return 0 ;;
   esac
   case "$path" in
     skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|bots/*/BOT.md) return 0 ;;

@@ -334,7 +334,7 @@ nr_is_rules_path() {
   local p=$1 base
   base=$(basename "$p")
   case "$base" in
-    AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS) return 0 ;;
+    AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS|company-rules.md|area-rules.md) return 0 ;;
   esac
   case "$p" in
     skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS) return 0 ;;
