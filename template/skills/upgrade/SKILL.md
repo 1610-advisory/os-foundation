@@ -15,6 +15,9 @@ The flags are in `skills/upgrade/CLI.md`. Use exactly those.
 ## 1. Get the script
 
 The script comes with the new os-foundation version.
+
+Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run the upgrade from a Mac or Linux clone of the company repo`) and changes nothing. If the person only has Windows, the admin runs it from a Mac or Linux clone. Windows teammates get the result by their normal pull.
+
 1. Read the newest version: the one line at `https://1610.sh/os/version` (for example `v1.0.0`). `unreleased` means there is no version yet: say so and stop.
 2. Clone it to a temporary folder outside the company folder:
    `git clone --depth 1 --branch <version> https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`
@@ -29,7 +32,7 @@ Ask: "Does anyone else use this company OS with you?" Suggest no.
 
 ## 3. Clean folder
 
-A real run refuses a folder with uncommitted changes. Check with `git status --short` at the company root.
+A real run refuses a folder with uncommitted changes. The same goes for each area repo. Check with `git status --short` at the company root and in each `areas/<area>/`.
 - **Solo:** commit the changes first, as usual.
 - **Team:** the nightly push sends them. Run the upgrade the next day. Never commit them on `main`.
 
@@ -38,8 +41,12 @@ A real run refuses a folder with uncommitted changes. Check with `git status --s
 1. Run `<upgrade> --dry-run --root <company folder> --template <template>`.
 2. It changes nothing. It prints `v0:` lines (the old shape it found), `change:` lines, `todo:` lines and `conflict:` lines.
 3. Read the report to the person in plain words, one line each.
+   - `upgrade: already v1`: `main` already has the v1 parts. Say so and stop.
+   - `upgrade: pending upgrade/v1`: an upgrade branch is already there. Either its pull request is open, or an earlier run stopped. Check for an open upgrade pull request first. If it is open, finish that one (step 7). Start over only with the person's OK. Then follow the `To start over:` line the script printed.
+   - `the area areas/<name> has uncommitted changes`: go to step 3 for that area. Then run the dry run again.
+   - `could not fetch <repo>`: the area repo on the host could not be reached. Check the sign-in and the network. Then run the dry run again.
 4. Show the person each `change: rules-merge` line. Say plainly: "Your own lines in the rules files are kept exactly as written. They move under the new v1 headings." Give the count from `company-lines=`.
-5. A `change: rules-spill` line means the rules file would be too long. Say: "Your own rules lines go to `company-rules.md` (an area: `area-rules.md`), unchanged. `AGENTS.md` gets one line that says to read it."
+5. A `change: rules-spill` line means the rules file would be 10,000 bytes or more. Say: "Your own rules lines go to `company-rules.md` (an area: `area-rules.md`), unchanged. `AGENTS.md` gets one line that says to read it." When `CLAUDE.md` spills too, its lines go to the end of the same file under `## From CLAUDE.md`.
 6. For each `todo: fill` line, ask the person for that value, one at a time. Write the answers to a file in the temporary folder, one `key=value` per line (the keys are in `skills/upgrade/CLI.md`). Add `--answers <file>` to every later run. Run the dry run again.
 
 What an upgrade may add or change:
@@ -62,7 +69,11 @@ For each conflict, say what it is and what the new version would change. Ask the
 - **Keep yours** (suggested). The upgrade skips that file.
 - **Take the new one.** Do it later by its own rules change, so it gets a review.
 
-A `conflict: .claude/skills/<path>` (or `.agents/skills/<path>`) line means that folder holds a copy of a skill file that differs from the one in `skills/`. The folder stays until each such file is resolved. Ask the person which copy to keep. Put the kept copy in `skills/` and commit it. Then run the dry run again.
+A `conflict: .claude/skills/<path>` (or `.agents/skills/<path>`) line means that folder holds a copy of a skill file that differs from the one in `skills/`. The line `conflict: .claude/skills left: resolve the files above first` follows. The folder stays until each such file is resolved. Ask the person which copy to keep. Put the kept copy in `skills/` and commit it. Then run the dry run again.
+
+`conflict: .claude/skills (untracked; commit it first)` (or `.agents/skills`) means git does not track that folder, and it holds a file that is not a plain copy. The upgrade does not move or delete it. Ask the person to keep what they need: move a skill they wrote into `skills/` and commit it. Then run the dry run again.
+
+`conflict: company-rules.md exists` (or `conflict: areas/<name>/area-rules.md exists`) means the folder already has that file. The upgrade will not write its spill file there, and a real run stops before any write. Ask the person to rename that file or merge it into `AGENTS.md` by hand, in a normal rules change ([team] `skills/sync/sync.sh propose <topic> <file>...`; solo: commit). After that merges, run the dry run again.
 
 `app-groups: needs Track K` means the folder is linked to the app. Stop and tell the person: 1610 manages that upgrade.
 
