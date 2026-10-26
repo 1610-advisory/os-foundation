@@ -150,9 +150,9 @@ function Read-PullState([string]$Path) {
   $lines = $text.Split("`n")
   if ($lines.Length -lt 4) { return $null }
   if ($lines[0] -ne 'os-sync-state 1') { return $null }
-  if ($lines[1] -notmatch '^full (\d+)$') { return $null }
+  if (-not ($lines[1] -match '^full (\d+)$')) { return $null }
   $full = [int64]$Matches[1]
-  if ($lines[2] -notmatch '^me ([A-Za-z0-9-]+|-)$') { return $null }
+  if (-not ($lines[2] -match '^me ([A-Za-z0-9-]+|-)$')) { return $null }
   $me = $Matches[1]
   if ($lines[3] -ne 'bot 0' -and $lines[3] -ne 'bot 1') { return $null }
   $bot = $lines[3].Substring(4)
@@ -160,7 +160,7 @@ function Read-PullState([string]$Path) {
   $order = New-Object System.Collections.Generic.List[string]
   for ($i = 4; $i -lt $lines.Length; $i++) {
     $line = $lines[$i]
-    if ($line -notmatch '^repo (ok|retry) ([0-9a-f]{40}|[0-9a-f]{64}|none) (\S+)$') { return $null }
+    if (-not ($line -match '^repo (ok|retry) ([0-9a-f]{40}|[0-9a-f]{64}|none) (\S+)$')) { return $null }
     $status = $Matches[1]
     $sha = $Matches[2]
     $rel = $Matches[3]
