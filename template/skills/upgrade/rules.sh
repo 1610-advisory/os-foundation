@@ -64,28 +64,123 @@ rules_profile_into() {
   esac
 }
 
-# Later lines win in the values file. Captures in the merge win over these.
-rules_write_values() {
-  local dest=$1 folder=$2 area_slug=$3 base slug
-  : > "$dest"
-  base=$(basename "$folder")
-  case "$base" in
+rules_slug_ok() {
+  local s=$1
+  case "$s" in
+    ""|*[!a-z0-9-]*|-*|*-|*/*) return 1 ;;
+  esac
+  return 0
+}
+
+# ~/acme-os/ in a v0 area rules file. The slug is the text between ~/ and -os/.
+rules_slug_from_file() {
+  local f=$1 slug
+  [ -f "$f" ] || return 1
+  slug=$(awk '
+    {
+      s = $0
+      while (match(s, /~\/[a-z0-9]+(-[a-z0-9]+)*-os\//)) {
+        hit = substr(s, RSTART + 2, RLENGTH - 6)
+        if (hit !~ /\{\{/ && hit != "") {
+          print hit
+          exit
+        }
+        s = substr(s, RSTART + RLENGTH)
+      }
+    }
+  ' "$f")
+  rules_slug_ok "$slug" || return 1
+  printf '%s' "$slug"
+}
+
+rules_slug_from_rules() {
+  local f area slug
+  for f in "$ROOT/AGENTS.md" "$ROOT/CLAUDE.md"; do
+    if slug=$(rules_slug_from_file "$f"); then
+      printf '%s' "$slug"
+      return 0
+    fi
+  done
+  [ -d "$ROOT/areas" ] || return 1
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    for f in "$area/AGENTS.md" "$area/CLAUDE.md"; do
+      if slug=$(rules_slug_from_file "$f"); then
+        printf '%s' "$slug"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+rules_slug_from_origin() {
+  local url name slug
+  url=$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)
+  [ -n "$url" ] || return 1
+  name=${url%/}
+  name=${name%.git}
+  name=${name##*/}
+  name=${name##*:}
+  case "$name" in
+    *-os) slug=${name%-os} ;;
+    *) return 1 ;;
+  esac
+  rules_slug_ok "$slug" || return 1
+  printf '%s' "$slug"
+}
+
+# First hit wins: answers, profile, a rules file, the origin repo name, the folder name.
+rules_resolve_slug() {
+  local slug folder
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    slug=$(os_answer_or slug "$ANSWERS" "")
+    if ! rules_slug_ok "$slug"; then
+      slug=$(os_answer_or company_slug "$ANSWERS" "")
+    fi
+    if rules_slug_ok "$slug"; then
+      printf '%s' "$slug"
+      return 0
+    fi
+  fi
+  if [ -f "$ROOT/company-profile.md" ]; then
+    slug=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
+    if rules_slug_ok "$slug"; then
+      printf '%s' "$slug"
+      return 0
+    fi
+  fi
+  if slug=$(rules_slug_from_rules); then
+    printf '%s' "$slug"
+    return 0
+  fi
+  if slug=$(rules_slug_from_origin); then
+    printf '%s' "$slug"
+    return 0
+  fi
+  folder=$(basename "$ROOT")
+  case "$folder" in
     *-os)
-      slug=${base%-os}
-      case "$slug" in
-        ""|*[!a-z0-9-]*) ;;
-        *) printf 'COMPANY_SLUG=%s\n' "$slug" >> "$dest" ;;
-      esac
+      slug=${folder%-os}
+      if rules_slug_ok "$slug"; then
+        printf '%s' "$slug"
+        return 0
+      fi
       ;;
   esac
+  return 1
+}
+
+# Later lines win in the values file. Captures win over these, except COMPANY_SLUG.
+rules_write_values() {
+  local dest=$1 folder=$2 area_slug=$3 slug
+  : > "$dest"
   if [ -n "$area_slug" ]; then
     {
       printf 'AREA_SLUG=%s\n' "$area_slug"
       printf 'AREA_NAME=%s\n' "$(rules_title_word "$area_slug")"
     } >> "$dest"
   fi
-  rules_answer_into "$dest" slug COMPANY_SLUG
-  rules_answer_into "$dest" company_slug COMPANY_SLUG
   rules_answer_into "$dest" company_name COMPANY_NAME
   rules_answer_into "$dest" owner_name OWNER_NAME
   rules_answer_into "$dest" owner_role OWNER_ROLE
@@ -96,17 +191,27 @@ rules_write_values() {
   rules_answer_into "$dest" area_name AREA_NAME
   rules_answer_into "$dest" area_slug AREA_SLUG
   rules_profile_into "$dest" "$ROOT/company-profile.md"
+  if slug=$(rules_resolve_slug); then
+    printf 'COMPANY_SLUG=%s\n' "$slug" >> "$dest"
+  fi
 }
 
 rules_todos() {
   local f=$1
   [ -f "$f" ] || return 0
+  # Only the keys a fresh setup fills. {{APP}} and other skill markers stay.
   awk '
+    function fill_key(name) {
+      return name == "COMPANY_NAME" || name == "COMPANY_SLUG" || name == "OWNER_NAME" \
+        || name == "OWNER_ROLE" || name == "DATE" || name == "ONE_LINER" \
+        || name == "AREAS" || name == "OS_VERSION" || name == "AREA_NAME" \
+        || name == "AREA_SLUG"
+    }
     {
       s = $0
       while (match(s, /\{\{[A-Z][A-Z0-9_]*\}\}/)) {
         name = substr(s, RSTART + 2, RLENGTH - 4)
-        if (!(name in seen)) {
+        if (fill_key(name) && !(name in seen)) {
           seen[name] = 1
           printf "todo: fill {{%s}}\n", name
         }

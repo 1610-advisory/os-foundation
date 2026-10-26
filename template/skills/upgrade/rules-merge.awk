@@ -1,6 +1,6 @@
 # Line-keeping rules merge. POSIX awk. No gawk features.
 # Reads base, real, v1, map, and values. Writes the merged file.
-# Company lines stay byte for byte. A base line with {{NAME}} is a pattern.
+# Company lines stay byte for byte. A base line with a placeholder is a pattern.
 
 function trim(s) {
   gsub(/\r/, "", s)
@@ -375,6 +375,10 @@ BEGIN {
     printf "company-lines=%d\n", company_n
     printf "matched=%d\n", matched + 0
     exit 0
+  }
+  # Answers, the profile, a rules file, the remote, or the folder name already chose the slug.
+  if (("COMPANY_SLUG" in given) && given["COMPANY_SLUG"] != "") {
+    delete got["COMPANY_SLUG"]
   }
 
   # Fill v1.
