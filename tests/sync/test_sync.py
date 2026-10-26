@@ -170,10 +170,18 @@ class SyncLocalTests(unittest.TestCase):
         windows = self.tmp / "win-jobs"
         env["OS_JOBS_DIR"] = str(windows)
         env["OS_JOBS_PLATFORM"] = "windows"
+        env["OS_JOBS_LOAD"] = "0"
         made = self.sync("install-jobs", env=env)
         self.assertEqual(made.returncode, 0, made.stderr)
         xml = "\n".join(p.read_text() for p in windows.glob("*.xml"))
-        self.assertIn("Not tested", xml)
+        self.assertNotIn("Not tested", xml)
+        self.assertIn("StartWhenAvailable>true", xml)
+        self.assertIn("ExecutionTimeLimit>PT1H", xml)
+        self.assertIn("DisallowStartIfOnBatteries>false", xml)
+        self.assertIn("StopIfGoingOnBatteries>false", xml)
+        self.assertIn("MultipleInstancesPolicy>IgnoreNew", xml)
+        self.assertIn("InteractiveToken", xml)
+        self.assertIn("LeastPrivilege", xml)
 
     def test_helper_day_count(self):
         host = self.tmp / "fake-host"

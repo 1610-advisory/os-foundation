@@ -22,7 +22,7 @@ skills/sync/sync.sh <command> [flags]
 | `collect` | Traces collector. Runs only when `level: app` and `traces` is in `switches`. |
 | `--help` | Print the command list. |
 
-`secret-scan.sh` is the secret scan. `sync.ps1` is the Windows entry. It is not tested.
+`secret-scan.sh` is the secret scan. `sync.ps1` is the Windows entry. It runs `sync.sh` through Git for Windows bash.
 
 ## State
 

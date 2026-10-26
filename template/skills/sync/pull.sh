@@ -341,12 +341,15 @@ sync_pull_one() {
       sync_log "pull fail ${id} local changes"
       return 1
     fi
+    old=$(git -C "$repo" rev-parse HEAD)
     if ! git -C "$repo" merge --ff-only origin/main >/dev/null 2>&1; then
       sync_restore_ff "$repo" "$save"
       sync_log "pull fail ${id} not fast-forward"
       return 1
     fi
     rm -rf "$save"
+    sync_log "pull ok ${id}"
+    sync_refresh_after_pull "$repo" "$old"
     return 0
   fi
   tag=$(sync_rewrite_tag "$repo" "$id" || true)
@@ -381,5 +384,6 @@ cmd_pull() {
   sync_lock
   local rc=0
   sync_each sync_pull_one || rc=1
+  sync_materialize_links "$SYNC_ROOT" 0
   return "$rc"
 }
