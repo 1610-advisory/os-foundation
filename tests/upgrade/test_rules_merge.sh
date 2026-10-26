@@ -176,21 +176,54 @@ grep -q '## This company' "$spill/out.md" || team_fail "spill link is not in Thi
 grep -F -q -- "$line" "$spill/company-rules.md" || team_fail "spill file dropped a company line"
 grep -F -q -- "$line" "$spill/out.md" && team_fail "spilled line stayed in AGENTS.md"
 
-# A v1 folder is left alone.
+# A second run on an upgraded folder changes nothing.
 v1f="$work/v1keep"
 mkdir -p "$v1f"
 git -C "$root" archive c2034af template | tar -x -C "$work"
 cp -R "$work/template/." "$v1f/"
 rm -rf "$work/template"
-printf '%s\n' '## 1. Level first' > "$v1f/AGENTS.md"
-printf '%s\n' '- Keep this v1 company line.' >> "$v1f/AGENTS.md"
-before=$(team_sha "$v1f/AGENTS.md")
 git -C "$v1f" init -q
 git -C "$v1f" checkout -q -b main
-commit_all "$v1f" "v1 already"
+commit_all "$v1f" "v0 start"
+"$upgrade" --root "$v1f" --template "$root/template" --level solo > "$work/v1-first.out"
+grep -q 'upgrade: ok' "$work/v1-first.out" || team_fail "first upgrade failed"
+python3 - << PY
+import hashlib, os
+from pathlib import Path
+root = Path("$v1f")
+out = Path("$work/v1-hashes")
+lines = []
+for path in sorted(root.rglob("*")):
+    if not path.is_file() or path.is_symlink():
+        continue
+    if ".git" in path.parts:
+        continue
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    lines.append(f"{digest} {path.relative_to(root)}")
+out.write_text("\n".join(lines) + "\n")
+PY
+head_before=$(git -C "$v1f" rev-parse HEAD)
 "$upgrade" --root "$v1f" --template "$root/template" --level solo > "$work/v1.out"
-[ "$(team_sha "$v1f/AGENTS.md")" = "$before" ] || team_fail "v1 folder was rewritten"
-grep -q 'change: rules-merge AGENTS.md' "$work/v1.out" && team_fail "v1 folder was planned for merge"
+grep -q 'upgrade: already v1' "$work/v1.out" || team_fail "second run did not say already v1"
+[ "$(git -C "$v1f" rev-parse HEAD)" = "$head_before" ] || team_fail "second run made a commit"
+git -C "$v1f" status --porcelain | grep -q . && team_fail "second run left a dirty tree"
+python3 - << PY
+import hashlib
+from pathlib import Path
+root = Path("$v1f")
+want = Path("$work/v1-hashes").read_text().splitlines()
+got = []
+for path in sorted(root.rglob("*")):
+    if not path.is_file() or path.is_symlink():
+        continue
+    if ".git" in path.parts:
+        continue
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    got.append(f"{digest} {path.relative_to(root)}")
+if got != want:
+    raise SystemExit("a file changed on the second run")
+print("hashes-ok")
+PY
 
 # Each area kind merges with its own v1 template.
 for kind in _area apps finance marketing; do
@@ -305,5 +338,76 @@ grep -q 'conflict: .claude/skills/lint/SKILL.md' "$work/conflict.out" || team_fa
 grep -q 'conflict: .claude/skills left:' "$work/conflict.out" || team_fail "did not say the folder stays"
 [ -d "$conf/.claude/skills" ] && [ ! -L "$conf/.claude/skills" ] || team_fail "conflict folder was replaced"
 [ ! -e "$conf/.claude/skills/skills" ] || team_fail "link was nested inside the copy folder"
+
+# A company line that contains {{ is kept, including in the one-liner section.
+braces="$work/braces.md"
+cp "$root/template/skills/upgrade/v0/AGENTS.md" "$braces"
+python3 - << PY
+from pathlib import Path
+p = Path("$braces")
+text = p.read_text()
+text = text.replace("{{ONE_LINER}}\n", "{{ONE_LINER}}\nNever paste {{secrets}}.\n", 1)
+text = text.replace("## Safety\n", "## Safety\nKeep the {{token}} out of notes.\n", 1)
+text += "\n## Acme notes\n\n- first note\n\n## Acme notes\n\n- second note\n"
+p.write_text(text)
+PY
+"$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" --real "$braces" \
+  --v1 "$root/template/AGENTS.md" --scope company --values "$work/stock.values" \
+  --out "$work/braces-out.md" > "$work/braces.stats"
+grep -F -q 'Never paste {{secrets}}.' "$work/braces-out.md" || team_fail "one-liner company line with braces was dropped"
+grep -F -q 'Keep the {{token}} out of notes.' "$work/braces-out.md" || team_fail "other company line with braces was dropped"
+# Each same heading is kept, not folded into the first.
+awk 'BEGIN{n=0} $0=="## Acme notes"{n++} END{if(n!=2) exit 1}' "$work/braces-out.md" || team_fail "same heading was collapsed"
+grep -F -q -- '- first note' "$work/braces-out.md" || team_fail "first company section lost"
+grep -F -q -- '- second note' "$work/braces-out.md" || team_fail "second company section lost"
+
+# An untracked copy folder with a company-only skill is left in place.
+untracked="$work/untracked"
+mkdir -p "$untracked"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$untracked/"
+rm -rf "$work/template"
+git -C "$untracked" init -q
+git -C "$untracked" checkout -q -b main
+commit_all "$untracked" "v0 clean"
+mkdir -p "$untracked/.claude/skills/acme-only"
+printf '%s\n' 'only in the untracked copy' > "$untracked/.claude/skills/acme-only/SKILL.md"
+"$upgrade" --dry-run --root "$untracked" --template "$root/template" --level solo > "$work/untracked.out"
+grep -q 'conflict: .claude/skills (untracked; commit it first)' "$work/untracked.out" || team_fail "missing untracked conflict"
+[ -f "$untracked/.claude/skills/acme-only/SKILL.md" ] || team_fail "untracked company skill was deleted"
+[ ! -f "$untracked/skills/acme-only/SKILL.md" ] || team_fail "untracked company skill was moved"
+
+# A dirty area is refused before checkout, same message as a dirty company root.
+dirty="$work/dirtyarea"
+mkdir -p "$dirty/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$dirty/"
+rm -rf "$work/template"
+python3 - << PY
+from pathlib import Path
+p = Path("$dirty/company-profile.md")
+text = p.read_text()
+text = text.replace("---\n", "---\ncompany_slug: acme\n", 1)
+p.write_text(text)
+PY
+git -C "$dirty" init -q
+git -C "$dirty" checkout -q -b main
+commit_all "$dirty" "v0 dirty"
+printf '%s\n' '# Shop' > "$dirty/areas/shop/AGENTS.md"
+git -C "$dirty/areas/shop" init -q
+git -C "$dirty/areas/shop" checkout -q -b main
+commit_all "$dirty/areas/shop" "area"
+printf '%s\n' 'uncommitted area note' > "$dirty/areas/shop/note.md"
+printf '%s\n' 'host=forgejo' 'org=acme' 'slug=acme' > "$work/dirty.answers"
+printf '%s\n' '#!/bin/bash' 'exit 0' > "$work/host.sh"
+chmod +x "$work/host.sh"
+set +e
+OS_HOST_SH="$work/host.sh" "$upgrade" --root "$dirty" --template "$root/template" --level solo \
+  --answers "$work/dirty.answers" > "$work/dirty.out" 2>&1
+dirty_rc=$?
+set -e
+[ "$dirty_rc" -eq 2 ] || team_fail "dirty area exit was $dirty_rc"
+grep -q 'uncommitted changes' "$work/dirty.out" || team_fail "dirty area message missing"
+grep -q 'uncommitted area note' "$dirty/areas/shop/note.md" || team_fail "dirty area work was discarded"
 
 printf '%s\n' "PASS rules-merge"

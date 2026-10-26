@@ -81,10 +81,11 @@ function literal_len(s,    t, n) {
 }
 
 function record_val(name, val) {
-  if (name == "") return
-  if (val ~ /\{\{/) return
-  if (name in got && got[name] != "") return
+  if (name == "") return 0
+  if (val ~ /\{\{/) return 0
+  if (name in got && got[name] != "") return 1
   got[name] = val
+  return 1
 }
 
 # Returns 1 when real matches base. capture=1 stores placeholder values.
@@ -133,9 +134,17 @@ function pattern_match(base, real, capture,    rest, nparts, i, pos, lit, idx, v
       val = substr(real, pos, idx - 1)
       pos += length(val)
     }
-    if (capture) record_val(name, val)
+    if (capture && !record_val(name, val)) cap_ok = 0
   }
   return pos == length(real) + 1
+}
+
+function plain_unused(bstart, bend,    j) {
+  for (j = bstart; j <= bend; j++) {
+    if (used[j]) continue
+    if (index(bline[j], "{{") == 0) return 1
+  }
+  return 0
 }
 
 function replace_all(s, find, repl,    out, i) {
@@ -289,17 +298,18 @@ BEGIN {
     } else {
       bsi = has_section(bsec_n, bsec_name, name)
       in_base = bsi > 0
+      # A second section with this heading is the company's own, kept whole.
+      seen_heading[name]++
+      if (seen_heading[name] > 1) in_base = 0
     }
     if (!in_base && s > 0) {
-      # Company section, kept whole.
+      # Company section, kept whole. Spill gets it once, via tail.
       block = "## " name "\n"
       for (i = rsec_start[s]; i <= rsec_end[s]; i++) {
         block = block rline[i] "\n"
         company_n++
       }
-      # The heading itself is part of the kept section, not a company line.
       tail = tail block
-      spill_body = spill_body block
       continue
     }
 
@@ -328,10 +338,10 @@ BEGIN {
           for (j = bstart; j <= bend; j++) {
             if (used[j]) continue
             if (index(bline[j], "{{") == 0) continue
-            if (!pattern_match(bline[j], rline[i], 0)) continue
             score = literal_len(bline[j])
-            # A pure placeholder should not swallow a later list line
-            # when a plain line is still free. Prefer the closest index.
+            # A line that is only a placeholder waits until every plain base line is used.
+            if (score == 0 && plain_unused(bstart, bend)) continue
+            if (!pattern_match(bline[j], rline[i], 0)) continue
             if (score > best_score || (score == best_score && best == 0)) {
               best = j
               best_score = score
@@ -339,9 +349,17 @@ BEGIN {
           }
         }
       }
+      if (best > 0 && !exact) {
+        cap_ok = 1
+        pattern_match(bline[best], rline[i], 1)
+        if (!cap_ok) {
+          block = block rline[i] "\n"
+          company_n++
+          continue
+        }
+      }
       if (best > 0) {
         used[best] = 1
-        if (!exact) pattern_match(bline[best], rline[i], 1)
         matched++
       } else {
         block = block rline[i] "\n"

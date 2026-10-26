@@ -95,6 +95,23 @@ os_sha() {
   fi
 }
 
+committed_skill_link() {
+  local rel=$1 mode target
+  [ -L "$ROOT/$rel" ] || return 1
+  target=$(readlink "$ROOT/$rel")
+  [ "$target" = "../skills" ] || return 1
+  mode=$(git -C "$ROOT" ls-files -s -- "$rel" | awk '{print $1}')
+  [ "$mode" = "120000" ]
+}
+
+# level: plus both committed skill links. A leftover logs branch does not matter.
+if os_fm_get "$ROOT/company-profile.md" level >/dev/null 2>&1 \
+  && committed_skill_link .agents/skills \
+  && committed_skill_link .claude/skills; then
+  printf '%s\n' "upgrade: already v1"
+  exit 0
+fi
+
 V0_LOGS=0
 V0_LINKS=0
 V0_LEVEL=0
@@ -232,7 +249,7 @@ skill_link_hash() {
 
 fix_skill_link() {
   local repo=$1 linkrel=$2 write=$3
-  local dest="$repo/$linkrel" target conflict rel f got want moves
+  local dest="$repo/$linkrel" target conflict rel f got want moves tracked unsafe
   if [ -L "$dest" ]; then
     target=$(readlink "$dest")
     if [ "$target" = "../skills" ]; then
@@ -266,9 +283,59 @@ fix_skill_link() {
   conflict=0
   moves=$(mktemp)
   : > "$moves"
+  tracked=0
+  if git -C "$repo" ls-files -- "$linkrel" | grep -q .; then
+    tracked=1
+  fi
+  if [ "$tracked" -eq 0 ]; then
+    unsafe=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ -L "$f" ]; then
+        unsafe=1
+        break
+      fi
+      rel="${f#"$dest"/}"
+      if [ -f "$repo/skills/$rel" ] && cmp -s "$f" "$repo/skills/$rel"; then
+        continue
+      fi
+      want=$(skill_link_hash "skills/$rel")
+      if [ -n "$want" ] && [ "$(os_sha "$f")" = "$want" ]; then
+        continue
+      fi
+      unsafe=1
+      break
+    done < <(find "$dest" \( -type f -o -type l \) -print)
+    if [ "$unsafe" -eq 1 ]; then
+      printf 'conflict: %s (untracked; commit it first)\n' "$linkrel"
+      rm -f "$moves"
+      return 0
+    fi
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      rm -rf "$dest"
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    rm -f "$moves"
+    return 0
+  fi
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     rel="${f#"$dest"/}"
+    if [ -L "$f" ]; then
+      if [ -L "$repo/skills/$rel" ] && [ "$(readlink "$f")" = "$(readlink "$repo/skills/$rel")" ]; then
+        continue
+      fi
+      if [ ! -e "$repo/skills/$rel" ] && [ ! -L "$repo/skills/$rel" ]; then
+        printf '%s\n' "$rel" >> "$moves"
+        continue
+      fi
+      printf 'conflict: %s/%s\n' "$linkrel" "$rel"
+      conflict=1
+      continue
+    fi
     if [ -f "$repo/skills/$rel" ] && cmp -s "$f" "$repo/skills/$rel"; then
       continue
     fi
@@ -285,7 +352,7 @@ fix_skill_link() {
     fi
     printf 'conflict: %s/%s\n' "$linkrel" "$rel"
     conflict=1
-  done < <(find "$dest" -type f -print)
+  done < <(find "$dest" \( -type f -o -type l \) -print)
   if [ "$conflict" -eq 1 ]; then
     printf 'conflict: %s left: resolve the files above first\n' "$linkrel"
     rm -f "$moves"
@@ -296,7 +363,11 @@ fix_skill_link() {
     printf 'change: skill-moved skills/%s\n' "$rel"
     if [ "$write" = "1" ]; then
       mkdir -p "$(dirname "$repo/skills/$rel")"
-      cp -p "$dest/$rel" "$repo/skills/$rel"
+      if [ -L "$dest/$rel" ]; then
+        cp -Pp "$dest/$rel" "$repo/skills/$rel"
+      else
+        cp -p "$dest/$rel" "$repo/skills/$rel"
+      fi
       git -C "$repo" add -- "skills/$rel"
     fi
   done < "$moves"
@@ -320,6 +391,65 @@ fix_skill_links() {
   local repo=$1 write=$2
   fix_skill_link "$repo" .agents/skills "$write"
   fix_skill_link "$repo" .claude/skills "$write"
+}
+
+# A folder already at team level keeps its owner files. Add the spill names if missing.
+ensure_spill_owners() {
+  local root=$1 gh gitea owners
+  gh="$root/.github/CODEOWNERS"
+  if [ -f "$gh" ] && ! grep -q '/company-rules.md' "$gh"; then
+    owners=$(awk '$1 == "/AGENTS.md" { $1=""; sub(/^ /, ""); print; exit }' "$gh")
+    if [ -n "$owners" ]; then
+      awk -v o="$owners" '
+        $1 == "/CLAUDE.md" && !done {
+          print
+          print "/company-rules.md " o
+          print "/area-rules.md " o
+          done = 1
+          next
+        }
+        { print }
+        END {
+          if (!done) {
+            print "/company-rules.md " o
+            print "/area-rules.md " o
+          }
+        }
+      ' "$gh" > "$gh.tmp"
+      mv "$gh.tmp" "$gh"
+    fi
+  fi
+  gitea="$root/.gitea/CODEOWNERS"
+  if [ -f "$gitea" ] && ! grep -q 'company-rules' "$gitea"; then
+    owners=$(awk '$1 == "^AGENTS\\.md$" { $1=""; sub(/^ /, ""); print; exit }' "$gitea")
+    if [ -n "$owners" ]; then
+      awk -v o="$owners" '
+        $1 == "^CLAUDE\\.md$" && !done {
+          print
+          print "^company-rules\\.md$ " o
+          print "^area-rules\\.md$ " o
+          done = 1
+          next
+        }
+        { print }
+        END {
+          if (!done) {
+            print "^company-rules\\.md$ " o
+            print "^area-rules\\.md$ " o
+          }
+        }
+      ' "$gitea" > "$gitea.tmp"
+      mv "$gitea.tmp" "$gitea"
+    fi
+  fi
+  if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -f "$gh" ]; then
+      git -C "$root" add -- .github/CODEOWNERS
+    fi
+    if [ -f "$gitea" ]; then
+      git -C "$root" add -- .gitea/CODEOWNERS
+    fi
+  fi
 }
 
 fill_profile_one_liner() {
@@ -520,6 +650,7 @@ esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"
 fill_profile_one_liner
+ensure_spill_owners "$ROOT"
 if ! os_fm_get "$ROOT/company-profile.md" switches >/dev/null 2>&1; then
   os_fm_set "$ROOT/company-profile.md" switches "[]"
 fi
@@ -578,17 +709,21 @@ push_area_scripts() {
       printf 'pr-plan: %s skipped: not a git repo\n' "$repo" >&2
       continue
     fi
+    if [ -n "$(git -C "$area" status --porcelain)" ]; then
+      os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
+    fi
     branch="upgrade/scripts"
     if ! os_with_git_token git -C "$area" fetch origin; then
       os_die 3 "could not fetch ${repo}"
     fi
-    git -C "$area" checkout -q -f -B "$branch" origin/main
+    git -C "$area" checkout -q -B "$branch" origin/main
     rules_one_area "$area" 1
     rules_stage_rules "$area"
     if ! git -C "$area" diff --cached --quiet; then
       rules_commit_msg "$area" "Upgrade: rules merge"
     fi
     fix_skill_links "$area" 1
+    ensure_spill_owners "$area"
     mkdir -p "$area/.github"
     rm -rf "$area/.github/scripts"
     cp -R "$src" "$area/.github/scripts"
@@ -643,7 +778,7 @@ stage_upgrade() {
     git -C "$ROOT" add -- .agents .claude
   fi
   if [ -d "$ROOT/skills" ]; then
-    git -C "$ROOT" add -- skills
+    git -C "$ROOT" add -A -- skills
   fi
   if [ -d "$ROOT/.github/scripts/tools" ]; then
     git -C "$ROOT" add -- .github/scripts/tools
@@ -700,12 +835,13 @@ elif [ -d "$ROOT/areas" ]; then
     [ -d "$area" ] || continue
     [ -e "$area/.git" ] || continue
     if [ -n "$(git -C "$area" status --porcelain)" ]; then
-      os_die 2 "an area folder has uncommitted changes. Commit them, then run upgrade again."
+      os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
     fi
     git -C "$area" checkout -q -B upgrade/scripts
     rules_one_area "$area" 1
     rules_stage_rules "$area"
     fix_skill_links "$area" 1
+    ensure_spill_owners "$area"
     if ! git -C "$area" diff --cached --quiet; then
       rules_commit_msg "$area" "Upgrade: rules merge"
     fi

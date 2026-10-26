@@ -74,6 +74,7 @@ grep -q '/memory/logs/' "$company/.gitignore" && team_fail "logs ignore line rem
 [ -x "$company/skills/add-teammate/team-on.sh" ] || team_fail "new skill file was not copied"
 [ -x "$company/skills/sync/sync.sh" ] || team_fail "new sync skill was not copied"
 git -C "$company" show-ref --verify --quiet refs/heads/upgrade/work && team_fail "upgrade/work branch remains"
+git -C "$company" ls-files | grep -q 'logs-folder' && team_fail "logs-folder is still in the commit"
 grep -q 'Approval tiers' "$company/AGENTS.md" || team_fail "tier table missing"
 
 # One-commit revert restores the old state.

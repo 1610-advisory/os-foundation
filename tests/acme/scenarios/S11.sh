@@ -170,6 +170,9 @@ fi
 if find "$dest" -name logs-folder -print | grep -q .; then
   osf_result "S11 FAIL logs-folder remains"
 fi
+if git -C "$dest" ls-files | grep -q 'logs-folder'; then
+  osf_result "S11 FAIL logs-folder is still in the commit"
+fi
 if ! grep -q 'Acme Co makes sample goods.' "$dest/company-profile.md"; then
   osf_result "S11 FAIL one_liner did not fill the profile"
 fi
@@ -187,7 +190,7 @@ if ! grep -q '## Approval tiers' "$area/AGENTS.md" || ! grep -q 'Acme posts one 
   osf_result "S11 FAIL area rules were not merged"
 fi
 for rules in "$dest/AGENTS.md" "$dest/CLAUDE.md" "$area/AGENTS.md"; do
-  chars=$(wc -m < "$rules" | tr -d '[:space:]')
+  chars=$(wc -c < "$rules" | tr -d '[:space:]')
   if [ "$chars" -ge 10000 ]; then
     osf_result "S11 FAIL rules file is too long"
   fi

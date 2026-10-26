@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Every tracked AGENTS.md and CLAUDE.md must be under 10000 characters.
+# Every tracked rules file must be under 10000 bytes.
 set -euo pipefail
 
 usage() {
@@ -7,7 +7,7 @@ usage() {
 Usage: rules-size.sh [--root DIR]
 
 Check every tracked AGENTS.md, CLAUDE.md, company-rules.md, and area-rules.md.
-A file fails when wc -m is 10000 or more.
+A file fails when wc -c is 10000 or more.
 Prints "OK <n> files", or each failing file with its size.
 EOF
 }
@@ -51,7 +51,7 @@ while IFS= read -r -d '' rel; do
     *) continue ;;
   esac
   count=$((count + 1))
-  chars=$(wc -m < "$root/$rel" | tr -d '[:space:]')
+  chars=$(wc -c < "$root/$rel" | tr -d '[:space:]')
   if [[ "$chars" -ge 10000 ]]; then
     printf '%s %s\n' "$rel" "$chars"
     fail=1
