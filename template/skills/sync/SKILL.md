@@ -97,7 +97,7 @@ A failed review blocks the merge. Read the findings in plain words and offer a f
 
 From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
 
-Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
+Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Exit 2: `propose` failed: `propose refused: secret scan error`, or `propose fail <repo>: <step>` for a `fetch`, `worktree`, `commit`, `push`, `open-pr` or `auto-merge` step, then one `opened: <repo> <n>` line for each pull request this run already opened. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 
 ## OS jobs
 

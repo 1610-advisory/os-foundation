@@ -313,6 +313,7 @@ The script calls `host.sh` only. It does not call `gh` or the host HTTP API. It 
 |---|---|
 | 0 | The command finished. Holds may still be recorded. |
 | 1 | Usage (including `unknown flag`), lock, solo refusal, identity mismatch, a refused delete, or a repo push or pull that failed closed. |
+| 2 | `propose` failed. A secret scan error: `propose refused: secret scan error`, before any repo changes. Or a `fetch`, `worktree`, `commit`, `push`, `open-pr` or `auto-merge` step failed: `propose fail <repo>: <step>`, then `opened: <repo> <n>` for each pull request this run already opened. Those stay open. |
 | 3 | Windows only: `sync.ps1` found no Git Bash. |
 
 ## Lock
