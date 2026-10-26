@@ -364,7 +364,10 @@ function Get-QuickDecision {
       $repo = Join-Path $root ($rel -replace '/', '\')
     }
     $urlRun = Start-LimitedExe $gitExe ('-C ' + (Quote-WinArg $repo) + ' remote get-url origin') $null
-    $hasOrigin = ($null -ne $urlRun -and $urlRun['Code'] -eq 0)
+    if ($null -eq $urlRun) { return 'bash' }
+    # Exit 2 is git's "no such remote". Any other failure is doubt.
+    $hasOrigin = ($urlRun['Code'] -eq 0)
+    if (-not $hasOrigin -and $urlRun['Code'] -ne 2) { return 'bash' }
     if ($sha -eq 'none') {
       if ($hasOrigin) { return 'bash' }
       continue

@@ -85,12 +85,13 @@ For each company or area repo that already has commits on `sync/<bot>` that are 
 `pull` has two forms. Both take the lock.
 
 - **`pull --full`** fast-forwards every repo: the company repo, each `areas/*` repo with `.git`, and `users/<me>`. It runs the skill-copy pass in each one (see "Skill links"). A repo with no `origin` is not fetched, but its missing copies are still made.
-- **`pull`** is the quick pull. For each repo it runs `git ls-remote origin refs/heads/main`, with the same sign-in as `fetch`. The token is fetched once per run, kept in a shell variable only, and cleared on exit. A repo is changed when its remote commit differs from the state file, when it has no line there (a new area), when its line is `retry`, or when `ls-remote` fails or prints nothing. Only the changed repos are pulled, each with its own skill-copy pass. If no repo changed, it fetches nothing, runs no copy pass, writes no log line and exits 0.
+- **`pull`** is the quick pull. For each repo it runs `git ls-remote origin refs/heads/main`, with the same sign-in as `fetch`. The token is fetched once per run, kept in a shell variable only, and cleared on exit. A repo is changed when its remote commit differs from the state file, when `HEAD` does not contain the recorded commit, when it has no line there (a new area), when its line is `retry`, when an `ok none` repo now has an `origin`, or when `ls-remote` fails or prints nothing. Only the changed repos are pulled, each with its own skill-copy pass. If no repo changed, it fetches nothing, runs no copy pass, writes no log line and exits 0.
 
 `pull` runs as a full pull instead when:
 
 - the state file is missing or does not parse, or
-- a full pull is due: the last full pull is before the most recent 04:00 local time. So the first `pull` after 04:00 (after the 02:00 push) is a full one. A computer that slept through 04:00 does it on its first `pull` after wake. A daylight-saving change can move that hour by one.
+- a full pull is due: the last full pull is before the most recent 04:00 local time. So the first `pull` after 04:00 (after the 02:00 push) is a full one. A computer that slept through 04:00 does it on its first `pull` after wake. A daylight-saving change can move that hour by one. A last full pull more than one day in the future (a wrong clock) also makes it due, or
+- a repo path is not the company root, `areas/<name>` or `users/<name>`.
 
 Use `pull --full` when something looks out of date, after a git step by hand, or for support. Session start in every `AGENTS.md` and the 15-minute job keep plain `pull`.
 
@@ -108,7 +109,7 @@ bot <1 or 0>
 repo <ok|retry> <sha|none> <rel>
 ```
 
-One `repo` line per repo, in pull order. `<rel>` is `.` for the company repo, `areas/<name>`, or `users/<me>`. `<sha>` is the local `origin/main` after the run, or `none` for a repo with no `origin`. A line is `ok` only when that repo's pull returned 0 and `HEAD` contains `origin/main`. Else it is `retry`, and the next `pull` pulls that repo again.
+One `repo` line per repo, in pull order. `<rel>` is `.` for the company repo, `areas/<name>`, or `users/<me>`. `<sha>` is the local `origin/main` after the run, or `none`. A line is `ok` only when that repo's pull returned 0 and `HEAD` contains `origin/main`. A repo with no `origin` whose pull returned 0 is `ok none`. A repo with an `origin` but no `origin/main` is `retry none`. Any other result is `retry`, and the next `pull` pulls that repo again.
 
 The file is written to a temp file, then moved into place. If it cannot be written, the pull does not fail. A quick pull keeps the lines of repos it did not pull and keeps `full`. A full pull writes `full <now>`.
 
@@ -170,8 +171,8 @@ For `sync.ps1 pull` with no other argument, PowerShell checks first, so a pull w
 
 1. Find the company root: `OS_COMPANY_ROOT`, else walk up to `company-profile.md`.
 2. Read the state file strictly. Run bash if it is missing or odd, if a full pull is due (same 04:00 rule), if `bot 1`, or if any line is `retry`.
-3. The repos on disk (the root, each `areas/*` with `.git`, `users/<me>` with `.git`) must be the same set as the `repo` lines. Else bash.
-4. For each repo with a sha: `git.exe -C <repo> -c credential.helper= ls-remote origin refs/heads/main`, no prompt, 20 seconds at most. A local path or `file://` origin needs no sign-in. An `https://github.com/` origin uses the token from `gh auth token`, given to that one git process through its own environment. It is never in `$env:` or on a command line, so bash never sees it. Any other origin runs bash.
+3. The repos on disk (the root, each `areas/*` with `.git`, `users/<me>` with `.git`) must be the same set as the `repo` lines. A `users/*` repo for anyone other than the `me` in the state file also runs bash.
+4. An `ok none` repo must still have no `origin`. Else bash. For each repo with a sha: `HEAD` must contain that sha, then `git.exe -C <repo> -c credential.helper= ls-remote origin refs/heads/main`, no prompt, 20 seconds at most. The git trace variables are removed from that process. A local path or `file://` origin needs no sign-in. An `https://github.com/` origin uses the token from `gh auth token`, given to that one git process through its own environment. It is never in `$env:` or on a command line, so bash never sees it. Any other origin runs bash.
 5. Every remote sha equals its line: print `sync: no change` and exit 0. Else bash.
 
 `pull --full` and every other command go straight to bash.
