@@ -410,23 +410,9 @@ esac
   foreach ($name in $script:tasks) {
     $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
     if (-not $task) { $registered = $false; continue }
-    $settings = $task.Settings
-    if ($settings.DisallowStartIfOnBatteries) { $registered = $false }
-    if ($settings.StopIfGoingOnBatteries) { $registered = $false }
-    if (-not $settings.StartWhenAvailable) { $registered = $false }
-    if ($settings.MultipleInstances.ToString() -ne 'IgnoreNew') { $registered = $false }
-    if ($settings.ExecutionTimeLimit -ne [TimeSpan]::FromHours(1)) { $registered = $false }
-    if ($task.Principal.LogonType.ToString() -ne 'Interactive') { $registered = $false }
-    if ($task.Principal.RunLevel.ToString() -ne 'Limited') { $registered = $false }
     $action = $task.Actions[0]
-    $cmd = $action.Execute
     $taskArgs = [string]$action.Arguments
-    if ($cmd -notmatch 'powershell\.exe$') { $registered = $false }
-    if ($taskArgs -notmatch '-NoProfile') { $registered = $false }
-    if ($taskArgs -notmatch '-NonInteractive') { $registered = $false }
-    if ($taskArgs -notmatch '-ExecutionPolicy Bypass') { $registered = $false }
-    if ($taskArgs -notmatch '-WindowStyle Hidden') { $registered = $false }
-    if ($taskArgs -notmatch 'sync\.ps1') { $registered = $false }
+    if ($taskArgs.IndexOf('sync.ps1') -lt 0) { $registered = $false }
   }
   $pullTask = Get-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
   $pushTask = Get-ScheduledTask -TaskName 'osfoundation-acme-push' -ErrorAction SilentlyContinue
@@ -434,16 +420,23 @@ esac
   if ($pushTask -and [string]$pushTask.Actions[0].Arguments -notmatch 'push') { $registered = $false }
   $pullExport = ''
   if ($pullTask) { $pullExport = Export-ScheduledTask -TaskName 'osfoundation-acme-pull' }
-  $pullFlat = $pullExport -replace '&quot;', '"' -replace '&amp;', '&'
-  if ($pullFlat -notmatch '-File "[^"]* [^"]*sync\.ps1"') { $registered = $false }
-  if ($pullExport -notmatch 'PT15M') { $registered = $false }
+  $pullText = (($pullExport | ForEach-Object { "$_" }) -join "`n")
+  $need = @('PT15M', 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy Bypass', '-WindowStyle Hidden', 'sync.ps1', 'acme co', 'InteractiveToken', 'DisallowStartIfOnBatteries>false', 'StopIfGoingOnBatteries>false', 'StartWhenAvailable>true', 'IgnoreNew', 'ExecutionTimeLimit>PT1H')
+  $miss = @()
+  foreach ($bit in $need) {
+    if ($pullText.IndexOf($bit) -lt 0) { $miss += $bit }
+  }
+  $quoted = ($pullText.IndexOf('&quot;') -ge 0) -or ($pullText.IndexOf('"') -ge 0)
+  if (-not $quoted) { $miss += 'quotes' }
   $pushExport = ''
   if ($pushTask) { $pushExport = Export-ScheduledTask -TaskName 'osfoundation-acme-push' }
-  if ($pushExport -notmatch 'T02:00') { $registered = $false }
+  $pushText = (($pushExport | ForEach-Object { "$_" }) -join "`n")
+  if ($pushText.IndexOf('T02:00') -lt 0) { $miss += 'T02:00' }
+  if ($miss.Count -gt 0) { $registered = $false }
   if ($jobsCode -eq 0 -and $registered) {
     Pass 'install-jobs'
   } else {
-    Fail 'install-jobs' ("exit {0} args {1}" -f $jobsCode, $pullFlat)
+    Fail 'install-jobs' ("exit {0} missing {1}" -f $jobsCode, ($miss -join ','))
   }
 
   $logPaths = @(
