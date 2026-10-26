@@ -25,7 +25,7 @@ usage() {
 Usage: sync.sh <command> [flags]
 
 Commands:
-  pull
+  pull [--full]
   push
   propose <topic> <file>...
   status
@@ -54,6 +54,7 @@ cmd_status() {
   else
     printf '%s\n' "nothing held"
   fi
+  sync_pull_status_line
 }
 
 main() {
@@ -73,7 +74,7 @@ main() {
     pull|push|propose|install-jobs|uninstall-jobs|helper|collect|admin-run)
       sync_bind
       case "$cmd" in
-        pull) cmd_pull ;;
+        pull) cmd_pull "$@" ;;
         push) cmd_push ;;
         propose) cmd_propose "$@" ;;
         install-jobs) cmd_install_jobs "$@" ;;
