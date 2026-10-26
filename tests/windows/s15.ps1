@@ -379,6 +379,92 @@ status=$(git status --porcelain)
   & $bash $areaScript
   if ($LASTEXITCODE -eq 0) { Pass 'area-links' } else { Fail 'area-links' "exit $LASTEXITCODE" }
 
+  $oldClone = Join-Path $script:work 'old-clone'
+  $oldBuild = Join-Path $script:work 'old-build.sh'
+  $oldBody = @'
+set -euo pipefail
+seed="$WORK/old-seed"
+bare="$WORK/old.git"
+mkdir -p "$seed/skills/lint" "$seed/.claude/skills/lint" "$seed/.agents/skills/lint"
+printf '%s\n' 'base' > "$seed/skills/lint/SKILL.md"
+printf '%s\n' 'copy' > "$seed/.claude/skills/lint/SKILL.md"
+printf '%s\n' 'copy' > "$seed/.agents/skills/lint/SKILL.md"
+cat > "$seed/company-profile.md" << 'EOF'
+---
+type: company-profile
+summary: "Acme Co test"
+updated: 2026-10-25
+company_slug: acme
+level: team
+switches: []
+os_version: 0.0.0-test
+host: github
+host_url: ""
+org: acme
+sync_engine: ""
+runner: ubuntu-latest
+---
+# Acme Co
+EOF
+git -C "$seed" init -q -b main
+git -C "$seed" config user.email mia.member@acme.test
+git -C "$seed" config user.name "Mia Member"
+git -C "$seed" add -A
+git -C "$seed" commit -q -m old
+git init -q --bare -b main "$bare"
+git -C "$seed" remote add origin "$bare"
+git -C "$seed" push -q origin main
+git -C "$seed" rm -r -q --cached .claude/skills .agents/skills
+blob=$(printf '%s' '../skills' | git -C "$seed" hash-object -w --stdin)
+git -C "$seed" update-index --add --cacheinfo "120000,${blob},.claude/skills"
+git -C "$seed" update-index --add --cacheinfo "120000,${blob},.agents/skills"
+git -C "$seed" commit -q -m links
+git -C "$seed" push -q origin main
+git -c core.symlinks=false -c core.autocrlf=true clone -q "$bare" "$CLONE"
+git -C "$CLONE" reset -q --hard HEAD~1
+printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
+'@
+  Write-Utf8 $oldBuild ($oldBody -replace "`r`n", "`n")
+  $env:WORK = ($script:work -replace '\\', '/')
+  $env:CLONE = ($oldClone -replace '\\', '/')
+  & $bash $oldBuild
+  if ($LASTEXITCODE -ne 0) {
+    Fail 'old-copy' 'build failed'
+  } else {
+    $savedRoot = $env:OS_COMPANY_ROOT
+    $savedProfile = $env:OS_PROFILE
+    $env:OS_COMPANY_ROOT = ($oldClone -replace '\\', '/')
+    $env:OS_PROFILE = ((Join-Path $oldClone 'company-profile.md') -replace '\\', '/')
+    $oldLog = Join-Path $xdg 'acme-os\state\sync.log'
+    $oldBefore = ''
+    if (Test-Path -LiteralPath $oldLog) { $oldBefore = [System.IO.File]::ReadAllText($oldLog) }
+    $oldCode = Invoke-Sync @('pull')
+    $env:OS_COMPANY_ROOT = $savedRoot
+    $env:OS_PROFILE = $savedProfile
+    $oldOk = $false
+    if (Test-Path -LiteralPath $oldLog) {
+      $oldNow = [System.IO.File]::ReadAllText($oldLog)
+      if ($oldNow.Length -gt $oldBefore.Length) {
+        $oldOk = $oldNow.Substring($oldBefore.Length) -match 'pull ok'
+      }
+    }
+    $copyEq = (Test-Path -LiteralPath (Join-Path $oldClone '.claude\skills\lint\SKILL.md')) -and (Test-Path -LiteralPath (Join-Path $oldClone '.agents\skills\lint\SKILL.md'))
+    $kept = (Test-Path -LiteralPath (Join-Path $oldClone 'skills\lint\KEEP.md')) -or (Test-Path -LiteralPath (Join-Path $oldClone '.claude\skills\lint\KEEP.md'))
+    $skip = & git -C $oldClone ls-files -v -- .claude/skills .agents/skills
+    $skipOk = (($skip -join "`n") -match '(?m)^S') 
+    $porcelain = @(& git -C $oldClone status --porcelain)
+    $linkDirty = $false
+    foreach ($line in $porcelain) {
+      if ($line -match '\.claude/skills|\.agents/skills') { $linkDirty = $true }
+    }
+    $stagedOld = & git -C $oldClone diff --cached --name-only
+    if ($oldCode -eq 0 -and $oldOk -and $copyEq -and $kept -and $skipOk -and -not $linkDirty -and -not $stagedOld) {
+      Pass 'old-copy'
+    } else {
+      Fail 'old-copy' "exit $oldCode"
+    }
+  }
+
   Write-Utf8 (Join-Path $member 'notes\clean.md') "a clean note`n"
   $pushCode = Invoke-Sync @('push')
   $tree = & git --git-dir=$bare ls-tree -r --name-only refs/heads/sync/mia

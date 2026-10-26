@@ -49,5 +49,55 @@ if grep -q up2 "$repo/.claude/skills/lint/SKILL.md"; then
   printf '%s\n' "conflict overwrote the copy" >&2
   exit 1
 fi
+grep -q up "$repo/.claude/skills/lint/OTHER.md"
+
+# A copy edit with no upstream skills change is folded on pull.
+: > "$SYNC_LOG"
+old=$(git -C "$repo" rev-parse HEAD)
+printf 'only-copy\n' >> "$repo/.claude/skills/lint/OTHER.md"
+sync_refresh_after_pull "$repo" "$old"
+grep -q only-copy "$repo/skills/lint/OTHER.md"
+grep -q 'skills copy folded .claude/skills/lint/OTHER.md' "$SYNC_LOG"
+
+# The same fold runs at push start. The copy itself is not staged.
+printf 'push-fold\n' >> "$repo/.claude/skills/lint/OTHER.md"
+sync_materialize_repo "$repo"
+grep -q push-fold "$repo/skills/lint/OTHER.md"
+git -C "$repo" add -A
+staged=$(git -C "$repo" diff --cached --name-only)
+case "$staged" in
+  *'.claude/skills'*|*'.agents/skills'*)
+    printf '%s\n' "copy was staged" >&2
+    exit 1
+    ;;
+esac
+git -C "$repo" reset -q
+
+# The same bytes on both sides is not a conflict. The manifest moves forward.
+: > "$SYNC_LOG"
+printf 'same\n' > "$repo/.claude/skills/lint/SKILL.md"
+printf 'same\n' > "$repo/skills/lint/SKILL.md"
+sync_materialize_repo "$repo"
+if grep -q 'skills copy conflict .claude/skills/lint/SKILL.md' "$SYNC_LOG"; then
+  printf '%s\n' "equal change was a conflict" >&2
+  exit 1
+fi
+man=$(sync_copy_manifest_path "$repo" ".claude/skills")
+want=$(git -C "$repo" hash-object -- "$repo/.claude/skills/lint/SKILL.md")
+grep -q "${want}.*lint/SKILL.md" "$man"
+
+# One conflict does not block an upstream change to another file.
+: > "$SYNC_LOG"
+printf 'mine\n' > "$repo/.claude/skills/lint/SKILL.md"
+printf 'theirs\n' > "$repo/skills/lint/SKILL.md"
+printf 'fresh-up\n' > "$repo/skills/lint/OTHER.md"
+sync_materialize_repo "$repo"
+grep -q mine "$repo/.claude/skills/lint/SKILL.md"
+grep -q fresh-up "$repo/.claude/skills/lint/OTHER.md"
+grep -q 'skills copy conflict .claude/skills/lint/SKILL.md' "$SYNC_LOG"
+if grep -q 'skills copy conflict .claude/skills/lint/OTHER.md' "$SYNC_LOG"; then
+  printf '%s\n' "upstream file was marked conflict" >&2
+  exit 1
+fi
 
 printf '%s\n' "PASS links-copy"

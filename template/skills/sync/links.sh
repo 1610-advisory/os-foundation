@@ -141,108 +141,157 @@ sync_link_replace() {
   fi
 }
 
-# Fold clear local edits into skills/ before a refresh. A conflict leaves the copy alone.
-# Returns 0 when the copy may be replaced, 2 when it must be kept.
-sync_link_fold() {
+sync_manifest_set() {
+  local man=$1
+  local rel=$2
+  local hash=$3
+  local tmp
+  mkdir -p "$(dirname "$man")"
+  tmp=$(mktemp)
+  if [ -f "$man" ]; then
+    awk -F '\t' -v p="$rel" '$2 != p { print }' "$man" > "$tmp"
+  fi
+  printf '%s\t%s\n' "$hash" "$rel" >> "$tmp"
+  mv "$tmp" "$man"
+}
+
+sync_manifest_drop() {
+  local man=$1
+  local rel=$2
+  local tmp
+  [ -f "$man" ] || return 0
+  tmp=$(mktemp)
+  awk -F '\t' -v p="$rel" '$2 != p { print }' "$man" > "$tmp"
+  mv "$tmp" "$man"
+}
+
+# One file. A conflict leaves that copy file. Every other file still refreshes.
+sync_link_sync_file() {
   local repo=$1
   local rel=$2
   local target=$3
-  local dest man copy_list f copy_hash man_hash skills_hash conflict=0
-  dest="$repo/$rel"
-  man=$(sync_copy_manifest_path "$repo" "$rel")
-  if [ ! -f "$man" ]; then
-    if [ -z "$(ls -A "$dest" 2>/dev/null || true)" ]; then
-      return 0
-    fi
-    if ! diff -rq "$dest" "$target" >/dev/null 2>&1; then
-      sync_copy_log "skills copy conflict ${rel}"
-      return 2
+  local dest=$4
+  local man=$5
+  local f=$6
+  local copy_hash="" skills_hash="" man_hash=""
+  if [ -f "$dest/$f" ]; then
+    copy_hash=$(sync_copy_hash "$repo" "$dest/$f")
+  fi
+  if [ -f "$target/$f" ]; then
+    skills_hash=$(sync_copy_hash "$repo" "$target/$f")
+  fi
+  man_hash=$(sync_manifest_hash "$man" "$f" || true)
+  if [ -n "$copy_hash" ] && [ -n "$skills_hash" ] && [ "$copy_hash" = "$skills_hash" ]; then
+    sync_manifest_set "$man" "$f" "$copy_hash"
+    return 0
+  fi
+  if [ -n "$copy_hash" ] && [ -z "$man_hash" ] && [ -z "$skills_hash" ]; then
+    mkdir -p "$target/$(dirname "$f")"
+    cp "$dest/$f" "$target/$f"
+    sync_manifest_set "$man" "$f" "$copy_hash"
+    sync_copy_log "skills copy folded ${rel}/${f}"
+    return 0
+  fi
+  if [ -n "$copy_hash" ] && [ -n "$man_hash" ] && [ "$copy_hash" = "$man_hash" ]; then
+    if [ -n "$skills_hash" ] && [ "$skills_hash" != "$man_hash" ]; then
+      mkdir -p "$dest/$(dirname "$f")"
+      cp "$target/$f" "$dest/$f"
+      sync_manifest_set "$man" "$f" "$skills_hash"
+    elif [ -z "$skills_hash" ]; then
+      rm -f "$dest/$f"
+      sync_manifest_drop "$man" "$f"
     fi
     return 0
   fi
-  copy_list=$(mktemp)
-  sync_copy_list "$dest" "$copy_list"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    copy_hash=$(sync_copy_hash "$repo" "$dest/$f")
-    man_hash=$(sync_manifest_hash "$man" "$f" || true)
-    skills_hash=""
-    if [ -f "$target/$f" ]; then
-      skills_hash=$(sync_copy_hash "$repo" "$target/$f")
-    fi
-    if [ -z "$man_hash" ]; then
-      if [ -z "$skills_hash" ]; then
-        mkdir -p "$target/$(dirname "$f")"
-        cp "$dest/$f" "$target/$f"
-        sync_copy_log "skills copy folded ${rel}/${f}"
-      elif [ "$skills_hash" != "$copy_hash" ]; then
-        sync_copy_log "skills copy conflict ${rel}/${f}"
-        conflict=1
-      fi
-      continue
-    fi
-    if [ "$copy_hash" = "$man_hash" ]; then
-      continue
-    fi
+  if [ -n "$copy_hash" ] && [ -n "$man_hash" ] && [ "$copy_hash" != "$man_hash" ]; then
     if [ -n "$skills_hash" ] && [ "$skills_hash" = "$man_hash" ]; then
       mkdir -p "$target/$(dirname "$f")"
       cp "$dest/$f" "$target/$f"
+      sync_manifest_set "$man" "$f" "$copy_hash"
       sync_copy_log "skills copy folded ${rel}/${f}"
-      continue
+      return 0
     fi
     sync_copy_log "skills copy conflict ${rel}/${f}"
-    conflict=1
-  done < "$copy_list"
-  rm -f "$copy_list"
-  if [ "$conflict" -eq 1 ]; then
-    return 2
+    return 0
+  fi
+  if [ -z "$copy_hash" ] && [ -n "$skills_hash" ] && [ -z "$man_hash" ]; then
+    mkdir -p "$dest/$(dirname "$f")"
+    cp "$target/$f" "$dest/$f"
+    sync_manifest_set "$man" "$f" "$skills_hash"
+    return 0
+  fi
+  if [ -z "$copy_hash" ] && [ -n "$man_hash" ]; then
+    if [ -n "$skills_hash" ] && [ "$skills_hash" = "$man_hash" ]; then
+      mkdir -p "$dest/$(dirname "$f")"
+      cp "$target/$f" "$dest/$f"
+      return 0
+    fi
+    if [ -n "$skills_hash" ]; then
+      sync_copy_log "skills copy conflict ${rel}/${f}"
+    else
+      sync_manifest_drop "$man" "$f"
+    fi
   fi
   return 0
 }
 
-# refresh=1 recopies an existing folder. A plain file is always replaced.
-# A copy with a conflict is left in place. Clear local edits are folded into skills/ first.
+sync_link_sync_files() {
+  local repo=$1
+  local rel=$2
+  local target=$3
+  local dest man names f
+  dest="$repo/$rel"
+  man=$(sync_copy_manifest_path "$repo" "$rel")
+  mkdir -p "$(dirname "$man")"
+  [ -f "$man" ] || : > "$man"
+  names=$(mktemp)
+  sync_copy_list "$dest" "$names"
+  if [ -d "$target" ]; then
+    find "$target" -type f -print | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      printf '%s\n' "${f#"$target"/}"
+    done >> "$names"
+  fi
+  if [ -f "$man" ]; then
+    awk -F '\t' 'NF >= 2 { print $2 }' "$man" >> "$names"
+  fi
+  sort -u "$names" -o "$names"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    sync_link_sync_file "$repo" "$rel" "$target" "$dest" "$man" "$f"
+  done < "$names"
+  rm -f "$names"
+  if [ -d "$repo/.git" ] || [ -f "$repo/.git" ]; then
+    if git -C "$repo" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+      git -C "$repo" update-index --skip-worktree -- "$rel"
+    fi
+    sync_link_exclude_add "$repo" "$rel"
+  fi
+}
+
+# A real link is left alone. A plain file becomes a copy. A copy folder is
+# folded and refreshed per file on every call, even when skills/ did not change.
 sync_materialize_repo() {
   local repo=$1
-  local refresh=${2:-0}
-  local rel path target hold
+  local rel path target
   [ -d "$repo" ] || return 0
-  hold=$(mktemp)
-  : > "$hold"
-  while IFS= read -r rel; do
-    [ -n "$rel" ] || continue
-    path="$repo/$rel"
-    if [ -L "$path" ] || [ ! -d "$path" ] || [ "$refresh" != "1" ]; then
-      continue
-    fi
-    target=$(sync_link_target "$repo" "$rel") || continue
-    if ! sync_link_fold "$repo" "$rel" "$target"; then
-      printf '%s\n' "$rel" >> "$hold"
-    fi
-  done << EOF
-$(sync_link_rels)
-EOF
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     path="$repo/$rel"
     if [ -L "$path" ] || [ ! -e "$path" ]; then
       continue
     fi
-    if [ -d "$path" ] && [ "$refresh" != "1" ]; then
-      continue
-    fi
-    if [ ! -f "$path" ] && [ ! -d "$path" ]; then
-      continue
-    fi
-    if grep -qxF "$rel" "$hold"; then
-      continue
-    fi
     target=$(sync_link_target "$repo" "$rel") || continue
-    sync_link_replace "$repo" "$rel" "$target"
+    if [ -f "$path" ]; then
+      sync_link_replace "$repo" "$rel" "$target"
+      continue
+    fi
+    if [ -d "$path" ]; then
+      sync_link_sync_files "$repo" "$rel" "$target"
+    fi
   done << EOF
 $(sync_link_rels)
 EOF
-  rm -f "$hold"
 }
 
 sync_materialize_links() {
@@ -260,15 +309,57 @@ sync_materialize_links() {
 
 sync_refresh_after_pull() {
   local repo=$1
-  local old=$2
-  local new refresh=0
-  new=$(git -C "$repo" rev-parse HEAD)
-  if [ "$old" != "$new" ]; then
-    if git -C "$repo" diff --name-only "$old" "$new" | grep -q '^skills/'; then
-      refresh=1
-    fi
-  fi
-  sync_materialize_repo "$repo" "$refresh"
+  sync_materialize_repo "$repo"
+}
+
+# Upstream is about to replace a tracked copy folder with a link. Move untracked
+# files aside and remove the folder so the fast-forward can write the link.
+sync_stash_link_dirs() {
+  local repo=$1
+  local save rel path f relpath mode
+  save=$(mktemp -d)
+  chmod 700 "$save"
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    mode=$(git -C "$repo" ls-tree origin/main -- "$rel" 2>/dev/null | awk '{ print $1; exit }')
+    [ "$mode" = "120000" ] || continue
+    path="$repo/$rel"
+    [ -d "$path" ] && [ ! -L "$path" ] || continue
+    find "$path" -type f -print | while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      relpath=${f#"$repo"/}
+      if git -C "$repo" ls-files --error-unmatch -- "$relpath" >/dev/null 2>&1; then
+        continue
+      fi
+      mkdir -p "$save/$(dirname "$relpath")"
+      cp "$f" "$save/$relpath"
+    done
+    rm -rf "$path"
+  done << EOF
+$(sync_link_rels)
+EOF
+  printf '%s\n' "$save"
+}
+
+sync_put_back_stashed_links() {
+  local repo=$1
+  local save=$2
+  local f rel
+  [ -d "$save" ] || return 0
+  find "$save" -type f -print | while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel=${f#"$save"/}
+    mkdir -p "$repo/$(dirname "$rel")"
+    cp "$f" "$repo/$rel"
+  done
+}
+
+sync_finish_stashed_links() {
+  local repo=$1
+  local save=$2
+  sync_put_back_stashed_links "$repo" "$save"
+  sync_materialize_repo "$repo"
+  rm -rf "$save"
 }
 
 # Drop a Windows copy from a path list. A real link stays in the list.

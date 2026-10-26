@@ -386,6 +386,7 @@ sync_push_one() {
     workspace) kind=workspace ;;
     *) kind=root ;;
   esac
+  sync_materialize_repo "$repo"
   changed=$(sync_mktemp)
   SYNC_RENAMES=$(sync_mktemp)
   sync_changed_names "$repo" > "$changed" || true

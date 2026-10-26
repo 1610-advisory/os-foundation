@@ -323,7 +323,7 @@ sync_reclone() {
 sync_pull_one() {
   local repo=$1
   local id=$2
-  local save tag
+  local save tag old link_save
   if ! git -C "$repo" remote get-url origin >/dev/null 2>&1; then
     return 0
   fi
@@ -342,8 +342,12 @@ sync_pull_one() {
       return 1
     fi
     old=$(git -C "$repo" rev-parse HEAD)
+    link_save=$(sync_stash_link_dirs "$repo")
     if ! git -C "$repo" merge --ff-only origin/main >/dev/null 2>&1; then
       sync_restore_ff "$repo" "$save"
+      git -C "$repo" checkout -q HEAD -- .agents/skills .claude/skills 2>/dev/null || true
+      sync_put_back_stashed_links "$repo" "$link_save"
+      rm -rf "$link_save"
       sync_log "pull fail ${id} not fast-forward"
       return 1
     fi
@@ -352,6 +356,7 @@ sync_pull_one() {
       sync_log "pull ok ${id}"
     fi
     sync_refresh_after_pull "$repo" "$old"
+    sync_finish_stashed_links "$repo" "$link_save"
     return 0
   fi
   tag=$(sync_rewrite_tag "$repo" "$id" || true)
