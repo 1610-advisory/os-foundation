@@ -451,6 +451,49 @@ esac
     }
   }
 
+
+  Invoke-Git $areaDest @('reset', '--hard', 'HEAD~1')
+  $env:OS_SYNC_PS_NO_BASH = '1'
+  $behindCode = Invoke-Sync @('pull')
+  Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+  if ($behindCode -eq 9) { Pass 'quick-behind' } else { Fail 'quick-behind' "exit $behindCode" }
+  Invoke-Git $areaDest @('merge', '--ff-only', 'origin/main')
+
+  $savedState = ''
+  if (Test-Path -LiteralPath $statePath) { $savedState = [System.IO.File]::ReadAllText($statePath) }
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  if ($savedState -match 'repo ok ') {
+    $retryState = $savedState -replace 'repo ok ', 'repo retry '
+    [System.IO.File]::WriteAllText($statePath, $retryState, $utf8)
+    $env:OS_SYNC_PS_NO_BASH = '1'
+    $retryCode = Invoke-Sync @('pull')
+    Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+    [System.IO.File]::WriteAllText($statePath, $savedState, $utf8)
+    if ($retryCode -eq 9) { Pass 'quick-retry' } else { Fail 'quick-retry' "exit $retryCode" }
+  } else {
+    Fail 'quick-retry' 'no ok line'
+  }
+  if ($savedState -match 'bot 0') {
+    $botState = $savedState -replace 'bot 0', 'bot 1'
+    [System.IO.File]::WriteAllText($statePath, $botState, $utf8)
+    $env:OS_SYNC_PS_NO_BASH = '1'
+    $botCode = Invoke-Sync @('pull')
+    Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+    [System.IO.File]::WriteAllText($statePath, $savedState, $utf8)
+    if ($botCode -eq 9) { Pass 'quick-bot' } else { Fail 'quick-bot' "exit $botCode" }
+  } else {
+    Fail 'quick-bot' 'no bot line'
+  }
+
+  $otherUser = Join-Path $member 'users\ada'
+  New-Item -ItemType Directory -Path $otherUser -Force | Out-Null
+  Invoke-Git $otherUser @('init', '-q', '-b', 'main')
+  $env:OS_SYNC_PS_NO_BASH = '1'
+  $otherCode = Invoke-Sync @('pull')
+  Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $otherUser -Recurse -Force -ErrorAction SilentlyContinue
+  if ($otherCode -eq 9) { Pass 'quick-other-user' } else { Fail 'quick-other-user' "exit $otherCode" }
+
   if (Test-Path -LiteralPath $statePath) {
     Remove-Item -LiteralPath $statePath -Force
   }

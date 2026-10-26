@@ -1472,8 +1472,30 @@ class QuickPullTests(unittest.TestCase):
         (area / ".claude" / "skills").mkdir(parents=True)
         pulled = self.sync("pull", env=self.clock(100100, 18000))
         self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
-        self.assertEqual((area / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
-        self.assertTrue(self.line_for("areas/shop").startswith("repo retry none "))
+        copied = area / ".agents" / "skills" / "lint" / "SKILL.md"
+        self.assertEqual(copied.read_text(), "base\n")
+        self.assertEqual(self.line_for("areas/shop"), "repo ok none areas/shop")
+        copied.unlink()
+        before = self.log_text()
+        quiet = self.sync("pull", env=self.clock(100200, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertFalse(copied.exists())
+        self.assertEqual(self.log_text(), before)
+        self.assertEqual(self.line_for("areas/shop"), "repo ok none areas/shop")
+        run(["git", "-C", str(area), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        bare = self.tmp / "shop.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(area), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(area), "push", "-q", "origin", "main"], env=self.env, check=True)
+        side = self.tmp / "shop-side"
+        run(["git", "clone", "-q", str(bare), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/from-host.md", "from the host\n")
+        gained = self.sync("pull", env=self.clock(100300, 18000))
+        self.assertEqual(gained.returncode, 0, gained.stderr + gained.stdout)
+        self.assertTrue((area / "notes" / "from-host.md").exists())
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+        self.assertNotIn("none", self.line_for("areas/shop"))
 
     def test_ls_remote_failure_uses_the_normal_fail_line(self):
         self.make_repo(self.company, self.tmp / "root.git")
@@ -1563,7 +1585,13 @@ class QuickPullTests(unittest.TestCase):
         token_file.write_text(marker + "\n")
         token_file.chmod(0o600)
         (spy / "git").write_text(
-            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\nexec /usr/bin/git \"$@\"\n"
+            "#!/bin/bash\n"
+            "printf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\n"
+            "if [ -n \"${GIT_ASKPASS:-}\" ] && [ -f \"$GIT_ASKPASS\" ]; then\n"
+            "  printf '%s\\n' ASKPASS >> \"$ARGV_LOG\"\n"
+            "  cat \"$GIT_ASKPASS\" >> \"$ARGV_LOG\"\n"
+            "fi\n"
+            "exec /usr/bin/git \"$@\"\n"
         )
         (spy / "git").chmod(0o755)
         (spy / "host.sh").write_text(
@@ -1590,6 +1618,63 @@ class QuickPullTests(unittest.TestCase):
         self.assertNotIn(marker, text)
         self.assertNotIn(marker, second.stdout + second.stderr)
         self.assertNotIn(marker, self.log_text())
+        self.assertIn("ASKPASS", text)
+
+    def test_reset_behind_is_pulled_back(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        self.commit_push(area, "notes/second.md", "second\n", "second")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        run(["git", "-C", str(area), "reset", "--hard", "HEAD~1"], env=self.env, check=True)
+        self.assertFalse((area / "notes" / "second.md").exists())
+        root_stamp = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((area / "notes" / "second.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+
+    def test_symlinked_area_behind_is_pulled(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        outside = self.tmp / "outside-lab"
+        self.make_repo(outside, self.tmp / "lab.git")
+        side = self.tmp / "lab-side"
+        run(["git", "clone", "-q", str(self.tmp / "lab.git"), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/linked.md", "linked\n")
+        (self.company / "areas").mkdir()
+        (self.company / "areas" / "lab").symlink_to(outside)
+        root_stamp = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((outside / "notes" / "linked.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+
+    def test_four_am_is_the_boundary_and_a_future_stamp_is_due(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        first = self.sync("pull", env=self.clock(100000, 1800))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        stamp = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(110800, 12600))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        self.assertEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        due = self.sync("pull", env=self.clock(114400, 16200))
+        self.assertEqual(due.returncode, 0, due.stderr)
+        self.assertNotEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 114400")
+        lines = self.state_lines()
+        lines[1] = "full 300000"
+        self.state_path().write_text("\n".join(lines) + "\n")
+        before = self.stamp(self.company)
+        forced = self.sync("pull", env=self.clock(114500, 16200))
+        self.assertEqual(forced.returncode, 0, forced.stderr)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual(self.state_lines()[1], "full 114500")
 
 
 if __name__ == "__main__":

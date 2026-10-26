@@ -121,10 +121,12 @@ function Get-SyncClock {
 function Test-FullDue([int64]$Full) {
   $clock = Get-SyncClock
   if ($null -eq $clock) { return $true }
+  $now = [int64]$clock['Now']
+  if ($Full -gt ($now + 86400)) { return $true }
   $since = [int64]$clock['Mid'] - 14400
   $mod = $since % 86400
   if ($mod -lt 0) { $mod = $mod + 86400 }
-  $boundary = [int64]$clock['Now'] - $mod
+  $boundary = $now - $mod
   return ($Full -lt $boundary)
 }
 
@@ -202,6 +204,18 @@ function Get-DiskRels([string]$Root, [string]$Me) {
   return ,$set
 }
 
+function Test-ForeignUserRepo([string]$Root, [string]$Me) {
+  $users = Join-Path $Root 'users'
+  if (-not (Test-Path -LiteralPath $users -PathType Container)) { return $false }
+  $kids = @(Get-ChildItem -LiteralPath $users -Force -ErrorAction SilentlyContinue)
+  foreach ($kid in $kids) {
+    $git = Join-Path $kid.FullName '.git'
+    if (-not (Test-Path -LiteralPath $git)) { continue }
+    if ($Me -eq '-' -or $kid.Name -ne $Me) { return $true }
+  }
+  return $false
+}
+
 function Test-SameRelSet($Disk, $StateOrder) {
   if ($Disk.Count -ne $StateOrder.Count) { return $false }
   foreach ($rel in $Disk) {
@@ -229,6 +243,11 @@ function Start-LimitedExe([string]$File, [string]$ArgsLine, [string]$HeaderValue
   $psi.CreateNoWindow = $true
   $psi.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
   $psi.EnvironmentVariables['GCM_INTERACTIVE'] = 'never'
+  foreach ($traceName in @('GIT_TRACE', 'GIT_TRACE_CURL', 'GIT_TRACE_PACKET', 'GIT_CURL_VERBOSE', 'GIT_TRACE_REDACT')) {
+    if ($psi.EnvironmentVariables.ContainsKey($traceName)) {
+      [void]$psi.EnvironmentVariables.Remove($traceName)
+    }
+  }
   if ($HeaderValue) {
     $psi.EnvironmentVariables['GIT_CONFIG_COUNT'] = '1'
     $psi.EnvironmentVariables['GIT_CONFIG_KEY_0'] = 'http.https://github.com/.extraheader'
@@ -326,6 +345,7 @@ function Get-QuickDecision {
   if ($null -eq $state) { return 'bash' }
   if ($state['Bot'] -eq '1') { return 'bash' }
   if (Test-FullDue ([int64]$state['Full'])) { return 'bash' }
+  if (Test-ForeignUserRepo $root ([string]$state['Me'])) { return 'bash' }
   foreach ($rel in $state['Order']) {
     if ($state['Repos'][$rel]['Status'] -eq 'retry') { return 'bash' }
   }
@@ -335,15 +355,21 @@ function Get-QuickDecision {
   if (-not $gitExe) { return 'bash' }
   $header = $null
   foreach ($rel in $state['Order']) {
+    $status = [string]$state['Repos'][$rel]['Status']
     $sha = [string]$state['Repos'][$rel]['Sha']
-    if ($sha -eq 'none') { continue }
+    if ($status -ne 'ok') { return 'bash' }
     if ($rel -eq '.') {
       $repo = $root
     } else {
       $repo = Join-Path $root ($rel -replace '/', '\')
     }
     $urlRun = Start-LimitedExe $gitExe ('-C ' + (Quote-WinArg $repo) + ' remote get-url origin') $null
-    if ($null -eq $urlRun -or $urlRun['Code'] -ne 0) { return 'bash' }
+    $hasOrigin = ($null -ne $urlRun -and $urlRun['Code'] -eq 0)
+    if ($sha -eq 'none') {
+      if ($hasOrigin) { return 'bash' }
+      continue
+    }
+    if (-not $hasOrigin) { return 'bash' }
     $url = ([string]$urlRun['Out']).Trim()
     $useHeader = $null
     if (Test-LocalOrigin $url) {
@@ -361,6 +387,8 @@ function Get-QuickDecision {
     if ($null -eq $ls -or $ls['Code'] -ne 0) { return 'bash' }
     $remote = Get-RemoteSha ([string]$ls['Out'])
     if (-not $remote -or $remote -ne $sha) { return 'bash' }
+    $anc = Start-LimitedExe $gitExe ('-C ' + (Quote-WinArg $repo) + ' merge-base --is-ancestor ' + $sha + ' HEAD') $null
+    if ($null -eq $anc -or $anc['Code'] -ne 0) { return 'bash' }
   }
   return 'nochange'
 }

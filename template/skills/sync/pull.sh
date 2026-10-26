@@ -491,18 +491,16 @@ sync_pull_me_ok() {
   [ -n "$me" ]
 }
 
+# Use the path sync_each passed. Do not resolve links: a linked area must stay areas/<name>.
 sync_pull_rel() {
   local repo=$1
-  local root
-  root=$(sync_abs "$SYNC_ROOT")
-  repo=$(sync_abs "$repo")
-  if [ "$repo" = "$root" ]; then
+  if [ "$repo" = "$SYNC_ROOT" ]; then
     printf '%s\n' "."
     return 0
   fi
   case "$repo" in
-    "$root"/*)
-      printf '%s\n' "${repo#"$root"/}"
+    "$SYNC_ROOT"/*)
+      printf '%s\n' "${repo#"$SYNC_ROOT"/}"
       ;;
     *)
       printf '%s\n' "$repo"
@@ -625,6 +623,9 @@ sync_pull_full_due() {
   case "${SYNC_PULL_FULL:-}" in
     ""|*[!0-9]*) return 0 ;;
   esac
+  if [ "$SYNC_PULL_FULL" -gt "$((SYNC_CLOCK_NOW + 86400))" ]; then
+    return 0
+  fi
   since=$((SYNC_CLOCK_MID - 4 * 3600))
   since=$(((since % 86400 + 86400) % 86400))
   boundary=$((SYNC_CLOCK_NOW - since))
@@ -791,10 +792,17 @@ EOF
 
 sync_pull_ls_remote() {
   local repo=$1
-  OS_GIT_USER="${SYNC_PULL_USER:-}" OS_GIT_TOKEN="${SYNC_PULL_TOKEN:-}" \
-    GIT_ASKPASS="${SYNC_PULL_ASK:-}" GIT_TERMINAL_PROMPT=0 \
-    git -C "$repo" -c credential.helper= -c commit.gpgsign=false \
-    ls-remote origin refs/heads/main
+  (
+    unset GIT_TRACE
+    unset GIT_TRACE_CURL
+    unset GIT_TRACE_PACKET
+    unset GIT_CURL_VERBOSE
+    unset GIT_TRACE_REDACT
+    OS_GIT_USER="${SYNC_PULL_USER:-}" OS_GIT_TOKEN="${SYNC_PULL_TOKEN:-}" \
+      GIT_ASKPASS="${SYNC_PULL_ASK:-}" GIT_TERMINAL_PROMPT=0 \
+      git -C "$repo" -c credential.helper= -c commit.gpgsign=false \
+      ls-remote origin refs/heads/main
+  )
 }
 
 sync_pull_remote_sha() {
@@ -813,11 +821,17 @@ sync_pull_probe() {
   local repo=$1
   local rel line rest status sha remote rc got
   rel=$(sync_pull_rel "$repo")
+  if ! sync_pull_rel_ok "$rel"; then
+    SYNC_PULL_NEED_FULL=1
+    return 0
+  fi
   if ! sync_pull_has_origin "$repo"; then
-    if ! sync_pull_line_for "$rel" >/dev/null 2>&1; then
-      sync_pull_mark_changed "$rel"
-      sync_pull_mark_copyonly "$rel"
+    line=$(sync_pull_line_for "$rel" || true)
+    if [ "$line" = "repo ok none $rel" ]; then
+      return 0
     fi
+    sync_pull_mark_changed "$rel"
+    sync_pull_mark_copyonly "$rel"
     return 0
   fi
   line=$(sync_pull_line_for "$rel" || true)
@@ -827,7 +841,9 @@ sync_pull_probe() {
   fi
   rest=${line#repo }
   status=${rest%% *}
-  if [ "$status" = "retry" ]; then
+  rest=${rest#* }
+  sha=${rest%% *}
+  if [ "$status" != "ok" ] || [ "$sha" = "none" ]; then
     sync_pull_mark_changed "$rel"
     return 0
   fi
@@ -844,13 +860,11 @@ sync_pull_probe() {
     return 0
   fi
   got=$(sync_pull_remote_sha "$remote" || true)
-  if [ -z "$got" ]; then
+  if [ -z "$got" ] || [ "$got" != "$sha" ]; then
     sync_pull_mark_changed "$rel"
     return 0
   fi
-  rest=${rest#* }
-  sha=${rest%% *}
-  if [ "$got" != "$sha" ]; then
+  if ! git -C "$repo" merge-base --is-ancestor "$sha" HEAD >/dev/null 2>&1; then
     sync_pull_mark_changed "$rel"
   fi
   return 0
@@ -863,11 +877,20 @@ sync_pull_and_note() {
   local rel status sha
   rel=$(sync_pull_rel "$repo")
   sync_pull_one "$repo" "$id" || rc=$?
-  sha=$(sync_pull_origin_sha "$repo")
-  status=retry
-  if [ "$rc" -eq 0 ] && [ "$sha" != "none" ]; then
-    if git -C "$repo" merge-base --is-ancestor refs/remotes/origin/main HEAD >/dev/null 2>&1; then
+  if ! sync_pull_has_origin "$repo"; then
+    sha=none
+    if [ "$rc" -eq 0 ]; then
       status=ok
+    else
+      status=retry
+    fi
+  else
+    sha=$(sync_pull_origin_sha "$repo")
+    status=retry
+    if [ "$rc" -eq 0 ] && [ "$sha" != "none" ]; then
+      if git -C "$repo" merge-base --is-ancestor refs/remotes/origin/main HEAD >/dev/null 2>&1; then
+        status=ok
+      fi
     fi
   fi
   sync_pull_note_add "$rel" "$status" "$sha"
@@ -984,12 +1007,17 @@ sync_pull_run_quick() {
   SYNC_PULL_COPYONLY="|"
   SYNC_PULL_NOTES=""
   SYNC_PULL_NO_TOKEN=0
+  SYNC_PULL_NEED_FULL=0
   if ! sync_pull_token_begin; then
     SYNC_PULL_NO_TOKEN=1
     sync_pull_clear_secret
   fi
   sync_each sync_pull_probe || rc=1
   sync_pull_clear_secret
+  if [ "$SYNC_PULL_NEED_FULL" = "1" ]; then
+    sync_pull_run_full || rc=$?
+    return "$rc"
+  fi
   if [ -z "$SYNC_PULL_CHANGED" ]; then
     return 0
   fi
@@ -999,8 +1027,14 @@ sync_pull_run_quick() {
     repo=$(sync_pull_repo "$rel") || continue
     id=$(sync_pull_id "$rel") || continue
     if sync_pull_is_copyonly "$rel"; then
-      sync_pull_refresh_one "$repo"
-      sync_pull_note_add "$rel" "retry" "none"
+      copy_rc=0
+      sync_pull_refresh_one "$repo" || copy_rc=$?
+      if [ "$copy_rc" -eq 0 ]; then
+        sync_pull_note_add "$rel" "ok" "none"
+      else
+        rc=1
+        sync_pull_note_add "$rel" "retry" "none"
+      fi
       continue
     fi
     sync_pull_and_note "$repo" "$id" || rc=1
