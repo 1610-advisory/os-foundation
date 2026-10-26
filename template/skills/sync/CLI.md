@@ -12,10 +12,10 @@ skills/sync/sync.sh <command> [flags]
 
 | Command | Does |
 |---|---|
-| `pull` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. On failure, leave that repo's working copy unchanged and write one line to the log. |
+| `pull [--full]` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. Plain `pull` asks the host first and pulls only the repos that changed. `--full` pulls every repo. Any other flag prints `unknown flag` and exits 1. On failure, leave that repo's working copy unchanged and write one line to the log. See "Pull". |
 | `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
 | `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
-| `status` | Print held files and the last error. The next session reads this. |
+| `status` | Print held files, the last error, and `last full pull: <time>`. The next session reads this. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
 | `uninstall-jobs` | Remove the job files this script wrote. |
 | `helper` | Device helper. Counts days with no access. Warns from day 7. Deletes the company folder on day 14. |
@@ -80,9 +80,43 @@ For each company or area repo that already has commits on `sync/<bot>` that are 
 
 `OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
 
-## Pull and history rewrite
+## Pull
 
-`pull` uses `git pull --ff-only` in each repo. A failure changes nothing in that working copy.
+`pull` has two forms. Both take the lock.
+
+- **`pull --full`** fast-forwards every repo: the company repo, each `areas/*` repo with `.git`, and `users/<me>`. It runs the skill-copy pass in each one (see "Skill links"). A repo with no `origin` is not fetched, but its missing copies are still made.
+- **`pull`** is the quick pull. For each repo it runs `git ls-remote origin refs/heads/main`, with the same sign-in as `fetch`. The token is fetched once per run, kept in a shell variable only, and cleared on exit. A repo is changed when its remote commit differs from the state file, when it has no line there (a new area), when its line is `retry`, or when `ls-remote` fails or prints nothing. Only the changed repos are pulled, each with its own skill-copy pass. If no repo changed, it fetches nothing, runs no copy pass, writes no log line and exits 0.
+
+`pull` runs as a full pull instead when:
+
+- the state file is missing or does not parse, or
+- a full pull is due: the last full pull is before the most recent 04:00 local time. So the first `pull` after 04:00 (after the 02:00 push) is a full one. A computer that slept through 04:00 does it on its first `pull` after wake. A daylight-saving change can move that hour by one.
+
+Use `pull --full` when something looks out of date, after a git step by hand, or for support. Session start in every `AGENTS.md` and the 15-minute job keep plain `pull`.
+
+The log lines (`pull ok <repo>`, `pull fail <repo> <reason>`) and exit codes are the same for both forms.
+
+### State file
+
+`<company root>/.git/os-foundation/pull-state`. It is inside the company repo's git folder, next to `skills-copy/`. One per clone. Git never commits it. It is plain ASCII:
+
+```
+os-sync-state 1
+full <unix seconds of the last full pull>
+me <slug, or ->
+bot <1 or 0>
+repo <ok|retry> <sha|none> <rel>
+```
+
+One `repo` line per repo, in pull order. `<rel>` is `.` for the company repo, `areas/<name>`, or `users/<me>`. `<sha>` is the local `origin/main` after the run, or `none` for a repo with no `origin`. A line is `ok` only when that repo's pull returned 0 and `HEAD` contains `origin/main`. Else it is `retry`, and the next `pull` pulls that repo again.
+
+The file is written to a temp file, then moved into place. If it cannot be written, the pull does not fail. A quick pull keeps the lines of repos it did not pull and keeps `full`. A full pull writes `full <now>`.
+
+`status` reads it: `last full pull: YYYY-MM-DDTHH:MM:SSZ` (UTC), or `last full pull: never` when there is no usable state.
+
+## History rewrite
+
+Each pull of a repo uses `git pull --ff-only`. A failure changes nothing in that working copy.
 
 `remove-leak` pushes an annotated tag `os-rewrite-<YYYYMMDDHHMMSS>` on the new `main`. The tag message names rules, not values, one per line:
 
@@ -130,9 +164,21 @@ It finds `bash.exe` in this order:
 
 It never uses `%SystemRoot%\System32\bash.exe`. That is WSL. It runs `bash.exe <sync.sh> <same arguments>` and exits with that exit code.
 
+#### Quick check before bash
+
+For `sync.ps1 pull` with no other argument, PowerShell checks first, so a pull with nothing new starts no Git Bash. The check is read-only. It never writes the state file or the log, and never takes the lock. It skips bash only when it is sure. Any doubt runs `sync.sh pull` as usual, and bash checks again.
+
+1. Find the company root: `OS_COMPANY_ROOT`, else walk up to `company-profile.md`.
+2. Read the state file strictly. Run bash if it is missing or odd, if a full pull is due (same 04:00 rule), if `bot 1`, or if any line is `retry`.
+3. The repos on disk (the root, each `areas/*` with `.git`, `users/<me>` with `.git`) must be the same set as the `repo` lines. Else bash.
+4. For each repo with a sha: `git.exe -C <repo> -c credential.helper= ls-remote origin refs/heads/main`, no prompt, 20 seconds at most. A local path or `file://` origin needs no sign-in. An `https://github.com/` origin uses the token from `gh auth token`, given to that one git process through its own environment. It is never in `$env:` or on a command line, so bash never sees it. Any other origin runs bash.
+5. Every remote sha equals its line: print `sync: no change` and exit 0. Else bash.
+
+`pull --full` and every other command go straight to bash.
+
 | Exit | Meaning |
 |---|---|
-| 0 | `-h` or `--help`: usage printed. |
+| 0 | `-h` or `--help`: usage printed. Or `pull` printed `sync: no change`. |
 | 3 | No Git Bash found. It prints `install Git for Windows: winget install --id Git.Git -e`. Nothing ran. |
 | other | The exit code of `sync.sh`. |
 
@@ -166,11 +212,11 @@ Git for Windows checks out with `core.symlinks=false`. The committed links `.age
 When a link path is a plain file, the script replaces it with a copy of the `skills/` folder it points to. It runs `git update-index --skip-worktree <path>` and adds `/<path>/` to `.git/info/exclude`. This covers the company root and every `areas/*`. `git status` stays clean.
 
 - `join.sh` makes the copies.
-- `pull` makes any missing copy. Each `pull` and the start of each `push` compare every copy file with `skills/` and with the last copy (a manifest under `.git/os-foundation/skills-copy/`). A file that changed only in `skills/` is copied again.
+- `pull` makes any missing copy in a repo it pulls. The copy pass runs on a `pull` that changes that repo (a new area counts), on every full pull, and at the start of every `push`. It compares every copy file with `skills/` and with the last copy (a manifest under `.git/os-foundation/skills-copy/`). A file that changed only in `skills/` is copied again. A quick `pull` that finds no change in a repo leaves its copies alone; the daily full pull refreshes them.
 - `push` never sends a path under a copy.
 - A real link (macOS, Linux) is left alone.
 
-Change or add a skill in `skills/`, not in the copy. If a file in a copy was edited or added, `pull` (or `push`, before it builds its list) moves that change into `skills/` first and logs `skills copy folded <path>`. A file deleted only in a copy is copied back. `skills/` is a rules path, so the nightly push holds it: `rules file: propose it with sync.sh propose`.
+Change or add a skill in `skills/`, not in the copy. If a file in a copy was edited or added, the next copy pass (a full pull, a pull that changes that repo, or `push` before it builds its list) moves that change into `skills/` first and logs `skills copy folded <path>`. A file deleted only in a copy is copied back. `skills/` is a rules path, so the nightly push holds it: `rules file: propose it with sync.sh propose`.
 
 If the same file changed in the copy and in `skills/` in two different ways, sync leaves that copy file alone and logs `skills copy conflict <path>`. The other files still refresh. The same change on both sides is not a conflict. Copy the wanted version into `skills/` by hand, then run `lint` again.
 
@@ -266,8 +312,7 @@ The script calls `host.sh` only. It does not call `gh` or the host HTTP API. It 
 | Code | Meaning |
 |---|---|
 | 0 | The command finished. Holds may still be recorded. |
-| 1 | Usage, lock, solo refusal, identity mismatch, or a refused delete. |
-| 2 | A repo push or pull failed closed. |
+| 1 | Usage (including `unknown flag`), lock, solo refusal, identity mismatch, a refused delete, or a repo push or pull that failed closed. |
 | 3 | Windows only: `sync.ps1` found no Git Bash. |
 
 ## Lock

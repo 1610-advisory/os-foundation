@@ -9,7 +9,7 @@ description: Keeps this computer and the company host in step. Pulls every 15 mi
 
 ## What sync does
 
-- **Pull.** At session start and every 15 minutes: fast-forward the company folder, each area and the person's workspace. If a pull cannot finish cleanly, it changes nothing and logs one line.
+- **Pull.** At session start and every 15 minutes: fast-forward the company folder, each area and the person's workspace. It asks the host first and pulls only the repos that changed. Once a day it pulls every repo (see "Pull" below). If a pull cannot finish cleanly, it changes nothing and logs one line.
 - **Nightly push.** At 2 am, or the first wake after. Steps:
   1. **Identity check.** The signed-in git account must match `github:` on the person's page in `people/`. If not, nothing goes up from any repo.
   2. **Secret scan.** A script, no AI. A hit holds that file. The reason names the rule, never the value.
@@ -30,7 +30,7 @@ Before other work, from the company root:
 
 1. Run `skills/sync/sync.sh pull`.
 2. Run `skills/sync/sync.sh status`.
-3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`. For each held file, tell the person one line: the file and the reason in plain words (table below).
+3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`, then `last full pull: <UTC time>` or `last full pull: never`. For each held file, tell the person one line: the file and the reason in plain words (table below).
 4. If the last error is not `none`, tell the person that line as printed (see "Last errors"). Then go on with the work.
 
 If the pull fails, say so and go on. If it prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
@@ -85,11 +85,19 @@ One topic per proposal.
 
 A failed review blocks the merge. Read the findings in plain words and offer a fix.
 
+## Pull
+
+- **`pull`** asks the host for the newest commit of each repo. It pulls only a repo that changed. A new area counts as changed. If nothing changed, it fetches nothing, writes no log line and exits 0.
+- **`pull --full`** pulls every repo, as the 15-minute job did before. It also refreshes every skill copy (Windows).
+- **A full pull runs by itself** on the first `pull` after 04:00 local time, so each morning starts in step after the 2 am push. A computer that slept through 04:00 does it on the first `pull` after it wakes. A missing or broken state file also starts a full pull.
+- **Use `pull --full`** when something looks out of date, after someone ran git by hand, or when support asks. Session start and the jobs keep plain `pull`.
+- **State:** `.git/os-foundation/pull-state` in the company repo. Each company folder has its own. Git never commits it. Never edit it by hand. If it cannot be written, the pull still works.
+
 ## Commands
 
-From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull`, `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
+From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
 
-Exit 0: done (files may be held). Exit 1: usage, `another sync is running`, solo, or identity mismatch. Exit 2: a repo failed closed. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
+Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 
 ## OS jobs
 
@@ -103,14 +111,15 @@ launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 
 ### Windows
 
-- The jobs run the same `sync.sh` through Git Bash from Git for Windows. `sync.ps1` only finds Git Bash and starts `sync.sh` with the same arguments. It never uses `System32\bash.exe` (that is WSL).
+- The jobs run the same `sync.sh` through Git Bash from Git for Windows. `sync.ps1` finds Git Bash and starts `sync.sh` with the same arguments. It never uses `System32\bash.exe` (that is WSL).
+- **Quick check first.** For `sync.ps1 pull` with no flag, PowerShell asks the host first. If it is sure nothing changed, it prints `sync: no change`, exits 0 and does not start Git Bash. It writes no log line. In every other case it runs `sync.sh pull` as usual. `pull --full` always runs Git Bash.
 - Needs: Git for Windows, GitHub CLI (`gh`), `jq`, and the engine command, for example the Claude Code CLI (`claude`). The Claude desktop app alone is not enough: the job calls the `claude` command.
 - In an agent's Git Bash terminal, run `skills/sync/sync.sh <command>` as on a Mac. In PowerShell, run `skills\sync\sync.ps1 <command>`.
 - `install-jobs` registers the tasks in Task Scheduler. `uninstall-jobs` removes them. The names are `osfoundation-<slug>-pull`, `-push`, `-helper`, and on the admin's computer `-admin`. `<slug>` is the company slug. The tasks are hidden: in Task Scheduler, choose View, then Show Hidden Tasks. Or run `Get-ScheduledTask -TaskName 'osfoundation-*'` in PowerShell.
 - The tasks run as the signed-in person, with no stored password. They also run on battery. A missed time runs at the next start or wake. No window opens.
-- **Skill links are copies.** Windows checks out `.agents/skills` and `.claude/skills` as plain files. `join.sh` and each `pull` replace them with copies of `skills/`, at the root and in each area. Git ignores the copies. Each `pull`, and the start of each `push`, checks the copies file by file: a file that changed in `skills/` is copied again. Push never sends a copy. Never replace a copy with a link by hand.
-- **Change a skill in `skills/`, not in the copy.** If you (or the app) edit or add a skill in a copy, the next `pull` or `push` moves that change into `skills/` and logs `skills copy folded <path>`. A file deleted in a copy comes back: delete it in `skills/`. `skills/` is a rules path: the nightly push holds it with `rules file: propose it with sync.sh propose`. Propose it as usual.
-- **`skills copy conflict <path>`** in the log: the same file changed in the copy and in `skills/`, in two different ways. Sync leaves that one copy file alone (the other files still refresh), and `lint` reports `skills copy drift: <path>`. Ask the person which version they want. Copy that version into `skills/` by hand. Run `pull`, then `lint` again.
+- **Skill links are copies.** Windows checks out `.agents/skills` and `.claude/skills` as plain files. `join.sh` and `pull` replace them with copies of `skills/`, at the root and in each area. Git ignores the copies. The copies are checked file by file on a `pull` that changes that repo, on every full pull, and at the start of every `push`: a file that changed in `skills/` is copied again. A `pull` that finds no change in a repo leaves its copies alone. Push never sends a copy. Never replace a copy with a link by hand.
+- **Change a skill in `skills/`, not in the copy.** If you (or the app) edit or add a skill in a copy, the next full pull, a pull that changes that repo, or `push` moves that change into `skills/` and logs `skills copy folded <path>`. A file deleted in a copy comes back: delete it in `skills/`. `skills/` is a rules path: the nightly push holds it with `rules file: propose it with sync.sh propose`. Propose it as usual.
+- **`skills copy conflict <path>`** in the log: the same file changed in the copy and in `skills/`, in two different ways. Sync leaves that one copy file alone (the other files still refresh), and `lint` reports `skills copy drift: <path>`. Ask the person which version they want. Copy that version into `skills/` by hand. Run `pull --full`, then `lint` again.
 - **`install Git for Windows: winget install --id Git.Git -e`** (exit 3): `sync.ps1` found no Git Bash. Nothing ran. Tell the person the line. After the install, they open a new terminal or restart the app. If Git is installed in an unusual folder, set `OS_GIT_BASH` to the full path of its `bin\bash.exe`.
 
 ## Device helper, traces, rewrites

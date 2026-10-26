@@ -22,6 +22,7 @@ The multi-user release. A solo owner gets a simpler setup. A team gets enforced 
 - **Nobody writes to `main`.** Each person has one branch and one standing pull request. Notes merge by themselves when the checks pass. Rules files go by their own pull request and need their owner's approval.
 - **Checks on every pull request:** a secret scan, `lint`, and a review by a second AI model against `review-rules.md`. All checks run in one job to keep host minutes low.
 - **`sync` and OS jobs.** Pull every 15 minutes. Push each night, after a secret scan and a commit-or-hold check by a small model. Any failed step pushes nothing.
+- **`sync pull` checks first and pulls only what changed.** One full pull runs each day. On Windows, a pull with nothing new does not start Git Bash.
 - **Nightly review and reports.** On the admin's computer: clear errors fixed by pull request, one daily digest of flags per approver, a daily "to decide" list and a weekly report.
 - **Joining terms and leaving.** `joining-terms.md` holds the delete promise each person accepts when they join. `remove-teammate` removes access first. A helper then deletes the company folder from that person's computer. Leave, holidays and offline days never trigger it.
 - **Windows sync works through Git Bash.** The jobs run the same `sync.sh` from Task Scheduler, with no window. Tested on a Windows runner (S15).
