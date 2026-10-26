@@ -26,11 +26,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shell: [powershell, pwsh]
+        include:
+          - name: powershell
+            exe: powershell
+          - name: pwsh
+            exe: pwsh
     steps:
       - name: checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: S15
-        shell: ${{ matrix.shell }}
-        run: |
-          & .\tests\windows\s15.ps1
+      - name: S15 ${{ matrix.name }}
+        shell: cmd
+        run: ${{ matrix.exe }} -NoProfile -ExecutionPolicy Bypass -File tests\windows\s15.ps1
