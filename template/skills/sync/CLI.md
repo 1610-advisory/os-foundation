@@ -166,13 +166,13 @@ Git for Windows checks out with `core.symlinks=false`. The committed links `.age
 When a link path is a plain file, the script replaces it with a copy of the `skills/` folder it points to. It runs `git update-index --skip-worktree <path>` and adds `/<path>/` to `.git/info/exclude`. This covers the company root and every `areas/*`. `git status` stays clean.
 
 - `join.sh` makes the copies.
-- `pull` makes any missing copy. After a pull that changes `skills/` in a repo, it copies that repo's folders again.
+- `pull` makes any missing copy. Each `pull` and the start of each `push` compare every copy file with `skills/` and with the last copy (a manifest under `.git/os-foundation/skills-copy/`). A file that changed only in `skills/` is copied again.
 - `push` never sends a path under a copy.
 - A real link (macOS, Linux) is left alone.
 
-Change or add a skill in `skills/`, not in the copy. If a file in a copy was edited or added, `pull` moves that change into `skills/` first and logs `skills copy folded <path>`. `skills/` is a rules path, so the nightly push holds it: `rules file: propose it with sync.sh propose`.
+Change or add a skill in `skills/`, not in the copy. If a file in a copy was edited or added, `pull` (or `push`, before it builds its list) moves that change into `skills/` first and logs `skills copy folded <path>`. A file deleted only in a copy is copied back. `skills/` is a rules path, so the nightly push holds it: `rules file: propose it with sync.sh propose`.
 
-If the same file changed in the copy and in `skills/`, `pull` leaves the copy alone and logs `skills copy conflict <path>`. Copy the wanted version into `skills/` by hand, then run `lint` again.
+If the same file changed in the copy and in `skills/` in two different ways, sync leaves that copy file alone and logs `skills copy conflict <path>`. The other files still refresh. The same change on both sides is not a conflict. Copy the wanted version into `skills/` by hand, then run `lint` again.
 
 `lint` accepts a real link to `../skills` or a folder copy. A copy that differs from `skills/` is the finding `skills copy drift: <path>`.
 
