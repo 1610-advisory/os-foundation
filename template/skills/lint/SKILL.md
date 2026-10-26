@@ -14,7 +14,7 @@ Run `skills/lint/lint.sh` from the company root. From an area, run `../../skills
 What each check means:
 
 1. **Skill links.** `.agents/skills` and `.claude/skills` must exist and point to `../skills`, at the root and in each area. They let every agent find the same skills. Missing or wrong: agents miss skills.
-2. **Skill copies.** On a computer with no link support, setup copies the skills. A copy that differs from `skills/` is drift. So is an area skill that has the same name as a company skill but other content. Agents then follow old steps.
+2. **Skill copies.** On a computer with no link support (Windows), setup or `sync` copies `skills/` into `.agents/skills` and `.claude/skills`. A copy that differs from `skills/` is drift: `skills copy drift: <path>`. So is an area skill that has the same name as a company skill but other content. Agents then follow old steps. Change a skill in `skills/`, never in the copy. Fix a drifted copy: [team] run `skills/sync/sync.sh pull`. It moves an edit made in the copy into `skills/` (then propose it). If the sync log says `skills copy conflict <path>`, ask which version the person wants, copy it into `skills/` by hand, and run lint again. Solo: copy `skills/` there again. Never commit a copy.
 3. **Level and switches.** `level:` must be `solo`, `team` or `app`. Each name in `switches:` must be a known switch. `dream` is not a switch: it is an error.
 4. **Rules file size.** Each `AGENTS.md`, `CLAUDE.md`, `review-rules.md` and `bots/*/BOT.md` must be under 10,000 characters. Agents may cut a longer file. Move detail into a skill.
 5. **Placeholders.** No `{{...}}` left outside `skills/`. A skill's `{{...}}` is filled when it runs.

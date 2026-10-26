@@ -36,22 +36,95 @@ sync_job_dir() {
 sync_render() {
   local src=$1
   local dest=$2
-  awk -v label="$LABEL" -v root="$ROOT" -v sync="$SYNC" -v log="$LOG" \
-    -v hour="$HOUR" -v minute="$MINUTE" -v arg="$ARG" -v desc="$DESC" \
-    -v delay="${DELAY:-0}" '
-    {
-      gsub(/@LABEL@/, label)
-      gsub(/@ROOT@/, root)
-      gsub(/@SYNC@/, sync)
-      gsub(/@LOG@/, log)
-      gsub(/@HOUR@/, hour)
-      gsub(/@MINUTE@/, minute)
-      gsub(/@ARG@/, arg)
-      gsub(/@DESC@/, desc)
-      gsub(/@DELAY@/, delay)
-      print
-    }
-  ' "$src" > "$dest"
+  local line user delay patsub=0
+  user=${USERID:-S-1-5-21-1}
+  delay=${DELAY:-0}
+  if shopt -q patsub_replacement 2>/dev/null; then
+    patsub=1
+  fi
+  # Bash 5.2 treats & in a replacement as the matched text. Paths use &amp;.
+  shopt -u patsub_replacement 2>/dev/null || true
+  : > "$dest"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line//@LABEL@/$LABEL}
+    line=${line//@ROOT@/$ROOT}
+    line=${line//@SYNC@/$SYNC}
+    line=${line//@LOG@/$LOG}
+    line=${line//@HOUR@/$HOUR}
+    line=${line//@MINUTE@/$MINUTE}
+    line=${line//@ARG@/$ARG}
+    line=${line//@DESC@/$DESC}
+    line=${line//@DELAY@/$delay}
+    line=${line//@USER@/$user}
+    printf '%s\n' "$line"
+  done < "$src" > "$dest"
+  if [ "$patsub" -eq 1 ]; then
+    shopt -s patsub_replacement 2>/dev/null || true
+  fi
+}
+
+sync_win_path() {
+  local p=$1
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$p"
+    return 0
+  fi
+  printf '%s\n' "$p"
+}
+
+sync_win_sid() {
+  local sid
+  if command -v powershell.exe >/dev/null 2>&1; then
+    sid=$(powershell.exe -NoProfile -NonInteractive -Command "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value" 2>/dev/null || true)
+    sid=$(printf '%s' "$sid" | tr -d '\r\n')
+    case "$sid" in
+      S-1-*) printf '%s\n' "$sid"; return 0 ;;
+    esac
+  fi
+  printf '%s\n' "S-1-5-21-1"
+}
+
+sync_win_ps1() {
+  local raw ps line
+  raw=$(mktemp)
+  ps="${raw}.ps1"
+  rm -f "$raw"
+  : > "$ps"
+  for line in "$@"; do
+    printf '%s\r\n' "$line" >> "$ps"
+  done
+  printf '%s\n' "$ps"
+}
+
+sync_win_register() {
+  local name=$1
+  local xml=$2
+  local raw ps xml_win ps_win
+  # The file stays UTF-8. The API string is Unicode, so the declaration must say UTF-16.
+  raw=$(mktemp)
+  ps="${raw}.ps1"
+  rm -f "$raw"
+  awk 'BEGIN { ORS="\r\n" } { print }' > "$ps" << 'EOF'
+param([string]$TaskName, [string]$XmlPath)
+$ErrorActionPreference = "Stop"
+$xml = Get-Content -LiteralPath $XmlPath -Raw -Encoding UTF8
+$xml = $xml -replace 'encoding="UTF-8"', 'encoding="UTF-16"'
+Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
+EOF
+  xml_win=$(sync_win_path "$xml")
+  ps_win=$(sync_win_path "$ps")
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" -XmlPath "$xml_win"
+  rm -f "$ps"
+}
+
+sync_win_unregister() {
+  local name=$1
+  local ps ps_win
+  # shellcheck disable=SC2016
+  ps=$(sync_win_ps1 'param([string]$TaskName)' 'Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue')
+  ps_win=$(sync_win_path "$ps")
+  MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$ps_win" -TaskName "$name" || true
+  rm -f "$ps"
 }
 
 cmd_install_jobs() {
@@ -85,7 +158,9 @@ cmd_install_jobs() {
     macos) sync_install_macos "$dir" "$admin" ;;
     linux) sync_install_linux "$dir" "$admin" "$label" ;;
     windows)
-      SYNC=$(sync_xml "$SYNC_DIR/sync.ps1")
+      SYNC=$(sync_xml "\"$(sync_win_path "$SYNC_DIR/sync.ps1")\"")
+      ROOT=$(sync_xml "$(sync_win_path "$SYNC_ROOT")")
+      USERID=$(sync_win_sid)
       sync_install_windows "$dir" "$admin"
       ;;
     *) sync_die 1 "platform is not supported" ;;
@@ -93,7 +168,11 @@ cmd_install_jobs() {
   if [ "$bot" -eq 1 ]; then
     sync_log "jobs install bot"
   fi
-  if [ "${OS_JOBS_LOAD:-}" = "1" ]; then
+  if sync_is_windows && [ "$platform" = "windows" ]; then
+    if [ "${OS_JOBS_LOAD:-1}" != "0" ]; then
+      sync_register_windows "$dir"
+    fi
+  elif [ "${OS_JOBS_LOAD:-}" = "1" ]; then
     sync_load_jobs "$platform" "$dir"
   fi
 }
@@ -174,39 +253,70 @@ sync_install_linux() {
   fi
 }
 
+sync_pad2() {
+  printf '%02d' "$1"
+}
+
 sync_install_windows() {
   local dir=$1
   local admin=$2
   local src
   src="$SYNC_DIR/jobs"
-  DESC="os-foundation pull. Not tested."
+  DESC="os-foundation pull"
   ARG="pull"
   LABEL="osfoundation-${label}-pull"
   sync_render "$src/windows-task.xml" "$dir/${LABEL}.xml"
   printf '%s\n' "$dir/${LABEL}.xml"
-  DESC="os-foundation push. Not tested."
+  DESC="os-foundation push"
   ARG="push"
   LABEL="osfoundation-${label}-push"
-  HOUR=2
-  MINUTE=0
+  HOUR=$(sync_pad2 2)
+  MINUTE=$(sync_pad2 0)
   sync_render "$src/windows-daily.xml" "$dir/${LABEL}.xml"
   printf '%s\n' "$dir/${LABEL}.xml"
-  DESC="os-foundation helper. Not tested."
+  DESC="os-foundation helper"
   ARG="helper"
   LABEL="osfoundation-${label}-helper"
-  HOUR=4
-  MINUTE=0
+  HOUR=$(sync_pad2 4)
+  MINUTE=$(sync_pad2 0)
   sync_render "$src/windows-daily.xml" "$dir/${LABEL}.xml"
   printf '%s\n' "$dir/${LABEL}.xml"
   if [ "$admin" -eq 1 ]; then
-    DESC="os-foundation admin nightly. Not tested."
-    ARG="admin"
+    DESC="os-foundation admin nightly"
+    ARG="admin-run"
     LABEL="osfoundation-${label}-admin"
-    HOUR=3
-    MINUTE=30
+    HOUR=$(sync_pad2 3)
+    MINUTE=$(sync_pad2 30)
     sync_render "$src/windows-daily.xml" "$dir/${LABEL}.xml"
     printf '%s\n' "$dir/${LABEL}.xml"
   fi
+}
+
+sync_register_windows() {
+  local dir=$1
+  local f name
+  for f in "$dir"/osfoundation-"${label}"-*.xml; do
+    [ -f "$f" ] || continue
+    name=$(basename "$f" .xml)
+    sync_win_register "$name" "$f"
+  done
+}
+
+cmd_admin_run() {
+  local rc=0
+  if [ -x "$SYNC_ROOT/skills/nightly-review/run.sh" ]; then
+    "$SYNC_ROOT/skills/nightly-review/run.sh" || rc=1
+  else
+    sync_log "admin fail nightly-review missing"
+    rc=1
+  fi
+  if [ -x "$SYNC_ROOT/skills/reports/run.sh" ]; then
+    "$SYNC_ROOT/skills/reports/run.sh" || rc=1
+  else
+    sync_log "admin fail reports missing"
+    rc=1
+  fi
+  return "$rc"
 }
 
 sync_load_jobs() {
@@ -226,7 +336,7 @@ sync_load_jobs() {
         osfoundation-"${label}"-push.timer osfoundation-"${label}"-helper.timer
       ;;
     windows)
-      printf '%s\n' "Windows jobs are not tested. Import the XML with Task Scheduler." >&2
+      printf '%s\n' "Windows task registration runs on Windows only." >&2
       ;;
   esac
 }
@@ -263,6 +373,9 @@ cmd_uninstall_jobs() {
     windows)
       for f in "$dir"/osfoundation-"${safe}"-*.xml; do
         [ -f "$f" ] || continue
+        if sync_is_windows; then
+          sync_win_unregister "$(basename "$f" .xml)" || true
+        fi
         rm -f "$f"
         printf '%s\n' "$f"
       done

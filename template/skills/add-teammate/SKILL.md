@@ -80,15 +80,27 @@ A new area later: run `add-area`.
 ### B1. Tools and sign-in
 
 1. Check `git --version` (GitHub: also `gh --version`). Missing? Help install them (Mac: `brew install git gh`).
-2. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites.
+2. **Windows.** There is no company folder yet, so the commands are here. Check each in PowerShell: `git --version`, `gh --version`, `jq --version`, `claude --version`. Install what is missing, one line each:
+   ```
+   winget install --id Git.Git -e
+   winget install --id GitHub.cli -e
+   winget install --id jqlang.jq -e
+   irm https://claude.ai/install.ps1 | iex
+   ```
+   - Git for Windows gives Git Bash. The sync jobs run through it.
+   - Say plainly: the Claude desktop app alone is not enough. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
+   - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
+   - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
+3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites.
 
 ### B2. Folder and clone
 
-1. Ask for the folder. Suggest `~/{{COMPANY_SLUG}}-os`. Refuse a synced folder.
+1. Ask for the folder. Suggest `~/{{COMPANY_SLUG}}-os`. Refuse a synced folder. Windows: suggest the home folder (`C:\Users\<name>\{{COMPANY_SLUG}}-os`). Not `Documents` or `Desktop`: OneDrive often syncs them.
 2. Clone the company repo with their own sign-in. Take the URL from `Company repo:` in the hand-off message. Never guess it:
    ```
    git clone <company repo URL> ~/{{COMPANY_SLUG}}-os
    ```
+   In PowerShell, write `$HOME\{{COMPANY_SLUG}}-os` in place of `~/{{COMPANY_SLUG}}-os`. Windows PowerShell 5.1 does not expand `~` for `git`.
    Forgejo: `Host:` in the hand-off is the host address (`host_url`). The teammate puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600) first.
 
 ### B3. The joining terms
@@ -104,14 +116,24 @@ Only after a yes in B3.
 1. **Slug.** It is in the hand-off message. Confirm it. `host`, `host_url` and `org` come from `company-profile.md` in the clone: do not ask.
 2. Write the answers file: `me=<slug>`.
 3. From inside the clone, run `skills/add-teammate/join.sh --answers <file>`. It keeps the clone and goes on.
-4. On an error, tell them the exact message. `your workspace <repo> is not reachable: ask the admin`: stop; the join is not done; the admin checks that repo and its grant. Any other error: fix the cause it names and run it once more. If it stops again, stop and send the message to the admin.
+   - Windows: run it in Git Bash. Claude Code on Windows already uses Git Bash. From PowerShell, run it through Git Bash, with forward slashes in the answers path:
+     ```
+     & "$env:ProgramFiles\Git\bin\bash.exe" skills/add-teammate/join.sh --answers <file>
+     ```
+   - `join.sh` checks that the engine command (`sync_engine:`, for example `claude`) is on `PATH`. On Windows it also checks `jq` and `gh` first. Then it copies the skill links (Windows) and installs the OS jobs (Windows: registers them in Task Scheduler).
+4. These lines stop it with exit 3. Install the tool, open a new terminal, and run `join.sh` again:
+   - `Claude Code CLI: irm https://claude.ai/install.ps1 | iex` (Windows) or `Claude Code CLI: curl -fsSL https://claude.ai/install.sh | bash` (Mac, Linux).
+   - `install jq: winget install --id jqlang.jq -e`
+   - `install GitHub CLI: winget install --id GitHub.cli -e`
+   - `install <tool> and put it on PATH`: the company engine is another tool. Install it.
+5. On any other error, tell them the exact message. `your workspace <repo> is not reachable: ask the admin`: stop; the join is not done; the admin checks that repo and its grant. Any other error: fix the cause it names and run it once more. If it stops again, stop and send the message to the admin.
 
 ### B5. Explain the result
 
 One line each:
 - **Folders.** The company folder, `users/<slug>/` (their workspace) and their areas. A `skipped:` area is one they cannot read. That is correct.
 - **Who they are.** `~/.config/{{COMPANY_SLUG}}-os/me` names them. The nightly push checks it against their git sign-in.
-- **OS jobs.** Pull every 15 minutes, push at about 2 am. Notes go up by themselves. A held file stays here; the next session says why.
+- **OS jobs.** Pull every 15 minutes, push at about 2 am. Notes go up by themselves. A held file stays here; the next session says why. Windows: they are Task Scheduler tasks named `osfoundation-<company slug>-pull`, `-push` and `-helper`, run through Git Bash with no window (`skills/sync/SKILL.md`, "Windows").
 - **Profile.** `users/<slug>/profile/PROFILE.md` holds their voice and preferences. Claude Code, Codex, Pi (and Cursor, with a rules file) load it in every session, read-only. Their AI keeps it current.
 - **Terms.** `terms: proposed`: their yes goes on their people page by pull request.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."

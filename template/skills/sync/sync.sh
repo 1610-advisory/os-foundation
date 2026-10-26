@@ -6,6 +6,8 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/lib.sh"
 # shellcheck disable=SC1091
+. "$DIR/links.sh"
+# shellcheck disable=SC1091
 . "$DIR/pull.sh"
 # shellcheck disable=SC1091
 . "$DIR/push.sh"
@@ -31,6 +33,7 @@ Commands:
   uninstall-jobs
   helper
   collect
+  admin-run
 
 The person does not run git. See CLI.md for the full contract.
 EOF
@@ -67,7 +70,7 @@ main() {
     status)
       cmd_status
       ;;
-    pull|push|propose|install-jobs|uninstall-jobs|helper|collect)
+    pull|push|propose|install-jobs|uninstall-jobs|helper|collect|admin-run)
       sync_bind
       case "$cmd" in
         pull) cmd_pull ;;
@@ -77,6 +80,7 @@ main() {
         uninstall-jobs) cmd_uninstall_jobs ;;
         helper) cmd_helper ;;
         collect) cmd_collect ;;
+        admin-run) cmd_admin_run ;;
       esac
       ;;
     *)
