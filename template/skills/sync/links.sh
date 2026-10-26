@@ -248,6 +248,12 @@ sync_hash_rels() {
     [ -n "$f" ] || continue
     printf '%s\n' "$root/$f"
   done < "$rels" > "$abs"
+  # git does not rewrite paths it reads on stdin. On Windows those must be
+  # drive paths, or hash-object looks for /d/... and fails.
+  if sync_is_windows && command -v cygpath >/dev/null 2>&1; then
+    cygpath -m -f "$abs" > "$abs.win"
+    mv "$abs.win" "$abs"
+  fi
   git -C "$repo" hash-object --stdin-paths < "$abs" | paste - "$rels" > "$out"
   rm -f "$abs"
 }
