@@ -170,7 +170,8 @@ try {
   if (-not $base) { $base = $env:TEMP }
   $script:work = Join-Path $base ('osf-s15-' + [guid]::NewGuid().ToString('n').Substring(0, 12))
   New-Item -ItemType Directory -Path $script:work -Force | Out-Null
-  $script:spaced = Join-Path $script:work 'acme co'
+  $mark = [char]0x00E9
+  $script:spaced = Join-Path $script:work ('acme co' + $mark)
   $sandbox = Join-Path $script:work 'home'
   $xdg = Join-Path $sandbox '.config'
   New-Item -ItemType Directory -Path $xdg -Force | Out-Null
@@ -395,6 +396,47 @@ esac
     Fail 'links-refresh' "exit $refreshCode"
   }
 
+  $copySkill = Join-Path $member '.claude\skills\lint\SKILL.md'
+  $skillsSkill = Join-Path $member 'skills\lint\SKILL.md'
+  if (-not (Test-Path -LiteralPath $copySkill)) { Fail 'links-fold' 'copy skill missing' }
+  else {
+    Add-Content -LiteralPath $copySkill -Value 'LOCAL-FOLD' -Encoding Ascii
+    $freshDir = Join-Path $member '.claude\skills\freshfold'
+    New-Item -ItemType Directory -Path $freshDir -Force | Out-Null
+    Write-Utf8 (Join-Path $freshDir 'NOTE.md') "new skill`n"
+    Write-Utf8 (Join-Path $seed 'skills\lint\FROM-UPSTREAM.txt') "from upstream`n"
+    Invoke-Git $seed @('add', 'skills/lint/FROM-UPSTREAM.txt')
+    Invoke-Git $seed @('commit', '-q', '-m', 'upstream skill')
+    Invoke-Git $seed @('push', '-q', 'origin', 'main')
+    $foldCode = Invoke-Sync @('pull')
+    $folded = (Test-Path -LiteralPath (Join-Path $member 'skills\lint\SKILL.md')) -and (Select-String -LiteralPath $skillsSkill -Pattern 'LOCAL-FOLD' -Quiet)
+    $fresh = Test-Path -LiteralPath (Join-Path $member 'skills\freshfold\NOTE.md')
+    $up = Test-Path -LiteralPath (Join-Path $member '.claude\skills\lint\FROM-UPSTREAM.txt')
+    if ($foldCode -eq 0 -and $folded -and $fresh -and $up) { Pass 'links-fold' } else { Fail 'links-fold' "exit $foldCode" }
+    Add-Content -LiteralPath $copySkill -Value 'LOCAL-BOTH' -Encoding Ascii
+    Write-Utf8 (Join-Path $seed 'skills\lint\SKILL.md') "UPSTREAM-BOTH`n"
+    Invoke-Git $seed @('add', 'skills/lint/SKILL.md')
+    Invoke-Git $seed @('commit', '-q', '-m', 'upstream both')
+    Invoke-Git $seed @('push', '-q', 'origin', 'main')
+    $bothCode = Invoke-Sync @('pull')
+    $copyText = ''
+    if (Test-Path -LiteralPath $copySkill) { $copyText = [System.IO.File]::ReadAllText($copySkill) }
+    $skillText = ''
+    if (Test-Path -LiteralPath $skillsSkill) { $skillText = [System.IO.File]::ReadAllText($skillsSkill) }
+    $log = Join-Path $xdg 'acme-os\state\sync.log'
+    $logged = $false
+    if (Test-Path -LiteralPath $log) { $logged = (Select-String -LiteralPath $log -Pattern 'skills copy conflict' -Quiet) }
+    $lintBoth = Join-Path $member 'skills\lint\lint.sh'
+    $lintBothOut = & $bash $lintBoth --ci --root $member
+    $lintBothCode = $LASTEXITCODE
+    $drift = ($lintBothOut -join "`n") -match 'skills copy drift:'
+    if ($bothCode -eq 0 -and $copyText.Contains('LOCAL-BOTH') -and $skillText.Contains('UPSTREAM-BOTH') -and $logged -and $lintBothCode -eq 1 -and $drift) {
+      Pass 'links-conflict'
+    } else {
+      Fail 'links-conflict' "exit $bothCode"
+    }
+  }
+
   Write-Utf8 (Join-Path $member '.agents\skills\lint\DRIFT.md') "drift`n"
   $lint = Join-Path $member 'skills\lint\lint.sh'
   $lintOut = & $bash $lint --ci --root $member
@@ -426,8 +468,10 @@ esac
   foreach ($bit in $need) {
     if ($pullText.IndexOf($bit) -lt 0) { $miss += $bit }
   }
-  $quoted = ($pullText.IndexOf('&quot;') -ge 0) -or ($pullText.IndexOf('"') -ge 0)
-  if (-not $quoted) { $miss += 'quotes' }
+  $realSync = (Resolve-Path -LiteralPath $script:syncPs1).Path
+  $q1 = '"' + $realSync + '"'
+  $q2 = '&quot;' + $realSync + '&quot;'
+  if ($pullText.IndexOf($q1) -lt 0 -and $pullText.IndexOf($q2) -lt 0) { $miss += 'quoted-path' }
   $pushExport = ''
   if ($pushTask) { $pushExport = Export-ScheduledTask -TaskName 'osfoundation-acme-push' }
   $pushText = (($pushExport | ForEach-Object { "$_" }) -join "`n")
@@ -491,27 +535,11 @@ esac
         $probeReason = $_.Exception.Message
       }
       Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
-      if ($probeOk) { Pass 'conhost' } else { Say 'conhost' 'BLOCKED' $probeReason }
+      if ($probeOk) { Pass 'conhost' } else { Fail 'conhost' $probeReason }
     }
   } else {
-    Say $startName 'BLOCKED' $startReason
-    Say 'conhost' 'BLOCKED' 'start-task did not run'
-    $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
-    $actionName = 'start-action'
-    if ($pullNow) {
-      $cmd = [string]$pullNow.Actions[0].Execute
-      $arg = [string]$pullNow.Actions[0].Arguments
-      $wd = [string]$pullNow.Actions[0].WorkingDirectory
-      if ($wd) { Set-Location $wd }
-      $beforeAction = Snapshot-Logs $logPaths
-      cmd.exe /c "$cmd $arg"
-      $actionCode = $LASTEXITCODE
-      Set-Location $member
-      $saw = Wait-PullOk $beforeAction 20
-      if ($actionCode -eq 0 -and $saw) { Pass $actionName } else { Fail $actionName "exit $actionCode" }
-    } else {
-      Fail $actionName 'pull task missing'
-    }
+    Fail $startName $startReason
+    Fail 'conhost' 'start-task did not write a log line'
   }
 
   Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue

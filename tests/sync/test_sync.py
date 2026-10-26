@@ -208,6 +208,12 @@ class SyncLocalTests(unittest.TestCase):
         self.assertIn("acme &amp; co", xml)
         self.assertNotIn("acme & co", xml)
 
+    def test_skill_copy_fold_keeps_local_edits(self):
+        script = ROOT / "tests" / "sync" / "test_links_copy.sh"
+        result = run(["bash", str(script)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS links-copy", result.stdout)
+
     def test_helper_day_count(self):
         host = self.tmp / "fake-host"
         host.mkdir()

@@ -107,7 +107,7 @@ sync_win_register() {
   awk 'BEGIN { ORS="\r\n" } { print }' > "$ps" << 'EOF'
 param([string]$TaskName, [string]$XmlPath)
 $ErrorActionPreference = "Stop"
-$xml = Get-Content -LiteralPath $XmlPath -Raw
+$xml = Get-Content -LiteralPath $XmlPath -Raw -Encoding UTF8
 $xml = $xml -replace 'encoding="UTF-8"', 'encoding="UTF-16"'
 Register-ScheduledTask -TaskName $TaskName -Xml $xml -Force | Out-Null
 EOF
