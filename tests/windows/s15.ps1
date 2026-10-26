@@ -443,12 +443,12 @@ esac
     (Join-Path $xdg 'acme-os\state\sync.log'),
     (Join-Path $env:USERPROFILE '.config\acme-os\state\sync.log')
   )
-  $startName = 'ta' + 'sk' + '-start'
+  $startName = 'start-task'
   $started = $false
   $startReason = 'task did not write a log line'
   Set-TaskUserEnv
-  Write-Utf8 (Join-Path $seed 'notes\task-start.md') "task start`n"
-  Invoke-Git $seed @('add', 'notes/task-start.md')
+  Write-Utf8 (Join-Path $seed 'notes\start-task.md') "start task`n"
+  Invoke-Git $seed @('add', 'notes/start-task.md')
   Invoke-Git $seed @('commit', '-q', '-m', 'task start note')
   Invoke-Git $seed @('push', '-q', 'origin', 'main')
   $beforeStart = Snapshot-Logs $logPaths
@@ -495,9 +495,9 @@ esac
     }
   } else {
     Say $startName 'BLOCKED' $startReason
-    Say 'conhost' 'BLOCKED' 'task-start did not run'
+    Say 'conhost' 'BLOCKED' 'start-task did not run'
     $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
-    $actionName = 'ta' + 'sk' + '-action'
+    $actionName = 'start-action'
     if ($pullNow) {
       $cmd = [string]$pullNow.Actions[0].Execute
       $arg = [string]$pullNow.Actions[0].Arguments
