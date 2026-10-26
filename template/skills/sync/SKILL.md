@@ -89,7 +89,7 @@ A failed review blocks the merge. Read the findings in plain words and offer a f
 
 From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull`, `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
 
-Exit 0: done (files may be held). Exit 1: usage, `another sync is running`, solo, or identity mismatch. Exit 2: a repo failed closed.
+Exit 0: done (files may be held). Exit 1: usage, `another sync is running`, solo, or identity mismatch. Exit 2: a repo failed closed. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 
 ## OS jobs
 
@@ -100,7 +100,18 @@ launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 - Admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
 - Bot's box (`--bot`): pull, push and helper, as the bot. `add-bot` installs them.
 - The jobs use the engine in `sync_engine:` in `company-profile.md`, for example `claude -p --model haiku`.
-- **Windows: not tested.** `sync.ps1` says "not tested" and stops. Tell a Windows user: the jobs do not run there yet.
+
+### Windows
+
+- The jobs run the same `sync.sh` through Git Bash from Git for Windows. `sync.ps1` only finds Git Bash and starts `sync.sh` with the same arguments. It never uses `System32\bash.exe` (that is WSL).
+- Needs: Git for Windows, GitHub CLI (`gh`), `jq`, and the engine command, for example the Claude Code CLI (`claude`). The Claude desktop app alone is not enough: the job calls the `claude` command.
+- In an agent's Git Bash terminal, run `skills/sync/sync.sh <command>` as on a Mac. In PowerShell, run `skills\sync\sync.ps1 <command>`.
+- `install-jobs` registers the tasks in Task Scheduler. `uninstall-jobs` removes them. The names are `osfoundation-<slug>-pull`, `-push`, `-helper`, and on the admin's computer `-admin`. `<slug>` is the company slug. The tasks are hidden: in Task Scheduler, choose View, then Show Hidden Tasks. Or run `Get-ScheduledTask -TaskName 'osfoundation-*'` in PowerShell.
+- The tasks run as the signed-in person, with no stored password. They also run on battery. A missed time runs at the next start or wake. No window opens.
+- **Skill links are copies.** Windows checks out `.agents/skills` and `.claude/skills` as plain files. `join.sh` and each `pull` replace them with copies of `skills/`, at the root and in each area. Git ignores the copies. A pull that changes `skills/` refreshes them. Push never sends a copy. Never replace a copy with a link by hand.
+- **Change a skill in `skills/`, not in the copy.** If you (or the app) edit or add a skill in a copy, the next `pull` moves that change into `skills/` and logs `skills copy folded <path>`. `skills/` is a rules path: the nightly push holds it with `rules file: propose it with sync.sh propose`. Propose it as usual.
+- **`skills copy conflict <path>`** in the log: the same file changed in the copy and in `skills/`. Sync leaves the copy alone, and `lint` reports `skills copy drift: <path>`. Ask the person which version they want. Copy that version into `skills/` by hand. Run `pull`, then `lint` again.
+- **`install Git for Windows: winget install --id Git.Git -e`** (exit 3): `sync.ps1` found no Git Bash. Nothing ran. Tell the person the line. After the install, they open a new terminal or restart the app. If Git is installed in an unusual folder, set `OS_GIT_BASH` to the full path of its `bin\bash.exe`.
 
 ## Device helper, traces, rewrites
 

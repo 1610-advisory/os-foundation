@@ -20,9 +20,10 @@ skills/sync/sync.sh <command> [flags]
 | `uninstall-jobs` | Remove the job files this script wrote. |
 | `helper` | Device helper. Counts days with no access. Warns from day 7. Deletes the company folder on day 14. |
 | `collect` | Traces collector. Runs only when `level: app` and `traces` is in `switches`. |
+| `admin-run` | Admin job. Runs `skills/nightly-review/run.sh`, then `skills/reports/run.sh`. Exit 1 if either fails or is missing. |
 | `--help` | Print the command list. |
 
-`secret-scan.sh` is the secret scan. `sync.ps1` is the Windows entry. It runs `sync.sh` through Git for Windows bash.
+`secret-scan.sh` is the secret scan. `sync.ps1` is the Windows launcher. It runs `sync.sh` through Git for Windows bash. See "Windows".
 
 ## State
 
@@ -93,7 +94,7 @@ The rule id is the id `secret-scan.sh` printed. If `pull` cannot fast-forward an
 
 ## OS jobs
 
-`install-jobs` refuses `level: solo`. It writes files into `OS_JOBS_DIR`. It loads them only when `OS_JOBS_LOAD=1`.
+`install-jobs` refuses `level: solo`. It writes files into `OS_JOBS_DIR`. On macOS and Linux it loads them only when `OS_JOBS_LOAD=1`. On Windows it registers them unless `OS_JOBS_LOAD=0`.
 
 Default folder: macOS `~/Library/LaunchAgents`, Linux `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user`, Windows `%LOCALAPPDATA%\os-foundation\tasks`.
 
@@ -102,13 +103,82 @@ Default folder: macOS `~/Library/LaunchAgents`, Linux `${XDG_CONFIG_HOME:-$HOME/
 | pull | Every 15 minutes (`StartInterval` 900). |
 | push | 02:00, or the first wake after that. Linux adds a random delay of up to 30 minutes. |
 | helper | Daily at 04:00. |
-| admin (`--admin`) | 03:30. Runs nightly review, then reports. |
+| admin (`--admin`) | 03:30. Runs `admin-run`: nightly review, then reports. |
 
 `--bot` installs the pull, push, and helper jobs for a bot box. The `me` file is the bot slug. Push asks the host layer for that bot's token.
 
 `OS_JOBS_PLATFORM=macos|linux|windows` picks the templates. The default is the current system.
 
-Windows files are marked not tested. `sync.ps1` says so and exits.
+## Windows
+
+The jobs run `sync.sh` through Git Bash from Git for Windows. There is no PowerShell copy of `sync.sh`. All platforms use one script and one secret scan.
+
+Needs on `PATH`: `git`, `gh`, `jq`, and the first word of the engine command (for example `claude`, from the Claude Code CLI). The Claude desktop app does not put `claude` on `PATH`.
+
+### sync.ps1
+
+```
+skills\sync\sync.ps1 <command> [flags]
+```
+
+It finds `bash.exe` in this order:
+
+1. `OS_GIT_BASH`.
+2. `git.exe` on `PATH`: `<git root>\bin\bash.exe`.
+3. The `InstallPath` value of `HKLM:\SOFTWARE\GitForWindows`, then `HKCU:\SOFTWARE\GitForWindows`, then `HKLM:\SOFTWARE\WOW6432Node\GitForWindows`: `<InstallPath>\bin\bash.exe`.
+4. `%ProgramFiles%\Git\bin\bash.exe`.
+
+It never uses `%SystemRoot%\System32\bash.exe`. That is WSL. It runs `bash.exe <sync.sh> <same arguments>` and exits with that exit code.
+
+| Exit | Meaning |
+|---|---|
+| 0 | `-h` or `--help`: usage printed. |
+| 3 | No Git Bash found. It prints `install Git for Windows: winget install --id Git.Git -e`. Nothing ran. |
+| other | The exit code of `sync.sh`. |
+
+The file is ASCII only. It works in Windows PowerShell 5.1 and PowerShell 7.
+
+### Tasks
+
+`install-jobs` writes one XML file per job into `%LOCALAPPDATA%\os-foundation\tasks`, then registers each one with `Register-ScheduledTask`. `uninstall-jobs` unregisters each task and deletes its file.
+
+| Task | Runs |
+|---|---|
+| `osfoundation-<slug>-pull` | `pull`, every 15 minutes |
+| `osfoundation-<slug>-push` | `push`, 02:00 |
+| `osfoundation-<slug>-helper` | `helper`, 04:00 |
+| `osfoundation-<slug>-admin` (`--admin`) | `admin-run`, 03:30 |
+
+`<slug>` is the company slug. Each task runs:
+
+```
+conhost.exe --headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "<sync.ps1>" <command>
+```
+
+The working folder is the company folder. `conhost.exe --headless` keeps a window from opening. `-ExecutionPolicy Bypass` lets the job run where the default policy is `Restricted`.
+
+Settings: runs as the signed-in person (`InteractiveToken`, `LeastPrivilege`, no stored password), so the job sees that person's git and `gh` sign-in. `DisallowStartIfOnBatteries` and `StopIfGoingOnBatteries` are `false`. `StartWhenAvailable` is `true`: a missed time runs at the next start or wake. `MultipleInstancesPolicy` is `IgnoreNew`. `ExecutionTimeLimit` is `PT1H`. The tasks are hidden. To see them: Task Scheduler, View, Show Hidden Tasks, or `Get-ScheduledTask -TaskName 'osfoundation-*'`.
+
+### Skill links
+
+Git for Windows checks out with `core.symlinks=false`. The committed links `.agents/skills` and `.claude/skills` arrive as plain files that hold `../skills`.
+
+When a link path is a plain file, the script replaces it with a copy of the `skills/` folder it points to. It runs `git update-index --skip-worktree <path>` and adds `/<path>/` to `.git/info/exclude`. This covers the company root and every `areas/*`. `git status` stays clean.
+
+- `join.sh` makes the copies.
+- `pull` makes any missing copy. After a pull that changes `skills/` in a repo, it copies that repo's folders again.
+- `push` never sends a path under a copy.
+- A real link (macOS, Linux) is left alone.
+
+Change or add a skill in `skills/`, not in the copy. If a file in a copy was edited or added, `pull` moves that change into `skills/` first and logs `skills copy folded <path>`. `skills/` is a rules path, so the nightly push holds it: `rules file: propose it with sync.sh propose`.
+
+If the same file changed in the copy and in `skills/`, `pull` leaves the copy alone and logs `skills copy conflict <path>`. Copy the wanted version into `skills/` by hand, then run `lint` again.
+
+`lint` accepts a real link to `../skills` or a folder copy. A copy that differs from `skills/` is the finding `skills copy drift: <path>`.
+
+### Line ends
+
+`.gitattributes` sets `* text=auto eol=lf` and `eol=crlf` for `*.ps1`, `*.cmd` and `*.bat`. So `.sh` files keep LF on Windows, where Git's default `core.autocrlf=true` would break bash. The company folder and each new area repo get the same `.gitattributes`.
 
 ## Device helper
 
@@ -178,9 +248,10 @@ Test only: `OS_SYNC_ENGINE` overrides the engine. The Acme S10 test uses it.
 | `OS_NOW` | Fake clock, `YYYY-MM-DD` or a UTC timestamp. |
 | `OS_TEST_MODE` | `1` refuses deletes outside `$HOME`. |
 | `OS_JOBS_DIR` | Where job files are written. |
-| `OS_JOBS_LOAD` | `1` loads the jobs into the OS. |
+| `OS_JOBS_LOAD` | macOS and Linux: `1` loads the jobs into the OS. Windows: `0` writes the files only, with no registration. |
 | `OS_JOBS_PLATFORM` | `macos`, `linux`, or `windows`. |
 | `OS_SYNC_ENGINE` | Engine command. |
+| `OS_GIT_BASH` | Windows: full path to Git for Windows `bin\bash.exe`, for `sync.ps1`. |
 | `OS_ENGINE_TIMEOUT` | Engine timeout in seconds. |
 | `OS_SECRET_SCAN` | `auto`, `bundled`, or `gitleaks`. |
 | `OS_TRACES_TARGET` | Local folder for collected sessions. |
@@ -197,6 +268,7 @@ The script calls `host.sh` only. It does not call `gh` or the host HTTP API. It 
 | 0 | The command finished. Holds may still be recorded. |
 | 1 | Usage, lock, solo refusal, identity mismatch, or a refused delete. |
 | 2 | A repo push or pull failed closed. |
+| 3 | Windows only: `sync.ps1` found no Git Bash. |
 
 ## Lock
 
