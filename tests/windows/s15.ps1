@@ -421,7 +421,7 @@ esac
   $pullExport = ''
   if ($pullTask) { $pullExport = Export-ScheduledTask -TaskName 'osfoundation-acme-pull' }
   $pullText = (($pullExport | ForEach-Object { "$_" }) -join "`n")
-  $need = @('PT15M', 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy Bypass', '-WindowStyle Hidden', 'sync.ps1', 'acme co', 'InteractiveToken', 'DisallowStartIfOnBatteries>false', 'StopIfGoingOnBatteries>false', 'StartWhenAvailable>true', 'IgnoreNew', 'ExecutionTimeLimit>PT1H')
+  $need = @('PT15M', 'conhost.exe', 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy Bypass', '-WindowStyle Hidden', 'sync.ps1', 'acme co', 'InteractiveToken', 'DisallowStartIfOnBatteries>false', 'StopIfGoingOnBatteries>false', 'StartWhenAvailable>true', 'IgnoreNew', 'ExecutionTimeLimit>PT1H')
   $miss = @()
   foreach ($bit in $need) {
     if ($pullText.IndexOf($bit) -lt 0) { $miss += $bit }
@@ -465,30 +465,34 @@ esac
   }
   if ($started) {
     Pass $startName
-    $probeOk = $false
-    $probeReason = 'probe did not write a log line'
-    try {
-      Write-Utf8 (Join-Path $seed 'notes\conhost.md') "conhost`n"
-      Invoke-Git $seed @('add', 'notes/conhost.md')
-      Invoke-Git $seed @('commit', '-q', '-m', 'conhost note')
-      Invoke-Git $seed @('push', '-q', 'origin', 'main')
-      $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull'
-      $inner = $pullNow.Actions[0]
-      $wrap = '--headless ' + $inner.Execute + ' ' + $inner.Arguments
-      $probeAction = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $wrap -WorkingDirectory $inner.WorkingDirectory
-      Register-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Action $probeAction -Trigger $pullNow.Triggers -Settings $pullNow.Settings -Principal $pullNow.Principal -Force | Out-Null
-      $beforeProbe = Snapshot-Logs $logPaths
-      Start-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction Stop
-      if (Wait-PullOk $beforeProbe 60) { $probeOk = $true }
-      else {
-        $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction SilentlyContinue
-        if ($info) { $probeReason = "last result $($info.LastTaskResult)" }
+    $pullNow = Get-ScheduledTask -TaskName 'osfoundation-acme-pull'
+    $inner = $pullNow.Actions[0]
+    if ([string]$inner.Execute -match 'conhost\.exe$') {
+      Pass 'conhost'
+    } else {
+      $probeOk = $false
+      $probeReason = 'probe did not write a log line'
+      try {
+        Write-Utf8 (Join-Path $seed 'notes\conhost.md') "conhost`n"
+        Invoke-Git $seed @('add', 'notes/conhost.md')
+        Invoke-Git $seed @('commit', '-q', '-m', 'conhost note')
+        Invoke-Git $seed @('push', '-q', 'origin', 'main')
+        $wrap = '--headless ' + $inner.Execute + ' ' + $inner.Arguments
+        $probeAction = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument $wrap -WorkingDirectory $inner.WorkingDirectory
+        Register-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Action $probeAction -Trigger $pullNow.Triggers -Settings $pullNow.Settings -Principal $pullNow.Principal -Force | Out-Null
+        $beforeProbe = Snapshot-Logs $logPaths
+        Start-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction Stop
+        if (Wait-PullOk $beforeProbe 60) { $probeOk = $true }
+        else {
+          $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction SilentlyContinue
+          if ($info) { $probeReason = "last result $($info.LastTaskResult)" }
+        }
+      } catch {
+        $probeReason = $_.Exception.Message
       }
-    } catch {
-      $probeReason = $_.Exception.Message
+      Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
+      if ($probeOk) { Pass 'conhost' } else { Say 'conhost' 'BLOCKED' $probeReason }
     }
-    Unregister-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Confirm:$false -ErrorAction SilentlyContinue
-    if ($probeOk) { Pass 'conhost' } else { Say 'conhost' 'BLOCKED' $probeReason }
   } else {
     Say $startName 'BLOCKED' $startReason
     Say 'conhost' 'BLOCKED' 'task-start did not run'

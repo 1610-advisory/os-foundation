@@ -41,8 +41,8 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File @SYNC@ @ARG@</Arguments>
+      <Command>conhost.exe</Command>
+      <Arguments>--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File @SYNC@ @ARG@</Arguments>
       <WorkingDirectory>@ROOT@</WorkingDirectory>
     </Exec>
   </Actions>
