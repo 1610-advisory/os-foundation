@@ -235,35 +235,152 @@ sync_link_sync_file() {
   return 0
 }
 
+sync_hash_rels() {
+  local repo=$1
+  local root=$2
+  local rels=$3
+  local out=$4
+  local abs
+  : > "$out"
+  [ -s "$rels" ] || return 0
+  abs=$(mktemp)
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    printf '%s\n' "$root/$f"
+  done < "$rels" > "$abs"
+  git -C "$repo" hash-object --stdin-paths < "$abs" | paste - "$rels" > "$out"
+  rm -f "$abs"
+}
+
+sync_link_apply() {
+  local repo=$1
+  local rel=$2
+  local target=$3
+  local dest=$4
+  local verb=$5
+  local f=$6
+  case "$verb" in
+    fold)
+      mkdir -p "$target/$(dirname "$f")"
+      cp "$dest/$f" "$target/$f"
+      sync_copy_log "skills copy folded ${rel}/${f}"
+      ;;
+    refresh|restore|add)
+      mkdir -p "$dest/$(dirname "$f")"
+      cp "$target/$f" "$dest/$f"
+      ;;
+    delete)
+      rm -f "$dest/$f"
+      ;;
+    conflict)
+      sync_copy_log "skills copy conflict ${rel}/${f}"
+      ;;
+  esac
+}
+
 sync_link_sync_files() {
   local repo=$1
   local rel=$2
   local target=$3
-  local dest man names f
+  local dest man man_in copy_rels skills_rels copy_hash skills_hash
+  local actions newman oldnorm verb f hash flag
   dest="$repo/$rel"
   man=$(sync_copy_manifest_path "$repo" "$rel")
   mkdir -p "$(dirname "$man")"
-  [ -f "$man" ] || : > "$man"
-  names=$(mktemp)
-  sync_copy_list "$dest" "$names"
-  if [ -d "$target" ]; then
-    find "$target" -type f -print | while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      printf '%s\n' "${f#"$target"/}"
-    done >> "$names"
+  copy_rels=$(mktemp)
+  skills_rels=$(mktemp)
+  copy_hash=$(mktemp)
+  skills_hash=$(mktemp)
+  actions=$(mktemp)
+  newman=$(mktemp)
+  oldnorm=$(mktemp)
+  sync_copy_list "$dest" "$copy_rels"
+  sync_copy_list "$target" "$skills_rels"
+  sync_hash_rels "$repo" "$dest" "$copy_rels" "$copy_hash"
+  sync_hash_rels "$repo" "$target" "$skills_rels" "$skills_hash"
+  if [ -f "$man" ]; then
+    man_in=$man
+  else
+    man_in=$(mktemp)
+  fi
+  awk -F '\t' -v cf="$copy_hash" -v sf="$skills_hash" -v mf="$man_in" -v manout="$newman" '
+    FILENAME == cf { c[$2] = $1; keys[$2] = 1; next }
+    FILENAME == sf { s[$2] = $1; keys[$2] = 1; next }
+    FILENAME == mf { if (NF >= 2) { m[$2] = $1; keys[$2] = 1 } next }
+    END {
+      for (k in keys) {
+        ch = (k in c) ? c[k] : ""
+        sh = (k in s) ? s[k] : ""
+        mh = (k in m) ? m[k] : ""
+        keep = ""
+        if (ch != "" && sh != "" && ch == sh) {
+          keep = ch
+        } else if (ch != "" && mh == "" && sh == "") {
+          print "fold\t" k "\t" ch
+          keep = ch
+        } else if (ch != "" && mh != "" && ch == mh) {
+          if (sh != "" && sh != mh) {
+            print "refresh\t" k "\t" sh
+            keep = sh
+          } else if (sh == "") {
+            print "delete\t" k "\t"
+          } else {
+            keep = mh
+          }
+        } else if (ch != "" && mh != "" && ch != mh) {
+          if (sh != "" && sh == mh) {
+            print "fold\t" k "\t" ch
+            keep = ch
+          } else {
+            print "conflict\t" k "\t"
+            if (mh != "") keep = mh
+          }
+        } else if (ch == "" && sh != "" && mh == "") {
+          print "add\t" k "\t" sh
+          keep = sh
+        } else if (ch == "" && mh != "") {
+          if (sh != "" && sh == mh) {
+            print "restore\t" k "\t" sh
+            keep = mh
+          } else if (sh != "") {
+            print "conflict\t" k "\t"
+            keep = mh
+          }
+        }
+        if (keep != "") print keep "\t" k > manout
+      }
+    }
+  ' "$copy_hash" "$skills_hash" "$man_in" > "$actions"
+  if [ -s "$actions" ]; then
+    while IFS=$(printf '\t') read -r verb f hash; do
+      [ -n "$verb" ] || continue
+      sync_link_apply "$repo" "$rel" "$target" "$dest" "$verb" "$f"
+    done < "$actions"
   fi
   if [ -f "$man" ]; then
-    awk -F '\t' 'NF >= 2 { print $2 }' "$man" >> "$names"
+    sort -t "$(printf '\t')" -k2,2 "$man" > "$oldnorm"
   fi
-  sort -u "$names" -o "$names"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    sync_link_sync_file "$repo" "$rel" "$target" "$dest" "$man" "$f"
-  done < "$names"
-  rm -f "$names"
+  if [ -s "$newman" ]; then
+    sort -t "$(printf '\t')" -k2,2 "$newman" -o "$newman"
+  fi
+  if ! cmp -s "$newman" "$oldnorm"; then
+    if [ -s "$newman" ]; then
+      cp "$newman" "$man"
+    elif [ -f "$man" ]; then
+      : > "$man"
+    fi
+  fi
+  rm -f "$copy_rels" "$skills_rels" "$copy_hash" "$skills_hash" "$actions" "$newman" "$oldnorm"
+  if [ "$man_in" != "$man" ]; then
+    rm -f "$man_in"
+  fi
   if [ -d "$repo/.git" ] || [ -f "$repo/.git" ]; then
     if git -C "$repo" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
-      git -C "$repo" update-index --skip-worktree -- "$rel"
+      flag=$(git -C "$repo" ls-files -v -- "$rel" | head -n 1)
+      case "$flag" in
+        S*) ;;
+        *) git -C "$repo" update-index --skip-worktree -- "$rel" ;;
+      esac
     fi
     sync_link_exclude_add "$repo" "$rel"
   fi

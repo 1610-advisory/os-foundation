@@ -231,11 +231,27 @@ EOF
 
 open_pr() {
   local token_file=$1 branch=$2 title=$3
-  local body
+  local body rc n
   body=$(mktemp)
   printf '%s\n' "$title" > "$body"
   as_user "$token_file"
-  "$work/host/host.sh" open-pr "$repo" --head "$branch" --base main --title "$title" --body-file "$body" >"$work/pr.json"
+  n=0
+  while true; do
+    set +e
+    "$work/host/host.sh" open-pr "$repo" --head "$branch" --base main --title "$title" --body-file "$body" >"$work/pr.json"
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      break
+    fi
+    if [ "$rc" -ne 2 ] || [ "$n" -ge 10 ]; then
+      rm -f "$body"
+      return "$rc"
+    fi
+    n=$((n + 1))
+    printf '%s\n' "NOTE open-pr retry ${n}" >> "$log"
+    sleep 1
+  done
   rm -f "$body"
   jq -r '.number' "$work/pr.json"
 }

@@ -100,4 +100,24 @@ if grep -q 'skills copy conflict .claude/skills/lint/OTHER.md' "$SYNC_LOG"; then
   exit 1
 fi
 
+# A second pull with nothing to fold does not rewrite the manifest.
+sync_materialize_repo "$repo"
+man=$(sync_copy_manifest_path "$repo" ".claude/skills")
+if stat -c %Y "$man" >/dev/null 2>&1; then
+  mtime1=$(stat -c %Y "$man")
+else
+  mtime1=$(stat -f %m "$man")
+fi
+sleep 1
+sync_refresh_after_pull "$repo" "$(git -C "$repo" rev-parse HEAD)"
+if stat -c %Y "$man" >/dev/null 2>&1; then
+  mtime2=$(stat -c %Y "$man")
+else
+  mtime2=$(stat -f %m "$man")
+fi
+if [ "$mtime1" != "$mtime2" ]; then
+  printf '%s\n' "steady pull rewrote the manifest" >&2
+  exit 1
+fi
+
 printf '%s\n' "PASS links-copy"

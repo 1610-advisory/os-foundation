@@ -336,6 +336,13 @@ esac
   $areaStatus = & git -C $areaDest status --porcelain
   if (-not $status -and -not $areaStatus) { Pass 'links-status' } else { Fail 'links-status' 'git status is not empty' }
 
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $steadyCode = Invoke-Sync @('pull')
+  $sw.Stop()
+  $steadySecs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+  Write-Output ("NOTE steady-pull {0}" -f $steadySecs)
+  if ($steadyCode -eq 0 -and $steadySecs -le 60) { Pass 'steady-pull' } else { Fail 'steady-pull' "$steadySecs" }
+
   $newArea = Join-Path $script:work 'new-area'
   Copy-Tree (Join-Path $repo 'template\skills\add-area\templates\_area') $newArea
   $areaScript = Join-Path $script:work 'new-area.sh'
