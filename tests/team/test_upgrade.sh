@@ -147,3 +147,4 @@ git -C "$plan" status --porcelain | grep -q . && team_fail "dry-run changed the 
 git -C "$plan" ls-files | grep -q '^areas/' && team_fail "area files are in the company repo"
 
 printf '%s\n' "PASS upgrade"
+bash "$here/../upgrade/test_rules_merge.sh"
