@@ -456,6 +456,7 @@ status=$(git status --porcelain)
     $fresh = Test-Path -LiteralPath (Join-Path $member 'skills\freshfold\NOTE.md')
     $up = Test-Path -LiteralPath (Join-Path $member '.claude\skills\lint\FROM-UPSTREAM.txt')
     if ($foldCode -eq 0 -and $folded -and $fresh -and $up) { Pass 'links-fold' } else { Fail 'links-fold' "exit $foldCode" }
+    Invoke-Git $member @('checkout', '-q', '--', 'skills/lint/SKILL.md')
     Add-Content -LiteralPath $copySkill -Value 'LOCAL-BOTH' -Encoding Ascii
     Write-Utf8 (Join-Path $seed 'skills\lint\SKILL.md') "UPSTREAM-BOTH`n"
     Invoke-Git $seed @('add', 'skills/lint/SKILL.md')
