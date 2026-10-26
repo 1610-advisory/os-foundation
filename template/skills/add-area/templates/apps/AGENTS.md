@@ -36,7 +36,7 @@ Read `../../skills/app-setup/SKILL.md` when planning an app, automation, hosting
 ### One repo per app
 
 - This folder is a repo for the small things: scripts, automations, and notes about the apps.
-- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/{{APP}}/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
+- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/<app>/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
 - Record each app in `apps.md`: name, what it does, where it runs, who has access. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
 - Code, config, and deploy notes live in the app's repo. Secrets never do.
 
