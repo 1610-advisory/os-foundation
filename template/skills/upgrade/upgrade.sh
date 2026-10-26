@@ -5,6 +5,8 @@ set -euo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/../add-teammate/lib.sh"
+# shellcheck disable=SC1091
+. "$DIR/rules.sh"
 
 usage() {
   cat << 'EOF'
@@ -93,6 +95,39 @@ os_sha() {
   fi
 }
 
+upgrade_uname() {
+  if [ -n "${OS_UPGRADE_UNAME:-}" ]; then
+    printf '%s\n' "$OS_UPGRADE_UNAME"
+    return 0
+  fi
+  uname -s
+}
+
+case "$(upgrade_uname)" in
+  MINGW*|MSYS*|CYGWIN*)
+    os_die 2 "run the upgrade from a Mac or Linux clone of the company repo"
+    ;;
+esac
+
+main_link_mode() {
+  git -C "$ROOT" ls-tree main -- "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# Read main, not the work tree. A leftover logs branch does not matter.
+if git -C "$ROOT" cat-file -e main:company-profile.md 2>/dev/null \
+  && git -C "$ROOT" show main:company-profile.md | grep -q '^level:' \
+  && [ "$(main_link_mode .agents/skills)" = "120000" ] \
+  && [ "$(main_link_mode .claude/skills)" = "120000" ]; then
+  printf '%s\n' "upgrade: already v1"
+  exit 0
+fi
+
+if git -C "$ROOT" show-ref --verify --quiet refs/heads/upgrade/v1; then
+  printf '%s\n' "upgrade: pending upgrade/v1"
+  printf '%s\n' "To start over: git checkout main, then delete the upgrade/v1 branch and any area upgrade/scripts branch."
+  exit 0
+fi
+
 V0_LOGS=0
 V0_LINKS=0
 V0_LEVEL=0
@@ -126,6 +161,114 @@ fi
 HASHES="$DIR/v0-hashes.txt"
 [ -f "$HASHES" ] || os_die 3 "v0-hashes.txt is missing"
 
+# die=1 stops the real run. Dry run only prints.
+preflight_spills() {
+  local die=$1 path rel hit=0 area name
+  if [ -f "$ROOT/company-rules.md" ] \
+    || git -C "$ROOT" cat-file -e main:company-rules.md 2>/dev/null; then
+    printf '%s\n' "conflict: company-rules.md exists"
+    hit=1
+  fi
+  if [ -d "$ROOT/areas" ]; then
+    for path in "$ROOT"/areas/*/area-rules.md; do
+      [ -f "$path" ] || continue
+      rel=${path#"$ROOT"/}
+      printf 'conflict: %s exists\n' "$rel"
+      hit=1
+    done
+    # Hosted areas are checked after fetch, against origin/main.
+    if ! preflight_wants_host; then
+      for area in "$ROOT"/areas/*; do
+        [ -d "$area" ] || continue
+        [ -e "$area/.git" ] || continue
+        name=$(basename "$area")
+        rel="areas/$name/area-rules.md"
+        [ -f "$area/area-rules.md" ] && continue
+        if git -C "$area" cat-file -e "main:area-rules.md" 2>/dev/null; then
+          printf 'conflict: %s exists\n' "$rel"
+          hit=1
+        fi
+      done
+    fi
+  fi
+  if [ "$hit" -eq 1 ] && [ "$die" -eq 1 ]; then
+    exit 2
+  fi
+}
+
+preflight_wants_host() {
+  local kind=""
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    kind=$(os_answer_or host "$ANSWERS" "")
+  fi
+  if [ -z "$kind" ] && [ -f "$ROOT/company-profile.md" ]; then
+    kind=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
+  fi
+  case "$kind" in
+    github|forgejo) ;;
+    *) return 1 ;;
+  esac
+  os_find_host "$ROOT" "$DIR" >/dev/null
+}
+
+preflight_areas() {
+  local die=$1 area name rel repo slug found=0 bin
+  [ -d "$ROOT/areas" ] || return 0
+  slug=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    case "$slug" in
+      ""|*'{{'*) slug=$(os_answer_or slug "$ANSWERS" "$slug") ;;
+    esac
+    case "$slug" in
+      ""|*'{{'*) slug=$(os_answer_or company_slug "$ANSWERS" "$slug") ;;
+    esac
+  fi
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    name=$(basename "$area")
+    rel="areas/$name"
+    if [ -n "$(git -C "$area" status --porcelain)" ]; then
+      printf 'the area %s has uncommitted changes. Commit or stash them, then run upgrade again.\n' "$rel" >&2
+      found=1
+      if [ "$die" -eq 1 ]; then
+        exit 2
+      fi
+    fi
+  done
+  [ "$found" -eq 0 ] || return 0
+  preflight_wants_host || return 0
+  bin=$(os_find_host "$ROOT" "$DIR")
+  export OS_HOST_BIN="$bin"
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    name=$(basename "$area")
+    rel="areas/$name"
+    repo=$rel
+    case "$slug" in
+      ""|*'{{'*) ;;
+      *) repo=$(os_area_repo "$slug" "$name") ;;
+    esac
+    if [ "$die" -eq 0 ]; then
+      if ! (os_with_git_token git -C "$area" fetch origin); then
+        printf 'could not fetch %s\n' "$repo" >&2
+        continue
+      fi
+    elif ! os_with_git_token git -C "$area" fetch origin; then
+      printf 'could not fetch %s\n' "$repo" >&2
+      exit 3
+    fi
+    if git -C "$area" cat-file -e "origin/main:area-rules.md" 2>/dev/null \
+      && [ ! -f "$area/area-rules.md" ]; then
+      printf 'conflict: areas/%s/area-rules.md exists\n' "$name"
+      if [ "$die" -eq 1 ]; then
+        exit 2
+      fi
+    fi
+  done
+}
+
 plan_skills() {
   local hash path got
   while read -r hash path; do
@@ -145,6 +288,8 @@ plan_skills() {
       if [ -f "$TEMPLATE/$path" ]; then
         printf 'change: %s\n' "$path"
       fi
+    elif [ -f "$TEMPLATE/$path" ] && cmp -s "$ROOT/$path" "$TEMPLATE/$path"; then
+      :
     else
       printf 'conflict: %s\n' "$path"
     fi
@@ -167,23 +312,286 @@ apply_skills() {
     fi
     got=$(os_sha "$ROOT/$path")
     if [ "$got" = "$hash" ]; then
-      cp "$TEMPLATE/$path" "$ROOT/$path"
+      cp -p "$TEMPLATE/$path" "$ROOT/$path"
     fi
   done < "$HASHES"
 }
 
-plan_skills
-
-if [ -d "$TEMPLATE/skills" ]; then
+# New files inside a skill the company already has. A company-added file is not here.
+plan_skill_files() {
+  local skill name rel new f
+  [ -d "$TEMPLATE/skills" ] || return 0
   for skill in "$TEMPLATE"/skills/*; do
     [ -d "$skill" ] || continue
     name=$(basename "$skill")
     [ "$name" = "logs-folder" ] && continue
     if [ ! -e "$ROOT/skills/$name" ]; then
       printf 'change: skills/%s\n' "$name"
+      continue
+    fi
+    new=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      rel="skills/${name}/${f#"$skill"/}"
+      if [ ! -e "$ROOT/$rel" ]; then
+        new=$((new + 1))
+      fi
+    done < <(find "$skill" \( -type f -o -type l \) -print)
+    if [ "$new" -gt 0 ]; then
+      printf 'change: skill-files skills/%s new=%s\n' "$name" "$new"
     fi
   done
-fi
+}
+
+copy_skill_files() {
+  local skill name rel f
+  [ -d "$TEMPLATE/skills" ] || return 0
+  for skill in "$TEMPLATE"/skills/*; do
+    [ -d "$skill" ] || continue
+    name=$(basename "$skill")
+    [ "$name" = "logs-folder" ] && continue
+    if [ ! -e "$ROOT/skills/$name" ]; then
+      mkdir -p "$ROOT/skills"
+      cp -Rp "$skill" "$ROOT/skills/$name"
+      continue
+    fi
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      rel="skills/${name}/${f#"$skill"/}"
+      [ -e "$ROOT/$rel" ] && continue
+      mkdir -p "$(dirname "$ROOT/$rel")"
+      cp -Pp "$f" "$ROOT/$rel"
+    done < <(find "$skill" \( -type f -o -type l \) -print)
+  done
+}
+
+# .agents/skills and .claude/skills. A folder of copies is not a link.
+# Never ln -sfn onto that folder: it nests a link inside the copies.
+skill_link_hash() {
+  awk -v p="$1" '$2 == p { print $1; exit }' "$HASHES"
+}
+
+fix_skill_link() {
+  local repo=$1 linkrel=$2 write=$3
+  local dest="$repo/$linkrel" target conflict rel f got want moves tracked unsafe
+  if [ -L "$dest" ]; then
+    target=$(readlink "$dest")
+    if [ "$target" = "../skills" ]; then
+      return 0
+    fi
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      rm -f "$dest"
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    return 0
+  fi
+  if [ ! -e "$dest" ] || [ ! -d "$dest" ]; then
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      if [ -e "$dest" ]; then
+        if git -C "$repo" ls-files --error-unmatch -- "$linkrel" >/dev/null 2>&1; then
+          git -C "$repo" rm -q -- "$linkrel"
+        else
+          rm -f "$dest"
+        fi
+      fi
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    return 0
+  fi
+  conflict=0
+  moves=$(mktemp)
+  : > "$moves"
+  tracked=0
+  if git -C "$repo" ls-files -- "$linkrel" | grep -q .; then
+    tracked=1
+  fi
+  if [ "$tracked" -eq 0 ]; then
+    unsafe=0
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ -L "$f" ]; then
+        unsafe=1
+        break
+      fi
+      rel="${f#"$dest"/}"
+      if [ -f "$repo/skills/$rel" ] && cmp -s "$f" "$repo/skills/$rel"; then
+        continue
+      fi
+      want=$(skill_link_hash "skills/$rel")
+      if [ -n "$want" ] && [ "$(os_sha "$f")" = "$want" ]; then
+        continue
+      fi
+      unsafe=1
+      break
+    done < <(find "$dest" \( -type f -o -type l \) -print)
+    if [ "$unsafe" -eq 1 ]; then
+      printf 'conflict: %s (untracked; commit it first)\n' "$linkrel"
+      rm -f "$moves"
+      return 0
+    fi
+    printf 'change: %s\n' "$linkrel"
+    if [ "$write" = "1" ]; then
+      rm -rf "$dest"
+      mkdir -p "$(dirname "$dest")" "$repo/skills"
+      ln -s ../skills "$dest"
+      git -C "$repo" add -- "$linkrel"
+    fi
+    rm -f "$moves"
+    return 0
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel="${f#"$dest"/}"
+    if [ -L "$f" ]; then
+      if [ -L "$repo/skills/$rel" ] && [ "$(readlink "$f")" = "$(readlink "$repo/skills/$rel")" ]; then
+        continue
+      fi
+      if [ ! -e "$repo/skills/$rel" ] && [ ! -L "$repo/skills/$rel" ]; then
+        printf '%s\n' "$rel" >> "$moves"
+        continue
+      fi
+      printf 'conflict: %s/%s\n' "$linkrel" "$rel"
+      conflict=1
+      continue
+    fi
+    if [ -f "$repo/skills/$rel" ] && cmp -s "$f" "$repo/skills/$rel"; then
+      continue
+    fi
+    want=$(skill_link_hash "skills/$rel")
+    if [ -n "$want" ]; then
+      got=$(os_sha "$f")
+      if [ "$got" = "$want" ]; then
+        continue
+      fi
+    fi
+    if [ ! -e "$repo/skills/$rel" ]; then
+      printf '%s\n' "$rel" >> "$moves"
+      continue
+    fi
+    printf 'conflict: %s/%s\n' "$linkrel" "$rel"
+    conflict=1
+  done < <(find "$dest" \( -type f -o -type l \) -print)
+  if [ "$conflict" -eq 1 ]; then
+    printf 'conflict: %s left: resolve the files above first\n' "$linkrel"
+    rm -f "$moves"
+    return 0
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    printf 'change: skill-moved skills/%s\n' "$rel"
+    if [ "$write" = "1" ]; then
+      mkdir -p "$(dirname "$repo/skills/$rel")"
+      if [ -L "$dest/$rel" ]; then
+        cp -Pp "$dest/$rel" "$repo/skills/$rel"
+      else
+        cp -p "$dest/$rel" "$repo/skills/$rel"
+      fi
+      git -C "$repo" add -- "skills/$rel"
+    fi
+  done < "$moves"
+  rm -f "$moves"
+  printf 'change: %s\n' "$linkrel"
+  if [ "$write" != "1" ]; then
+    return 0
+  fi
+  if git -C "$repo" ls-files -- "$linkrel" | grep -q .; then
+    git -C "$repo" rm -r -q -- "$linkrel"
+  fi
+  if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+    rm -rf "$dest"
+  fi
+  mkdir -p "$(dirname "$dest")" "$repo/skills"
+  ln -s ../skills "$dest"
+  git -C "$repo" add -- "$linkrel"
+}
+
+fix_skill_links() {
+  local repo=$1 write=$2
+  fix_skill_link "$repo" .agents/skills "$write"
+  fix_skill_link "$repo" .claude/skills "$write"
+}
+
+# A folder already at team level keeps its owner files. Add the spill names if missing.
+ensure_spill_owners() {
+  local root=$1 gh gitea owners
+  gh="$root/.github/CODEOWNERS"
+  if [ -f "$gh" ] && ! grep -q '/company-rules.md' "$gh"; then
+    owners=$(awk '$1 == "/AGENTS.md" { $1=""; sub(/^ /, ""); print; exit }' "$gh")
+    if [ -n "$owners" ]; then
+      awk -v o="$owners" '
+        $1 == "/CLAUDE.md" && !done {
+          print
+          print "/company-rules.md " o
+          print "/area-rules.md " o
+          done = 1
+          next
+        }
+        { print }
+        END {
+          if (!done) {
+            print "/company-rules.md " o
+            print "/area-rules.md " o
+          }
+        }
+      ' "$gh" > "$gh.tmp"
+      mv "$gh.tmp" "$gh"
+    fi
+  fi
+  gitea="$root/.gitea/CODEOWNERS"
+  if [ -f "$gitea" ] && ! grep -q 'company-rules' "$gitea"; then
+    owners=$(awk '$1 == "^AGENTS\\.md$" { $1=""; sub(/^ /, ""); print; exit }' "$gitea")
+    if [ -n "$owners" ]; then
+      awk -v o="$owners" '
+        $1 == "^CLAUDE\\.md$" && !done {
+          print
+          print "^company-rules\\.md$ " o
+          print "^area-rules\\.md$ " o
+          done = 1
+          next
+        }
+        { print }
+        END {
+          if (!done) {
+            print "^company-rules\\.md$ " o
+            print "^area-rules\\.md$ " o
+          }
+        }
+      ' "$gitea" > "$gitea.tmp"
+      mv "$gitea.tmp" "$gitea"
+    fi
+  fi
+  if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -f "$gh" ]; then
+      git -C "$root" add -- .github/CODEOWNERS
+    fi
+    if [ -f "$gitea" ]; then
+      git -C "$root" add -- .gitea/CODEOWNERS
+    fi
+  fi
+}
+
+fill_profile_one_liner() {
+  local val cur
+  [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ] || return 0
+  val=$(os_answer_or one_liner "$ANSWERS" "")
+  [ -n "$val" ] || return 0
+  [ -f "$ROOT/company-profile.md" ] || return 0
+  cur=$(os_fm_get "$ROOT/company-profile.md" summary 2>/dev/null || true)
+  case "$cur" in
+    '{{ONE_LINER}}')
+      os_fm_set "$ROOT/company-profile.md" summary "$(os_yaml_quote "$val")"
+      ;;
+  esac
+}
+
+plan_skills
+plan_skill_files
 
 LOGS_FOLDER_SAME=0
 if [ -d "$ROOT/skills/logs-folder" ]; then
@@ -209,14 +617,13 @@ printf '%s\n' "change: level-block"
 if [ "$V0_LOGS" -eq 1 ]; then
   printf '%s\n' "change: logs-history"
 fi
+# Rules merge replaces the old stock-hash copy. A v1 file is left alone.
+rules_plan_company 0
+rules_maybe_attrs "$ROOT" "" 0 ""
+fix_skill_links "$ROOT" 0
 if [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; then
-  agents_hash=$(awk '$2 == "AGENTS.md" { print $1 }' "$HASHES")
-  if [ -n "$agents_hash" ] && [ -f "$ROOT/AGENTS.md" ] && [ "$(os_sha "$ROOT/AGENTS.md")" = "$agents_hash" ]; then
+  if [ -f "$ROOT/AGENTS.md" ]; then
     printf '%s\n' "change: tier-table"
-  elif [ -f "$ROOT/AGENTS.md" ] && grep -q 'Approval tiers' "$ROOT/AGENTS.md"; then
-    printf '%s\n' "change: tier-table"
-  else
-    printf '%s\n' "conflict: AGENTS.md"
   fi
 fi
 
@@ -287,13 +694,21 @@ plan_area_scripts() {
       files=".github/scripts review-rules.md"
     fi
     printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
+    rules_one_area "$area" 0
+    fix_skill_links "$area" 0
   done
 }
 plan_area_scripts
 
+preflight_spills 0
+preflight_areas 0
+
 if [ "$DRY" -eq 1 ]; then
   exit 0
 fi
+
+preflight_spills 1
+preflight_areas 1
 
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
   os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
@@ -322,6 +737,14 @@ fi
 
 git -C "$ROOT" checkout -q -B upgrade/work main
 
+# Rules merge is its own commit, first in the one upgrade pull request.
+rules_plan_company 1
+rules_maybe_attrs "$ROOT" "" 1 ""
+rules_stage_rules "$ROOT"
+if ! git -C "$ROOT" diff --cached --quiet; then
+  rules_commit_msg "$ROOT" "Upgrade: rules merge"
+fi
+
 if [ "$V0_LOGS" -eq 1 ]; then
   tmp=$(mktemp -d)
   git clone --quiet --branch logs --single-branch "$ROOT" "$tmp/logs"
@@ -334,9 +757,7 @@ if [ "$V0_LOGS" -eq 1 ]; then
   rm -rf "$tmp"
 fi
 
-mkdir -p "$ROOT/.agents" "$ROOT/.claude"
-ln -sfn ../skills "$ROOT/.agents/skills"
-ln -sfn ../skills "$ROOT/.claude/skills"
+fix_skill_links "$ROOT" 1
 
 if [ -f "$ROOT/.gitignore" ]; then
   grep -v '^/memory/logs/$' "$ROOT/.gitignore" | grep -v 'skills/logs-folder' > "$ROOT/.gitignore.tmp" || true
@@ -358,6 +779,8 @@ case "$OS_VER" in
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"
+fill_profile_one_liner
+ensure_spill_owners "$ROOT"
 if ! os_fm_get "$ROOT/company-profile.md" switches >/dev/null 2>&1; then
   os_fm_set "$ROOT/company-profile.md" switches "[]"
 fi
@@ -378,33 +801,11 @@ if [ -n "${RUNNER:-}" ]; then
   os_fm_set "$ROOT/company-profile.md" runner "$RUNNER"
 fi
 
-agents_hash=$(awk '$2 == "AGENTS.md" { print $1 }' "$HASHES")
-if [ -n "$agents_hash" ] && [ -f "$ROOT/AGENTS.md" ] && [ "$(os_sha "$ROOT/AGENTS.md")" = "$agents_hash" ]; then
-  if [ -f "$TEMPLATE/AGENTS.md" ]; then
-    cp "$TEMPLATE/AGENTS.md" "$ROOT/AGENTS.md"
-  fi
-fi
-claude_hash=$(awk '$2 == "CLAUDE.md" { print $1 }' "$HASHES")
-if [ -n "$claude_hash" ] && [ -f "$ROOT/CLAUDE.md" ] && [ "$(os_sha "$ROOT/CLAUDE.md")" = "$claude_hash" ]; then
-  if [ -f "$TEMPLATE/CLAUDE.md" ]; then
-    cp "$TEMPLATE/CLAUDE.md" "$ROOT/CLAUDE.md"
-  fi
-fi
-
 apply_skills
 if [ "$LOGS_FOLDER_SAME" -eq 1 ]; then
   rm -rf "$ROOT/skills/logs-folder"
 fi
-if [ -d "$TEMPLATE/skills" ]; then
-  for skill in "$TEMPLATE"/skills/*; do
-    [ -d "$skill" ] || continue
-    name=$(basename "$skill")
-    [ "$name" = "logs-folder" ] && continue
-    if [ ! -e "$ROOT/skills/$name" ]; then
-      cp -R "$skill" "$ROOT/skills/$name"
-    fi
-  done
-fi
+copy_skill_files
 
 if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
@@ -442,7 +843,14 @@ push_area_scripts() {
     if ! os_with_git_token git -C "$area" fetch origin; then
       os_die 3 "could not fetch ${repo}"
     fi
-    git -C "$area" checkout -q -f -B "$branch" origin/main
+    git -C "$area" checkout -q -B "$branch" origin/main
+    rules_one_area "$area" 1
+    rules_stage_rules "$area"
+    if ! git -C "$area" diff --cached --quiet; then
+      rules_commit_msg "$area" "Upgrade: rules merge"
+    fi
+    fix_skill_links "$area" 1
+    ensure_spill_owners "$area"
     mkdir -p "$area/.github"
     rm -rf "$area/.github/scripts"
     cp -R "$src" "$area/.github/scripts"
@@ -459,19 +867,24 @@ push_area_scripts() {
       fi
     fi
     git -C "$area" add -- .github/scripts
-    if git -C "$area" diff --cached --quiet; then
+    if ! git -C "$area" diff --cached --quiet; then
+      GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+        GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+        GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+        GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+        git -C "$area" commit -q -m "Upgrade: check scripts"
+    fi
+    if git -C "$area" diff --quiet origin/main..HEAD; then
       printf 'pr-plan: %s nothing to commit\n' "$repo"
       continue
     fi
-    GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
-      GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-      GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
-      GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-      git -C "$area" commit -q -m "Upgrade: check scripts"
     if ! os_with_git_token git -C "$area" push origin "HEAD:${branch}"; then
       os_die 3 "could not push ${branch} for ${repo}"
     fi
-    pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts")
+    area_body=$(mktemp)
+    rules_pr_body "$area" origin/main "$area_body"
+    pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts" --body-file "$area_body")
+    rm -f "$area_body"
     number=$(printf '%s' "$pr" | jq -r '.number // empty')
     if [ -z "$number" ]; then
       os_die 3 "could not open a pull request for ${repo}"
@@ -483,7 +896,7 @@ push_area_scripts() {
 
 stage_upgrade() {
   local path
-  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md; do
+  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md .gitattributes; do
     if [ -e "$ROOT/$path" ]; then
       git -C "$ROOT" add -- "$path"
     fi
@@ -492,7 +905,7 @@ stage_upgrade() {
     git -C "$ROOT" add -- .agents .claude
   fi
   if [ -d "$ROOT/skills" ]; then
-    git -C "$ROOT" add -- skills
+    git -C "$ROOT" add -A -- skills
   fi
   if [ -d "$ROOT/.github/scripts/tools" ]; then
     git -C "$ROOT" add -- .github/scripts/tools
@@ -503,7 +916,9 @@ stage_upgrade() {
 }
 stage_upgrade
 if git -C "$ROOT" diff --cached --quiet && [ "$V0_LOGS" -eq 0 ]; then
-  os_die 3 "upgrade had nothing to commit"
+  if ! git -C "$ROOT" log --format='%s' main..HEAD | grep -qx 'Upgrade: rules merge'; then
+    os_die 3 "upgrade had nothing to commit"
+  fi
 fi
 if ! git -C "$ROOT" diff --cached --quiet; then
   GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
@@ -512,6 +927,8 @@ if ! git -C "$ROOT" diff --cached --quiet; then
     GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
     git -C "$ROOT" commit -q -m "Upgrade to v1"
 fi
+pr_body=$(mktemp)
+rules_pr_body "$ROOT" main "$pr_body"
 git -C "$ROOT" checkout -q main
 git -C "$ROOT" checkout -q -B upgrade/v1 main
 GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
@@ -519,6 +936,7 @@ GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
   GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
   git -C "$ROOT" merge --no-ff --no-edit upgrade/work -m "Upgrade to v1"
+git -C "$ROOT" branch -D upgrade/work >/dev/null
 
 if [ -f "$ROOT/company-profile.md" ]; then
   HOST_KIND=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
@@ -532,12 +950,27 @@ if [ "$HOST_KIND" = "github" ] || [ "$HOST_KIND" = "forgejo" ]; then
     export OS_PROFILE="$ROOT/company-profile.md"
     push_area_scripts
     os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
-    pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1")
+    pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
     number=$(printf '%s' "$pr" | jq -r '.number // empty')
     if [ -n "$number" ]; then
       printf 'pr: %s\n' "$number"
     fi
   fi
+elif [ -d "$ROOT/areas" ]; then
+  # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    git -C "$area" checkout -q -B upgrade/scripts
+    rules_one_area "$area" 1
+    rules_stage_rules "$area"
+    fix_skill_links "$area" 1
+    ensure_spill_owners "$area"
+    if ! git -C "$area" diff --cached --quiet; then
+      rules_commit_msg "$area" "Upgrade: rules merge"
+    fi
+  done
 fi
+rm -f "$pr_body"
 
 printf '%s\n' "upgrade: ok"

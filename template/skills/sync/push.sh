@@ -11,6 +11,14 @@ fi
 
 RULES_REASON="rules file: propose it with sync.sh propose"
 
+# Upgrade spill files are rules files. Held like AGENTS.md.
+sync_hold_rules() {
+  case "$(basename "$1")" in
+    company-rules.md|area-rules.md) return 0 ;;
+  esac
+  sync_is_rules "$1"
+}
+
 sync_engine_cmd() {
   local cmd
   if [ -n "${OS_SYNC_ENGINE:-}" ]; then
@@ -452,7 +460,7 @@ sync_push_one() {
     if awk -F: -v p="$path" 'index($0, p ":") == 1 { found=1 } END { exit !found }' "$hits"; then
       continue
     fi
-    if [ "$kind" != "workspace" ] && sync_is_rules "$path"; then
+    if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then
       sync_hold_line "$id" "$path" "$RULES_REASON" >> "$added"
       sync_log "push hold ${id} ${path} rules"
       continue
@@ -656,7 +664,7 @@ sync_bot_check_range() {
   # -z keeps both sides of a rename and does not quote a path.
   while IFS= read -r -d '' path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
-    if sync_is_rules "$path"; then
+    if sync_hold_rules "$path"; then
       sync_bot_fail "$id" "rules file: propose it with sync.sh propose"
       return 1
     fi

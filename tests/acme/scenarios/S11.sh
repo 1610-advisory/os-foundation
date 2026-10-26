@@ -7,7 +7,12 @@ here=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$here/../lib/scenario.sh"
 
 OSF_ID=S11
+org="acme2-s11"
+cleanup() {
+  osf_keep_on_fail "$org"
+}
 trap 'echo "$OSF_ID FAIL unexpected error"' ERR
+trap cleanup EXIT
 
 osf_need_product S11 team template/skills/upgrade/upgrade.sh
 
@@ -48,8 +53,38 @@ for path in dest.rglob("*"):
     if new != text:
         path.write_text(new, encoding="utf-8")
 PY
+python3 - << PY
+from pathlib import Path
+p = Path("$dest/AGENTS.md")
+text = p.read_text(encoding="utf-8")
+text = text.replace(
+    "- (setup fills this in)\n",
+    "- (setup fills this in)\n- Acme ships sample goods on Tuesdays.\n",
+    1,
+)
+old = "- Before you send, post, publish, pay, or delete anything outside this folder, show it and ask.\n"
+text = text.replace(old, old + "- Acme locks the shop at six.\n", 1)
+text = text.replace("## Memory\n\n", "## Memory\n\n- Acme keeps a paper ledger.\n", 1)
+text += "\n## Acme notes\n\n- Acme writes its own rules here.\n"
+p.write_text(text, encoding="utf-8")
+PY
 mkdir -p "$dest/notes"
 printf '%s\n' "Keep this company sentence." > "$dest/notes/keep.md"
+# A committed copy folder, the way an old setup did it when the link failed.
+rm -rf "$dest/.claude/skills"
+mkdir -p "$dest/.claude"
+cp -R "$dest/skills" "$dest/.claude/skills"
+mkdir -p "$dest/.claude/skills/acme-only"
+printf '%s\n' 'Acme keeps this skill in the copy only.' > "$dest/.claude/skills/acme-only/SKILL.md"
+cp "$dest/.claude/skills/acme-only/SKILL.md" "$work/only-skill.md"
+# Leave the summary placeholder so answers one_liner fills it.
+python3 - << PY
+from pathlib import Path
+p = Path("$dest/company-profile.md")
+text = p.read_text(encoding="utf-8")
+text = text.replace('summary: "Acme Co makes sample goods."', 'summary: "{{ONE_LINER}}"')
+p.write_text(text, encoding="utf-8")
+PY
 before=$(cksum "$dest/notes/keep.md" | awk '{print $1}')
 git -C "$dest" init -b main
 git -C "$dest" add -A
@@ -63,13 +98,44 @@ git -C "$dest" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
   commit -m "Log the day"
 git -C "$dest" checkout main
 
+area="$dest/areas/marketing"
+mkdir -p "$area"
+cp "$root/template/skills/upgrade/v0/areas/marketing/AGENTS.md" "$area/AGENTS.md"
+python3 - << PY
+from pathlib import Path
+p = Path("$area/AGENTS.md")
+text = p.read_text(encoding="utf-8")
+repl = {
+    "{{AREA_NAME}}": "Marketing",
+    "{{COMPANY_NAME}}": "Acme Co",
+    "{{COMPANY_SLUG}}": "acme",
+    "{{PERSON_SLUG}}": "ada",
+    "{{APP}}": "portal",
+}
+for key, value in repl.items():
+    text = text.replace(key, value)
+text = text.replace("## Skills\n", "## Skills\n- Acme posts one sample photo each week.\n", 1)
+p.write_text(text, encoding="utf-8")
+PY
+git -C "$area" init -b main
+git -C "$area" add -A
+git -C "$area" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
+  commit -m "Marketing area: start"
+printf '%s\n' 'slug=acme' 'one_liner=Acme Co makes sample goods.' > "$work/answers"
+
 bash "$root/template/skills/upgrade/upgrade.sh" --dry-run --root "$dest" --template "$root/template" \
-  >"$work/dry.log" 2>&1 || osf_result "S11 FAIL dry-run"
+  --answers "$work/answers" >"$work/dry.log" 2>&1 || osf_result "S11 FAIL dry-run"
 if ! grep -q 'upgrade: dry-run' "$work/dry.log"; then
   osf_result "S11 FAIL dry-run report missing"
 fi
+if ! grep -q 'change: rules-merge AGENTS.md' "$work/dry.log"; then
+  osf_result "S11 FAIL dry-run did not plan a rules merge"
+fi
+if grep -q 'conflict: AGENTS.md' "$work/dry.log"; then
+  osf_result "S11 FAIL dry-run still reports a rules conflict"
+fi
 bash "$root/template/skills/upgrade/upgrade.sh" --root "$dest" --template "$root/template" --level solo \
-  >"$work/upgrade.log" 2>&1 || osf_result "S11 FAIL upgrade"
+  --answers "$work/answers" >"$work/upgrade.log" 2>&1 || osf_result "S11 FAIL upgrade"
 after=$(cksum "$dest/notes/keep.md" | awk '{print $1}')
 if [ "$before" != "$after" ]; then
   osf_result "S11 FAIL company content changed"
@@ -80,10 +146,100 @@ fi
 if ! git -C "$dest" tag --list 'logs-archive-*' | grep -q 'logs-archive-'; then
   osf_result "S11 FAIL old logs branch was not tagged"
 fi
+for heading in "## 1. Level first" "## 2. Pull before work" "## 4. Private sources" "## 5. Learning step" "## 6. Approval tiers" "## 11. Identity"; do
+  if ! grep -q "$heading" "$dest/AGENTS.md"; then
+    osf_result "S11 FAIL missing v1 section $heading"
+  fi
+done
+for line in "Acme ships sample goods on Tuesdays." "Acme locks the shop at six." "Acme keeps a paper ledger." "Acme writes its own rules here."; do
+  if ! grep -q "$line" "$dest/AGENTS.md"; then
+    osf_result "S11 FAIL missing company line"
+  fi
+done
+if ! grep -q '## Acme notes' "$dest/AGENTS.md"; then
+  osf_result "S11 FAIL company section was dropped"
+fi
+claude_mode=$(git -C "$dest" ls-files -s .claude/skills | awk '{print $1}')
+agents_mode=$(git -C "$dest" ls-files -s .agents/skills | awk '{print $1}')
+if [ "$claude_mode" != "120000" ] || [ "$agents_mode" != "120000" ]; then
+  osf_result "S11 FAIL skill links are not committed links"
+fi
+if ! cmp -s "$dest/skills/acme-only/SKILL.md" "$work/only-skill.md"; then
+  osf_result "S11 FAIL company skill was rewritten"
+fi
+if find "$dest" -name logs-folder -print | grep -q .; then
+  osf_result "S11 FAIL logs-folder remains"
+fi
+if git -C "$dest" ls-files | grep -q 'logs-folder'; then
+  osf_result "S11 FAIL logs-folder is still in the commit"
+fi
+if ! grep -q 'Acme Co makes sample goods.' "$dest/company-profile.md"; then
+  osf_result "S11 FAIL one_liner did not fill the profile"
+fi
+set +e
+bash "$dest/skills/lint/lint.sh" --root "$dest" >"$work/lint.log" 2>&1
+lint_rc=$?
+set -e
+if [ "$lint_rc" -ne 0 ]; then
+  osf_result "S11 FAIL lint exit $lint_rc"
+fi
+if ! grep -q '## Must-have rules' "$dest/CLAUDE.md" || ! grep -q 'Level first' "$dest/CLAUDE.md"; then
+  osf_result "S11 FAIL CLAUDE.md missed v1 rules"
+fi
+if ! grep -q '## Approval tiers' "$area/AGENTS.md" || ! grep -q 'Acme posts one sample photo each week.' "$area/AGENTS.md"; then
+  osf_result "S11 FAIL area rules were not merged"
+fi
+for rules in "$dest/AGENTS.md" "$dest/CLAUDE.md" "$area/AGENTS.md"; do
+  chars=$(wc -c < "$rules" | tr -d '[:space:]')
+  if [ "$chars" -ge 10000 ]; then
+    osf_result "S11 FAIL rules file is too long"
+  fi
+done
 merge=$(git -C "$dest" rev-parse HEAD)
 git -C "$dest" revert -m 1 "$merge" --no-edit || osf_result "S11 FAIL revert"
 if git -C "$dest" cat-file -e "HEAD:memory/logs/${day}-ada.md" 2>/dev/null; then
   osf_result "S11 FAIL revert did not restore the old state"
+fi
+if ! git -C "$dest" show HEAD:AGENTS.md | grep -q 'Acme ships sample goods on Tuesdays.'; then
+  osf_result "S11 FAIL revert lost a company line"
+fi
+git -C "$dest" reset --hard "$merge" >/dev/null
+
+if ! curl -sf -o /dev/null -m 3 http://localhost:3300/api/v1/version; then
+  osf_result "S11 BLOCKED Forgejo is not running"
+fi
+osf_need_org S11 "$org"
+osf_write_team_answers "$work/team-answers" "$dest" "$org" "$org" "$root/tests/acme/fixtures/engine.sh"
+if ! osf_export_token acme-admin; then
+  osf_result "S11 FAIL admin token missing"
+fi
+export OS_ORG="$org"
+osf_me "$org" ada
+osf_write_token_file "$org" acme-admin
+if [ ! -x "$dest/skills/add-teammate/team-on.sh" ]; then
+  osf_result "S11 FAIL upgraded folder has no team-on.sh"
+fi
+if [ ! -x "$dest/skills/sync/sync.sh" ]; then
+  osf_result "S11 FAIL upgraded folder has no sync"
+fi
+bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on.log" 2>&1 \
+  || osf_result "S11 FAIL team-on"
+if ! grep -q '/company-rules.md' "$dest/.github/CODEOWNERS"; then
+  osf_result "S11 FAIL code owners do not cover company-rules.md"
+fi
+if ! grep -q 'company-rules' "$dest/.gitea/CODEOWNERS"; then
+  osf_result "S11 FAIL Forgejo code owners do not cover company-rules.md"
+fi
+# team-on commits area owners, then may switch branch. Accept the file on disk or in that commit.
+if [ -f "$dest/areas/marketing/.github/CODEOWNERS" ]; then
+  if ! grep -q '/area-rules.md' "$dest/areas/marketing/.github/CODEOWNERS"; then
+    osf_result "S11 FAIL area code owners do not cover area-rules.md"
+  fi
+elif ! git -C "$dest/areas/marketing" log --all -S '/area-rules.md' --format='%h' -- .github/CODEOWNERS | grep -q .; then
+  osf_result "S11 FAIL area code owners do not cover area-rules.md"
+fi
+if [ -f "$dest/company-rules.md" ] && ! grep -q 'company-rules.md' "$dest/.github/CODEOWNERS"; then
+  osf_result "S11 FAIL spill file is not a code-owner path"
 fi
 
 osf_result "S11 PASS"

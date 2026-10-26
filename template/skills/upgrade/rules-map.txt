@@ -1,0 +1,20 @@
+# scope, v0 heading prefix, v1 heading to receive company lines.
+# A longer prefix wins. Same-name v1 headings are used when no row matches.
+company	Right now	### Right now
+company	The layout	## Layout and skills
+company	Skills	## Layout and skills
+company	Memory	## Memory and logs
+company	Changes and review	## 7. Changes and review
+company	Safety	## 10. Safety
+company	Areas	## This company
+company	The company in one line	## This company
+company	Admin	## This company
+company	Existing knowledge	## Existing knowledge
+company	Conventions	## Conventions
+claude	Rules that hold	## Must-have rules (inline on purpose)
+area	Must-have rules	## Must-have rules (every agent, every session)
+area	Start of a session	## Start of a session
+area	What this area does	## What this area does
+area	Skills	## Skills
+area	Folders	## Folders
+area	Changes and review	## Changes and review
