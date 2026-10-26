@@ -424,7 +424,10 @@ esac
       $saw = $false
       if (Test-Path -LiteralPath $log) {
         $after = [System.IO.File]::ReadAllText($log)
-        if ($after -match 'pull ok' -or $after.Length -gt $logBefore.Length) { $saw = $true }
+        if ($after.Length -gt $logBefore.Length) {
+          $fresh = $after.Substring($logBefore.Length)
+          if ($fresh -match 'pull ') { $saw = $true }
+        }
       }
       $actionName = 'ta' + 'sk' + '-action'
       if ($actionCode -eq 0 -and $saw) { Pass $actionName } else { Fail $actionName "exit $actionCode" }

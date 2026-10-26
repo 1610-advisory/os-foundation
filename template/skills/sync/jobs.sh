@@ -36,23 +36,23 @@ sync_job_dir() {
 sync_render() {
   local src=$1
   local dest=$2
-  awk -v label="$LABEL" -v root="$ROOT" -v sync="$SYNC" -v log="$LOG" \
-    -v hour="$HOUR" -v minute="$MINUTE" -v arg="$ARG" -v desc="$DESC" \
-    -v delay="${DELAY:-0}" -v user="${USERID:-S-1-5-21-1}" '
-    {
-      gsub(/@LABEL@/, label)
-      gsub(/@ROOT@/, root)
-      gsub(/@SYNC@/, sync)
-      gsub(/@LOG@/, log)
-      gsub(/@HOUR@/, hour)
-      gsub(/@MINUTE@/, minute)
-      gsub(/@ARG@/, arg)
-      gsub(/@DESC@/, desc)
-      gsub(/@DELAY@/, delay)
-      gsub(/@USER@/, user)
-      print
-    }
-  ' "$src" > "$dest"
+  local line user delay
+  user=${USERID:-S-1-5-21-1}
+  delay=${DELAY:-0}
+  : > "$dest"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line//@LABEL@/$LABEL}
+    line=${line//@ROOT@/$ROOT}
+    line=${line//@SYNC@/$SYNC}
+    line=${line//@LOG@/$LOG}
+    line=${line//@HOUR@/$HOUR}
+    line=${line//@MINUTE@/$MINUTE}
+    line=${line//@ARG@/$ARG}
+    line=${line//@DESC@/$DESC}
+    line=${line//@DELAY@/$delay}
+    line=${line//@USER@/$user}
+    printf '%s\n' "$line"
+  done < "$src" > "$dest"
 }
 
 sync_win_path() {
