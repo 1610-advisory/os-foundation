@@ -710,6 +710,35 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual((self.company / "draft.md").read_text(), "only here\n")
         self.assertIn("on sync/mia: draft.md is not pushed yet", self.sync_log())
 
+    def test_failed_pull_says_why_and_status_shows_it(self):
+        # B19: a pull that cannot fetch was silent. Now it is one plain line and last_error.
+        bare = self.seed_origin()
+        moved = self.tmp / "away.git"
+        bare.rename(moved)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        lines = [l for l in result.stderr.splitlines() if l.startswith("pull failed for ")]
+        self.assertEqual(
+            lines,
+            ["pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."],
+            result.stderr,
+        )
+        status = self.sync("status").stdout
+        self.assertIn("last error: pull failed for root: could not reach the host", status)
+        self.assertIn("pull fail root could not reach origin", self.sync_log())
+        # The next clean pull clears it.
+        moved.rename(bare)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("last error: none", self.sync("status").stdout)
+
+    def test_clean_pull_keeps_a_push_error(self):
+        self.seed_origin()
+        script = 'source "$1/lib.sh"; sync_bind; sync_held_error "auto-merge is off on acme-os"'
+        run(["bash", "-c", script, "x", str(SYNC)], env=self.env, cwd=self.company, check=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.assertIn("last error: auto-merge is off on acme-os", self.sync("status").stdout)
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"

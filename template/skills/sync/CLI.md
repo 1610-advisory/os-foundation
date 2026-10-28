@@ -101,6 +101,8 @@ A working copy left on the person's own branch `sync/<me>` never fast-forwards, 
 
 The log lines (`pull ok <repo>`, `pull fail <repo> <reason>`) and exit codes are the same for both forms.
 
+A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error.
+
 ### State file
 
 `<company root>/.git/os-foundation/pull-state`. It is inside the company repo's git folder, next to `skills-copy/`. One per clone. Git never commits it. It is plain ASCII:
