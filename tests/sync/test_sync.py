@@ -739,6 +739,69 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(self.sync("pull", "--full").returncode, 0)
         self.assertIn("last error: auto-merge is off on acme-os", self.sync("status").stdout)
 
+    def v0_clone_after_upgrade(self):
+        # v0: logs on branch logs, checked out at memory/logs/, ignored by main.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/memory/logs/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "v0 ignore")
+        self.git("push", "-q", "origin", "main")
+        self.git("worktree", "add", "-q", "--detach", "memory/logs")
+        logs = self.company / "memory" / "logs"
+        run(["git", "-C", str(logs), "checkout", "-q", "--orphan", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "rm", "-rfq", "."], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day one"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # The upgrade ran elsewhere: main now tracks memory/logs/ and no longer ignores it.
+        other = self.tmp / "upgrader"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / ".gitignore").write_text("")
+        (other / "memory" / "logs").mkdir(parents=True)
+        (other / "memory" / "logs" / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "Upgrade to v1"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        # On this clone, after the upgrade: a log commit not pushed yet, an edit, a new file.
+        (logs / "2026-10-02-mia.md").write_text("day two, committed only here\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day two"], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\nand a later line\n")
+        (logs / "2026-10-03-mia.md").write_text("day three, untracked\n")
+        return bare, logs
+
+    def test_pull_moves_a_v0_logs_worktree_without_losing_a_log(self):
+        # Round 3 (30): the upgrade removed the worktree only where it ran.
+        bare, logs = self.v0_clone_after_upgrade()
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        self.assertNotIn(str(logs), self.git("worktree", "list").stdout)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual((logs / "2026-10-01-mia.md").read_text(), "day one\nand a later line\n")
+        self.assertEqual((logs / "2026-10-02-mia.md").read_text(), "day two, committed only here\n")
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        # The unpushed log commit went to the host first.
+        log = run(["git", "--git-dir", str(bare), "log", "--format=%s", "logs"], env=self.env).stdout
+        self.assertIn("Logs: day two", log)
+        self.assertIn("pull v0-logs root worktree removed, 3 files kept as local changes", self.sync_log())
+        # The files are local changes now, so the next push sends them.
+        status = self.git("status", "--porcelain").stdout
+        self.assertIn("memory/logs/2026-10-01-mia.md", status)
+        self.assertIn("memory/logs/2026-10-03-mia.md", status)
+
+    def test_v0_logs_worktree_stays_when_the_push_fails(self):
+        bare, logs = self.v0_clone_after_upgrade()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pull failed for root: the old logs folder memory/logs could not be moved", result.stderr)
+        self.assertTrue((logs / ".git").exists())
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"

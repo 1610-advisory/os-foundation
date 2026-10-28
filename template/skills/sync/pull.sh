@@ -328,6 +328,7 @@ sync_pull_fail() {
     "no origin/main") plain="the host has no main branch. Ask the admin." ;;
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
+    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved (${reason#v0 logs: }). Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
       detail=${reason#reclone}
@@ -454,10 +455,26 @@ sync_pull_leave_own_branch() {
   sync_log "pull ok ${id} back on main from sync/${me}"
 }
 
+# A v0 clone keeps memory/logs as a worktree of branch logs after the upgrade lands
+# (v0logs.sh). It goes before the fast-forward; its files come back after it.
 sync_pull_fetched() {
   local repo=$1
   local id=$2
-  local save tag old link_save
+  local rc=0 n
+  SYNC_V0_SAVE=""
+  sync_pull_ff "$repo" "$id" || rc=$?
+  if [ -n "$SYNC_V0_SAVE" ]; then
+    n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE")
+    SYNC_V0_SAVE=""
+    sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
+  fi
+  return "$rc"
+}
+
+sync_pull_ff() {
+  local repo=$1
+  local id=$2
+  local save tag old link_save err
   if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
     sync_pull_fail "$id" "could not reach origin"
     return 1
@@ -465,6 +482,14 @@ sync_pull_fetched() {
   if ! git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null; then
     sync_pull_fail "$id" "no origin/main"
     return 1
+  fi
+  if v0logs_stuck "$repo" origin/main; then
+    err=$(sync_mktemp)
+    if ! SYNC_V0_SAVE=$(v0logs_park "$repo" sync_git 2>"$err"); then
+      SYNC_V0_SAVE=""
+      sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
+      return 1
+    fi
   fi
   sync_pull_leave_own_branch "$repo" "$id"
   if git -C "$repo" merge-base --is-ancestor HEAD origin/main; then

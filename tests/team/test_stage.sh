@@ -134,4 +134,28 @@ FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
 grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
   || team_fail "join did not say auto-merge is off"
 
+# Round 3 (30): a v0 clone that pulled the upgrade. main tracks memory/logs/ while
+# memory/logs is still a worktree of branch logs. join moves it out and keeps every log.
+mkdir -p "$co/memory/logs"
+printf '%s\n' "day one" > "$co/memory/logs/2026-10-01-sam.md"
+git -C "$co" add memory/logs
+git -C "$co" commit -q -m "Upgrade to v1"
+git -C "$co" push -q origin main
+git -C "$co" worktree add -q --detach "$work/lw"
+git -C "$work/lw" checkout -q --orphan logs
+git -C "$work/lw" rm -rfq .
+printf '%s\n' "day one" > "$work/lw/2026-10-01-sam.md"
+git -C "$work/lw" add 2026-10-01-sam.md
+git -C "$work/lw" commit -q -m "Logs: day one"
+git -C "$co" worktree remove "$work/lw"
+git -C "$co" push -q origin logs
+rm -rf "$co/memory/logs"
+git -C "$co" worktree add -q "$co/memory/logs" logs
+printf '%s\n' "day four, not committed" > "$co/memory/logs/2026-10-04-sam.md"
+join_run > "$work/join3.out"
+grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join3.out" || team_fail "join did not move the v0 logs worktree"
+[ ! -e "$co/memory/logs/.git" ] || team_fail "the logs worktree is still there"
+[ "$(cat "$co/memory/logs/2026-10-04-sam.md")" = "day four, not committed" ] || team_fail "join lost an untracked log"
+git -C "$co" diff --quiet -- memory/logs/2026-10-01-sam.md || team_fail "the tracked log changed"
+
 printf '%s\n' "PASS stage"

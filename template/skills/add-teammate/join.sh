@@ -77,6 +77,23 @@ export OS_PROFILE="$ROOT/company-profile.md"
 printf '%s\n' "company-clone: done"
 printf '%s\n' "me: $ME"
 
+# A v0 clone that pulled the upgrade: memory/logs is still a worktree of branch logs
+# while main tracks memory/logs/. Move it out without losing a log (v0logs.sh).
+# shellcheck disable=SC1091
+. "$DIR/../sync/v0logs.sh"
+join_git() {
+  local dir=$1
+  shift
+  os_with_git_token git -C "$dir" "$@"
+}
+if v0logs_stuck "$ROOT" HEAD; then
+  os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
+  if ! v0_save=$(v0logs_park "$ROOT" join_git); then
+    os_die 3 "the old logs folder memory/logs could not be moved. Nothing was removed. Ask the admin."
+  fi
+  printf 'v0-logs: moved, %s files kept as local changes\n' "$(v0logs_put_back "$ROOT" "$v0_save")"
+fi
+
 PAGE=$(os_person_file "$ROOT" "$ME" || true)
 [ -n "$PAGE" ] || os_die 2 "no people page for $ME"
 
