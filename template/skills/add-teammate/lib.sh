@@ -396,11 +396,20 @@ EOF
   return "$rc"
 }
 
+# Commit only the paths the caller changed. Never "git add -A" in a shared root:
+# untracked or held files (a held secret, a private note) would go up past the scan.
 os_git_commit() {
-  local dir=$1 msg=$2
+  local dir=$1 msg=$2 p
+  shift 2
+  [ $# -gt 0 ] || os_die 1 "os_git_commit: name the paths to commit"
   (
     cd "$dir" || exit 1
-    git add -A
+    for p in "$@"; do
+      # A path that is gone and was never tracked has nothing to stage.
+      if [ -e "$p" ] || [ -L "$p" ] || git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
+        git add -A -- "$p"
+      fi
+    done
     if git diff --cached --quiet; then
       exit 0
     fi
@@ -585,7 +594,8 @@ os_write_workspace() {
   if [ ! -d "$dest/.git" ]; then
     git -C "$dest" init -q
     git -C "$dest" checkout -q -b main 2>/dev/null || git -C "$dest" symbolic-ref HEAD refs/heads/main
-    os_git_commit "$dest" "Workspace: start"
+    # A new folder this script just filled: everything in it is the start.
+    os_git_commit "$dest" "Workspace: start" .
   fi
 }
 

@@ -161,6 +161,8 @@ case "$REVIEW" in
     printf '%s\n' "no review key: every pull request fails the model review until you add one"
     ;;
 esac
+# The company-root files team-on writes. Only these go in the "Team: turn on" commit.
+ROOT_PATHS=(company-profile.md .github .gitea privacy.md)
 mkdir -p "$ROOT/.github"
 cat > "$ROOT/.github/review.conf" << EOF
 vendor=${REVIEW_VENDOR}
@@ -189,7 +191,7 @@ while IFS= read -r slug; do
   [ -n "$name" ] || os_die 2 "person ${slug} needs a name"
   [ -n "$gh" ] || os_die 2 "person ${slug} needs a github username"
   [ -n "$role" ] || os_die 2 "person ${slug} needs a role"
-  os_write_person_page "$ROOT" "$slug" "$name" "$gh" "$email" "$role" "$areas" "$manager" >/dev/null
+  ROOT_PATHS+=("$(os_write_person_page "$ROOT" "$slug" "$name" "$gh" "$email" "$role" "$areas" "$manager")")
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF
@@ -259,17 +261,19 @@ repo_exists() {
 }
 
 # Rules files must be on main before protect. Never push to a protected main.
+# The paths after msg are the files team-on wrote in that repo. Nothing else is staged.
 commit_rules_before_protect() {
   local dir=$1 msg=$2
+  shift 2
   if ! os_origin_exists "$dir"; then
-    os_git_commit "$dir" "$msg"
+    os_git_commit "$dir" "$msg" "$@"
     return 0
   fi
   os_with_git_token git -C "$dir" fetch origin
   if rules_on_main "$dir"; then
     return 0
   fi
-  os_git_commit "$dir" "$msg"
+  os_git_commit "$dir" "$msg" "$@"
   local err
   err=$(mktemp)
   if os_with_git_token git -C "$dir" push origin HEAD:main 2>"$err"; then
@@ -464,13 +468,13 @@ propose_missing_tools() {
   open_tools_pr "$name" "$branch"
 }
 
-commit_rules_before_protect "$ROOT" "Team: turn on"
+commit_rules_before_protect "$ROOT" "Team: turn on" "${ROOT_PATHS[@]}"
 push_new_repo "$COMPANY_REPO" "$ROOT"
 
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
-  commit_rules_before_protect "$ROOT/areas/$area" "Team: area rules"
+  commit_rules_before_protect "$ROOT/areas/$area" "Team: area rules" .github .gitea review-rules.md
   push_new_repo "$(os_area_repo "$SLUG" "$area")" "$ROOT/areas/$area"
   propose_missing_tools "$ROOT/areas/$area" "$(os_area_repo "$SLUG" "$area")"
 done << EOF

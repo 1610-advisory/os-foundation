@@ -26,7 +26,7 @@ The script calls the host only through `skills/_host/host.sh`. A token never app
 3. Archives the workspace repo `<slug>-user-<person>`. Admin read stays through org ownership. Non-PHI workspaces are kept. PHI deletion is app level and is not in v1. The script says so.
 4. Sets `left: <date>` on `people/<Name>.md`.
 5. Sets `owner:` on each `bots/*/BOT.md` this person owns.
-6. Puts those file changes on branch `rules/<admin>/offboard-<person>` and opens a pull request.
+6. Puts those file changes on branch `rules/<admin>/offboard-<person>` and opens a pull request. It commits only those files. Untracked or held files in the company folder stay out. After the push it switches the company folder back to `main`.
 7. Prints a checklist of vendor seats from `architecture.md`, under the heading `Connections`. Bullets and table rows both count. That list is for the admin. It is not a daily-path step. A missing file prints that no seats are listed.
 
 ## Exit codes
