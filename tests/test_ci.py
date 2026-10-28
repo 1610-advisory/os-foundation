@@ -468,7 +468,8 @@ class BaseRulesTests(unittest.TestCase):
 class GitAuthHeaderTests(unittest.TestCase):
     """B12: git over HTTP on GitHub refuses "Authorization: token". Both hosts take basic auth."""
 
-    TOKEN = "ghs_notarealtoken0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+    # Long enough that base64 wraps at 76 characters without the tr step. Not a real token shape.
+    TOKEN = "job-token-test-value-" + "x" * 60
 
     def want(self):
         import base64
