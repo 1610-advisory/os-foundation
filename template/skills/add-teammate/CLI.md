@@ -185,7 +185,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
    - Codex: `~/.codex/AGENTS.md` gets one plain `Read <path>` line when `~/.codex` exists.
    - Pi: `~/.pi/agent/AGENTS.md` gets the same plain line when `~/.pi/agent` exists.
    - Cursor: one plain line only if a rules file already exists (`~/.cursor/rules.md` or `~/.cursor/User/rules.md`).
-8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr`. A people page is not a rules file, so this does not call `sync.sh propose`. It commits only that page. After the push it switches the company folder back to `main`, so `pull` fast-forwards. A second run before that pull request merges finds the change on `origin/sync/<me>` and prints `terms: already`.
+8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr` and `host.sh auto-merge`, like push and propose. The pull request merges by itself when the checks pass. If auto-merge is refused, it prints one plain line and the pull request stays open. A people page is not a rules file, so this does not call `sync.sh propose`. It commits only that page. After the push it switches the company folder back to `main`, so `pull` fast-forwards. A second run before that pull request merges finds the change on `origin/sync/<me>` and prints `terms: already`.
 
 Tests must point `HOME`, `XDG_CONFIG_HOME`, and `OS_JOBS_DIR` at a sandbox.
 

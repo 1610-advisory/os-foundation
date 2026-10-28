@@ -1,6 +1,7 @@
 #!/bin/bash
 # B15: scripts that commit in a shared folder stage only the paths they changed.
 # B14: they leave the folder on main after pushing their branch.
+# B18: join turns on auto-merge for the terms pull request.
 set -euo pipefail
 
 here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
@@ -95,5 +96,42 @@ files=$(git --git-dir "$work/origin.git" diff --name-only main rules/ada/offboar
 [ -f "$co/meetings/2026-10-28 Kickoff.md" ] || team_fail "untracked meeting note is gone"
 [ -f "$co/inbox/held.md" ] || team_fail "held file is gone"
 [ -z "$(git -C "$co" ls-files meetings inbox)" ] || team_fail "untracked files were committed"
+
+# join.sh: the terms pull request gets auto-merge, and the folder is back on main.
+mkdir -p "$co/users/sam" "$work/home/.claude"
+git -C "$co/users/sam" init -q -b main
+printf '%s\n' "areas=" > "$work/join-answers"
+cat > "$work/bin/host.sh" << EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$work/host.log"
+case "\$1" in
+  open-pr) printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
+  auto-merge) [ -z "\${FAKE_NO_AUTOMERGE:-}" ] || exit 1; printf '%s\n' '{"ok":true}' ;;
+  get-token) printf '%s\n' local-token ;;
+  *) printf '%s\n' '{"ok":true}' ;;
+esac
+EOF
+join_run() {
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE=true OS_HOST_SH="$work/bin/host.sh" \
+    "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>"$work/join.err" \
+    || { cat "$work/join.err" >&2; team_fail "join exit $?"; }
+}
+printf '%s\n' "root=$co" "me=sam" >> "$work/join-answers"
+: > "$work/host.log"
+join_run > "$work/join.out"
+grep -qx 'terms: proposed' "$work/join.out" || team_fail "join did not propose terms"
+grep -qx 'auto-merge: on' "$work/join.out" || team_fail "join did not report auto-merge"
+grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call auto-merge: $(cat "$work/host.log")"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
+git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q '^terms_accepted: ' \
+  || team_fail "terms date is not on sync/sam"
+
+# A refused auto-merge is one plain line, not a failure.
+git --git-dir "$work/origin.git" branch -q -D sync/sam
+git -C "$co" branch -q -D sync/sam
+git -C "$co" update-ref -d refs/remotes/origin/sync/sam
+FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
+grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
+  || team_fail "join did not say auto-merge is off"
 
 printf '%s\n' "PASS stage"

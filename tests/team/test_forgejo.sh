@@ -316,6 +316,7 @@ grep -q 'cloned: team-marketing' "$work/join.out" || die "marketing was not clon
 grep -q 'skipped: team-finance' "$work/join.out" || die "finance was not skipped"
 grep -q 'cloned: team-user-mia' "$work/join.out" || die "workspace was not cloned"
 grep -q 'terms: proposed' "$work/join.out" || die "terms were not proposed"
+grep -qx 'auto-merge: on' "$work/join.out" || die "terms PR did not get auto-merge"
 if grep -q 'propose refused' "$work/join.out" "$work/join.err"; then
   die "join printed propose refused"
 fi
