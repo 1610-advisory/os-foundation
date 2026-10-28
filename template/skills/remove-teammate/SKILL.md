@@ -58,9 +58,9 @@ The person accepted this when they joined (`joining-terms.md`). No step is neede
 
 - A day counts only when all three are true: the helper ran, their sign-in works, and the company repo says "no access".
 - Days with the computer off or offline do not count. An expired sign-in does not count.
-- After 14 counted days, the helper deletes the company folder. It warns on that computer first.
+- After 14 counted days, the helper deletes the company folder. It warns on that computer first. If the folder holds `library/`, it deletes nothing and holds instead: library media is never pushed, so that folder is its only copy. The admin moves `library/` out first.
 - So leave, holiday or a dead laptop never deletes anything. Only removed access does.
-- If it ever deletes by mistake: everything pushed is on the host. Run Part B of `add-teammate` again. It takes minutes.
+- If it ever deletes by mistake: everything pushed is on the host. Run Part B of `add-teammate` again. It takes minutes. Library media and data are never pushed, which is why the helper never deletes a folder that holds `library/`.
 
 Copies outside the folder (agent transcripts, backups, hand copies) are the person's to delete. They agreed to that when they joined.
 

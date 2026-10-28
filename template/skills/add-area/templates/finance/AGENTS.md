@@ -42,7 +42,7 @@ Finance Toolkit: coming. Until then, these rules and the area skills are the met
 
 ### Work folders
 
-- `data/` — exports (P&L, balance sheet, bank CSVs), named `YYYY-MM source.csv`
+- `data/` — exports a person drops in for the work (P&L, balance sheet, bank CSVs), named `YYYY-MM source.csv`. They stay in this area repo: only its people have them. They are working files. They do not mirror the books: never set up a repeated export.
 - `reports/` — what you make from them
 
 ## Skills

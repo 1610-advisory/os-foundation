@@ -30,7 +30,7 @@ Check `architecture.md` → "Connections" for what is already connected.
 
 1. Your agent's built-in connectors (Claude: Settings → Connectors; Cursor: Settings → MCP; Codex: `codex mcp --help`).
 2. The vendor's docs: search "{{TOOL}} MCP server".
-3. Nothing official, or no internet to look? Say so. Offer a fallback: export files (CSV, PDF) into the area's `data/` folder and work from those.
+3. Nothing official, or no internet to look? Say so. Offer a fallback: export files (CSV, PDF) into the area's `data/` folder and work from those. They are the area's working files, and only that area's people get them. They do not mirror the tool: never set up a repeated export.
 
 ## 3. Install it where it belongs
 

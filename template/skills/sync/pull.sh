@@ -201,6 +201,10 @@ sync_rm_temp() {
   fi
   # Skip the clone's own top-level .git. A nested repo is deeper.
   found=$(find "$tree" -mindepth 2 -name .git -print -prune 2>/dev/null | head -n 1 || true)
+  # library/ may have no .git, and its media is the only copy. Keep it too.
+  if [ -z "$found" ] && [ -e "$tree/library" ]; then
+    found="$tree/library"
+  fi
   if [ -n "$found" ]; then
     sync_pull_fail "$id" "reclone: left ${tree}"
     return 1

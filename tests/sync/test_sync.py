@@ -309,6 +309,35 @@ class SyncLocalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((outside / "company-profile.md").exists())
 
+    def test_helper_keeps_a_folder_that_holds_the_library(self):
+        host = self.tmp / "fake-host3"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' '{\"access\":\"no-access\"}'\nexit 2\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"photo")
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        days = [f"2026-10-{day:02d}" for day in range(1, 14)]
+        (state / "helper.json").write_text(json.dumps({"days": days, "warned": True}))
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["OS_NOW"] = "2026-10-14"
+        result = self.sync("helper", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("library/ in it is the only copy of local media", result.stdout)
+        self.assertEqual((media / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((self.company / "company-profile.md").exists())
+        self.assertIn("helper hold library", (state / "sync.log").read_text())
+        status = self.sync("status")
+        self.assertIn("library/ is the only copy of local media", status.stdout)
+
     def test_collect_cases(self):
         write_profile(self.company / "company-profile.md", "app", ["traces"])
         bravo = self.home / "bravo"
@@ -1883,6 +1912,22 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((lib / ".git").is_dir())
         self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+
+    def test_failed_move_back_never_deletes_a_library_without_git(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"only copy")
+        self.push_rewrite(bare, "20261024235954")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "after-nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        found = [p for p in self.tmp.rglob("ab12.jpg") if p.read_bytes() == b"only copy"]
+        self.assertTrue(found, "library media was deleted")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("left", log)
 
     def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
         self.seed_origin()

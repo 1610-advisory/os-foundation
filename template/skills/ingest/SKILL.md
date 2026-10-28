@@ -15,7 +15,8 @@ An item is done when its content is in the right place, linked, and committed. T
 ## Transcripts: one rule, everywhere
 
 - A meeting note (company root or area) gets the **Summary**, **Decisions** and **Action items** only. Never put a full transcript in a meeting note, or anywhere else in the wiki.
-- Raw exports and full transcripts go only in `library/`, and only when you act for an admin.
+- Raw exports of a source the company chose to copy, and full transcripts, go only in `library/`, and only when you act for an admin.
+- One exception: an area's working data. A file a person drops into an area for that area's work (a bank CSV for finance, a metrics export for marketing) goes in the area's `data/`. Only that area's people get it. It is a working file for one task. It does not mirror the tool: never set up a repeated export of it.
 - No library, or you do not act for an admin: link the original in its tool from the note. A recording or transcript that exists only on this computer stays out of every repo (company, area, workspace). Move it out of the inbox to a place the person picks outside the company folder, before you commit. Ask them to give it to the admin.
 
 ## Who you act for
@@ -48,7 +49,7 @@ If the person named one item, process only that. Otherwise process everything. F
    | Person | `people/Full Name.md` | update the shared note only with shareable facts; area-only facts stay in the area |
    | Company fact | update `company-profile.md`, `customers.md`, `offers.md`, or `voice.md` | the area file it belongs to |
    | Decision | `decisions/YYYY-MM-DD Decision.md` | the area's notes |
-   | Data file | not at the root | `data/` in the area |
+   | Data file | not at the root | `data/` in the area: a working file for the area's own work (see "Transcripts" above) |
    | Photo or image | admin with a library: `library/media/`, by hash. Otherwise not filed: link where it lives. | `media/` in the area. Git ignores image files there, so it stays on this computer. Say so. |
 
    Use `templates/` at the company root. The summary must read on its own: teammates cannot open the library.

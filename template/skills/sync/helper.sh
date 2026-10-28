@@ -51,6 +51,13 @@ sync_delete_company() {
       *) sync_die 1 "refusing a path outside home" ;;
     esac
   fi
+  # library/ holds the only copy of the admin's local media. Hold instead.
+  if [ -e "$root/library" ]; then
+    printf '%s\n' "The company folder was not deleted: library/ in it is the only copy of local media. The admin must move library/ out of the folder first."
+    sync_log "helper hold library"
+    sync_held_error "library/ is the only copy of local media: the admin must move it out first"
+    return 1
+  fi
   rm -rf "$root"
 }
 
@@ -97,7 +104,7 @@ cmd_helper() {
   count=$(jq '.days | length' "$SYNC_HELPER")
   if [ "$count" -ge 14 ]; then
     sync_log "helper delete ${count}"
-    sync_delete_company
+    sync_delete_company || return 1
     return 0
   fi
   if [ "$count" -ge 7 ]; then

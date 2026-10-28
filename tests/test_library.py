@@ -271,5 +271,21 @@ class LibraryFolderTests(unittest.TestCase):
                     self.assertEqual(git(repo, "check-ignore", "-q", "--no-index", rel).returncode, 1,
                                      f"{src.name}: {rel}")
 
+    def test_area_working_data_is_the_one_exception(self):
+        ingest = (TEMPLATE / "skills/ingest/SKILL.md").read_text()
+        rule = ingest.split("## Transcripts: one rule, everywhere")[1].split("## Who you act for")[0]
+        self.assertIn("Raw exports of a source the company chose to copy, and full transcripts, go only in `library/`", rule)
+        self.assertIn("One exception: an area's working data.", rule)
+        self.assertIn("never set up a repeated export", rule)
+        for path in (TEMPLATE / "skills/connect-tool/SKILL.md", PRESETS / "finance/AGENTS.md"):
+            text = path.read_text()
+            self.assertIn("never set up a repeated export", text, path.relative_to(ROOT))
+            self.assertIn("only", text, path.relative_to(ROOT))
+
+    def test_device_helper_text_matches_the_hold(self):
+        text = (TEMPLATE / "skills/remove-teammate/SKILL.md").read_text()
+        self.assertIn("If the folder holds `library/`, it deletes nothing and holds instead", text)
+        self.assertIn("Library media and data are never pushed", text)
+
 if __name__ == "__main__":
     unittest.main()
