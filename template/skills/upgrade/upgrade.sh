@@ -87,6 +87,47 @@ case "$LEVEL" in
   *) os_die 1 "level must be solo, team, or app" ;;
 esac
 
+# Host context, set once before any host call. The answers file first, then the profile.
+# A v0 team profile has no host: line, and host.sh reads only the profile or OS_HOST.
+UP_HOST=""
+UP_HOST_URL=""
+UP_ORG=""
+if [ -n "$ANSWERS" ]; then
+  UP_HOST=$(os_answer_or host "$ANSWERS" "")
+  UP_HOST_URL=$(os_answer_or host_url "$ANSWERS" "")
+  UP_ORG=$(os_answer_or org "$ANSWERS" "")
+fi
+[ -n "$UP_HOST" ] || UP_HOST=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
+[ -n "$UP_HOST_URL" ] || UP_HOST_URL=$(os_fm_get "$ROOT/company-profile.md" host_url 2>/dev/null || true)
+[ -n "$UP_ORG" ] || UP_ORG=$(os_fm_get "$ROOT/company-profile.md" org 2>/dev/null || true)
+# The slug names every repo. It goes into company-profile.md with the other profile lines.
+SLUG=$(rules_resolve_slug || true)
+HOST_ON=0
+case "$UP_HOST" in
+  github|forgejo)
+    if OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
+      HOST_ON=1
+      export OS_HOST_BIN OS_HOST="$UP_HOST" OS_HOST_URL="$UP_HOST_URL" OS_ORG="$UP_ORG" OS_SLUG="$SLUG"
+      export OS_PROFILE="$ROOT/company-profile.md"
+    fi
+    ;;
+esac
+# Team on a host: check tools on main and rulesets. Solo keeps its host as it is.
+TEAM_ON=0
+if [ "$HOST_ON" -eq 1 ]; then
+  case "$LEVEL" in
+    team|app) TEAM_ON=1 ;;
+  esac
+fi
+# Rulesets on private repos need a paid GitHub plan. host.sh prints the plain line. Stop before any write.
+if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
+  set +e
+  os_host plan-check >/dev/null
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || exit "$rc"
+fi
+
 os_sha() {
   if os_have shasum; then
     shasum -a 256 "$1" | awk '{print $1}'
@@ -230,6 +271,13 @@ preflight_areas() {
     rel="areas/$name"
     if [ -n "$(git -C "$area" status --porcelain)" ]; then
       printf 'the area %s has uncommitted changes. Commit or stash them, then run upgrade again.\n' "$rel" >&2
+      found=1
+      if [ "$die" -eq 1 ]; then
+        exit 2
+      fi
+    fi
+    if [ -e "$area/memory/logs/.git" ] && [ -n "$(git -C "$area/memory/logs" status --porcelain)" ]; then
+      printf '%s/memory/logs has uncommitted changes. Commit them on the logs branch, then run upgrade again.\n' "$rel" >&2
       found=1
       if [ "$die" -eq 1 ]; then
         exit 2
@@ -694,11 +742,37 @@ plan_area_scripts() {
       files=".github/scripts review-rules.md"
     fi
     printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
+    if git -C "$area" show-ref --verify --quiet refs/heads/logs; then
+      printf 'change: logs-history areas/%s\n' "$name"
+    fi
     rules_one_area "$area" 0
     fix_skill_links "$area" 0
   done
 }
 plan_area_scripts
+
+# Host on: the checks run their tools from main, so main gets them before any pull request.
+plan_host_steps() {
+  local area
+  [ "$HOST_ON" -eq 1 ] || return 0
+  if [ -z "$SLUG" ]; then
+    printf '%s\n' "todo: answer slug (the company slug; repos are <slug>-os and <slug>-<area>)"
+    return 0
+  fi
+  [ "$TEAM_ON" -eq 1 ] || return 0
+  printf 'change: checks-on-main %s\n' "$(os_company_repo "$SLUG")"
+  printf 'change: protect %s\n' "$(os_company_repo "$SLUG")"
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    printf 'change: checks-on-main %s\n' "$(os_area_repo "$SLUG" "$(basename "$area")")"
+    printf 'change: protect %s\n' "$(os_area_repo "$SLUG" "$(basename "$area")")"
+  done
+  if [ -z "$(os_answer_or review_vendor "${ANSWERS:-/dev/null}" "")" ]; then
+    printf '%s\n' "todo: answer review_vendor (anthropic, openai or xai) for .github/review.conf"
+  fi
+}
+plan_host_steps
 
 preflight_spills 0
 preflight_areas 0
@@ -721,6 +795,111 @@ fi
 
 if ! git filter-repo -h >/dev/null 2>&1; then
   os_die 3 "git filter-repo is not installed"
+fi
+
+author_env() {
+  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    "$@"
+}
+
+# The checks job copies its tools from main, never from the pull request head.
+# A v0 main has none, so an upgrade pull request could never pass its checks.
+# Like team-on: lift protection, push one commit with only the check files to main,
+# then protect with the v1 rules (this also replaces a v0 classic rule and turns on auto-merge).
+checks_on_main() {
+  local dir=$1 repo=$2 tmp err owners first
+  if ! os_with_git_token git -C "$dir" fetch origin; then
+    os_die 3 "could not fetch ${repo}"
+  fi
+  if git -C "$dir" cat-file -e origin/main:.github/workflows/checks.yml 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.github/scripts/checkout.sh 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.github/scripts/tools/secret-scan.sh 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null; then
+    printf 'checks-on-main: %s already\n' "$repo"
+  else
+    tmp=$(mktemp -d)
+    git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
+    mkdir -p "$tmp/main/.github/workflows"
+    cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
+    rm -rf "$tmp/main/.github/scripts"
+    cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
+    if [ ! -f "$tmp/main/.github/review.conf" ]; then
+      printf 'vendor=%s\nmodel=%s\nkind=%s\n' "$REVIEW_VENDOR" "$REVIEW_MODEL" "$REVIEW_KIND" > "$tmp/main/.github/review.conf"
+    fi
+    # v0 owned every file ("* @admin"). v1 owns rules files only, so notes merge on green checks.
+    owners=""
+    if [ -f "$tmp/main/.github/CODEOWNERS" ]; then
+      owners=$(awk '$1 == "*" { $1 = ""; sub(/^ /, ""); print; exit }' "$tmp/main/.github/CODEOWNERS")
+    fi
+    if [ -n "$owners" ]; then
+      first=${owners%% *}
+      os_codeowners "$tmp/main" "$owners" "$first"
+      git -C "$tmp/main" add -- .github/CODEOWNERS .gitea/CODEOWNERS
+    fi
+    git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
+    author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
+    os_host unprotect "$repo" >/dev/null
+    err=$(mktemp)
+    if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
+      cat "$err" >&2
+      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+      rm -rf "$tmp"
+      if grep -qi 'workflow' "$err"; then
+        rm -f "$err"
+        os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protect it now: skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+      fi
+      rm -f "$err"
+      os_die 3 "could not put the check tools on main of ${repo}. Protect it now: skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+    fi
+    rm -f "$err"
+    git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+    os_with_git_token git -C "$dir" fetch origin >/dev/null 2>&1 || true
+    printf 'checks-on-main: %s\n' "$repo"
+  fi
+  os_host protect "$repo" --code-owners --approvals 0 >/dev/null
+  printf 'protected: %s\n' "$repo"
+}
+
+REVIEW_VENDOR=""
+REVIEW_MODEL=""
+REVIEW_KIND=""
+if [ -n "$ANSWERS" ]; then
+  REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
+  REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
+  REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
+fi
+case "$REVIEW_VENDOR" in
+  ""|anthropic|openai|xai) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+esac
+if [ -z "$REVIEW_KIND" ]; then
+  if [ -n "$REVIEW_VENDOR" ]; then
+    REVIEW_KIND="second-vendor"
+  else
+    REVIEW_KIND="same-vendor"
+  fi
+fi
+
+if [ "$HOST_ON" -eq 1 ]; then
+  case "$SLUG" in
+    ""|*'{{'*) os_die 2 "the company slug is not known. Add slug=<slug> to the answers file, then run upgrade again." ;;
+  esac
+fi
+if [ "$TEAM_ON" -eq 1 ]; then
+  printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+  if [ "$(os_review_state)" != "key-set" ]; then
+    printf '%s\n' "no review key yet: the checks fail until the admin runs the review command above"
+  fi
+  checks_on_main "$ROOT" "$(os_company_repo "$SLUG")"
+  for area in "$ROOT"/areas/*; do
+    [ -d "$area" ] || continue
+    [ -e "$area/.git" ] || continue
+    checks_on_main "$area" "$(os_area_repo "$SLUG" "$(basename "$area")")"
+  done
 fi
 
 # Save logs, drop the worktree, tag the old tip.
@@ -768,7 +947,6 @@ OS_VER=""
 if [ -n "$ANSWERS" ]; then
   OS_VER=$(os_answer_or os_version "$ANSWERS" "")
   HOST_KIND=$(os_answer_or host "$ANSWERS" "")
-  HOST_URL=$(os_answer_or host_url "$ANSWERS" "")
   ORG=$(os_answer_or org "$ANSWERS" "")
   ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
   RUNNER=$(os_answer_or runner "$ANSWERS" "")
@@ -779,6 +957,9 @@ case "$OS_VER" in
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"
+if [ -n "$SLUG" ]; then
+  os_fm_set "$ROOT/company-profile.md" company_slug "$SLUG"
+fi
 fill_profile_one_liner
 ensure_spill_owners "$ROOT"
 if ! os_fm_get "$ROOT/company-profile.md" switches >/dev/null 2>&1; then
@@ -821,6 +1002,49 @@ refresh_check_tools() {
 }
 refresh_check_tools
 
+# v0 kept area logs on a logs branch too, checked out at memory/logs/.
+# Run before the area checkout: drop the worktree and tag the old tip.
+area_logs_park() {
+  local area=$1 name
+  name=$(basename "$area")
+  git -C "$area" show-ref --verify --quiet refs/heads/logs || return 0
+  if [ -e "$area/memory/logs/.git" ]; then
+    if ! git -C "$area" worktree remove --force "$area/memory/logs"; then
+      os_die 3 "could not remove the logs worktree in areas/${name}. Upgrade stopped. The logs files are still in place."
+    fi
+  fi
+  if ! git -C "$area" rev-parse --verify "refs/tags/logs-archive-$(os_today)" >/dev/null 2>&1; then
+    git -C "$area" tag -a "logs-archive-$(os_today)" logs -m "Kept for 90 days. Delete this tag after 90 days."
+  fi
+}
+
+# Then merge the logs under memory/logs/ with their history, on the area branch.
+area_logs_merge() {
+  local area=$1 name tmp
+  name=$(basename "$area")
+  git -C "$area" show-ref --verify --quiet refs/heads/logs || return 0
+  if git -C "$area" merge-base --is-ancestor logs HEAD 2>/dev/null; then
+    return 0
+  fi
+  tmp=$(mktemp -d)
+  git clone --quiet --branch logs --single-branch "$area" "$tmp/logs"
+  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs --force
+  git -C "$area" fetch --quiet "$tmp/logs" "logs:refs/os-upgrade/logs"
+  rm -rf "$tmp"
+  if git -C "$area" merge-base --is-ancestor refs/os-upgrade/logs HEAD 2>/dev/null; then
+    git -C "$area" update-ref -d refs/os-upgrade/logs
+    return 0
+  fi
+  author_env git -C "$area" merge -q --allow-unrelated-histories -m "Upgrade: logs history" refs/os-upgrade/logs
+  git -C "$area" update-ref -d refs/os-upgrade/logs
+  if [ -f "$area/.gitignore" ]; then
+    grep -v '^/memory/logs/$' "$area/.gitignore" | grep -v 'skills/logs-folder' > "$area/.gitignore.tmp" || true
+    mv "$area/.gitignore.tmp" "$area/.gitignore"
+    git -C "$area" add -- .gitignore
+  fi
+  printf 'change: logs-history areas/%s\n' "$name"
+}
+
 # Area folders are separate repos. /areas/ is gitignored in the company repo.
 # Commit the scripts in each area repo and open a pull request. Never git add them here.
 push_area_scripts() {
@@ -843,7 +1067,9 @@ push_area_scripts() {
     if ! os_with_git_token git -C "$area" fetch origin; then
       os_die 3 "could not fetch ${repo}"
     fi
+    area_logs_park "$area"
     git -C "$area" checkout -q -B "$branch" origin/main
+    area_logs_merge "$area"
     rules_one_area "$area" 1
     rules_stage_rules "$area"
     if ! git -C "$area" diff --cached --quiet; then
@@ -889,7 +1115,9 @@ push_area_scripts() {
     if [ -z "$number" ]; then
       os_die 3 "could not open a pull request for ${repo}"
     fi
-    os_host auto-merge "$repo" "$number" >/dev/null
+    if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
+      printf 'auto-merge is off on %s: pull request %s stays open. Merge it when the checks pass.\n' "$repo" "$number"
+    fi
     printf 'pr: %s %s\n' "$repo" "$number"
   done
 }
@@ -938,30 +1166,22 @@ GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
   git -C "$ROOT" merge --no-ff --no-edit upgrade/work -m "Upgrade to v1"
 git -C "$ROOT" branch -D upgrade/work >/dev/null
 
-if [ -f "$ROOT/company-profile.md" ]; then
-  HOST_KIND=$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)
-  HOST_URL=$(os_fm_get "$ROOT/company-profile.md" host_url 2>/dev/null || true)
-  ORG=$(os_fm_get "$ROOT/company-profile.md" org 2>/dev/null || true)
-  SLUG=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
-fi
-if [ "$HOST_KIND" = "github" ] || [ "$HOST_KIND" = "forgejo" ]; then
-  if OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
-    export OS_HOST_BIN OS_ORG="$ORG" OS_HOST="$HOST_KIND" OS_HOST_URL="$HOST_URL" OS_SLUG="$SLUG"
-    export OS_PROFILE="$ROOT/company-profile.md"
-    push_area_scripts
-    os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
-    pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
-    number=$(printf '%s' "$pr" | jq -r '.number // empty')
-    if [ -n "$number" ]; then
-      printf 'pr: %s\n' "$number"
-    fi
+if [ "$HOST_ON" -eq 1 ]; then
+  push_area_scripts
+  os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
+  pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  if [ -n "$number" ]; then
+    printf 'pr: %s\n' "$number"
   fi
 elif [ -d "$ROOT/areas" ]; then
   # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.
   for area in "$ROOT"/areas/*; do
     [ -d "$area" ] || continue
     [ -e "$area/.git" ] || continue
+    area_logs_park "$area"
     git -C "$area" checkout -q -B upgrade/scripts
+    area_logs_merge "$area"
     rules_one_area "$area" 1
     rules_stage_rules "$area"
     fix_skill_links "$area" 1

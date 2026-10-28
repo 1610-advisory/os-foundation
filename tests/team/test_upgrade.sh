@@ -156,3 +156,4 @@ git -C "$plan" ls-files | grep -q '^areas/' && team_fail "area files are in the 
 
 printf '%s\n' "PASS upgrade"
 bash "$here/../upgrade/test_rules_merge.sh"
+bash "$here/../upgrade/test_host_upgrade.sh"

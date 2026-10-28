@@ -28,7 +28,8 @@ Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run 
 
 Ask: "Does anyone else use this company OS with you?" Suggest no.
 - No: the level is `solo`. Add nothing.
-- Yes: still upgrade at `solo` first. Then run `add-teammate` Part A. It turns on the team level with the v1 parts.
+- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, run `add-teammate` Part A with the same people. It adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs.
+- Yes, but the folder was never on a git host: upgrade at `solo`. Then run `add-teammate` Part A.
 
 ## 3. Clean folder
 
@@ -83,7 +84,17 @@ Ask once: "Apply this upgrade?" Suggest yes when the report has no surprises.
 
 Run `<upgrade> --root <company folder> --template <template>`. It stages only the upgrade paths. It makes branch `upgrade/v1` with one merge commit, even when there was no `logs` branch. It never writes to `main` itself.
 
-- **Host on** (`host:` is not `none`): it opens one pull request and prints `pr:`. Rules files change, so the model review runs. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main`, the admin included.
+- **Team on a host** (`level: team` or `app`, and `host:` is not `none`): on GitHub it first checks the org plan. A Free org stops before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` There is no Free-plan team mode. Solo still upgrades on a Free org. Before any pull request it prints each step:
+  1. `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY`. Without that key the model review fails. The admin sets it as in add-teammate A3.
+  2. `checks-on-main: <repo>`, for the company repo and each area repo. The checks run their tools from `main`, never from the pull request, and a v0 `main` has none. So the upgrade lifts protection, pushes one commit with only the check files (`.github/workflows/checks.yml`, `.github/scripts/`, `.github/review.conf`, and rules-only `CODEOWNERS` in place of the v0 `* @admin` line) to `main`, and protects again. No company content goes to `main`. `checks-on-main: <repo> already` means `main` had them.
+  3. `protected: <repo>`. The v1 rules replace the v0 rule that needed one code-owner approval. Auto-merge is turned on.
+  4. `pr: <repo> <n>` for each area, then `pr: <n>` for the company.
+
+  Then the pull requests merge on green checks: secret scan, `lint`, model review. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main` by hand, the admin included.
+  - `auto-merge is off on <repo>: pull request <n> stays open`: the run goes on. Merge that pull request when its checks pass.
+  - Solo with a host: no plan check, no check tools on `main`, no protect. It opens the pull requests only.
+  - `the company slug is not known`: it stopped before any push. Add `slug=<slug>` to the answers file and run it again.
+  - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped. Do what the line says, then run it again. Each step is safe to run twice.
 - **Solo, no host:** do step 7 first. Then merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
   Each area repo with old rules also has a branch `upgrade/scripts` with its rules merge. The upgrade leaves that branch checked out. After step 7, in each such area run `git -C areas/<area> checkout main`, then `git -C areas/<area> merge --no-ff upgrade/scripts`.
 
@@ -99,8 +110,8 @@ Before the person approves the upgrade pull request (solo: before the merge), op
 
 ## 8. The old logs branch
 
-If the folder has an old `logs` branch:
-- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`.
+If the folder has an old `logs` branch (the company folder, and each area that has one):
+- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request.
 - The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). Keep it 90 days. Then it may be deleted. The script never deletes it.
 
 ## 9. Going back
