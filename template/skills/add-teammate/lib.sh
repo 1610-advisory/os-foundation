@@ -683,12 +683,20 @@ os_repo_url() {
 
 os_hand_off() {
   local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6 host=$7 host_url=$8
-  local company_url ws_url
+  local company_url ws_url host_line
   company_url=$(os_repo_url "$host" "$host_url" "$org" "$company_repo")
   ws_url=$(os_repo_url "$host" "$host_url" "$org" "$ws")
+  # github.com has no host_url. Name the host and org instead: github.com/<org>.
+  host_line=$host_url
+  if [ "$host" = "github" ]; then
+    host_line=${host_url:-https://github.com}
+    host_line=${host_line#https://}
+    host_line=${host_line#http://}
+    host_line="${host_line%/}/${org}"
+  fi
   printf 'hand-off: %s\n' "$slug"
   printf 'Hand-off for %s. Company repo: %s. Host: %s. Areas: %s. Workspace: %s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
-    "$name" "$company_url" "$host_url" "$areas" "$ws_url"
+    "$name" "$company_url" "$host_line" "$areas" "$ws_url"
 }
 
 os_split_areas() {

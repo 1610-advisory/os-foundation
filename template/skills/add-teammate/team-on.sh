@@ -86,6 +86,26 @@ fi
 export OS_HOST_BIN OS_ORG="$ORG" OS_HOST="$HOST_KIND" OS_HOST_URL="$HOST_URL" OS_SLUG="$SLUG"
 export OS_PROFILE="$ROOT/company-profile.md"
 
+# gh sign-in: org secrets and teams need admin:org, workflow files need workflow.
+# A fine-grained token sends no scope list. Its permissions are checked by the calls.
+if [ "$HOST_KIND" = "github" ]; then
+  set +e
+  who=$(os_host whoami)
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || os_die 4 "could not read the gh sign-in: run gh auth login"
+  missing=$(printf '%s' "$who" | jq -r 'if (.scopes | type) == "array" then (["admin:org","workflow"] - .scopes) | join(",") else "" end')
+  if [ -n "$missing" ]; then
+    os_die 4 "the gh sign-in needs admin:org and workflow: run gh auth refresh -s admin:org,workflow"
+  fi
+  # A Free org cannot protect private repos. host.sh prints the plain line. Stop before any write.
+  set +e
+  os_host plan-check >/dev/null
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || exit "$rc"
+fi
+
 ADMIN=$(os_answer_or admin_slug "$ANSWERS" "")
 if [ -z "$ADMIN" ]; then
   ADMIN=$(os_person_slugs "$ANSWERS" | while IFS= read -r s; do
@@ -129,6 +149,9 @@ case "$REVIEW" in
     else
       printf '%s\n' "review: second-vendor"
     fi
+    ;;
+  unchecked)
+    printf '%s\n' "could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)"
     ;;
   *)
     printf '%s\n' "no review key: every pull request fails the model review until you add one"
@@ -243,11 +266,52 @@ commit_rules_before_protect() {
     return 0
   fi
   os_git_commit "$dir" "$msg"
-  if os_with_git_token git -C "$dir" push origin HEAD:main; then
+  local err
+  err=$(mktemp)
+  if os_with_git_token git -C "$dir" push origin HEAD:main 2>"$err"; then
+    rm -f "$err"
     return 0
   fi
+  cat "$err" >&2
+  if grep -qi 'workflow' "$err"; then
+    push_refused "$(basename "$dir")" "$err"
+  fi
+  rm -f "$err"
   printf '%s\n' "main is protected and .github/CODEOWNERS, .gitea/CODEOWNERS, or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
   exit 2
+}
+
+# A refused push is a host error: exit 3 with one plain line.
+push_refused() {
+  local name=$1 err=$2
+  if grep -qi 'workflow' "$err"; then
+    rm -f "$err"
+    os_die 3 "push refused for ${name}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow"
+  fi
+  rm -f "$err"
+  os_die 3 "push refused for ${name}: see the git message above, then run team-on again"
+}
+
+# A repo an earlier run made can be empty: its first push failed.
+# Push it now. Lift any protection first: protect runs again below.
+first_push_if_empty() {
+  local dir=$1 name=$2 err ref=HEAD
+  if os_origin_exists "$dir"; then
+    return 0
+  fi
+  os_host unprotect "$name" >/dev/null
+  if git -C "$dir" show-ref --verify --quiet refs/heads/main; then
+    ref=refs/heads/main
+  fi
+  err=$(mktemp)
+  if ! os_with_git_token git -C "$dir" push origin "${ref}:refs/heads/main" 2>"$err" \
+    || ! os_with_git_token git -C "$dir" push --all origin 2>>"$err" \
+    || ! os_with_git_token git -C "$dir" push --tags origin 2>>"$err"; then
+    cat "$err" >&2
+    push_refused "$name" "$err"
+  fi
+  rm -f "$err"
+  printf 'first push: %s\n' "$name"
 }
 
 push_new_repo() {
@@ -257,8 +321,11 @@ push_new_repo() {
   else
     os_host create-repo "$name" --private --source "$source" --push >/dev/null
   fi
-  # Existing repo: add a missing origin and fetch. Never push to main.
+  # Existing repo: add a missing origin and fetch. Push to main only when it is empty.
   os_ensure_origin "$source" "$name" "$HOST_KIND" "$HOST_URL" "$ORG" "$existed"
+  if [ "$existed" -eq 1 ]; then
+    first_push_if_empty "$source" "$name"
+  fi
   printf 'repo: %s\n' "$name"
 }
 
@@ -424,12 +491,15 @@ while IFS= read -r slug; do
     os_host create-repo "$ws_name" --private --source "$ws_dir" --push >/dev/null
   fi
   os_ensure_origin "$ws_dir" "$ws_name" "$HOST_KIND" "$HOST_URL" "$ORG" "$ws_existed"
+  if [ "$ws_existed" -eq 1 ]; then
+    first_push_if_empty "$ws_dir" "$ws_name"
+  fi
   printf 'workspace: %s\n' "$ws_name"
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF
 
-# Protect after the initial push. Not the workspace repos.
+# Protect after the initial push. Every repo above has a main by now. Not the workspace repos.
 os_host protect "$COMPANY_REPO" --code-owners --approvals 0 >/dev/null
 printf 'protected: %s\n' "$COMPANY_REPO"
 area=""

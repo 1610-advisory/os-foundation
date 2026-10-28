@@ -24,7 +24,7 @@ For each part: ask one question at a time, with a suggested answer. Write the an
 
    No organization yet: help make one at github.com/organizations/new on the Team plan. Do not go on with a Free organization.
 3. **Organization name.** The repos belong to the company, not to one person.
-4. **Sign-in.** GitHub: the admin runs `gh auth login` in the browser. Forgejo: the admin puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600). Never you.
+4. **Sign-in.** GitHub: the admin runs `gh auth login` in the browser, then `gh auth refresh -s admin:org,workflow`. `admin:org` lets setup make teams and check the org review key. `workflow` lets it push the checks workflow. Forgejo: the admin puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600). Never you.
 5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
@@ -41,7 +41,7 @@ Ask, one at a time:
 
 No key at all: say plainly: "No review key: every pull request fails the model review until you add one." Nothing merges until then.
 
-**The admin sets the key, never you.** Best before `team-on.sh` runs. In their own terminal window, in the company folder, they run this line. It runs `skills/_host/host.sh set-secret OS_REVIEW_KEY` and hides the key. Fill `<host>` and `<org>` (Forgejo: add `OS_HOST_URL=<url>`):
+**The admin sets the key, never you.** Best before `team-on.sh` runs. On GitHub the admin's sign-in needs `admin:org` for this (A2 item 4). In their own terminal window, in the company folder, they run this line. It runs `skills/_host/host.sh set-secret OS_REVIEW_KEY` and hides the key. Fill `<host>` and `<org>` (Forgejo: add `OS_HOST_URL=<url>`):
 
 ```
 printf 'Review key: '; read -rs k; echo; printf '%s' "$k" | OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY; unset k
@@ -56,6 +56,10 @@ Never run it for them, ask for the key in the chat, or read it back.
 3. It checks that the key exists (`host.sh secret-exists`). Read its review line to the admin as printed:
    - `no review key: every pull request fails the model review until you add one`: the admin sets the key (A3), then run `team-on.sh` again.
    - `weaker review: same vendor`: say it plainly. The key works.
+   - `could not check the review key: sign in as an org owner`: the key may be set, but this sign-in cannot read org secrets. The admin runs `gh auth refresh -s admin:org`, then run `team-on.sh` again.
+   - `This GitHub org is on the Free plan...`: it stopped before any change. Team setup protects private repos with rulesets, and GitHub Free has none. The admin moves the org to GitHub Team, then run it again. There is no Free-plan team mode. Solo works on any plan.
+   - `the gh sign-in needs admin:org and workflow`: it stopped before any change. The admin runs `gh auth refresh -s admin:org,workflow`, then run it again.
+   - `push refused for <repo>: the sign-in cannot write workflow files`: same fix, then run it again. The second run pushes the repo it left empty before it protects it.
 4. If it stops with an error, tell the admin the exact message. Fix the cause it names (if it names `sync.sh propose`, propose those files), then run it again once. A second run changes nothing already done. If it stops again, stop. Do not say the team level is on.
 
 ### A5. Explain what turned on

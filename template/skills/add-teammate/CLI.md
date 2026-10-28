@@ -13,7 +13,13 @@ team-on.sh --answers <file>
 team-on.sh --help
 ```
 
-Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to main.
+Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to a main that has commits. A repo an earlier run made but left empty (its first push failed) gets that first push on the next run: `host.sh unprotect` first, then the push, then `protect` as usual. It prints `first push: <repo>`. A repo is never protected while it is empty.
+
+GitHub: before any change it reads the `gh` sign-in scopes (`host.sh whoami`). If `admin:org` or `workflow` is missing, it stops with exit 4: `the gh sign-in needs admin:org and workflow: run gh auth refresh -s admin:org,workflow`. A fine-grained token sends no scope list. Then the host calls show what it lacks.
+
+GitHub, next: `host.sh plan-check` reads the org plan. A Free org stops with exit 3, before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Rulesets on private repos need a paid plan. Only an org owner sees the plan. When the plan is hidden, `protect` gives the same line on its first ruleset call.
+
+Every create verb is safe to run twice: an existing repo, team, member, grant or ruleset is ok.
 
 ### Flags
 
@@ -74,6 +80,8 @@ no review key: every pull request fails the model review until you add one
 
 It does not say weaker. If the secret exists and `review_kind` is `same-vendor`, it prints `weaker review: same vendor`. It still does not read the value.
 
+If the check itself fails (GitHub answers 403 without `admin:org`), it prints `could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)`, not the no-key sentence.
+
 Before the first push it writes `.github/review.conf`:
 
 ```
@@ -109,7 +117,7 @@ kind=second-vendor
 | 0 | ok |
 | 1 | usage |
 | 2 | refused (synced folder, bad answers, slug still a placeholder) |
-| 3 | host or tool error |
+| 3 | host or tool error, a Free GitHub org, or a refused push: `push refused for <repo>: ...` names the likely cause, for example the missing `workflow` scope |
 | 4 | auth failed |
 
 ### What it prints
@@ -125,6 +133,13 @@ workspace: <slug>-user-<person>
 protected: <slug>-os
 hand-off: <person-slug>
 Hand-off for <Name>. Company repo: <host_url>/<org>/<slug>-os. Host: <host_url>. Areas: <areas>. Workspace: <host_url>/<org>/<slug>-user-<person>.
+```
+
+On github.com the host part is `github.com/<org>`, for example `Host: github.com/acme.`
+
+```
+first push: <slug>-os
+could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)
 ```
 
 A missing key prints the no-review-key sentence. A same-vendor key prints `weaker review: same vendor`.
