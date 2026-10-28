@@ -51,7 +51,7 @@ The script stops early in these cases. Each one changes nothing.
 - **Pending.** A branch `upgrade/v1` exists but is not merged. It prints `upgrade: pending upgrade/v1` and how to start over: `git checkout main`, then delete the `upgrade/v1` branch and any area `upgrade/scripts` branch. It exits 0.
 - **A dirty area.** An area repo has uncommitted changes. It prints `the area areas/<name> has uncommitted changes. Commit or stash them, then run upgrade again.` A real run exits 2 before any company commit. The dry run prints the same line. An area `memory/logs/` worktree with uncommitted logs prints `areas/<name>/memory/logs has uncommitted changes. Commit them on the logs branch, then run upgrade again.` the same way.
 - **An area fetch fails** (host on). It prints `could not fetch <repo>`. A real run exits 3 before any commit.
-- **Free GitHub org** (team or app on GitHub). `host.sh plan-check` stops it with exit 3, before any commit or push: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Solo does not check the plan.
+- **Free GitHub org** (team or app on GitHub). `host.sh plan-check` stops it with exit 3, before any commit or push: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Solo does not check the plan. A plan the sign-in cannot see stops it the same way: `Could not read the plan of the GitHub org <org>: sign in as an org owner, then run this again. Team setup needs an org owner.`
 - **No slug** (host on). It prints `the company slug is not known. Add slug=<slug> to the answers file, then run upgrade again.` and exits 2, before any commit or push.
 - **A spill file is already there.** It prints `conflict: company-rules.md exists` or `conflict: areas/<name>/area-rules.md exists`. The upgrade will not write a spill file over it. A real run exits 2 before any write. The dry run prints the same line.
 
@@ -104,9 +104,9 @@ If the folder is app-linked (`app-link.json` or `OS_APP_LINK=1`), the dry-run sa
 
 When `host` is not `none` and `host.sh` is present, the script opens one pull request. At `team` or `app` it first does these steps, once per repo (the company repo, then each area repo), and prints each one. Solo skips steps 1 and 2:
 
-1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Then `host.sh unprotect <repo>`, a push to `main`, and step 2. No company content goes to `main`. When `main` has them: `checks-on-main: <repo> already`, no push.
-2. `protected: <repo>`: `host.sh protect <repo> --code-owners --approvals 0`. On GitHub that also replaces the v0 classic rule (one code-owner approval, which only the admin could give) and turns on auto-merge. The pull requests then merge on green checks.
-3. The area pull requests, then the company pull request. If `auto-merge` still fails, it prints `auto-merge is off on <repo>: pull request <n> stays open. Merge it when the checks pass.` and goes on.
+1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Every other `CODEOWNERS` line stays, after the rules lines, under `# Kept from before the upgrade.` Then `host.sh unprotect <repo>` (on GitHub this also removes the v0 classic rule, which would refuse the push), a push to `main`, and step 2. If the push is refused, it runs `protect` at once and stops: `main` is never left open. If that `protect` fails too, it prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`. No company content goes to `main`. When `main` has them: `checks-on-main: <repo> already`, no push.
+2. `protected: <repo>`: `host.sh protect <repo> --code-owners --approvals 0`. On GitHub that also replaces the v0 classic rule (one code-owner approval, which only the admin could give) and turns on auto-merge.
+3. The area pull requests, then the company pull request. Each gets `host.sh auto-merge`. If that fails, it prints `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.` and goes on. On GitHub every upgrade pull request is the admin's own rules change, and GitHub never counts the author's own approval. So each one also prints `merge-by-hand: <repo> <n>`. The `rules-review` ruleset lets an org admin bypass it on a pull request (`bypass_mode: pull_request`); auto-merge does not use that bypass. Solo with a host: no auto-merge; the person merges.
 
 At `team` or `app` it prints `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY` first, and `no review key yet: ...` when the org key is not there.
 
@@ -160,12 +160,15 @@ todo: answer review_vendor (...)
 review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY
 checks-on-main: <repo> [already]
 protected: <repo>
-auto-merge is off on <repo>: pull request <n> stays open. Merge it when the checks pass.
 pr: <repo> <number>
+auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.
+merge-by-hand: <repo> <n>
 pr: <number>
+admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".
+upgrade: open pull requests: <repo> <n>, ... Merge each one when its checks pass.
 ```
 
-A dry-run prints `upgrade: dry-run` and no `pr:` line. A real run prints `upgrade: ok`.
+A dry-run prints `upgrade: dry-run` and no `pr:` line. A real run prints `upgrade: ok` when nothing is left for a person to merge. When any pull request will not merge by itself, the last line is `upgrade: open pull requests: ...` instead, never `upgrade: ok`.
 
 - `change: rules-merge` comes once per rules file: `AGENTS.md`, `CLAUDE.md`, and each `areas/<name>/AGENTS.md` and `CLAUDE.md`. `company-lines` is the count of company lines kept. `chars` is the size of the merged file in bytes.
 - `change: rules-spill` comes only when the merged file would be 10,000 bytes or more. In an area the file is `area-rules.md`.

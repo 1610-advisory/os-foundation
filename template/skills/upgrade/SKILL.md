@@ -86,15 +86,20 @@ Run `<upgrade> --root <company folder> --template <template>`. It stages only th
 
 - **Team on a host** (`level: team` or `app`, and `host:` is not `none`): on GitHub it first checks the org plan. A Free org stops before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` There is no Free-plan team mode. Solo still upgrades on a Free org. Before any pull request it prints each step:
   1. `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY`. Without that key the model review fails. The admin sets it as in add-teammate A3.
-  2. `checks-on-main: <repo>`, for the company repo and each area repo. The checks run their tools from `main`, never from the pull request, and a v0 `main` has none. So the upgrade lifts protection, pushes one commit with only the check files (`.github/workflows/checks.yml`, `.github/scripts/`, `.github/review.conf`, and rules-only `CODEOWNERS` in place of the v0 `* @admin` line) to `main`, and protects again. No company content goes to `main`. `checks-on-main: <repo> already` means `main` had them.
+  2. `checks-on-main: <repo>`, for the company repo and each area repo. The checks run their tools from `main`, never from the pull request, and a v0 `main` has none. So the upgrade lifts protection, pushes one commit with only the check files (`.github/workflows/checks.yml`, `.github/scripts/`, `.github/review.conf`, and rules-only `CODEOWNERS` in place of the v0 `* @admin` line; every other line the company added stays) to `main`, and protects again. On GitHub, lifting protection also removes the v0 classic rule. If the push is refused, it protects `main` again before it stops. No company content goes to `main`. `checks-on-main: <repo> already` means `main` had them.
   3. `protected: <repo>`. The v1 rules replace the v0 rule that needed one code-owner approval. Auto-merge is turned on.
   4. `pr: <repo> <n>` for each area, then `pr: <n>` for the company.
 
-  Then the pull requests merge on green checks: secret scan, `lint`, model review. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main` by hand, the admin included.
-  - `auto-merge is off on <repo>: pull request <n> stays open`: the run goes on. Merge that pull request when its checks pass.
-  - Solo with a host: no plan check, no check tools on `main`, no protect. It opens the pull requests only.
+  The checks are secret scan, `lint` and model review. Every pull request gets auto-merge. Nobody writes to `main` by hand, the admin included.
+  - **Forgejo:** the pull requests merge by themselves on green checks. The last line is `upgrade: ok`.
+  - **GitHub:** the admin wrote these pull requests and they change rules files. GitHub never counts the author's own approval, so they do not merge by themselves. Each one prints `merge-by-hand: <repo> <n>`. For each one, the admin must wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge". The script prints those steps too. Only an org admin has that box.
+  - `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it`: the run goes on. The admin merges it when its checks pass.
+  - `upgrade: open pull requests: <repo> <n>, ...`: the last line when any pull request will not merge by itself. It replaces `upgrade: ok`. Tell the admin each one and what to click.
+  - Solo with a host: no plan check, no check tools on `main`, no protect, no auto-merge. It opens the pull requests only, and the last line names them. The person merges them.
+  - `Could not read the plan of the GitHub org <org>: sign in as an org owner`: it stopped before any write. Only an org owner sees the plan, and team setup needs one. The admin signs in as an org owner, then runs it again.
   - `the company slug is not known`: it stopped before any push. Add `slug=<slug>` to the answers file and run it again.
-  - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped. Do what the line says, then run it again. Each step is safe to run twice.
+  - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped, and `main` is protected again. Do what the line says, then run it again. Each step is safe to run twice.
+  - `PROTECTION IS OFF on <repo>: run ...`: protecting `main` again failed. Give the admin that exact line first. The admin runs it in their own terminal. Then stop.
 - **Solo, no host:** do step 7 first. Then merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
   Each area repo with old rules also has a branch `upgrade/scripts` with its rules merge. The upgrade leaves that branch checked out. After step 7, in each such area run `git -C areas/<area> checkout main`, then `git -C areas/<area> merge --no-ff upgrade/scripts`.
 
@@ -128,6 +133,6 @@ One line each:
 - Any line to move later by its own rules change.
 - What was skipped (conflicts kept as they were).
 - How to go back.
-- With a host: the link to the pull request. It merges when the checks pass.
+- With a host: the link to each pull request. On Forgejo it merges when the checks pass. On GitHub the admin merges it with the bypass box (step 6).
 
 Then delete the temporary folder.

@@ -48,8 +48,13 @@ case "$1" in
     ;;
   secret-exists) printf '%s\n' '{"exists":true}' ;;
   open-pr) printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
-  auto-merge) printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
-  protect|unprotect) printf '%s\n' '{"ok":true}' ;;
+  auto-merge)
+    [ "${FAKE_AUTOMERGE:-fail}" = "ok" ] && { printf '%s\n' '{"ok":true}'; exit 0; }
+    printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
+  protect)
+    [ "${FAKE_PROTECT:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}' ;;
+  unprotect) printf '%s\n' '{"ok":true}' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -65,7 +70,8 @@ make_v0() {
   cp -R "$work/template/." "$co/"
   rm -rf "$work/template"
   mkdir -p "$co/.github"
-  printf '%s\n' '* @acme-admin' > "$co/.github/CODEOWNERS"
+  # A line the company added after setup. The upgrade must keep it (item 26).
+  printf '%s\n' '* @acme-admin' '/docs/legal/ @acme-counsel' > "$co/.github/CODEOWNERS"
   git -C "$co" init -q
   git -C "$co" checkout -q -b main
   commit_all "$co" "v0 start"
@@ -134,6 +140,13 @@ for repo in acme2-os acme2-marketing; do
   # v1 owners: rules files only, so notes merge on green checks.
   git --git-dir "$bare" show main:.github/CODEOWNERS | grep -q '^\* ' && team_fail "$repo kept the v0 '*' owner line"
   git --git-dir "$bare" show main:.github/CODEOWNERS | grep -qx '/AGENTS.md @acme-admin' || team_fail "$repo v1 owners"
+  # Item 26: the company's own line stays, after the rules lines, so it still wins.
+  if [ "$repo" = "acme2-os" ]; then
+    owners_main=$(git --git-dir "$bare" show main:.github/CODEOWNERS)
+    printf '%s\n' "$owners_main" | grep -qx '/docs/legal/ @acme-counsel' || team_fail "upgrade dropped a company CODEOWNERS line"
+    [ "$(printf '%s\n' "$owners_main" | grep -n '^/docs/legal/' | cut -d: -f1)" -gt \
+      "$(printf '%s\n' "$owners_main" | grep -n '^/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
+  fi
   # Only check files: no company content on main.
   changed=$(git --git-dir "$bare" diff --name-only main~1 main | grep -v '^\.github/' | grep -v '^\.gitea/' || true)
   [ -z "$changed" ] || team_fail "$repo check-tools commit touched $changed"
@@ -148,6 +161,14 @@ grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/r
 grep -q 'auto-merge is off on acme2-marketing: pull request 5 stays open' "$work/run.out" || team_fail "auto-merge line"
 git --git-dir "$work/git/acme2-os.git" rev-parse --verify --quiet refs/heads/upgrade/v1 >/dev/null \
   || team_fail "company upgrade/v1 was not pushed after the auto-merge failure"
+
+# Item 23: the company pull request gets auto-merge too. Never "upgrade: ok" with a pull request left open.
+grep -q '^auto-merge acme2-os ' "$FAKE_HOST_LOG" || team_fail "company pull request got no auto-merge"
+grep -q 'auto-merge is off on acme2-os: pull request 5 stays open until the admin merges it' "$work/run.out" \
+  || team_fail "company auto-merge line"
+grep -q '^upgrade: ok' "$work/run.out" && team_fail "upgrade: ok with pull requests left open"
+grep -qx 'upgrade: open pull requests: acme2-marketing 5, acme2-os 5. Merge each one when its checks pass.' "$work/run.out" \
+  || team_fail "last line does not name the open pull requests"
 
 # B11: area logs move like the company logs.
 area="$co/areas/marketing"
@@ -165,6 +186,44 @@ git -C "$co" branch -D upgrade/v1 -q
 : > "$FAKE_HOST_LOG"
 "$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run2.out" 2>&1 || true
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse main)" = "$before" ] || team_fail "second run wrote main again"
+
+# Item 24: auto-merge is on, but on GitHub the admin's own rules pull request needs the bypass click.
+co5="$work/automerge"
+make_v0 "$co5" acme5-os
+: > "$FAKE_HOST_LOG"
+FAKE_AUTOMERGE=ok "$upgrade" --root "$co5" --template "$root/template" --answers "$work/answers" > "$work/am.out" 2>&1 \
+  || { cat "$work/am.out" >&2; team_fail "auto-merge run failed"; }
+grep -qx 'merge-by-hand: acme5-os 5' "$work/am.out" || team_fail "no merge-by-hand line for the company"
+grep -qx 'merge-by-hand: acme5-marketing 5' "$work/am.out" || team_fail "no merge-by-hand line for the area"
+grep -q 'Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".' "$work/am.out" \
+  || team_fail "no bypass click path"
+grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
+grep -q 'auto-merge is off' "$work/am.out" && team_fail "auto-merge line when auto-merge worked"
+
+# Item 25: a refused push to main never leaves main open. Protect runs again before the stop.
+co4="$work/refused"
+make_v0 "$co4" acme4-os
+printf '%s\n' '#!/bin/sh' 'echo "refused by the test host" >&2' 'exit 1' > "$work/git/acme4-os.git/hooks/pre-receive"
+chmod +x "$work/git/acme4-os.git/hooks/pre-receive"
+: > "$FAKE_HOST_LOG"
+set +e
+"$upgrade" --root "$co4" --template "$root/template" --answers "$work/answers" > "$work/refused.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/refused.out" >&2; team_fail "refused push exit was $rc"; }
+grep -q 'could not put the check tools on main of acme4-os. Protection on acme4-os is back on.' "$work/refused.out" \
+  || team_fail "refused push line"
+order=$(grep -E "^(unprotect|protect|open-pr) acme4-os " "$FAKE_HOST_LOG" | cut -d' ' -f1 | tr '\n' ' ')
+[ "$order" = "unprotect protect " ] || team_fail "refused push host order was: $order"
+# And if protect fails then, the line says main is open, in words the admin can act on.
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_PROTECT=fail "$upgrade" --root "$co4" --template "$root/template" --answers "$work/answers" > "$work/refused2.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/refused2.out" >&2; team_fail "refused push, failed protect exit was $rc"; }
+grep -qx 'PROTECTION IS OFF on acme4-os: run skills/_host/host.sh protect acme4-os --code-owners --approvals 0' "$work/refused2.out" \
+  || team_fail "no PROTECTION IS OFF line"
 
 # B9: no slug anywhere. Stop with a plain line before any push or host change.
 co2="$work/noslug"
@@ -210,5 +269,7 @@ grep -q -E '^(plan-check|unprotect|protect) ' "$FAKE_HOST_LOG" && team_fail "sol
 grep -q 'review-command' "$work/solo.out" && team_fail "solo upgrade printed the review command"
 [ "$(git --git-dir "$work/git/acme3-os.git" rev-parse main)" = "$before" ] || team_fail "solo upgrade wrote main"
 git -C "$co3" show upgrade/v1:company-profile.md | grep -qx 'level: solo' || team_fail "solo upgrade level"
+grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "solo upgrade asked for auto-merge"
+grep -q '^upgrade: open pull requests: acme3-marketing 5, acme3-os 5\.' "$work/solo.out" || team_fail "solo last line"
 
 printf '%s\n' "PASS host-upgrade"

@@ -810,7 +810,7 @@ author_env() {
 # Like team-on: lift protection, push one commit with only the check files to main,
 # then protect with the v1 rules (this also replaces a v0 classic rule and turns on auto-merge).
 checks_on_main() {
-  local dir=$1 repo=$2 tmp err owners first
+  local dir=$1 repo=$2 tmp err owners first f
   if ! os_with_git_token git -C "$dir" fetch origin; then
     os_die 3 "could not fetch ${repo}"
   fi
@@ -830,29 +830,47 @@ checks_on_main() {
       printf 'vendor=%s\nmodel=%s\nkind=%s\n' "$REVIEW_VENDOR" "$REVIEW_MODEL" "$REVIEW_KIND" > "$tmp/main/.github/review.conf"
     fi
     # v0 owned every file ("* @admin"). v1 owns rules files only, so notes merge on green checks.
+    # Replace only that stock line. Every line the company added stays, after the rules lines,
+    # so it still wins where it did before (the last matching line wins).
     owners=""
     if [ -f "$tmp/main/.github/CODEOWNERS" ]; then
       owners=$(awk '$1 == "*" { $1 = ""; sub(/^ /, ""); print; exit }' "$tmp/main/.github/CODEOWNERS")
     fi
     if [ -n "$owners" ]; then
       first=${owners%% *}
+      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+        : > "$tmp/keep"
+        if [ -f "$tmp/main/$f" ]; then
+          awk '$1 == "*" || $1 == ".*" { next } { print }' "$tmp/main/$f" > "$tmp/keep"
+        fi
+        mv "$tmp/keep" "$tmp/keep-${f%%/*}"
+      done
       os_codeowners "$tmp/main" "$owners" "$first"
+      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+        if grep -q '[^[:space:]]' "$tmp/keep-${f%%/*}"; then
+          { printf '\n%s\n' "# Kept from before the upgrade."; cat "$tmp/keep-${f%%/*}"; } >> "$tmp/main/$f"
+        fi
+        rm -f "$tmp/keep-${f%%/*}"
+      done
       git -C "$tmp/main" add -- .github/CODEOWNERS .gitea/CODEOWNERS
     fi
     git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
     author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
+    # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
+    # refuse this push. From here until protect, every way out puts protection back.
     os_host unprotect "$repo" >/dev/null
     err=$(mktemp)
     if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
       cat "$err" >&2
       git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
       rm -rf "$tmp"
+      reprotect "$repo"
       if grep -qi 'workflow' "$err"; then
         rm -f "$err"
-        os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protect it now: skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+        os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
       fi
       rm -f "$err"
-      os_die 3 "could not put the check tools on main of ${repo}. Protect it now: skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+      os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
     fi
     rm -f "$err"
     git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
@@ -860,8 +878,16 @@ checks_on_main() {
     os_with_git_token git -C "$dir" fetch origin >/dev/null 2>&1 || true
     printf 'checks-on-main: %s\n' "$repo"
   fi
-  os_host protect "$repo" --code-owners --approvals 0 >/dev/null
+  reprotect "$repo"
   printf 'protected: %s\n' "$repo"
+}
+
+# Protect main with the v1 rules. If that fails, say plainly that main is open.
+reprotect() {
+  local repo=$1
+  if ! os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null; then
+    os_die 3 "PROTECTION IS OFF on ${repo}: run skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+  fi
 }
 
 REVIEW_VENDOR=""
@@ -1047,6 +1073,29 @@ area_logs_merge() {
 
 # Area folders are separate repos. /areas/ is gitignored in the company repo.
 # Commit the scripts in each area repo and open a pull request. Never git add them here.
+# Pull requests that will not merge by themselves. upgrade: ok only when there are none.
+HAND=""
+pr_merge_path() {
+  local repo=$1 number=$2
+  if [ "$TEAM_ON" -ne 1 ]; then
+    # Solo: no protection and no auto-merge. The person merges.
+    HAND="${HAND:+${HAND}, }${repo} ${number}"
+    return 0
+  fi
+  if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
+    printf 'auto-merge is off on %s: pull request %s stays open until the admin merges it.\n' "$repo" "$number"
+    HAND="${HAND:+${HAND}, }${repo} ${number}"
+    return 0
+  fi
+  if [ "$UP_HOST" = "github" ]; then
+    # The admin wrote it and it changes rules files. GitHub never counts the author's own
+    # code-owner approval. The admin bypass on rules-review is a click on the merge box;
+    # auto-merge does not use it.
+    printf 'merge-by-hand: %s %s\n' "$repo" "$number"
+    HAND="${HAND:+${HAND}, }${repo} ${number}"
+  fi
+}
+
 push_area_scripts() {
   local area name repo branch pr number src rules_src
   src="$TEMPLATE/.github/scripts"
@@ -1115,10 +1164,8 @@ push_area_scripts() {
     if [ -z "$number" ]; then
       os_die 3 "could not open a pull request for ${repo}"
     fi
-    if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
-      printf 'auto-merge is off on %s: pull request %s stays open. Merge it when the checks pass.\n' "$repo" "$number"
-    fi
     printf 'pr: %s %s\n' "$repo" "$number"
+    pr_merge_path "$repo" "$number"
   done
 }
 
@@ -1171,9 +1218,11 @@ if [ "$HOST_ON" -eq 1 ]; then
   os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
   pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
-  if [ -n "$number" ]; then
-    printf 'pr: %s\n' "$number"
+  if [ -z "$number" ]; then
+    os_die 3 "could not open a pull request for $(os_company_repo "$SLUG")"
   fi
+  printf 'pr: %s\n' "$number"
+  pr_merge_path "$(os_company_repo "$SLUG")" "$number"
 elif [ -d "$ROOT/areas" ]; then
   # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.
   for area in "$ROOT"/areas/*; do
@@ -1193,4 +1242,11 @@ elif [ -d "$ROOT/areas" ]; then
 fi
 rm -f "$pr_body"
 
-printf '%s\n' "upgrade: ok"
+if [ -n "$HAND" ]; then
+  if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
+    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".'
+  fi
+  printf 'upgrade: open pull requests: %s. Merge each one when its checks pass.\n' "$HAND"
+else
+  printf '%s\n' "upgrade: ok"
+fi
