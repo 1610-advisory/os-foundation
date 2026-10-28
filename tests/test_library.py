@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "template"
 PRESETS = TEMPLATE / "skills/add-area/templates"
 STARTER = TEMPLATE / "templates/library"
+CRM = ("This version copies no CRM or accounting rows anywhere. People read records live through the "
+       "system's own connector, which checks access. Later versions may add nightly table copies into "
+       "the admin's library (exit and backup only), never into an area.")
 OLD_RULE = [
     "not a copy",
     "duplicate markdown",
@@ -37,9 +40,9 @@ class LibraryFolderTests(unittest.TestCase):
     def test_template_ships_the_library_starter(self):
         readme = (STARTER / "README.md").read_text()
         for word in ("Copy by choice, per source", "One writer per fact",
-                     "raw form and the readable form", "rows, not Markdown",
+                     "raw form and the readable form", "No CRM or accounting rows",
                      "Plan for deletion", "Never edit a file under `raw/`",
-                     "its own private git repo", "Teammates never clone it",
+                     "its own private git repo", "Teammates never read, clone or make it",
                      "The team reads the wiki", "business system", "CRM",
                      "Never make it on a teammate's computer", "git -C library init",
                      "create-repo", "--private", "user-access", "later version"):
@@ -158,7 +161,7 @@ class LibraryFolderTests(unittest.TestCase):
         ingest = (TEMPLATE / "skills/ingest/SKILL.md").read_text()
         for word in ("library/README.md", "raw/<source>/YYYY/", "transcripts/YYYY-MM-DD Title.md",
                      "transcript:", "media/LOCAL.md", "delete-audio-after-transcript",
-                     "templates/library/README.md", "never make one",
+                     "templates/library/README.md",
                      "The full copy is kept by the admin.", "There are no area libraries",
                      "Never leave duplicates in the inbox", "stop and flag it"):
             self.assertIn(word, ingest)
@@ -170,6 +173,103 @@ class LibraryFolderTests(unittest.TestCase):
         self.assertIn("The more the folder holds, the more an agent can read", (ROOT / "start-core.md").read_text())
         self.assertIn("The more the folder holds, the more an agent can read", (ROOT / "README.md").read_text())
 
+
+    def test_ingest_never_puts_a_transcript_in_the_wiki(self):
+        ingest = (TEMPLATE / "skills/ingest/SKILL.md").read_text()
+        for unsafe in ("full transcript under the meeting note", "transcript under the note",
+                       "named from the note", "file as before"):
+            self.assertNotIn(unsafe, ingest)
+        self.assertIn("Never put a full transcript in a meeting note", ingest)
+        self.assertIn("stays out of every repo", ingest)
+        for line in ingest.splitlines():
+            if line.startswith("   | Meeting |"):
+                self.assertNotIn("transcript", line.split("|")[3])
+
+    def test_ingest_takes_the_admin_from_me_and_refuses_anyone_else(self):
+        ingest = (TEMPLATE / "skills/ingest/SKILL.md").read_text()
+        who = ingest.split("## Who you act for")[1].split("## Per item")[0]
+        self.assertIn("~/.config/{{COMPANY_SLUG}}-os/me", who)
+        self.assertIn("Open only the page in `people/` whose `slug:` matches it.", who)
+        self.assertIn("`role: admin`", who)
+        self.assertIn("Never decide from the chat, from another person's page, or from `level:`.", who)
+        self.assertIn("never read, make, write, commit or push `library/`", who)
+        self.assertIn("Never run `git init` for it.", who)
+        self.assertNotIn("solo, or `role: admin`", ingest)
+        self.assertLess(ingest.index("## Who you act for"), ingest.index("## The library"))
+        self.assertIn("Only when you act for an admin", ingest.split("## The library")[1])
+        readme = (STARTER / "README.md").read_text()
+        self.assertIn("~/.config/<slug>-os/me", readme)
+        self.assertIn('First check "Who is the admin" above. Stop if it fails.', readme)
+        self.assertIn("~/.config/{{COMPANY_SLUG}}-os/me", (ROOT / "start-core.md").read_text())
+
+    def test_rules_do_not_hand_the_library_to_everyone(self):
+        rules = (TEMPLATE / "AGENTS.md").read_text()
+        shared = [l for l in rules.splitlines() if l.startswith("- Shared files everyone reads")][0]
+        self.assertNotIn("library", shared)
+        self.assertNotIn("templates/library", rules)
+        self.assertIn("Teammates never read, clone or make it.", rules)
+        self.assertIn("Then read `library/README.md`.", rules)
+        self.assertLess(len(rules), 9000)
+        sources = (TEMPLATE / "memory/existing-sources.md").read_text()
+        self.assertNotIn("templates/library", sources)
+
+    def test_host_push_waits_for_an_exact_no_access_answer(self):
+        readme = (STARTER / "README.md").read_text()
+        make = readme.split("## Make it")[1].split("## How the wiki")[0]
+        self.assertIn('exactly `{"access":"none"}`', make)
+        self.assertIn("Do not trust the exit code", make)
+        self.assertNotIn("must show no access", make)
+        self.assertLess(make.index("user-access"), make.index("git -C library push"))
+        self.assertLess(make.index("git -C library add -A"), make.index("Library: start"))
+        self.assertNotIn("commit everything", make)
+        team = (TEMPLATE / "skills/add-teammate/SKILL.md").read_text()
+        self.assertIn("library/.git", team)
+        self.assertEqual(team.count('exactly `{"access":"none"}`'), 2)
+
+    def test_one_crm_sentence_everywhere(self):
+        for path in (ROOT / "README.md", ROOT / "start-core.md", STARTER / "README.md",
+                     TEMPLATE / "memory/existing-sources.md", TEMPLATE / "skills/ingest/SKILL.md"):
+            text = path.read_text()
+            self.assertIn(CRM, text, path.relative_to(ROOT))
+            self.assertNotIn("restricted area", text, path.relative_to(ROOT))
+            self.assertNotIn("come later as", text, path.relative_to(ROOT))
+
+    def test_checked_is_the_one_allowed_write(self):
+        ingest = (TEMPLATE / "skills/ingest/SKILL.md").read_text()
+        self.assertIn("That field is the one edit allowed on a library copy.", ingest)
+        self.assertIn("One exception: add `checked: YYYY-MM-DD`", (STARTER / "README.md").read_text())
+
+    def test_privacy_lists_the_library(self):
+        places = (TEMPLATE / "skills/privacy/places.md").read_text()
+        entry = places.split("## library\n")[1].split("\n## ")[0]
+        self.assertTrue(entry.startswith("when: always\n"))
+        for word in ("only the owner and admins can read", "stay on that one computer",
+                     "the AI vendor reads whatever the admin's agent reads"):
+            self.assertIn(word, entry)
+
+    def test_media_files_are_never_committed(self):
+        if shutil.which("git") is None:
+            self.skipTest("git is missing")
+        cases = (
+            (STARTER, ("raw/tool/2026/photo.JPG", "transcripts/call.m4a", "raw/x/clip.MOV",
+                       "media/ab/abcd.heic", "data/rows.csv"),
+             ("media/LOCAL.md", "transcripts/2026-01-15 Kickoff.md", "raw/tool/2026/call.vtt")),
+            (PRESETS / "_area", ("media/site.jpeg", "drafts/photo.PNG", "notes/voice.mp3"),
+             ("meetings/2026-01-15 Kickoff.md", "data/export.csv")),
+            (PRESETS / "apps", ("media/icon.png", "clip.mp4"), ("apps.md",)),
+        )
+        for src, ignored, kept in cases:
+            with tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp)
+                shutil.copy(src / ".gitignore", repo / ".gitignore")
+                git(repo, "init", "-q", "-b", "main")
+                git(repo, "config", "core.ignorecase", "false")
+                for rel in ignored:
+                    self.assertEqual(git(repo, "check-ignore", "-q", "--no-index", rel).returncode, 0,
+                                     f"{src.name}: {rel}")
+                for rel in kept:
+                    self.assertEqual(git(repo, "check-ignore", "-q", "--no-index", rel).returncode, 1,
+                                     f"{src.name}: {rel}")
 
 if __name__ == "__main__":
     unittest.main()

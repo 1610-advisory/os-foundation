@@ -16,7 +16,7 @@ Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question
 
 The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
 
-Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. Records with per-person access stay in the tool that checks access, such as your CRM. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
+Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
 
 | Agent | How to start |
 |---|---|

@@ -107,7 +107,7 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Layout and skills
 
-- Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `library/` (admin only: its own private repo of copies), `memory/`, `skills/`, `templates/`.
+- Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `memory/`, `skills/`, `templates/`.
 - `areas/<area>/`: each area is its **own git repo**, ignored by this one, so a person without an area does not have it. Area work starts in the area folder.
 - Skills: when a request matches one, read its `SKILL.md` and follow it. Area skills: `areas/<area>/skills/`.
   - Every level: `skills/ingest/` (file the inbox), `skills/add-area/`, `skills/connect-tool/`, `skills/app-setup/` (apps, hosting), `skills/write-skill/` (write this down), `skills/skill-creator/` (read `FOUNDATION.md` first), `skills/lint/` (health check), `skills/suggest/` (send an idea to 1610), `skills/privacy/` (writes `privacy.md`), `skills/add-teammate/`, `skills/upgrade/`.
@@ -123,8 +123,8 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Existing knowledge
 
-- The folder is the company's memory; every tool is a worker it can replace. `memory/existing-sources.md` lists each source, its mode (`index` or `copy`), and where it is edited. It grants no access. If access fails, say so.
-- Copy a source into `library/` only after a person says yes to that source. Only the admin's agent writes it; teammates never have it. Rules: `templates/library/README.md`. A copy is read-only: replace it, never edit it. Never bulk-import on your own.
+- The folder is the company's memory; every tool is a worker it can replace. `memory/existing-sources.md` lists each source, its mode (`index` or `copy`) and where it is edited.
+- `library/` is the admin's private repo of copies, not shared. Teammates never read, clone or make it. Admin: `me` (section 11) names a `people/` page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
 
 ## Conventions
 

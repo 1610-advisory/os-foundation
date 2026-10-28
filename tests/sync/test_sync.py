@@ -1826,6 +1826,64 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn(".sync-reclone-", status.stdout)
         self.assertTrue(any(p.is_dir() for p in self.company.parent.glob(".sync-reclone-*")))
 
+    def push_rewrite(self, bare, stamp):
+        orphan = self.tmp / f"orphan-{stamp}"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        (orphan / ".gitignore").write_text("/library/\n")
+        run(["git", "-C", str(orphan), "add", "README.md", ".gitignore"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        name = f"os-rewrite-{stamp}"
+        run(["git", "-C", str(orphan), "tag", "-a", name, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", f"refs/tags/{name}"], env=self.env, check=True)
+
+    def make_library(self):
+        lib = self.company / "library"
+        (lib / "transcripts").mkdir(parents=True)
+        (lib / "media" / "ab").mkdir(parents=True)
+        (lib / ".gitignore").write_text("/media/*\n!/media/LOCAL.md\n")
+        (lib / "transcripts" / "2026-10-24 Kickoff.md").write_text("transcript\n")
+        run(["git", "init", "-q", "-b", "main", str(lib)], env=self.env, check=True)
+        run(["git", "-C", str(lib), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(lib), "commit", "-q", "-m", "Library: start"], env=self.env, check=True)
+        # Media is git-ignored: this file exists only on this computer.
+        (lib / "media" / "ab" / "ab12.jpg").write_bytes(b"photo")
+        (lib / "transcripts" / "unpushed.md").write_text("not committed\n")
+        return lib
+
+    def test_rewrite_keeps_the_library(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235956")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("pull reclone", log)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((lib / "transcripts" / "unpushed.md").exists())
+        head = run(["git", "-C", str(lib), "log", "-1", "--format=%s"], env=self.env, check=True)
+        self.assertEqual(head.stdout.strip(), "Library: start")
+        self.assertFalse(list(self.company.parent.glob(".sync-old-*")))
+
+    def test_failed_rewrite_puts_the_library_back(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235955")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+
     def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
         self.seed_origin()
         (self.company / "dangling.md").symlink_to("missing-target")

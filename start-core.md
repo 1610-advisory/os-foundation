@@ -72,7 +72,7 @@ Store the company OS where they can open it again, in a folder this session can 
 - Shared knowledge lives at the company root. Everyone the owner gives access to can read it.
 - Areas hold the work of one part of the business. Start with the area their first job needs. More can come later with "add an area."
 - The folder is the company's memory; every tool is a worker it can replace. If they already keep knowledge somewhere else, it can stay edited there. Per source, they choose whether the folder keeps a pointer or its own copy in `library/`. They may also choose to move selected material into the folder for good.
-- `library/` is its own private repo: only the owner and admins have it, and teammates never get it. The team gets value from the wiki the agent writes from it (meeting summaries, people, decisions). Records and photos with per-person access come from the business system that already checks access, for example a CRM through its own connector. The library is for completeness, leaving a tool, backup, and the admin's agent.
+- `library/` is its own private repo: only the owner and admins have it, and teammates never get it. The team gets value from the wiki the agent writes from it (meeting summaries, people, decisions). This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area. The library is for completeness, leaving a tool, backup, and the admin's agent.
 - Toolkits are optional plugs into areas. The **Marketing Toolkit** exists. The **Finance Toolkit** is coming. Do not push either.
 
 ## Step 0 — Check the ground
@@ -113,7 +113,7 @@ Build it now, so every answer from here on is saved as you go and a dropped sess
    ```
    Then commit. Then run `skills/sync/sync.sh pull`: it makes the local skill copies. This history is local. It is not a mirror of any system they already use, and it does not need GitHub.
 5. Delete the temporary download.
-6. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`, with `slug:` set to a short lowercase form of their first name and `role: admin`), and the website in `company-profile.md`.
+6. Write what you have so far: a person note for the owner in `people/{{FULL_NAME}}.md` (from `templates/person.md`, with `slug:` set to a short lowercase form of their first name and `role: admin`), and the website in `company-profile.md`. Then write that slug as the one line of `~/.config/{{COMPANY_SLUG}}-os/me` (mode 600), outside the folder. It says who the agent acts for; the library checks it. If the file already exists, leave it.
 
 From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit after each phase. If that repo already has a remote, you may push there. Add a new remote only if they ask.
 

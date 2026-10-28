@@ -171,9 +171,15 @@ sync_move_nested() {
   if [ "${OS_SYNC_MOVE_BACK_FAIL:-}" = "1" ]; then
     return 1
   fi
-  for d in "$repo"/areas/* "$repo"/users/*; do
-    [ -e "$d/.git" ] || continue
+  # library/ is the admin's private repo. The company repo ignores it, so a
+  # clone never has it. Move it even without a .git: media is the only copy.
+  for d in "$repo"/areas/* "$repo"/users/* "$repo"/library; do
     rel=${d#"$repo/"}
+    if [ "$rel" = "library" ]; then
+      [ -e "$d" ] || continue
+    else
+      [ -e "$d/.git" ] || continue
+    fi
     if [ -e "$dest/$rel" ]; then
       return 1
     fi
@@ -243,7 +249,7 @@ sync_reclone() {
     [ -n "$path" ] || continue
     [ -f "$repo/$path" ] || continue
     case "$path" in
-      areas/*|users/*) continue ;;
+      areas/*|users/*|library/*) continue ;;
     esac
     hit=0
     if [ -s "$rules" ]; then
