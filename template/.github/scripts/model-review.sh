@@ -78,7 +78,7 @@ if [ -z "$rules" ] || [ -z "$title_file" ] || [ -z "$body_file" ] || [ -z "$diff
 fi
 
 # The vendor's error.message, one line, at most 300 characters. Never the key:
-# drop the key itself and any masked key ("xai-***abcd") the vendor echoes back.
+# drop the key itself and any masked key the vendor echoes back (a word with three or more stars).
 vendor_error() {
   local file=$1 msg
   [ -s "$file" ] || return 0
