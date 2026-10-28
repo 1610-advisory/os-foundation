@@ -200,6 +200,13 @@ if [ -f "$HOME/.cursor/User/rules.md" ]; then
 fi
 
 accepted=$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)
+# A second run before the terms pull request merges: the change is on origin/sync/<me>.
+if [ -z "$accepted" ] && [ -n "$PAGE" ]; then
+  os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
+  if git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:'; then
+    accepted=pending
+  fi
+fi
 if [ -n "$accepted" ]; then
   printf '%s\n' "terms: already"
 else
@@ -208,8 +215,11 @@ else
   git -C "$ROOT" checkout -q -B "$branch" origin/main
   PAGE=$(os_person_file "$ROOT" "$ME")
   os_fm_set "$PAGE" terms_accepted "$(os_today)"
-  os_git_commit "$ROOT" "Join: accept terms"
+  os_git_commit "$ROOT" "Join: accept terms" "$PAGE"
   os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+  # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
+  # host each night, so a clone left on it never fast-forwards again.
+  git -C "$ROOT" checkout -q main 2>/dev/null || git -C "$ROOT" checkout -q -b main origin/main
   pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "sync: ${ME}")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   printf 'terms: proposed\n'
