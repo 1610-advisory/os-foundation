@@ -265,6 +265,12 @@ host_split_grant() {
   esac
 }
 
+# Forgejo has no paid plan: protection works on every repo.
+cmd_plan_check() {
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  jq -nc '{plan:null}'
+}
+
 cmd_whoami() {
   [ -z "$POS1" ] || host_die 1 "too many arguments"
   if ! fj_call GET "/user"; then
@@ -887,6 +893,7 @@ cmd_delete() {
 
 case "$VERB" in
   whoami) cmd_whoami ;;
+  plan-check) cmd_plan_check ;;
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;

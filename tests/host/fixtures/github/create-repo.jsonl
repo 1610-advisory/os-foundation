@@ -1,1 +1,2 @@
 {"body":{"name":"acme-os","private":true,"visibility":"private"},"method":"POST","path":"/orgs/acme/repos"}
+{"body":{"allow_auto_merge":true},"method":"PATCH","path":"/repos/acme/acme-os"}
