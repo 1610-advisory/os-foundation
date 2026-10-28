@@ -61,7 +61,7 @@ Store the company OS where they can open it again, in a folder this session can 
 ├── AGENTS.md                 the rules every agent reads
 ├── company-profile.md, customers.md, offers.md, voice.md
 ├── people/  meetings/  decisions/  inbox/  memory/  skills/  templates/
-├── library/                  the company's own copy of sources it chose to copy
+├── library/                  the admin's private repo: full copies of sources they chose to copy
 ├── .agents/skills, .claude/skills   links to skills/, so every agent finds them
 └── areas/                    one folder per area of the business
     ├── marketing/            each area is its own git repo,
@@ -72,6 +72,7 @@ Store the company OS where they can open it again, in a folder this session can 
 - Shared knowledge lives at the company root. Everyone the owner gives access to can read it.
 - Areas hold the work of one part of the business. Start with the area their first job needs. More can come later with "add an area."
 - The folder is the company's memory; every tool is a worker it can replace. If they already keep knowledge somewhere else, it can stay edited there. Per source, they choose whether the folder keeps a pointer or its own copy in `library/`. They may also choose to move selected material into the folder for good.
+- `library/` is its own private repo: only the owner and admins have it, and teammates never get it. The team gets value from the wiki the agent writes from it (meeting summaries, people, decisions). Records and photos with per-person access come from the business system that already checks access, for example a CRM through its own connector. The library is for completeness, leaving a tool, backup, and the admin's agent.
 - Toolkits are optional plugs into areas. The **Marketing Toolkit** exists. The **Finance Toolkit** is coming. Do not push either.
 
 ## Step 0 — Check the ground
@@ -137,10 +138,10 @@ For A, a voice line is not the win. They paste one real email, note, or CSV snip
 
 6. **Tools** — the checklist from the samples. "Just email for now" is a great answer. Write the list into `company-profile.md` → "Tools we use." Nothing is connected yet.
 7. **Existing knowledge** — ask: "Where do you already keep company knowledge, such as a Notion home page, Drive folder, brand guide, or old notes? Suggested: the main link or location you already use."
-   - Explain the goal in one line: the folder is the company's memory, and every tool is a worker it can replace. Then, per source, offer two modes. `index`: the folder keeps a pointer, and the material stays in the tool. `copy`: the folder keeps its own copy in `library/` (restricted material: the area's own `library/`, for example `areas/finance/library/`). Today a copy is made by hand when they ask; a nightly copy comes later. Suggest `index` for a big workspace and `copy` for meeting transcripts.
+   - Explain the goal in one line: the folder is the company's memory, and every tool is a worker it can replace. Then, per source, offer two modes. `index`: the folder keeps a pointer, and the material stays in the tool. `copy`: the owner's private `library/` keeps a full copy, and the team reads the summaries in the wiki. Today a copy is made by hand when they ask; a nightly copy comes later. Suggest `index` for a big workspace and `copy` for meeting transcripts.
    - Ask per source and wait for a yes. Never bulk-import on your own. A connector does not create a copy job.
    - Record every source in `memory/existing-sources.md`, whatever the mode: what it holds, its link or path, who maintains it if known, how the agent can access it, the mode, where it is edited, and the retention. Keep the entry in `memory/MEMORY.md` so later sessions can find it.
-   - A copy is read-only. The tool stays where the material is edited unless they choose to move it into the folder for good; then record that the folder is now where it is edited. Rules for copies are in `library/README.md`. Whatever they choose, do not delete the original without approval.
+   - A copy is read-only. The tool stays where the material is edited unless they choose to move it into the folder for good; then record that the folder is now where it is edited. On their first `copy`, make the library on this computer with "Make it" in `templates/library/README.md`: a local repo now, a private host repo only owners and admins can read when they reach the team level. Its rules are then in `library/README.md`. Whatever they choose, do not delete the original without approval.
    - A pasted link is not proof that you can read the source. Record access as not checked, unavailable, or verified on an absolute date. Do not request public sharing of private pages. If access is unavailable, use a small excerpt they choose to share for today's task.
    - If the index would expose restricted information, follow the company's sharing rules and keep that source entry in the relevant area instead.
 

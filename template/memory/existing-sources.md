@@ -6,7 +6,7 @@ type: reference
 
 # Existing sources
 
-The list of every source of company knowledge outside this folder. The folder is the company's memory; each tool is a worker it can replace. Each source has a mode: `index` (the folder keeps a pointer) or `copy` (the folder keeps its own copy in `library/`; restricted material in the area's own `library/`). Rules for copies: `library/README.md`. A person picks the mode per source. No sources recorded yet.
+The list of every source of company knowledge outside this folder. The folder is the company's memory; each tool is a worker it can replace. Each source has a mode: `index` (the folder keeps a pointer) or `copy` (the owner's private `library/` repo keeps a full copy; the team reads the summaries in the wiki). Rules for copies: `library/README.md` (or `templates/library/README.md` before the library exists). A person picks the mode per source. No sources recorded yet.
 
 For each source, record:
 
@@ -16,7 +16,7 @@ For each source, record:
 - **Access method:** connector, local file, export, or an excerpt shared by the person.
 - **Access status:** not checked, unavailable, or verified YYYY-MM-DD.
 - **Mode:** `index` or `copy`.
-- **Copy goes to:** `library/raw/<source>/` (restricted: `areas/<area>/library/raw/<source>/`), or `none` for `index`.
+- **Copy goes to:** `library/raw/<source>/`, or `none` for `index`.
 - **Refreshed:** `manual` (a person asks for a new copy). `nightly` comes in a later version. `none` for `index`.
 - **Edited in:** the tool, or the folder. One place only. A copy is never edited.
 - **Retention:** `keep`, `delete-after:YYYY-MM-DD`, or `delete-audio-after-transcript`.

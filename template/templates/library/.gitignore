@@ -1,0 +1,13 @@
+# Git holds text only. Media and data stay on this computer.
+/media/*
+!/media/LOCAL.md
+/data/
+
+# Secrets and machine files
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+token*.json
+.DS_Store

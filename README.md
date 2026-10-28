@@ -16,7 +16,7 @@ Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question
 
 The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
 
-Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or its own copy in `library/`. Restricted copies (finance, HR) go in that area's own `library/`. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
+Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. Records with per-person access stay in the tool that checks access, such as your CRM. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
 
 | Agent | How to start |
 |---|---|
@@ -41,7 +41,7 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 │   └── logs/                 one short log per person per day
 ├── skills/                   your SOPs, written down for the agent
 ├── .agents/skills, .claude/skills   links to skills/, so every agent finds them
-├── library/                  your own copy of the sources you chose to copy (text in git)
+├── library/                  private, owner and admin only: full copies of sources you chose
 └── areas/                    one folder per area of the business
     ├── marketing/
     ├── finance/

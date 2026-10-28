@@ -17,7 +17,7 @@ What each check means:
 2. **Skill copies.** On a computer with no link support (Windows), setup or `sync` copies `skills/` into `.agents/skills` and `.claude/skills`. A copy that differs from `skills/` is drift: `skills copy drift: <path>`. So is an area skill that has the same name as a company skill but other content. Agents then follow old steps. Change a skill in `skills/`, never in the copy. Fix a drifted copy: [team] run `skills/sync/sync.sh pull --full`. It moves an edit made in the copy into `skills/` (then propose it). If the sync log says `skills copy conflict <path>`, ask which version the person wants, copy it into `skills/` by hand, and run lint again. Solo: copy `skills/` there again. Never commit a copy.
 3. **Level and switches.** `level:` must be `solo`, `team` or `app`. Each name in `switches:` must be a known switch. `dream` is not a switch: it is an error.
 4. **Rules file size.** Each `AGENTS.md`, `CLAUDE.md`, `review-rules.md` and `bots/*/BOT.md` must be under 10,000 characters. Agents may cut a longer file. Move detail into a skill.
-5. **Placeholders.** No `{{...}}` left outside `skills/`. A skill's `{{...}}` is filled when it runs.
+5. **Placeholders.** No `{{...}}` left outside `skills/`. A skill's `{{...}}` is filled when it runs. `library/` is skipped: it is the admin's private repo of copies.
 6. **Profile.** [team] `users/<person>/profile/PROFILE.md` must not hold the company name or slug. This is a simple check. The nightly check is the real one.
 
 The script may also print two lines that are not findings. They do not change the exit code. Pass each on in one line:
@@ -28,7 +28,7 @@ Never offer the dream pass. It is not available.
 
 ## 2. Read the rest
 
-These need judgment. The script does not do them.
+These need judgment. The script does not do them. Skip `library/`: its copies are never edited, and only its own `README.md` rules apply there.
 
 1. **Secrets.** Strings that look like keys or passwords: an API key value, a `password:` line, a private key block. [team] Also run `skills/sync/secret-scan.sh --files -- <file>...` on the files you check. Put any hit at the top of the report. Never repeat the value: name the file and line only.
 2. **Broken links.** Every `[[target]]` that matches no file. Ignore `#heading` and `|alias`. Match by file name, any case. Do not make pages. List the most-linked missing ones.
