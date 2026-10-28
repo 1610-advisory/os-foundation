@@ -653,6 +653,11 @@ os_review_state() {
   out=$(os_host secret-exists OS_REVIEW_KEY 2>/dev/null)
   rc=$?
   set -e
+  # 4: the sign-in may not read org secrets. The key may be there.
+  if [ "$rc" -eq 4 ]; then
+    printf '%s\n' "denied"
+    return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "unchecked"
     return 0
@@ -683,12 +688,20 @@ os_repo_url() {
 
 os_hand_off() {
   local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6 host=$7 host_url=$8
-  local company_url ws_url
+  local company_url ws_url host_line
   company_url=$(os_repo_url "$host" "$host_url" "$org" "$company_repo")
   ws_url=$(os_repo_url "$host" "$host_url" "$org" "$ws")
+  # github.com has no host_url. Name the host and org instead: github.com/<org>.
+  host_line=$host_url
+  if [ "$host" = "github" ]; then
+    host_line=${host_url:-https://github.com}
+    host_line=${host_line#https://}
+    host_line=${host_line#http://}
+    host_line="${host_line%/}/${org}"
+  fi
   printf 'hand-off: %s\n' "$slug"
   printf 'Hand-off for %s. Company repo: %s. Host: %s. Areas: %s. Workspace: %s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
-    "$name" "$company_url" "$host_url" "$areas" "$ws_url"
+    "$name" "$company_url" "$host_line" "$areas" "$ws_url"
 }
 
 os_split_areas() {

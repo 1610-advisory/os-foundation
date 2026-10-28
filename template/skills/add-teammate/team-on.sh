@@ -150,8 +150,12 @@ case "$REVIEW" in
       printf '%s\n' "review: second-vendor"
     fi
     ;;
-  unchecked)
-    printf '%s\n' "could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)"
+  denied)
+    if [ "$HOST_KIND" = "github" ]; then
+      printf '%s\n' "could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)"
+    else
+      printf '%s\n' "could not check the review key: sign in as an org owner"
+    fi
     ;;
   *)
     printf '%s\n' "no review key: every pull request fails the model review until you add one"

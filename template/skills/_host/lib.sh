@@ -656,11 +656,12 @@ host_push_refused() {
   if grep -qi 'workflow' "$err"; then
     host_die 3 "push refused: the sign-in cannot write workflow files. Add the workflow scope (gh auth refresh -s workflow), or give the token Workflows: write."
   fi
+  # git says "unable to access" for an HTTP 403 too, so the refusals go first.
+  if grep -qiE 'authentication failed|permission to .* denied|error: 40[13]|push to create' "$err"; then
+    host_die 3 "push refused: the sign-in cannot write to this repo"
+  fi
   if grep -qiE 'could not resolve|unable to access|connection refused|timed out' "$err"; then
     host_die 5 "push failed: the host is offline"
-  fi
-  if grep -qiE 'authentication failed|permission to .* denied|403|401' "$err"; then
-    host_die 3 "push refused: the sign-in cannot write to this repo"
   fi
   host_die 3 "push refused by the host: see the git message above"
 }

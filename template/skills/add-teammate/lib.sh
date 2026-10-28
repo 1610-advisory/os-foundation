@@ -653,6 +653,11 @@ os_review_state() {
   out=$(os_host secret-exists OS_REVIEW_KEY 2>/dev/null)
   rc=$?
   set -e
+  # 4: the sign-in may not read org secrets. The key may be there.
+  if [ "$rc" -eq 4 ]; then
+    printf '%s\n' "denied"
+    return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "unchecked"
     return 0
