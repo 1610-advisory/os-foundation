@@ -93,6 +93,14 @@ ci_trim() {
   printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+# Git over HTTP on GitHub takes only basic auth: x-access-token and the token.
+# Forgejo takes the same form. printf is a shell builtin, so the token is never an argument.
+ci_git_header() {
+  local b64
+  b64=$(printf '%s' "x-access-token:${JOB_TOKEN}" | base64 | tr -d '\r\n')
+  printf '%s' "Authorization: basic ${b64}"
+}
+
 # Git reads the token from the environment, not from a command argument.
 ci_git() {
   if [ -z "${JOB_TOKEN:-}" ]; then
@@ -100,7 +108,7 @@ ci_git() {
   fi
   GIT_CONFIG_COUNT=1 \
     GIT_CONFIG_KEY_0=http.extraHeader \
-    GIT_CONFIG_VALUE_0="Authorization: token ${JOB_TOKEN}" \
+    GIT_CONFIG_VALUE_0="$(ci_git_header)" \
     GIT_TERMINAL_PROMPT=0 \
     git -c credential.helper= "$@"
 }

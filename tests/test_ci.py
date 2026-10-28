@@ -465,6 +465,94 @@ class BaseRulesTests(unittest.TestCase):
         self.assertNotIn("HEAD_RULES", shown)
 
 
+class GitAuthHeaderTests(unittest.TestCase):
+    """B12: git over HTTP on GitHub refuses "Authorization: token". Both hosts take basic auth."""
+
+    TOKEN = "ghs_notarealtoken0123456789abcdefghijklmnopqrstuvwxyz0123456789"
+
+    def want(self):
+        import base64
+        return "Authorization: basic " + base64.b64encode(f"x-access-token:{self.TOKEN}".encode()).decode()
+
+    def fake_git(self, tmp):
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        fake = bin_dir / "git"
+        fake.write_text(textwrap.dedent("""\
+            #!/bin/bash
+            printf '%s\\n' "$*" >> "$FAKE_DIR/argv"
+            for a in "$@"; do
+              case "$a" in
+                fetch|ls-remote) printf '%s|%s\\n' "${GIT_CONFIG_KEY_0:-}" "${GIT_CONFIG_VALUE_0:-}" >> "$FAKE_DIR/header" ;;
+                checkout)
+                  mkdir -p .github/scripts
+                  printf '%s\\n' '#!/bin/bash' 'exit 0' > .github/scripts/checkout.sh
+                  : > .github/scripts/lib.sh
+                  ;;
+              esac
+            done
+            exit 0
+            """))
+        fake.chmod(0o755)
+        return bin_dir
+
+    def check(self, tmp):
+        headers = (tmp / "header").read_text().splitlines()
+        self.assertTrue(headers)
+        for line in headers:
+            self.assertEqual(line, "http.extraHeader|" + self.want())
+            self.assertNotIn("Authorization: token", line)
+        self.assertNotIn(self.TOKEN, (tmp / "argv").read_text())
+
+    def test_ci_git_sends_basic_auth(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            bin_dir = self.fake_git(tmp)
+            proc = run(
+                ["bash", "-c", 'source "$1"; ci_git fetch origin main', "git", str(SCRIPTS / "lib.sh")],
+                env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_DIR": raw, "JOB_TOKEN": self.TOKEN},
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.check(tmp)
+            self.assertNotIn(self.TOKEN, proc.stdout + proc.stderr)
+
+    def test_workflow_checkout_sends_basic_auth(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("Authorization: token", text)
+        lines = text.splitlines()
+        start = lines.index("      - name: checkout")
+        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+        body = []
+        for line in lines[run_at + 1:]:
+            if line.startswith("      - name:"):
+                break
+            body.append(line[10:] if line.startswith(" " * 10) else line.strip())
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            bin_dir = self.fake_git(tmp)
+            work = tmp / "work"
+            work.mkdir()
+            (tmp / "runner").mkdir()
+            script = tmp / "checkout-step.sh"
+            script.write_text("\n".join(body) + "\n")
+            proc = run(
+                ["bash", str(script)],
+                env={
+                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                    "FAKE_DIR": raw,
+                    "JOB_TOKEN": self.TOKEN,
+                    "GITHUB_WORKSPACE": str(work),
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "acme/acme-os",
+                    "GITHUB_EVENT_NAME": "pull_request",
+                    "RUNNER_TEMP": str(tmp / "runner"),
+                },
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.check(tmp)
+            self.assertNotIn(self.TOKEN, proc.stdout + proc.stderr)
+
+
 class PathMatchTests(unittest.TestCase):
     def match(self, kind, pattern, path):
         script = SCRIPTS / "lib.sh"
