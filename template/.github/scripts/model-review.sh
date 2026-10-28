@@ -77,6 +77,22 @@ if [ -z "$rules" ] || [ -z "$title_file" ] || [ -z "$body_file" ] || [ -z "$diff
   exit 1
 fi
 
+# The vendor's error.message, one line, at most 300 characters. Never the key:
+# drop the key itself and any masked key ("xai-***abcd") the vendor echoes back.
+vendor_error() {
+  local file=$1 msg
+  [ -s "$file" ] || return 0
+  msg=$(jq -r '(if (.error | type) == "object" then .error.message else .error end) // .message // empty
+    | if type == "string" then . else tojson end' \
+    "$file" 2>/dev/null || true)
+  [ -n "$msg" ] || return 0
+  msg=$(printf '%s' "$msg" | tr '\r\n\t' '   ')
+  if [ -n "${OS_REVIEW_KEY:-}" ]; then
+    msg=${msg//"$OS_REVIEW_KEY"/[key]}
+  fi
+  printf '%s' "$msg" | sed -E 's/[A-Za-z0-9_.-]*[*]{3,}[A-Za-z0-9_.-]*/[key]/g' | cut -c 1-300
+}
+
 fail() {
   printf '%s\n' "$1" >&2
   if [ -n "${out_file:-}" ]; then
@@ -238,6 +254,9 @@ if [ -n "${OS_REVIEW_FAKE:-}" ]; then
   fake_review "$OS_REVIEW_FAKE"
 fi
 
+# A pasted key can carry spaces or a line break. Either breaks the curl config.
+# printf is a shell builtin, so the key is never a command argument.
+OS_REVIEW_KEY=$(printf '%s' "${OS_REVIEW_KEY:-}" | tr -d ' \t\r\n')
 if [ -z "${OS_REVIEW_KEY:-}" ]; then
   fail "no review key: every pull request fails the model review until you add one"
 fi
@@ -310,11 +329,17 @@ if [ "$curl_rc" -eq 28 ]; then
   fail "model review failed: the review API timed out"
 fi
 if [ "$curl_rc" -ne 0 ] || [ -z "$http" ] || [ "$http" = "000" ]; then
-  fail "model review failed: the review API returned an error"
+  fail "model review failed: could not reach the review API (curl exit ${curl_rc})"
 fi
 case "$http" in
   200) ;;
-  *) fail "model review failed: the review API returned an error" ;;
+  *)
+    reason=$(vendor_error "$resp")
+    if [ -n "$reason" ]; then
+      fail "model review failed: the review API returned HTTP ${http}: ${reason}"
+    fi
+    fail "model review failed: the review API returned HTTP ${http}"
+    ;;
 esac
 
 case "$vendor" in

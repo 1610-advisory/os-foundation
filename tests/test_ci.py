@@ -209,6 +209,83 @@ class ModelReviewTests(unittest.TestCase):
         self.assertIn("VERDICT: PASS", self.out.read_text(encoding="utf-8"))
 
 
+class ReviewErrorTests(unittest.TestCase):
+    """B17: a failed review call says what went wrong, never the key."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, text in (("rules.md", "Review rules.\n"), ("title", "t\n"), ("body", "b\n"), ("diff", "ok\n")):
+            (self.root / name).write_text(text, encoding="utf-8")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        fake = self.bin / "curl"
+        fake.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import os, sys
+            from pathlib import Path
+            cfg = sys.argv[sys.argv.index("--config") + 1]
+            text = Path(cfg).read_text(encoding="utf-8")
+            Path(os.environ["CFG_COPY"]).write_text(text, encoding="utf-8")
+            out = [l.split("=", 1)[1].strip().strip('"') for l in text.splitlines() if l.startswith("output = ")][0]
+            mode = os.environ["FAKE_MODE"]
+            if mode == "down":
+                sys.stderr.write("curl: (6) Could not resolve host\\n")
+                sys.exit(6)
+            if mode == "401":
+                key = os.environ["SEEN_KEY"]
+                Path(out).write_text('{"error":{"message":"Incorrect API key provided: ' + key[:4] + '***' + key[-4:] + ' (also ' + key + ')","type":"invalid_request_error"}}', encoding="utf-8")
+                sys.stdout.write("401")
+                sys.exit(0)
+            if mode == "404":
+                Path(out).write_text('{"error":"The model grok-9 does not exist"}', encoding="utf-8")
+                sys.stdout.write("404")
+                sys.exit(0)
+            Path(out).write_text('{"choices":[{"message":{"content":"SUMMARY: ok\\\\nVERDICT: PASS"}}]}', encoding="utf-8")
+            sys.stdout.write("200")
+            """), encoding="utf-8")
+        fake.chmod(0o755)
+
+    def review(self, mode, key=KEY):
+        return run(
+            ["bash", str(SCRIPTS / "model-review.sh"), "--rules", str(self.root / "rules.md"),
+             "--title-file", str(self.root / "title"), "--body-file", str(self.root / "body"),
+             "--diff-file", str(self.root / "diff"), "--out", str(self.root / "out")],
+            env={
+                "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                "OS_REVIEW_KEY": key,
+                "OS_REVIEW_VENDOR": "xai",
+                "FAKE_MODE": mode,
+                "SEEN_KEY": KEY,
+                "CFG_COPY": str(self.root / "cfg"),
+            },
+        )
+
+    def test_http_error_names_code_and_vendor_message_not_the_key(self):
+        result = self.review("401")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("the review API returned HTTP 401: Incorrect API key provided: [key] (also [key])", result.stderr)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        for text in (result.stdout, result.stderr, out):
+            self.assertNotIn(KEY, text)
+            self.assertNotIn(KEY[:4] + "***", text)
+
+    def test_string_error_and_curl_failure(self):
+        result = self.review("404")
+        self.assertIn("returned HTTP 404: The model grok-9 does not exist", result.stderr)
+        result = self.review("down")
+        self.assertIn("could not reach the review API (curl exit 6)", result.stderr)
+        self.assertNotIn(KEY, result.stderr)
+
+    def test_pasted_key_with_line_break_is_cleaned(self):
+        result = self.review("ok", key=f"  {KEY}\r\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        cfg = (self.root / "cfg").read_text(encoding="utf-8")
+        self.assertIn(f'header = "Authorization: Bearer {KEY}"\n', cfg)
+        self.assertNotIn("\r", cfg)
+
+
 class ToolCopyTests(unittest.TestCase):
     def test_every_tool_copy_matches_its_source(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"
