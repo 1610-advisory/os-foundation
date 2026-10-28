@@ -66,7 +66,7 @@ Never run it for them, ask for the key in the chat, or read it back.
 
 One line each:
 - **Repos.** Company and areas are private repos on the host, with history. Each person has a private workspace (that person, their AI, the admin).
-- **Review.** Nobody writes to `main`, the admin included. Changes go by pull request and merge when the checks pass: secret scan, `lint`, model review. Rules files also need their code owner (area director; admin at the root). When the code owner is the author, as with the admin's own rules change, the model review alone is enough.
+- **Review.** Nobody writes to `main`, the admin included. Changes go by pull request and merge when the checks pass: secret scan, `lint`, model review. Rules files also need their code owner (area director; admin at the root). On GitHub the author's own approval never counts: a director's own area change needs the admin's approval, and the admin merges their own with the bypass box (`skills/sync/SKILL.md`). On Forgejo the author's own change merges on green checks.
 - **OS jobs here.** Pull every 15 minutes, push at about 2 am, then the nightly review and reports. `level: team`.
 - **Leaving.** `remove-teammate` and the device helper; `joining-terms.md` at join. `privacy.md` lists the team places.
 - **Chat apps.** GitHub only: upload `company-skills` once per chat vendor account (its `SKILL.md`). Forgejo: people use a local agent.
