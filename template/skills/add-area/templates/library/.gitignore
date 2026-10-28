@@ -1,0 +1,23 @@
+.env
+.env.*
+*.pem
+*.key
+credentials*.json
+token*.json
+.claude/settings.local.json
+.DS_Store
+
+# Large media stays on one computer. List each file in media/LOCAL.md.
+media/local/
+*.m4a
+*.mp3
+*.wav
+*.mp4
+*.mov
+*.webm
+*.M4A
+*.MP3
+*.WAV
+*.MP4
+*.MOV
+*.WEBM
