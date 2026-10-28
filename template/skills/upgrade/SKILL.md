@@ -45,6 +45,7 @@ A real run refuses a folder with uncommitted changes. The same goes for each are
    - `upgrade: already v1`: `main` already has the v1 parts. Say so and stop.
    - `upgrade: pending upgrade/v1`: an upgrade branch is already there. Either its pull request is open, or an earlier run stopped. Check for an open upgrade pull request first. If it is open, finish that one (step 7). Start over only with the person's OK. Then follow the `To start over:` line the script printed.
    - `the area areas/<name> has uncommitted changes`: go to step 3 for that area. Then run the dry run again.
+   - `finding: plan: <line>` and `finding: plan blocks: ...`: the GitHub org plan (or a sign-in that cannot see it) blocks a team upgrade. The rest of the report is still right. Tell the person the line. A real run stops before any change until that is fixed.
    - `could not fetch <repo>`: the area repo on the host could not be reached. Check the sign-in and the network. Then run the dry run again.
 4. Show the person each `change: rules-merge` line. Say plainly: "Your own lines in the rules files are kept exactly as written. They move under the new v1 headings." Give the count from `company-lines=`.
 5. A `change: rules-spill` line means the rules file would be 10,000 bytes or more. Say: "Your own rules lines go to `company-rules.md` (an area: `area-rules.md`), unchanged. `AGENTS.md` gets one line that says to read it." When `CLAUDE.md` spills too, its lines go to the end of the same file under `## From CLAUDE.md`.

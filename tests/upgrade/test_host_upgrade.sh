@@ -257,6 +257,21 @@ grep -q -E '^(unprotect|protect|open-pr) ' "$FAKE_HOST_LOG" && team_fail "free p
 git -C "$co3" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "free plan run made upgrade/v1"
 [ "$(git -C "$co3" rev-parse --abbrev-ref HEAD)" = "main" ] || team_fail "free plan run moved the company off main"
 
+# Round 3 (31): a dry run on a Free org reports the plan as a finding and prints the full report.
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_PLAN=free "$upgrade" --dry-run --root "$co3" --template "$root/template" --answers "$work/answers" > "$work/free-dry.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/free-dry.out" >&2; team_fail "free plan dry run exit was $rc"; }
+grep -qx 'finding: plan: This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.' \
+  "$work/free-dry.out" || team_fail "dry run did not report the plan"
+grep -q '^finding: plan blocks: check tools on main, protect, and the upgrade pull requests' "$work/free-dry.out" \
+  || team_fail "dry run did not say what the plan blocks"
+grep -q '^change: rules-merge AGENTS.md' "$work/free-dry.out" || team_fail "dry run stopped before the report"
+grep -q '^change: checks-on-main acme3-os' "$work/free-dry.out" || team_fail "dry run left out the host steps"
+[ "$(git --git-dir "$work/git/acme3-os.git" rev-parse main)" = "$before" ] || team_fail "free plan dry run pushed"
+
 # A solo upgrade on the same Free org still works: no plan check, no protect, no check tools on main.
 sed 's/^level=team$/level=solo/' "$work/answers" > "$work/answers-solo"
 : > "$FAKE_HOST_LOG"

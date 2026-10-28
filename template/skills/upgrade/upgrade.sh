@@ -119,13 +119,22 @@ if [ "$HOST_ON" -eq 1 ]; then
     team|app) TEAM_ON=1 ;;
   esac
 fi
-# Rulesets on private repos need a paid GitHub plan. host.sh prints the plain line. Stop before any write.
+# Rulesets on private repos need a paid GitHub plan. host.sh prints the plain line.
+# A real run stops before any write. A dry run reports it and goes on.
+PLAN_FINDING=""
 if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
   set +e
-  os_host plan-check >/dev/null
+  plan_err=$(os_host plan-check 2>&1 >/dev/null)
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || exit "$rc"
+  if [ "$rc" -ne 0 ]; then
+    if [ "$DRY" -eq 0 ]; then
+      printf '%s\n' "$plan_err" >&2
+      exit "$rc"
+    fi
+    PLAN_FINDING=$(printf '%s' "$plan_err" | tail -n 1)
+    [ -n "$PLAN_FINDING" ] || PLAN_FINDING="plan-check failed (exit ${rc})"
+  fi
 fi
 
 os_sha() {
@@ -218,6 +227,10 @@ fi
 
 if [ "$DRY" -eq 1 ]; then
   printf '%s\n' "upgrade: dry-run"
+  if [ -n "$PLAN_FINDING" ]; then
+    printf 'finding: plan: %s\n' "$PLAN_FINDING"
+    printf '%s\n' "finding: plan blocks: check tools on main, protect, and the upgrade pull requests. A real run stops before any change."
+  fi
 else
   if [ "$V0_LOGS" -eq 0 ] && [ "$V0_LINKS" -eq 0 ] && [ "$V0_LEVEL" -eq 0 ] && [ "$V0_FOLDER" -eq 0 ]; then
     os_die 2 "not a v0 folder"
