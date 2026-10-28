@@ -4,6 +4,11 @@
 # Each person's workspace is its own private repo (team level).
 /users/
 
+# Library: git holds text only. Media and data stay on this computer.
+/library/media/*
+!/library/media/LOCAL.md
+/library/data/
+
 # Secrets and machine files
 .env
 .env.*

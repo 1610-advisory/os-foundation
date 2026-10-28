@@ -7,4 +7,9 @@ token*.json
 .claude/settings.local.json
 .DS_Store
 
+# Library: git holds text only. Media and data stay on this computer.
+/library/media/*
+!/library/media/LOCAL.md
+/library/data/
+
 # App repos (one line per app)
