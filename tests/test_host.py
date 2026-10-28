@@ -352,16 +352,26 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
         self.assertEqual(proc.stderr.strip(), self.FREE_LINE)
 
-    def test_plan_check_paid_or_hidden_plan_is_ok(self):
+    OWNER_LINE = (
+        "Could not read the plan of the GitHub org acme: sign in as an org owner, then run this again. "
+        "Team setup needs an org owner."
+    )
+
+    def test_plan_check_paid_plan_is_ok(self):
         self.set_plan("team")
         proc = run(["plan-check"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"plan": "team"})
-        # Only an org owner sees the plan. No plan: go on.
-        (self.dir / "plan").unlink()
+
+    def test_hidden_plan_stops_before_any_write(self):
+        # Only an org owner sees the plan. Team setup needs an owner anyway.
         proc = run(["plan-check"], self.env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout), {"plan": None})
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stderr.strip(), self.OWNER_LINE)
+        proc = run(["protect", "acme-os", "--code-owners", "--approvals", "0"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stderr.strip(), self.OWNER_LINE)
+        self.assertEqual(self.writes(), [])
 
     def test_protect_on_free_org_stops_before_any_write(self):
         self.set_plan("free")
@@ -371,12 +381,49 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(self.writes(), [])
 
     def test_protect_ruleset_403_names_the_free_plan(self):
-        # The plan is hidden (not an org owner). The first ruleset call says it.
+        # The plan reads paid, but the first ruleset call says Free. Same line.
+        self.set_plan("team")
         self.flag("rulesets-free")
         proc = run(["protect", "acme-os", "--code-owners", "--approvals", "0"], self.env)
         self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
         self.assertIn(self.FREE_LINE, proc.stderr)
         self.assertEqual(self.writes(), [])
+
+    def test_unprotect_lifts_the_classic_rule_first(self):
+        # Item 25: a v0 classic rule would refuse the upgrade push. It goes before the rulesets.
+        self.flag("classic")
+        proc = run(["unprotect", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os"})
+        self.assertFalse((self.dir / "classic").exists())
+        self.assertIn("--method DELETE /repos/acme/acme-os/branches/main/protection", self.writes()[0])
+        # No classic rule (404): still fine.
+        proc = run(["unprotect", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_unprotect_stops_when_the_classic_rule_stays(self):
+        self.flag("classic-denied")
+        proc = run(["unprotect", "acme-os"], self.env)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
+        self.assertNotIn("rulesets", " ".join(self.calls()))
+
+    def test_admin_rules_pr_path_is_the_bypass_on_a_pull_request(self):
+        # Item 24: the admin's own rules PR. The admin cannot approve it (GitHub never counts
+        # the author). OrganizationAdmin may bypass rules-review on a pull request only: no
+        # direct push. The main ruleset (the check) has no bypass. The docs name the click.
+        self.set_plan("team")
+        proc = run(["protect", "acme-os", "--code-owners", "--approvals", "0"], github_env())
+        calls = loads(proc.stdout)
+        bodies = {c["body"]["name"]: c["body"] for c in calls if c["method"] == "POST"}
+        self.assertEqual(bodies["rules-review"]["bypass_actors"], [
+            {"actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}
+        ])
+        self.assertNotIn("bypass_actors", bodies["main"])
+        click = 'Tick "Merge without waiting for requirements to be met (bypass rules)"'
+        for doc in ("template/skills/upgrade/SKILL.md", "template/skills/sync/SKILL.md", "template/skills/_host/README.md"):
+            self.assertIn(click, (ROOT / doc).read_text(), doc)
+        self.assertIn(click, (ROOT / "template/skills/upgrade/upgrade.sh").read_text())
 
     def test_protect_on_paid_org_works(self):
         self.set_plan("team")

@@ -85,6 +85,11 @@ case "$method $path" in
     printf '%s\n' '{"id":1}'
     ;;
   "DELETE /repos/acme/acme-os/branches/main/protection")
+    [ ! -f "$dir/classic-denied" ] || refuse 403 "Must have admin rights to Repository."
+    if [ -f "$dir/classic" ]; then
+      rm -f "$dir/classic"
+      exit 0
+    fi
     refuse 404 "Branch not protected"
     ;;
   "GET /repos/acme/acme-os/pulls/4")

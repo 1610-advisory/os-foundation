@@ -440,12 +440,14 @@ host_free_plan() {
   host_die 3 "This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again."
 }
 
-# Only an org owner sees .plan. No plan in the answer: go on, and the first ruleset 403 says it.
+# Only an org owner sees .plan. Team setup needs an org owner anyway, so a hidden plan
+# stops here too, before any write.
 host_plan_name() {
   local body plan
   body=$(host_gh_ok GET "/orgs/${OS_ORG}") || exit $?
   plan=$(printf '%s' "$body" | jq -r '.plan.name // empty')
   [ "$plan" != "free" ] || host_free_plan
+  [ -n "$plan" ] || host_die 3 "Could not read the plan of the GitHub org ${OS_ORG}: sign in as an org owner, then run this again. Team setup needs an org owner."
   printf '%s' "$plan"
 }
 
@@ -457,7 +459,7 @@ cmd_plan_check() {
     return 0
   fi
   plan=$(host_plan_name) || exit $?
-  jq -nc --arg plan "$plan" '{plan: (if $plan == "" then null else $plan end)}'
+  jq -nc --arg plan "$plan" '{plan: $plan}'
 }
 
 cmd_protect() {
@@ -534,10 +536,14 @@ cmd_unprotect() {
   host_need_name
   name=$POS1
   if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/branches/main/protection"
     host_emit DELETE "$(host_repo "$name")/rulesets/main"
     host_emit DELETE "$(host_repo "$name")/rulesets/rules-review"
     return 0
   fi
+  # A v0 repo has a classic rule on main too. It would refuse the push that follows.
+  # It goes first: if that fails, nothing is lifted. protect puts the v1 rulesets in its place.
+  host_drop_classic "$name"
   list=$(host_gh_all "$(host_repo "$name")/rulesets")
   saved_main=$(host_mktemp)
   saved_review=$(host_mktemp)
