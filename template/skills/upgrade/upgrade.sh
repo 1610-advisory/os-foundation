@@ -169,11 +169,41 @@ if git -C "$ROOT" show-ref --verify --quiet refs/heads/upgrade/v1; then
   exit 0
 fi
 
+# The v0 logs branch: the local one, else origin/logs. A fresh clone has only origin/logs.
+# A local logs that is not the same as origin/logs stops a real run: one of them has
+# logs the other lacks. A real run makes the local branch from origin/logs when needed.
+logs_source() {
+  local dir=$1 label=$2 has_local=0 has_remote=0
+  git -C "$dir" show-ref --verify --quiet refs/heads/logs && has_local=1
+  if git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+    if [ "$HOST_ON" -eq 1 ]; then
+      os_with_git_token git -C "$dir" fetch -q origin "+refs/heads/logs:refs/remotes/origin/logs" >/dev/null 2>&1 || true
+    else
+      git -C "$dir" fetch -q origin "+refs/heads/logs:refs/remotes/origin/logs" >/dev/null 2>&1 || true
+    fi
+  fi
+  git -C "$dir" show-ref --verify --quiet refs/remotes/origin/logs && has_remote=1
+  if [ "$has_local" -eq 1 ] && [ "$has_remote" -eq 1 ] \
+    && [ "$(git -C "$dir" rev-parse logs)" != "$(git -C "$dir" rev-parse origin/logs)" ]; then
+    if [ "$DRY" -eq 1 ]; then
+      printf 'conflict: logs %s: the local logs branch is not the same as origin/logs\n' "$label"
+      return 0
+    fi
+    os_die 2 "${label}: the local logs branch is not the same as origin/logs. Make them match first: push the local one (git push origin logs), or, if it is only behind, git branch -f logs origin/logs. Then run upgrade again."
+  fi
+  [ "$has_local" -eq 1 ] && return 0
+  [ "$has_remote" -eq 1 ] || return 1
+  if [ "$DRY" -eq 0 ]; then
+    git -C "$dir" branch -q logs origin/logs
+  fi
+  return 0
+}
+
 V0_LOGS=0
 V0_LINKS=0
 V0_LEVEL=0
 V0_FOLDER=0
-if git -C "$ROOT" show-ref --verify --quiet refs/heads/logs; then
+if logs_source "$ROOT" "the company"; then
   V0_LOGS=1
 fi
 if [ ! -L "$ROOT/.agents/skills" ]; then
@@ -652,7 +682,10 @@ if [ -d "$ROOT/skills/logs-folder" ]; then
       same=0
     fi
   done
-  if [ "$same" -eq 1 ]; then
+  if [ "$same" -eq 1 ] && [ "$V0_LOGS" -eq 0 ]; then
+    # Never delete the logs skill unless the logs move runs.
+    printf '%s\n' "keep: skills/logs-folder (no logs branch here or on origin, so no logs move)"
+  elif [ "$same" -eq 1 ]; then
     LOGS_FOLDER_SAME=1
     printf '%s\n' "change: remove-logs-folder"
   else
@@ -742,7 +775,7 @@ plan_area_scripts() {
       files=".github/scripts review-rules.md"
     fi
     printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
-    if git -C "$area" show-ref --verify --quiet refs/heads/logs; then
+    if logs_source "$area" "areas/${name}"; then
       printf 'change: logs-history areas/%s\n' "$name"
     fi
     rules_one_area "$area" 0
@@ -1033,7 +1066,7 @@ refresh_check_tools
 area_logs_park() {
   local area=$1 name
   name=$(basename "$area")
-  git -C "$area" show-ref --verify --quiet refs/heads/logs || return 0
+  logs_source "$area" "areas/${name}" || return 0
   if [ -e "$area/memory/logs/.git" ]; then
     if ! git -C "$area" worktree remove --force "$area/memory/logs"; then
       os_die 3 "could not remove the logs worktree in areas/${name}. Upgrade stopped. The logs files are still in place."
