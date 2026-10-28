@@ -10,8 +10,28 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 fi
 
 RULES_REASON="rules file: propose it with sync.sh propose"
+WORKSPACE_REASON="belongs in the workspace"
 
 # Upgrade spill files are rules files. Held like AGENTS.md.
+# Logs (root or area) and an area's drafts/ folder are area work, never "belongs in the
+# workspace" (push-check.md rule 5, AGENTS.md section 6 Auto tier, start-core Phase E).
+sync_not_workspace_only() {
+  local kind=$1 path=$2
+  case "$kind" in
+    root|area) ;;
+    *) return 1 ;;
+  esac
+  case "$path" in
+    memory/logs/*) return 0 ;;
+  esac
+  if [ "$kind" = "area" ]; then
+    case "$path" in
+      drafts/*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
 sync_hold_rules() {
   case "$(basename "$1")" in
     company-rules.md|area-rules.md) return 0 ;;
@@ -503,6 +523,12 @@ sync_push_one() {
     decision=$(printf '%s' "$eng" | jq -r '.decision')
     reason=$(printf '%s' "$eng" | jq -r '.reason')
     msg=$(printf '%s' "$eng" | jq -r '.message')
+    # push-check.md rule 5 is a path rule here: the model does not get to overrule it.
+    if [ "$decision" = "hold" ] && [ "$reason" = "$WORKSPACE_REASON" ] && sync_not_workspace_only "$kind" "$path"; then
+      decision=commit
+      msg="Update ${path}"
+      sync_log "push path-rule ${id} ${path} area work"
+    fi
     if [ "$decision" = "hold" ]; then
       sync_hold_line "$id" "$path" "$reason" >> "$added"
       sync_log "push hold ${id} ${path} engine"

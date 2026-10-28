@@ -628,6 +628,88 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("last error: auto-merge is off on", status.stdout)
         self.assertIn("pull request 1 is open but will not merge by itself", status.stdout)
 
+    def git(self, *args, check=True):
+        return run(["git", "-C", str(self.company), *args], env=self.env, check=check)
+
+    def sync_log(self):
+        return (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+
+    def tree(self, ref):
+        return run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "ls-tree", "-r", "--name-only", ref],
+            env=self.env,
+        ).stdout.splitlines()
+
+    def test_logs_are_never_held_as_workspace_only(self):
+        # B13: rule 5 is a path rule. A log is Auto tier, even when the model says otherwise.
+        self.seed_origin()
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-28-mia.md").write_text("WORKSPACE-ME wrote the newsletter\n")
+        (logs / "2026-10-27-mia.md").write_text("PERSONAL-FACT\n")
+        (self.company / "habits.md").write_text("WORKSPACE-ME how I like to work\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree("refs/heads/sync/mia")
+        self.assertIn("memory/logs/2026-10-28-mia.md", tree)
+        self.assertNotIn("habits.md", tree)
+        self.assertNotIn("memory/logs/2026-10-27-mia.md", tree)
+        status = self.sync("status").stdout
+        self.assertIn("habits.md: belongs in the workspace", status)
+        self.assertIn("2026-10-27-mia.md: personal-life fact", status)
+        self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
+
+    def test_area_drafts_and_logs_are_area_work(self):
+        script = 'source "$1/lib.sh"; source "$1/push.sh"; sync_not_workspace_only "$2" "$3"'
+
+        def exempt(kind, path):
+            return run(["bash", "-c", script, "x", str(SYNC), kind, path], env=self.env).returncode == 0
+
+        self.assertTrue(exempt("area", "drafts/spring-post.md"))
+        self.assertTrue(exempt("area", "memory/logs/2026-10-28-mia.md"))
+        self.assertTrue(exempt("root", "memory/logs/2026-10-28-mia.md"))
+        self.assertFalse(exempt("root", "drafts/spring-post.md"))
+        self.assertFalse(exempt("area", "notes/habits.md"))
+        self.assertFalse(exempt("workspace", "memory/logs/2026-10-28-mia.md"))
+
+    def test_pull_leaves_own_sync_branch_once_pushed(self):
+        # B14: join left the clone on sync/mia. Push rebuilt that branch on the host.
+        bare = self.seed_origin()
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "README.md").write_text("seed\nterms accepted\n")
+        self.git("commit", "-q", "-am", "Join: accept terms")
+        self.git("push", "-q", "origin", "sync/mia")
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / "README.md").write_text("seed\nterms accepted\n")
+        run(["git", "-C", str(other), "commit", "-q", "-am", "rebuilt"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "-f", "origin", "HEAD:sync/mia"], env=self.env, check=True)
+        run(["git", "-C", str(other), "reset", "-q", "--hard", "origin/main"], env=self.env, check=True)
+        (other / "news.md").write_text("from main\n")
+        run(["git", "-C", str(other), "add", "news.md"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "news"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
+        (self.company / "scratch.md").write_text("not committed yet\n")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertTrue((self.company / "news.md").exists())
+        self.assertEqual((self.company / "scratch.md").read_text(), "not committed yet\n")
+        log = self.sync_log()
+        self.assertIn("back on main from sync/mia", log)
+        self.assertNotIn("not fast-forward", log)
+
+    def test_pull_keeps_unpushed_work_on_sync_branch(self):
+        self.seed_origin()
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "draft.md").write_text("only here\n")
+        self.git("add", "draft.md")
+        self.git("commit", "-q", "-m", "local only")
+        self.sync("pull")
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "sync/mia")
+        self.assertEqual((self.company / "draft.md").read_text(), "only here\n")
+        self.assertIn("on sync/mia: draft.md is not pushed yet", self.sync_log())
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"

@@ -56,7 +56,7 @@ Check whether it is installed (Claude: the `ai-cmo` skills are listed). If not, 
 ### Work folders
 
 - `plans/` — content plans
-- `drafts/` — copy in progress
+- `drafts/` — copy in progress, shared with everyone who reads this area. A private draft goes in your workspace `drafts/`.
 - `data/` — exports and metrics
 
 ## Skills

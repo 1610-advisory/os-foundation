@@ -7,7 +7,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 Usage: engine.sh
 
 Reads the push-check prompt on stdin. Prints one JSON line.
-Markers in the diff: ENGINE-FAIL, PERSONAL-FACT, PRIVATE-QUOTE, COMPANY-FACT, HOLD-ME.
+Markers in the diff: ENGINE-FAIL, PERSONAL-FACT, PRIVATE-QUOTE, COMPANY-FACT, HOLD-ME, WORKSPACE-ME.
 EOF
   exit 0
 fi
@@ -36,6 +36,11 @@ elif printf '%s\n' "$input" | grep -q 'PRIVATE-QUOTE'; then
 elif printf '%s\n' "$input" | grep -q 'COMPANY-FACT'; then
   decision=hold
   reason="company fact in a profile"
+  message=""
+elif printf '%s\n' "$input" | grep -q 'WORKSPACE-ME'; then
+  # push-check.md rule 5, the way a model that misreads it would answer.
+  decision=hold
+  reason="belongs in the workspace"
   message=""
 elif printf '%s\n' "$input" | grep -q 'HOLD-ME'; then
   decision=hold
