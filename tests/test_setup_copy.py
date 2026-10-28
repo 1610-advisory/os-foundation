@@ -24,9 +24,10 @@ class SetupCopyTests(unittest.TestCase):
         self.assertIn("Notion", core)
         self.assertNotIn("about 15 minutes", core)
 
-    def test_existing_sources_do_not_trigger_an_unrequested_sync(self):
+    def test_existing_sources_copy_only_by_choice(self):
         core = (ROOT / "start-core.md").read_text()
-        self.assertIn("Do not propose migration, bulk export, duplicate markdown copies, or scheduled sync", core)
+        self.assertIn("per source, offer two modes", core)
+        self.assertIn("Ask per source and wait for a yes. Never bulk-import on your own.", core)
         self.assertIn("not proof that you can read", core)
         self.assertIn("memory/MEMORY.md", core)
 
@@ -35,7 +36,7 @@ class SetupCopyTests(unittest.TestCase):
         self.assertIn("[Existing sources](existing-sources.md)", index)
         sources = (ROOT / "template/memory/existing-sources.md").read_text()
         self.assertIn("type: reference", sources)
-        self.assertIn("source of truth", sources)
+        self.assertIn("Edited in", sources)
         self.assertIn("Access status", sources)
 
     def test_source_policy_survives_setup(self):
@@ -43,13 +44,13 @@ class SetupCopyTests(unittest.TestCase):
         connector = (ROOT / "template/skills/connect-tool/SKILL.md").read_text()
         for text in (rules, connector):
             self.assertIn("memory/existing-sources.md", text)
-            self.assertIn("scheduled sync", text)
+            self.assertIn("says yes to that source", text)
         self.assertLess(len(rules), 10000)
 
     def test_existing_material_can_move_by_choice(self):
         core = (ROOT / "start-core.md").read_text()
         self.assertIn("moving your content isn't required", core)
-        self.assertIn("choose to move selected material", core)
+        self.assertIn("choose to move selected material into the folder for good", core)
         self.assertIn("do not delete the original without approval", core)
         self.assertNotIn("Nothing goes to a third party unless", core)
 

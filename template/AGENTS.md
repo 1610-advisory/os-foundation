@@ -107,7 +107,7 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Layout and skills
 
-- Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `memory/`, `skills/`, `templates/`.
+- Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `library/` (copies; read-only), `memory/`, `skills/`, `templates/`.
 - `areas/<area>/`: each area is its **own git repo**, ignored by this one, so a person without an area does not have it. Area work starts in the area folder.
 - Skills: when a request matches one, read its `SKILL.md` and follow it. Area skills: `areas/<area>/skills/`.
   - Every level: `skills/ingest/` (file the inbox), `skills/add-area/`, `skills/connect-tool/`, `skills/app-setup/` (apps, hosting), `skills/write-skill/` (write this down), `skills/skill-creator/` (read `FOUNDATION.md` first), `skills/lint/` (health check), `skills/suggest/` (send an idea to 1610), `skills/privacy/` (writes `privacy.md`), `skills/add-teammate/`, `skills/upgrade/`.
@@ -123,8 +123,8 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Existing knowledge
 
-- Read `memory/existing-sources.md` when a task needs knowledge kept elsewhere. It is an index, not a copy, and grants no access. The existing system stays the source of truth. If access fails, say so.
-- Do not propose migration, bulk copies or a scheduled sync unless asked.
+- The folder is the company's memory; every tool is a worker it can replace. `memory/existing-sources.md` lists each source, its mode (`index` or `copy`), and where it is edited. It grants no access. If access fails, say so.
+- Copy a source into `library/` (restricted: `areas/<area>/library/`) only after a person says yes to that source. Rules: `library/README.md`. A copy is read-only: replace it, never edit it. Never bulk-import on your own.
 
 ## Conventions
 

@@ -4,6 +4,7 @@ date: YYYY-MM-DD
 summary: ""
 attendees: []
 related: []
+transcript: ""
 ---
 
 # Title
