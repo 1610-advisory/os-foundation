@@ -60,6 +60,7 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
+- `auto-merge is off on <repo>: pull request <n> is open but will not merge by itself. ...`: the work went up, but that pull request waits. Tell the person to send the line to the admin. The admin runs the command in it once. The next push merges as usual.
 
 ## Propose a rules change
 

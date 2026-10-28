@@ -376,6 +376,7 @@ sync_apply_commit() {
   "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
   rc=$?
   if [ "$rc" -ne 0 ]; then
+    sync_held_error "auto-merge is off on ${name_on_host}: pull request ${number} is open but will not merge by itself. Ask the admin to run skills/_host/host.sh protect ${name_on_host} --code-owners --approvals 0"
     sync_log "push fail ${id} auto-merge"
     return 1
   fi
@@ -519,7 +520,10 @@ sync_push_one() {
   if ! sync_apply_commit "$repo" "$id" "$kind" "$commit_files" "$msgfile"; then
     return 1
   fi
-  sync_held_error ""
+  # Keep an error an earlier repo set in this run.
+  if [ -z "${SYNC_RUN_ERROR:-}" ]; then
+    sync_held_error ""
+  fi
   sync_log "push ok ${id}"
   if [ "$kind" != "workspace" ]; then
     sync_pull_one "$repo" "$id" || true

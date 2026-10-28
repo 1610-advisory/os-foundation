@@ -249,6 +249,11 @@ sync_xml() {
 sync_held_error() {
   local msg=$1
   local tmp
+  if [ -n "$msg" ]; then
+    # push.sh reads it: a later repo in the same run must not clear this error.
+    # shellcheck disable=SC2034
+    SYNC_RUN_ERROR=1
+  fi
   tmp=$(sync_mktemp)
   jq --arg e "$msg" '.last_error = $e' "$SYNC_HELD" > "$tmp"
   mv "$tmp" "$SYNC_HELD"

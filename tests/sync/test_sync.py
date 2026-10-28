@@ -614,6 +614,20 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("staged.md", show.stdout)
         self.assertNotIn("local.md", show.stdout)
 
+    def test_auto_merge_failure_is_held(self):
+        self.seed_origin()
+        host = self.host / "host.sh"
+        text = host.read_text()
+        start = text.index("  auto-merge)")
+        end = text.index(";;", start) + 2
+        host.write_text(text[:start] + "  auto-merge) echo 'Auto merge is not allowed' >&2; exit 3 ;;" + text[end:])
+        (self.company / "note.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("last error: auto-merge is off on", status.stdout)
+        self.assertIn("pull request 1 is open but will not merge by itself", status.stdout)
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"
