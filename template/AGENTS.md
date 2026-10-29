@@ -123,8 +123,8 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Existing knowledge
 
-- The folder is the company's memory; every tool is a worker it can replace. `memory/existing-sources.md` lists each source, its mode (`index` or `copy`) and where it is edited.
-- `library/` is the admin's private repo of copies, not shared. Teammates never read, clone or make it. Admin: `me` (section 11) names a `people/` page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
+- `memory/existing-sources.md` lists each source, its mode (`index` or `copy`) and where it is edited.
+- `library/` is the admin's private repo. Teammates never read, clone or make it. Admin: `me` (section 11) names a page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
 
 ## Conventions
 

@@ -116,7 +116,7 @@ class LibraryFolderTests(unittest.TestCase):
                 (root / d).mkdir()
                 (root / d / "skills").symlink_to("../skills")
             (root / "company-profile.md").write_text(
-                "---\ntype: company-profile\ncompany_slug: acme\nlevel: solo\nswitches: []\n"
+                "---\ntype: company-profile\ncompany_slug: acme\nlevel: solo\nswitches: []\nhost: none\n"
                 "os_version: v9.9.9\n---\n\n# Acme Co\n")
             (root / "library/raw/tool/2026").mkdir(parents=True)
             (root / "library/raw/tool/2026/export.json").write_text('{"x": "{{not-ours}}"}\n')
