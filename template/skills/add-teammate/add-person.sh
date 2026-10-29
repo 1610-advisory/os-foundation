@@ -60,6 +60,8 @@ if ! OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
 fi
 export OS_HOST_BIN OS_ORG="$ORG" OS_HOST="$HOST_KIND" OS_HOST_URL="$HOST_URL" OS_SLUG="$SLUG"
 export OS_PROFILE="$ROOT/company-profile.md"
+os_team_names "$SLUG"
+os_team_guard "$(os_team_company)" "$(os_company_repo "$SLUG")"
 
 PERSON=$(os_person_slugs "$ANSWERS" | head -n 1)
 [ -n "$PERSON" ] || os_die 2 "name one person"
@@ -107,7 +109,7 @@ if [ ! -d "$ws_dir/.git" ]; then
 fi
 os_host create-repo "$(os_user_repo "$SLUG" "$PERSON")" --private --source "$ws_dir" --push >/dev/null
 os_host grant "$(os_user_repo "$SLUG" "$PERSON")" "$gh" write >/dev/null
-os_host team-add company "$gh" >/dev/null
+os_host team-add "$(os_team_company)" "$gh" >/dev/null
 os_host grant "$COMPANY_REPO" "$gh" write >/dev/null
 
 a=""
@@ -115,6 +117,7 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   a=$(os_trim "$a")
   [ -n "$a" ] || continue
   if [ -d "$ROOT/areas/$a" ]; then
+    os_team_guard "$(os_team_area "$a")" "$(os_area_repo "$SLUG" "$a")"
     os_host team-create "$(os_team_area "$a")" >/dev/null
     os_host team-add "$(os_team_area "$a")" "$gh" >/dev/null
     os_host grant "$(os_area_repo "$SLUG" "$a")" "team:$(os_team_area "$a")" write >/dev/null

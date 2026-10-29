@@ -102,7 +102,8 @@ kind=second-vendor
 6. Puts both `CODEOWNERS` files and `review.conf` on `main` before protection. If the repo already exists and is not protected, it pushes them. If `main` is already protected and any of those files is missing, it stops and names `sync.sh propose`. If an area main already has those files but no check tools, a second run opens a pull request on `team/scripts-tools`. That pull request also adds `review-rules.md` when main lacks it. If the tools are already on main and `review-rules.md` is still missing, it opens a pull request on `team/review-rules`. It does not push to main.
 7. `host.sh create-repo <name> --source --push` for the company repo `<slug>-os` and each area repo `<slug>-<area>`. History is kept. The push happens before protection.
 8. `host.sh protect <name> --code-owners --approvals 0` on the company repo and each area repo. Workspace repos are not protected: they push to their own `main`.
-9. Creates team `company` (everyone, write on the company repo) and team `area-<area>` (that area's people, write on the area repo). The area director is on the area team.
+9. Creates team `<slug>-company` (everyone, write on the company repo) and team `<slug>-area-<area>` (that area's people, write on the area repo). The area director is on the area team. It prints `teams: <slug>-company, <slug>-area-<area>, ...`. The slug keeps two companies in one org apart: a person on one company's team never reaches the other's repos. A v1 company set up before this keeps its plain names (`company`, `area-<area>`): when team `company` already grants `<slug>-os`, the scripts use the plain names, and nothing is renamed. `add-person.sh` and `remove.sh` pick the names the same way.
+   Before any write, it checks each team it will use (`host.sh team-repos`). A team may grant only its own repo. If it already grants another repo (another company's, when two companies share an org and its plain names), it stops with exit 2 and one line: `team <team> already grants <repos>. It may grant only <repo>. Two companies must not share a team: ... Use one org per company, or take those repos off team <team> on the host. Then run this again.` `add-person.sh` checks the same way.
 10. Creates one workspace repo `<slug>-user-<person>` per person. The source is `add-teammate/workspace/`, copied as a whole, including `CLAUDE.md` when that file is present. The person gets write. Admins reach it through org ownership, not a second grant.
 11. Runs `skills/privacy/privacy.sh --root <root>` when that file exists.
 12. Writes the admin's `me` file and runs `skills/sync/sync.sh install-jobs --admin` when that file exists.
@@ -116,7 +117,7 @@ kind=second-vendor
 |---|---|
 | 0 | ok |
 | 1 | usage |
-| 2 | refused (synced folder, bad answers, slug still a placeholder) |
+| 2 | refused (synced folder, bad answers, slug still a placeholder, a team that already grants another repo) |
 | 3 | host or tool error, a Free GitHub org, or a refused push: `push refused for <repo>: ...` names the likely cause, for example the missing `workflow` scope |
 | 4 | auth failed |
 

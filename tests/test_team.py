@@ -51,6 +51,9 @@ class TeamScripts(unittest.TestCase):
     def test_invites(self):
         run_script("test_invites.sh")
 
+    def test_teams(self):
+        run_script("test_teams.sh")
+
 
 class UpgradeScripts(unittest.TestCase):
     def test_rules_merge(self):

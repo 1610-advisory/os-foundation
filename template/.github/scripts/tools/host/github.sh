@@ -820,6 +820,36 @@ cmd_org_remove() {
   jq -nc --arg user "$user" '{ok:true, user:$user}'
 }
 
+# The repos a team grants. A missing team: exists false, no repos.
+cmd_team_repos() {
+  local team slug errf rc all
+  [ -n "$POS1" ] || host_die 1 "team is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_team "$POS1"
+  host_require_org
+  team=$POS1
+  slug=$(host_slugify "$team")
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/teams/${slug}/repos"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  set +e
+  host_gh_call GET "/orgs/${OS_ORG}/teams/${slug}" >/dev/null 2>"$errf"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      jq -nc --arg team "$team" '{team:$team, exists:false, repos:[]}'
+      return 0
+    fi
+    cat "$errf" >&2
+    exit "$rc"
+  fi
+  all=$(host_gh_all "/orgs/${OS_ORG}/teams/${slug}/repos") || exit $?
+  printf '%s' "$all" | jq -c --arg team "$team" '{team:$team, exists:true, repos:[.[].name]}'
+}
+
 # The invite list of the org, or of one repo. Unscoped: org.
 host_invites_path() {
   if [ -n "$1" ]; then
@@ -1198,6 +1228,7 @@ case "$VERB" in
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
+  team-repos) cmd_team_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;

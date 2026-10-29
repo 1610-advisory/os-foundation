@@ -100,6 +100,8 @@ try_host() {
   set -e
 }
 
+os_team_names "$SLUG"
+
 # A person who never accepted has pending invites, not membership. Cancel those too,
 # or they get access the moment they accept.
 area=""
@@ -111,7 +113,7 @@ while IFS= read -r area; do
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
-try_host team-remove company "$GH"
+try_host team-remove "$(os_team_company)" "$GH"
 try_host revoke "$COMPANY_REPO" "$GH"
 try_host cancel-invites "$GH" "$COMPANY_REPO"
 try_host revoke "$WS_REPO" "$GH"

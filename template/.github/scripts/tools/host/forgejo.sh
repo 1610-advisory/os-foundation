@@ -648,6 +648,34 @@ cmd_org_remove() {
   jq -nc --arg user "$user" '{ok:true, user:$user}'
 }
 
+# The repos a team grants. A missing team: exists false, no repos.
+cmd_team_repos() {
+  local team page=1 n all='[]'
+  [ -n "$POS1" ] || host_die 1 "team is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_team "$POS1"
+  host_require_org
+  team=$POS1
+  fj_team_id "$team"
+  if [ -z "$FJ_TEAM_ID" ]; then
+    jq -nc --arg team "$team" '{team:$team, exists:false, repos:[]}'
+    return 0
+  fi
+  while true; do
+    if ! fj_call GET "/teams/${FJ_TEAM_ID}/repos?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[].name]')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --arg team "$team" --argjson repos "$all" '{team:$team, exists:true, repos:$repos}'
+}
+
 # Forgejo adds people to teams and repos at once. It has no pending invites.
 fj_need_invite_args() {
   [ -n "$POS1" ] || host_die 1 "user is required"
@@ -924,6 +952,7 @@ case "$VERB" in
   team-create) cmd_team_create ;;
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
+  team-repos) cmd_team_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
