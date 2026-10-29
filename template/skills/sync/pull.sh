@@ -59,8 +59,7 @@ sync_prepare_ff() {
   local blocked=0
   incoming=$(sync_mktemp)
   dirty=$(sync_mktemp)
-  save=$(mktemp -d)
-  chmod 700 "$save"
+  save=$(sync_keep_dir)
   git -C "$repo" diff --name-only HEAD origin/main > "$incoming" || true
   sync_changed_names "$repo" > "$dirty" || true
   while IFS= read -r path; do
@@ -908,16 +907,7 @@ sync_pull_is_copyonly() {
 
 sync_pull_token_begin() {
   local rc
-  SYNC_PULL_ASK=$(mktemp) || return 1
-  chmod 700 "$SYNC_PULL_ASK" || return 1
-  SYNC_TMP_FILES="${SYNC_TMP_FILES} ${SYNC_PULL_ASK}"
-  cat > "$SYNC_PULL_ASK" << 'EOF'
-#!/bin/sh
-case "$1" in
-  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
-  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
-esac
-EOF
+  SYNC_PULL_ASK=$(sync_askpass) || return 1
   set +e
   SYNC_PULL_TOKEN=$(sync_token)
   rc=$?

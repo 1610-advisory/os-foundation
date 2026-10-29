@@ -21,6 +21,11 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 . "$DIR/collect.sh"
 
 trap sync_cleanup EXIT
+# A stopped job (Ctrl-C, a closed terminal, a scheduler timeout) still cleans up.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+sync_run_tmp
 
 usage() {
   cat << 'EOF'

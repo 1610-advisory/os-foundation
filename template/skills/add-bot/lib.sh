@@ -1,5 +1,7 @@
 #!/bin/bash
 # Shared helpers for add-bot, run, and undo-run. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   printf '%s\n' "Source this file. Do not run it." >&2
@@ -22,6 +24,25 @@ bot_need() {
 }
 
 BOT_TMP_FILES=""
+# bot_mktemp runs in $( ), so the list above never reaches this shell. Every temp file goes
+# in one folder made here instead, and bot_cleanup (each entry script's EXIT trap) removes
+# it. A scheduled bot run leaves nothing behind.
+BOT_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-bot.XXXXXX") || bot_die 1 "could not make a temp folder: check the free disk space"
+chmod 700 "$BOT_RUN_TMP"
+export TMPDIR="$BOT_RUN_TMP"
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 bot_mktemp() {
   local f
@@ -38,6 +59,7 @@ bot_cleanup() {
     rm -rf "$f"
   done
   BOT_TMP_FILES=""
+  rm -rf "$BOT_RUN_TMP"
 }
 
 bot_slug_ok() {

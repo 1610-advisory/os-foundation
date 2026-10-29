@@ -85,7 +85,8 @@ v0logs_park() {
   wt="$repo/memory/logs"
   v0logs_push "$repo" "$run" || return 1
   # Untracked and uncommitted files come too: the copy is the folder as it is.
-  save=$(mktemp -d)
+  # Outside the run's temp folder: on a failure the person keeps this copy.
+  save=$(mktemp -d "${OS_KEEP_TMP:-${TMPDIR:-/tmp}}/os-logs-copy.XXXXXX")
   if ! cp -Rp "$wt/." "$save/"; then
     rm -rf "$save"
     printf '%s\n' "could not copy memory/logs. Nothing was removed. Check the free disk space, then run this again" >&2

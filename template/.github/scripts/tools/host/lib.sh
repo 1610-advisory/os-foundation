@@ -1,5 +1,7 @@
 #!/bin/bash
 # Shared helpers for the host layer. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   printf '%s\n' "Source this file from host.sh. Do not run it." >&2
@@ -23,8 +25,27 @@ host_require_bin() {
   fi
 }
 
-# Temp files removed on exit. Entry scripts set the trap.
+# Temp files removed on exit. host_mktemp runs in $( ), so the list below never reaches
+# this shell: every temp file goes in one folder made here, and host_cleanup removes it.
+# The trap is set here too, so a script that only sources this file cleans up.
 HOST_TMP_FILES=""
+HOST_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-host.XXXXXX") || host_die 1 "could not make a temp folder: check the free disk space"
+chmod 700 "$HOST_RUN_TMP"
+export TMPDIR="$HOST_RUN_TMP"
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+trap host_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 host_mktemp() {
   local f
@@ -41,6 +62,7 @@ host_cleanup() {
     rm -f "$f"
   done
   HOST_TMP_FILES=""
+  rm -rf "$HOST_RUN_TMP"
 }
 
 host_find_profile() {
@@ -607,15 +629,17 @@ host_push_source() {
     host_git_push "$dir" github
     return 0
   fi
-  ask=$(host_mktemp)
-  cat > "$ask" << 'EOF'
+  ask="$HOST_RUN_TMP/askpass"
+  if [ ! -s "$ask" ]; then
+    cat > "$ask" << 'EOF'
 #!/bin/sh
 case "$1" in
   *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
   *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
 esac
 EOF
-  chmod 700 "$ask"
+    chmod 700 "$ask"
+  fi
   user=${OS_GIT_USER:-$OS_ORG}
   token=$(host_forgejo_token)
   OS_GIT_USER="$user" OS_GIT_TOKEN="$token" GIT_ASKPASS="$ask" GIT_TERMINAL_PROMPT=0 \

@@ -162,6 +162,8 @@ leak_cleanup() {
   if [ -n "$EXPR" ]; then
     rm -f "$EXPR"
   fi
+  # This trap replaces the one add-teammate/lib.sh set: remove the run's temp folder too.
+  os_cleanup
   exit "$status"
 }
 trap leak_cleanup EXIT

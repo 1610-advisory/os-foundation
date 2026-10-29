@@ -1,11 +1,36 @@
 #!/bin/bash
 # Shared helpers for nightly review and reports. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 set -euo pipefail
 
 nr_die() {
   printf '%s\n' "$*" >&2
   exit 1
 }
+
+# One temp folder per run: every mktemp here, and in the scripts a run starts, lands in it.
+# The entry script's EXIT trap calls nr_tmp_cleanup, so a nightly run leaves nothing behind.
+NR_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-nightly.XXXXXX") || nr_die "could not make a temp folder: check the free disk space"
+chmod 700 "$NR_RUN_TMP"
+export TMPDIR="$NR_RUN_TMP"
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+nr_tmp_cleanup() {
+  rm -rf "$NR_RUN_TMP"
+}
+trap nr_tmp_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 nr_have_gnu_date() {
   date -d "2020-01-01" +%Y >/dev/null 2>&1

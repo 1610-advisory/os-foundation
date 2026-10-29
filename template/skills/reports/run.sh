@@ -72,7 +72,7 @@ cd "$NR_ROOT"
 umask 077
 nr_prepare
 nr_lock
-trap nr_unlock EXIT
+trap 'nr_unlock; nr_tmp_cleanup' EXIT
 
 if [ -z "$WEEK" ]; then
   WEEK=$(nr_iso_week "$NR_DATE")

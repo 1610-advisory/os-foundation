@@ -973,7 +973,12 @@ reprotect() {
 UNPROTECTED=""
 upgrade_on_exit() {
   local rc=$? repo=$UNPROTECTED
-  [ -n "$repo" ] || return "$rc"
+  # This trap replaces the one add-teammate/lib.sh set. The temp folder goes last: protect
+  # below still needs it.
+  if [ -z "$repo" ]; then
+    os_cleanup
+    return "$rc"
+  fi
   UNPROTECTED=""
   if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
     printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
@@ -981,6 +986,7 @@ upgrade_on_exit() {
     printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
   fi
   [ "$rc" -ne 0 ] || rc=3
+  os_cleanup
   exit "$rc"
 }
 trap upgrade_on_exit EXIT
