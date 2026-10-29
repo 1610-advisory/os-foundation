@@ -717,6 +717,69 @@ class SyncFixTests(unittest.TestCase):
             self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0
         )
 
+    def join_ready(self):
+        # A joining teammate's clone: the people page on main, an own workspace repo.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("users/\n")
+        self.git("add", "people/Mia.md", ".gitignore")
+        self.git("commit", "-q", "-m", "people")
+        self.git("push", "-q", "origin", "main")
+        ws = self.company / "users" / "mia"
+        ws.mkdir(parents=True)
+        run(["git", "-C", str(ws), "init", "-q", "-b", "main"], env=self.env, check=True)
+        answers = self.tmp / "join-answers"
+        answers.write_text(f"root={self.company}\nme=mia\nareas=\n")
+        return bare, answers
+
+    def join(self, answers):
+        env = self.env.copy()
+        env["OS_JOBS_DIR"] = str(self.tmp / "jobs")
+        return run(["bash", str(ROOT / "template" / "skills" / "add-teammate" / "join.sh"), "--answers", str(answers)],
+                   env=env, cwd=self.company)
+
+    def host_page(self, bare, ref):
+        return run(["git", "--git-dir", str(bare), "show", f"{ref}:people/Mia.md"], env=self.env).stdout
+
+    def test_join_terms_survive_the_next_push(self):
+        # logsfix (54, B25): push rebuilds sync/<me> from main plus local changes. The
+        # join's terms must be a local change too, or the next push drops them.
+        bare, answers = self.join_ready()
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("terms: proposed", result.stdout)
+        self.assertRegex(self.host_page(bare, "sync/mia"), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertRegex((self.company / "people" / "Mia.md").read_text(), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        page = self.host_page(bare, "sync/mia")
+        self.assertRegex(page, r"(?m)^terms_accepted: \"?\d{4}-", "the push dropped the terms")
+        self.assertIn("note.md", self.tree("refs/heads/sync/mia"))
+        # The pull request merges: main has the terms. The local page is clean again.
+        run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", "refs/heads/sync/mia"], env=self.env, check=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.assertRegex(self.host_page(bare, "main"), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertEqual(self.git("status", "--porcelain", "people").stdout, "")
+
+    def test_rejoin_after_a_push_never_checks_out_over_the_folder(self):
+        # logsfix (55, B29): the host's sync/<me> holds a pushed note, and the same note is
+        # untracked here on main. A join that must propose the terms again still works.
+        bare, answers = self.join_ready()
+        (self.company / "note.md").write_text("a shop note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.assertIn("note.md", self.tree("refs/heads/sync/mia"))
+        self.assertNotRegex(self.host_page(bare, "sync/mia"), r"(?m)^terms_accepted: \"?\d")
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("would be overwritten", result.stderr)
+        self.assertIn("terms: proposed", result.stdout)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertEqual((self.company / "note.md").read_text(), "a shop note\n")
+        tree = self.tree("refs/heads/sync/mia")
+        self.assertIn("note.md", tree)
+        self.assertRegex(self.host_page(bare, "sync/mia"), r"(?m)^terms_accepted: \"?\d{4}-")
+
     def test_a_push_clears_only_a_push_error(self):
         # Round 3 (41): a good push never clears an error a pull left in another run.
         script = (

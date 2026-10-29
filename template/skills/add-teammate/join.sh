@@ -255,6 +255,13 @@ elif terms_dated "origin/sync/${ME}"; then
 else
   terms=none
 fi
+# Push rebuilds sync/<me> from origin/main plus the local changes, each time. So the
+# dated page must also be a local change here until the pull request merges: then every
+# push carries it (B25).
+terms_keep_local() {
+  [ -n "$1" ] || return 0
+  os_fm_set "$PAGE" terms_accepted "$1"
+}
 case "$terms" in
   merged)
     printf '%s\n' "terms: already"
@@ -263,24 +270,43 @@ case "$terms" in
     # open-pr reuses a pull request that is open, or opens one.
     printf '%s\n' "terms: already"
     os_back_to_main "$ROOT"
+    terms_keep_local "$(git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null \
+      | sed -n 's/^terms_accepted: *"\{0,1\}\([0-9][0-9-]*\).*/\1/p' | head -n 1)"
     join_terms_pr
     ;;
   *)
     branch="sync/${ME}"
-    os_with_git_token git -C "$ROOT" fetch origin
-    # Build on the host's sync/<me> when it has one, so the push is a fast-forward.
+    # Build on the host's sync/<me> when it has one, so the push is a fast-forward. Build
+    # in a temporary worktree: never check out sync/<me> over this folder, where the same
+    # files may sit untracked (B29).
     base=origin/main
     if git -C "$ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
       base="origin/${branch}"
     fi
-    git -C "$ROOT" checkout -q -B "$branch" "$base"
-    PAGE=$(os_person_file "$ROOT" "$ME")
-    os_fm_set "$PAGE" terms_accepted "$(os_today)"
-    os_git_commit "$ROOT" "Join: accept terms" "$PAGE"
-    os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
-    # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
-    # host each night, so a clone left on it never fast-forwards again.
+    day=$(os_today)
+    tw=$(mktemp -d)
+    git -C "$ROOT" worktree add -q --detach "$tw/terms" "$base" >/dev/null 2>&1 \
+      || { rm -rf "$tw"; os_die 3 "could not prepare the terms change: run join again"; }
+    tpage="$tw/terms/${PAGE#"$ROOT"/}"
+    if [ ! -f "$tpage" ]; then
+      git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
+      rm -rf "$tw"
+      os_die 2 "no people page for $ME on the host: ask the admin"
+    fi
+    os_fm_set "$tpage" terms_accepted "$day"
+    os_git_commit "$tw/terms" "Join: accept terms" "$tpage"
+    if ! os_with_git_token git -C "$tw/terms" push -q origin "HEAD:refs/heads/${branch}"; then
+      git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
+      rm -rf "$tw"
+      os_die 3 "could not push the terms to ${branch}: check the sign-in, then run join again"
+    fi
+    git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
+    rm -rf "$tw"
+    os_with_git_token git -C "$ROOT" fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}" 2>/dev/null || true
+    # Stay on main: push rebuilds sync/<me> on the host each night, so a clone left on
+    # it never fast-forwards again.
     os_back_to_main "$ROOT"
+    terms_keep_local "$day"
     printf 'terms: proposed\n'
     join_terms_pr
     ;;

@@ -121,7 +121,7 @@ if [ -n "\${FAKE_REFUSE_FETCH:-}" ]; then
 fi
 if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
   case " \$* " in
-    *" push --set-upstream origin sync/"*)
+    *" push -q origin HEAD:refs/heads/sync/"*)
       printf '%s\n' "error: failed to push some refs" >&2
       exit 1 ;;
   esac
@@ -202,10 +202,12 @@ grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
 git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q '^terms_accepted: ' \
   || team_fail "terms date is not on sync/sam"
+# logsfix (54): the dated page is also a local change on main, so the next push keeps it.
+grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the local page is not dated"
+git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync/sam (55: temp worktree only)"
 
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" branch -q -D sync/sam
 git -C "$co" update-ref -d refs/remotes/origin/sync/sam
 FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
 grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
@@ -213,10 +215,11 @@ grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.
 
 # Round 3 (37): the checkout back to main is refused after the terms push. The run still
 # opens the pull request. A retry (terms on origin/sync/sam, not on main, and the clone
-# still on sync/sam) opens it again and goes back to main.
+# still on sync/sam) opens it again and goes back to main. Since logsfix (55) join never
+# leaves main itself; a clone an older join left on sync/sam is the case here.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" branch -q -D sync/sam
 git -C "$co" update-ref -d refs/remotes/origin/sync/sam
+git -C "$co" checkout -q -b sync/sam
 : > "$work/host.log"
 PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=1 join_run > "$work/join4.out"
 grep -qx 'terms: proposed' "$work/join4.out" || team_fail "refused checkout: no terms"
@@ -260,9 +263,8 @@ if FAKE_NO_OPENPR=1 join_try > "$work/join8.out"; then
   team_fail "join with a failed open-pr exited 0"
 fi
 grep -q '^pr: ' "$work/join8.out" && team_fail "a failed open-pr printed a pull request"
-# Round 5 (50): offline, with a dated page in the folder (left on sync/sam). join must not
-# guess "already": it stops with exit 3 and one line, and opens nothing.
-git -C "$co" checkout -q sync/sam
+# Round 5 (50): offline, with a dated page in the folder (since logsfix 54, on main too).
+# join must not guess "already": it stops with exit 3 and one line, and opens nothing.
 grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the folder page is not dated"
 : > "$work/host.log"
 rc=0
@@ -273,7 +275,6 @@ grep -qx 'could not reach the host: run join again when online; the terms pull r
 grep -q 'terms: already' "$work/join-off.out" && team_fail "offline join said terms: already"
 grep -q 'join: ok' "$work/join-off.out" && team_fail "offline join said ok"
 grep -q '^open-pr ' "$work/host.log" && team_fail "offline join called open-pr"
-git -C "$co" checkout -q main
 : > "$work/host.log"
 join_try > "$work/join9.out" || { cat "$work/join.err" >&2; team_fail "retry after a failed open-pr failed"; }
 grep -qx 'terms: already' "$work/join9.out" || team_fail "retry after open-pr did not see the pushed terms"
