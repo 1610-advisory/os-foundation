@@ -135,6 +135,8 @@ rule: github-pat
 
 The rule id is the id `secret-scan.sh` printed. If `pull` cannot fast-forward and a newer tag of that shape is on the host, `pull` clones the repo again, carries uncommitted and held files, and drops a file whose content matches a named rule. Nested area and workspace repos are kept. The script records the tag and writes one log line.
 
+It never clones again while this copy has a commit the host never had: a fresh copy would lose it. It holds instead and prints `pull failed for <repo>: this copy has <n> commits that are not on the host, so it was not swapped for a fresh copy ...`. A commit that was on the host before the rewrite does not count.
+
 ## OS jobs
 
 `install-jobs` refuses `level: solo`. It writes files into `OS_JOBS_DIR`. On macOS and Linux it loads them only when `OS_JOBS_LOAD=1`. On Windows it registers them unless `OS_JOBS_LOAD=0`.

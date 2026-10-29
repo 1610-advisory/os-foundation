@@ -329,6 +329,7 @@ sync_pull_fail() {
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
     "v0 logs: "*) plain="the old logs folder memory/logs could not be moved (${reason#v0 logs: }). Nothing was removed. Ask the admin." ;;
+    "unpushed: "*) plain="this copy has ${reason#unpushed: } commits that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
       detail=${reason#reclone}
@@ -471,10 +472,24 @@ sync_pull_fetched() {
   return "$rc"
 }
 
+# Commits on HEAD that no origin branch holds or ever held here. A rewrite moves the
+# host branches, so their old tips (kept in this clone's reflog) count as on the host.
+# No reflog to read: every commit not on a branch now counts.
+sync_unpushed_count() {
+  local repo=$1 ref
+  {
+    printf '%s\n' HEAD
+    git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin | while IFS= read -r ref; do
+      printf '^%s\n' "$ref"
+      git -C "$repo" reflog show --format='^%H' "$ref" -- 2>/dev/null || true
+    done
+  } | git -C "$repo" rev-list --count --stdin 2>/dev/null || printf '%s\n' unknown
+}
+
 sync_pull_ff() {
   local repo=$1
   local id=$2
-  local save tag old link_save err
+  local save tag old link_save err n
   if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
     sync_pull_fail "$id" "could not reach origin"
     return 1
@@ -521,6 +536,12 @@ sync_pull_ff() {
   fi
   tag=$(sync_rewrite_tag "$repo" "$id" || true)
   if [ -n "$tag" ]; then
+    # A reclone keeps only changed files. Commits the host never had would be lost.
+    n=$(sync_unpushed_count "$repo")
+    if [ "$n" != "0" ]; then
+      sync_pull_fail "$id" "unpushed: ${n}"
+      return 1
+    fi
     sync_reclone "$repo" "$id" "$tag"
     return $?
   fi

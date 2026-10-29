@@ -967,6 +967,50 @@ class SyncFixTests(unittest.TestCase):
         self.assertTrue((self.company / "company-profile.md").exists())
         self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
 
+    def rewrite_origin(self, stamp):
+        orphan = self.tmp / ("orphan-" + stamp)
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(["git", "-C", str(orphan), "tag", "-a", "os-rewrite-" + stamp, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-" + stamp], env=self.env, check=True)
+
+    def test_reclone_holds_while_a_commit_is_not_on_the_host(self):
+        # Round 3 (38): a reclone copies only changed files. A commit the host never had stays.
+        self.seed_origin()
+        (self.company / "mine.md").write_text("not pushed\n")
+        run(["git", "-C", str(self.company), "add", "mine.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "mine"], env=self.env, check=True)
+        head = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.rewrite_origin("20261024235956")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "pull failed for root: this copy has 1 commits that are not on the host, so it was not swapped",
+            result.stderr,
+        )
+        after = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.assertEqual(after, head)
+        self.assertEqual((self.company / "mine.md").read_text(), "not pushed\n")
+        self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("pull reclone root", log)
+
+    def test_reclone_runs_when_every_commit_was_on_the_host(self):
+        # The old main tip was on the host before the rewrite: that is not unpushed work.
+        self.seed_origin()
+        self.rewrite_origin("20261024235955")
+        result = self.sync("pull")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("commits that are not on the host", result.stderr)
+        self.assertIn("pull reclone root", log, result.stdout + result.stderr)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
+
     def test_reclone_leaves_nested_repo_when_move_back_fails(self):
         self.seed_origin()
         area = self.company / "areas" / "shop"
