@@ -328,7 +328,7 @@ sync_pull_fail() {
     "no origin/main") plain="the host has no main branch. Ask the admin." ;;
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
-    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved (${reason#v0 logs: }). Nothing was removed. Ask the admin." ;;
+    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }. Ask the admin." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
@@ -461,13 +461,18 @@ sync_pull_leave_own_branch() {
 sync_pull_fetched() {
   local repo=$1
   local id=$2
-  local rc=0 n
+  local rc=0 n err
   SYNC_V0_SAVE=""
   sync_pull_ff "$repo" "$id" || rc=$?
   if [ -n "$SYNC_V0_SAVE" ]; then
-    n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE")
+    err=$(sync_mktemp)
+    if n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE" 2>"$err"); then
+      sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
+    else
+      sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
+      rc=1
+    fi
     SYNC_V0_SAVE=""
-    sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
   fi
   return "$rc"
 }

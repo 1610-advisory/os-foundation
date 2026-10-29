@@ -16,8 +16,8 @@ v0logs_stuck() {
 }
 
 # Push log commits the host lacks, copy every file out, remove the worktree.
-# Prints the folder that holds the copy. On a failure it prints why to stderr,
-# returns 1, and leaves the files in place.
+# Prints the folder that holds the copy. On a failure it prints one plain line to
+# stderr (what happened, and where the copy is when there is one) and returns 1.
 v0logs_park() {
   local repo=$1 run=$2 wt save
   wt="$repo/memory/logs"
@@ -25,7 +25,7 @@ v0logs_park() {
   if ! git -C "$repo" rev-parse --verify --quiet origin/logs >/dev/null \
     || [ -n "$(git -C "$repo" rev-list origin/logs..logs 2>/dev/null)" ]; then
     if ! "$run" "$repo" push -q origin logs >/dev/null 2>&1; then
-      printf '%s\n' "could not push the logs branch" >&2
+      printf '%s\n' "could not push the logs branch. Nothing was removed" >&2
       return 1
     fi
   fi
@@ -33,12 +33,13 @@ v0logs_park() {
   save=$(mktemp -d)
   if ! cp -Rp "$wt/." "$save/"; then
     rm -rf "$save"
-    printf '%s\n' "could not copy memory/logs" >&2
+    printf '%s\n' "could not copy memory/logs. Nothing was removed" >&2
     return 1
   fi
   rm -f "$save/.git"
   if ! git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1; then
-    printf 'could not remove the logs worktree; a copy is in %s\n' "$save" >&2
+    # A remove can stop part way (a file lock): some files may already be gone.
+    printf 'could not remove the logs worktree, and some files may be gone from memory/logs. A full copy is in %s\n' "$save" >&2
     return 1
   fi
   git -C "$repo" worktree prune >/dev/null 2>&1 || true
@@ -48,17 +49,26 @@ v0logs_park() {
 }
 
 # Copy each saved file that main lacks or holds a different copy of. The person's
-# copy wins; main's copy stays in history. Prints how many files it wrote.
+# copy wins; main's copy stays in history. Prints how many files it wrote. If any copy
+# fails (a file lock on Windows), the saved folder stays, one plain line names it on
+# stderr, and it returns 1. Every step is checked by hand: bash 3.2 runs this in $( ),
+# where set -e does not reach.
 v0logs_put_back() {
-  local repo=$1 save=$2 rel n=0
+  local repo=$1 save=$2 rel n=0 bad=0
   while IFS= read -r rel; do
     rel=${rel#./}
     if [ ! -f "$repo/memory/logs/$rel" ] || ! cmp -s "$save/$rel" "$repo/memory/logs/$rel"; then
-      mkdir -p "$repo/memory/logs/$(dirname "$rel")"
-      cp -p "$save/$rel" "$repo/memory/logs/$rel"
-      n=$((n + 1))
+      if mkdir -p "$repo/memory/logs/$(dirname "$rel")" && cp -p "$save/$rel" "$repo/memory/logs/$rel"; then
+        n=$((n + 1))
+      else
+        bad=$((bad + 1))
+      fi
     fi
   done < <(cd "$save" && find . -type f)
+  if [ "$bad" -ne 0 ]; then
+    printf 'could not copy %s logs back into memory/logs. A full copy is in %s\n' "$bad" "$save" >&2
+    return 1
+  fi
   rm -rf "$save"
   printf '%s\n' "$n"
 }

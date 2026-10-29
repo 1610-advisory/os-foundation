@@ -849,6 +849,60 @@ class SyncFixTests(unittest.TestCase):
         self.assertTrue((logs / ".git").exists())
         self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
 
+    def test_v0_logs_put_back_failure_keeps_the_copy(self):
+        # Round 4 (45): a copy back fails after the worktree is gone (a file lock on
+        # Windows). The saved folder stays, one plain line names it, and no success is
+        # logged. Run with bash 3.2 when the system has it.
+        bare, logs = self.v0_clone_after_upgrade()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            "  *' -R'*) ;;\n"
+            "  *memory/logs/2026-10-03-mia.md*) exit 1 ;;\n"
+            "esac\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+        result = run([shell, str(SYNC / "sync.sh"), "pull", "--full"], env=env, cwd=self.company)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("could not copy 1 logs back into memory/logs. A full copy is in ", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        self.assertNotIn("worktree removed", self.sync_log())
+        self.assertIn("last error: pull failed for root: the old logs folder", self.sync("status").stdout)
+        shutil.rmtree(save, ignore_errors=True)
+
+    def test_partial_worktree_remove_says_where_the_copy_is(self):
+        # Round 4 (48): a remove that deletes some files, then stops.
+        bare, logs = self.v0_clone_after_upgrade()
+        real_git = shutil.which("git")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        shim = bindir / "git"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            f"  *' worktree remove '*) rm -f '{logs}/2026-10-03-mia.md'; exit 1 ;;\n"
+            "esac\n"
+            f"exec '{real_git}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.sync("pull", "--full", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("some files may be gone from memory/logs. A full copy is in ", result.stderr)
+        self.assertNotIn("Nothing was removed", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        shutil.rmtree(save, ignore_errors=True)
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"

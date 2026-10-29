@@ -109,6 +109,11 @@ mkdir -p "$work/shim"
 real_git=$(command -v git)
 cat > "$work/shim/git" << EOF
 #!/bin/bash
+if [ -n "\${FAKE_REFUSE_WTREMOVE:-}" ]; then
+  case " \$* " in
+    *" worktree remove "*) printf '%s\n' "error: could not remove a file (locked)" >&2; exit 1 ;;
+  esac
+fi
 if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
   case " \$* " in
     *" push --set-upstream origin sync/"*)
@@ -274,6 +279,16 @@ git -C "$co" push -q origin logs
 rm -rf "$co/memory/logs"
 git -C "$co" worktree add -q "$co/memory/logs" logs
 printf '%s\n' "day four, not committed" > "$co/memory/logs/2026-10-04-sam.md"
+# Round 4 (48): the worktree remove stops. join says so and names the full copy.
+if PATH="$work/shim:$PATH" FAKE_REFUSE_WTREMOVE=1 join_try > "$work/join-wt.out"; then
+  team_fail "join with a failed worktree remove exited 0"
+fi
+grep -q 'could not remove the logs worktree, and some files may be gone from memory/logs. A full copy is in ' "$work/join.err" \
+  || { cat "$work/join.err" >&2; team_fail "join did not name the copy"; }
+grep -q 'Nothing was removed' "$work/join.err" && team_fail "join said nothing was removed after a partial remove"
+wt_save=$(sed -n 's/.*A full copy is in \([^ ]*\)\. Ask the admin\..*/\1/p' "$work/join.err" | head -n 1)
+[ -f "$wt_save/2026-10-04-sam.md" ] || team_fail "the named copy has no day-four log"
+rm -rf "$wt_save"
 join_run > "$work/join3.out"
 grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join3.out" || team_fail "join did not move the v0 logs worktree"
 [ ! -e "$co/memory/logs/.git" ] || team_fail "the logs worktree is still there"

@@ -176,7 +176,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 
 1. Refuses a synced folder.
 2. If `company-profile.md` is already in `root`, the company clone is done.
-   - A v0 clone that already pulled the upgrade can still have `memory/logs/` as a worktree of branch `logs`. Join moves it out the way `sync.sh pull` does (sync `CLI.md`): it pushes log commits the host lacks, removes the worktree, and keeps every log file as a local change. It prints `v0-logs: moved, <n> files kept as local changes`. If that fails, nothing is removed and join exits 3.
+   - A v0 clone that already pulled the upgrade can still have `memory/logs/` as a worktree of branch `logs`. Join moves it out the way `sync.sh pull` does (sync `CLI.md`): it pushes log commits the host lacks, removes the worktree, and keeps every log file as a local change. It prints `v0-logs: moved, <n> files kept as local changes`. If that fails, join exits 3 with one line. A failure before the removal removes nothing. A later one names the folder that holds a full copy.
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
 4. Clones `users/<me>/` from `<slug>-user-<me>`. A missing workspace is an error: `your workspace <repo> is not reachable: ask the admin`. Join exits non-zero.
 5. Writes `me` under the config dir.
