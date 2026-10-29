@@ -16,7 +16,12 @@ The flags are in `skills/upgrade/CLI.md`. Use exactly those.
 
 The script comes with the new os-foundation version.
 
-Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run the upgrade from a Mac or Linux clone of the company repo`) and changes nothing. If the person only has Windows, the admin runs it from a Mac or Linux clone. Windows teammates get the result by their normal pull.
+Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run the upgrade from a Mac or Linux clone of the company repo`) and changes nothing. If the person only has Windows, the admin runs it from a Mac or Linux clone.
+
+**Teammates with an old (v0) copy must not run a plain `git pull` after the upgrade.** In v0 `memory/logs/` is a separate git worktree that `main` ignores. A plain pull can write over files there. This version puts the old logs in `memory/logs/archive/`, so a plain pull no longer collides with them. Still, give teammates the one safe path:
+1. **Before the real run: the log freeze.** The dry run prints a `log-freeze:` line. Ask every teammate to save their logs in each folder that has `memory/logs/`: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. Nobody writes a log until the upgrade pull requests merge.
+2. **After the merge, each teammate** (the run prints these as `teammates:` lines): in the old folder, save the logs again the same way. Clone the company repo into a new folder and join there (`add-teammate` Part B, on Windows too). The old logs are in `memory/logs/archive/`. Logs pushed to the old branch after the run come in by the next full `sync.sh pull`. When the new folder has their logs, delete the old one.
+3. A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead. It moves the old logs folder out and keeps every file.
 
 1. Read the newest version: the one line at `https://1610.sh/os/version` (for example `v1.0.0`). `unreleased` means there is no version yet: say so and stop.
 2. Clone it to a temporary folder outside the company folder:
@@ -119,8 +124,10 @@ Before the person approves the upgrade pull request (solo: before the merge), op
 ## 8. The old logs branch
 
 If the folder has an old `logs` branch (the company folder, and each area that has one):
-- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request.
-- The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). Keep it 90 days. Then it may be deleted. The script never deletes it.
+- Its files move to `memory/logs/archive/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request. New logs go in `memory/logs/` as usual.
+- The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). With a host the tag goes up too. Keep it 90 days. Then it may be deleted. The script never deletes it.
+- Logs pushed to the old branch after the run: each full `sync.sh pull` compares the tag with the host's `logs` branch. It writes any later log into `memory/logs/archive/` as a local change and says so (`logs: <n> files ...`). The next push sends them.
+- Teammates: section 1, "Teammates with an old (v0) copy".
 
 ## 9. Going back
 
