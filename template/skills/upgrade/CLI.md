@@ -61,7 +61,7 @@ A real run refuses a dirty tree. It stages only the upgrade paths. The result is
 
 - the rules merge for `AGENTS.md` and `CLAUDE.md`, as its own commit (see "Rules merge")
 - committed links `.agents/skills` and `.claude/skills` pointing at `../skills`
-- the `logs` branch merged under `memory/logs/archive/` with its history (not `memory/logs/`: a teammate's old logs worktree has files there, and a plain `git pull` would write over them); each area with its own v0 `logs` branch gets the same in its `upgrade/scripts` branch (`Upgrade: logs history`), and its own `logs-archive-<date>` tag
+- the `logs` branch merged under `memory/logs-archive/` with its history (outside `memory/logs/`: a teammate's old logs worktree is there, ignored by its `main`, and a plain `git pull` writes over ignored files; sync push also keeps logs off `main` while the host has the old branch); each area with its own v0 `logs` branch gets the same in its `upgrade/scripts` branch (`Upgrade: logs history`), and its own `logs-archive-<date>` tag
 - the `/memory/logs/` line removed from `.gitignore`
 - `level`, `switches`, `os_version` and `host` added to `company-profile.md`. With no host answer and no `host:` there, it writes `host: none`.
 - the approval tier table only when `level` is `team` or `app`
@@ -100,7 +100,7 @@ A folder of copies that git does not track becomes the link only when every file
 
 The old `logs` tip is tagged `logs-archive-<YYYY-MM-DD>`. Keep that tag for 90 days, then delete it. The script says so. It does not delete the tag. With a host, the tag goes up with the upgrade branch, so every clone has it: `sync.sh pull` uses it to bring in logs pushed to the old `logs` branch after the run (sync `CLI.md`). If that push fails it prints `logs-tag: could not push the logs-archive tag to <repo>. ...` and goes on.
 
-When the company or an area has an old `logs` branch and a host, the upgrade prints `log-freeze: ...` near the top (dry run and real run): before the real run every teammate commits and pushes their logs, and nobody writes a log until the pull requests merge. Before its last line, a real run prints four `teammates:` lines: in an old copy of the folder, do not run `git pull`; save the logs (`git -C memory/logs add -A`, `commit`, `pull --rebase`, `push`); after the merge and Part A, rename the old folder and join as a new teammate (Part B); then delete the old folder (SKILL.md section 11). A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead.
+When the company or an area has an old `logs` branch and a host, the upgrade prints `log-freeze: ...` near the top (dry run and real run): before the real run every teammate commits and pushes their logs, and nobody writes a log until the pull requests merge. Before its last line, a real run prints four `teammates:` lines: in an old copy of the folder, do not run `git pull`; save the logs (`git -C memory/logs add -A`, `commit`, `pull --rebase`, `push`); after the merge and Part A, rename the old folder and join as a new teammate (Part B); then delete the old folder (SKILL.md section 11). A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead. Then one `admin:` line: sync push holds logs until the old branch is gone; when every teammate has moved, run `git push origin --delete logs` in the company folder and each area that had one.
 
 If the folder is app-linked (`app-link.json` or `OS_APP_LINK=1`), the dry-run says groups need Track K and were not read.
 
@@ -172,6 +172,7 @@ admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge
 logs-tag: could not push the logs-archive tag to <repo>. ...
 teammates: in an old (v0) copy of this folder, do not run git pull. ...
 teammates: 1. ... 2. ... 3. ...
+admin: until the old logs branch is gone, sync push keeps logs in each folder (held) ...
 upgrade: open pull requests: <repo> <n>, ... Merge each one when its checks pass.
 ```
 

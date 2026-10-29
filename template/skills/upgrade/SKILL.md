@@ -115,9 +115,11 @@ Before the person approves the upgrade pull request (solo: before the merge), op
 ## 8. The old logs branch
 
 If the folder has an old `logs` branch (the company folder, and each area that has one):
-- Its files move to `memory/logs/archive/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request. New logs go in `memory/logs/` as usual.
+- Its files move to `memory/logs-archive/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request.
+- Why not `memory/logs/`: a teammate's old copy still has its logs folder there, and its `main` ignores it. Git writes over ignored files, so the first plain `git pull` there would write over any log `main` has in `memory/logs/`.
+- So while the host still has the old `logs` branch, `sync.sh push` keeps new logs in each folder. `sync.sh status` shows them as held ("waits until the old logs branch is deleted"). Nothing is lost. When every teammate has moved, the admin deletes the old branch (section 11, step 7). The next push sends the held logs.
 - The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). With a host the tag goes up too. Keep it 90 days. Then it may be deleted. The script never deletes it.
-- Logs pushed to the old branch after the run: each full `sync.sh pull` compares the tag with the host's `logs` branch. It writes any later log into `memory/logs/archive/` as a local change and says so (`logs: <n> files ...`). The next push sends them.
+- Logs pushed to the old branch after the run: each full `sync.sh pull` compares the tag with the host's `logs` branch. It writes any later log into `memory/logs-archive/` as a local change and says so (`logs: <n> files ...`). The next push sends them. It never writes over a file: if one with that name is already there, the old text goes beside it as `<name>.old-branch.md`.
 - Teammates: section 11.
 
 ## 9. Going back
@@ -152,7 +154,8 @@ A v0 team only. Do these in order. The run printed the same steps as `teammates:
 2. **Each teammate, in the old folder.** Never run `git pull` there. In v0 `memory/logs/` is a separate git folder that `main` ignored, and a plain pull can write over it. If the old folder has `memory/logs/`, save the logs once more: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. On Windows, run these in Git Bash.
 3. **Rename the old folder**, for example `~/{{COMPANY_SLUG}}-os` to `~/{{COMPANY_SLUG}}-os-old`. That keeps the usual folder name free.
 4. **Join as a new teammate:** `add-teammate` Part B, B1 to B5, with the hand-off message. It clones into the usual folder, shows the joining terms and runs `join.sh`. On Windows `join.sh` runs in Git Bash, as B4 shows.
-5. **Check.** The old logs are in `memory/logs/archive/` in the new folder. Logs pushed to the old branch after the upgrade come in by the next full pull: run `skills/sync/sync.sh pull --full` to get them now. A file of theirs that never reached the host (`git status` in the old folder lists it) is copied into the new folder by hand.
+5. **Check.** The old logs are in `memory/logs-archive/` in the new folder. Logs pushed to the old branch after the upgrade come in by the next full pull: run `skills/sync/sync.sh pull --full` to get them now. A file of theirs that never reached the host (`git status` in the old folder lists it) is copied into the new folder by hand.
 6. **Delete the old folder.**
+7. **Admin, when every teammate has done step 6.** Delete the old logs branch on the host. In the company folder run `git push origin --delete logs`. Do the same in each area folder that had one. Until then, everyone's new logs wait in their own folder (section 8). The next `sync.sh push` sends them. If an old copy pushes the branch back, logs wait again: find that copy and move it.
 
 A teammate who already has the v1 `sync` skill skips steps 2 to 6: `skills/sync/sync.sh pull` moves the old logs folder out and keeps every file. They still run `join.sh` once if they never did.
