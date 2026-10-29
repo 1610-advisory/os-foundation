@@ -2,6 +2,8 @@
 # B15: scripts that commit in a shared folder stage only the paths they changed.
 # B14: they leave the folder on main after pushing their branch.
 # B18: join turns on auto-merge for the terms pull request.
+# Round 3 (37): a refused checkout back to main never stops the run before open-pr, and a
+# retry still opens the pull request.
 set -euo pipefail
 
 here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
@@ -97,6 +99,59 @@ files=$(git --git-dir "$work/origin.git" diff --name-only main rules/ada/offboar
 [ -f "$co/inbox/held.md" ] || team_fail "held file is gone"
 [ -z "$(git -C "$co" ls-files meetings inbox)" ] || team_fail "untracked files were committed"
 
+# A git that refuses the checkout back to main, like a local change in the way would.
+mkdir -p "$work/shim"
+real_git=$(command -v git)
+cat > "$work/shim/git" << EOF
+#!/bin/bash
+if [ -n "\${FAKE_REFUSE_MAIN:-}" ]; then
+  case " \$* " in
+    *" checkout -q main "*|*" checkout -q -b main origin/main "*)
+      printf '%s\n' "error: Your local changes would be overwritten by checkout" >&2
+      exit 1 ;;
+  esac
+fi
+exec "$real_git" "\$@"
+EOF
+chmod 700 "$work/shim/git"
+
+# remove.sh: the refused checkout still opens the pull request. A retry replaces the
+# branch and opens it again.
+for try in 1 2; do
+  set +e
+  PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=$([ "$try" -eq 1 ] && printf 1) OS_HOST_SH="$work/bin/host.sh" \
+    "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person sam \
+    --date 2026-10-28 > "$work/rm$try.out" 2> "$work/rm$try.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { cat "$work/rm$try.out" "$work/rm$try.err" >&2; team_fail "remove try $try exit $rc"; }
+  grep -qx 'pr: 4' "$work/rm$try.out" || team_fail "remove try $try opened no pull request"
+done
+grep -q '^main: could not go back to main' "$work/rm1.err" || team_fail "remove did not say it stayed off main"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "remove retry left the folder off main"
+
+# add-person.sh: the same.
+cat > "$work/add-answers" << EOF
+root=$co
+person.bo.name=Bo Baker
+person.bo.github=acme-member-b
+person.bo.role=writer
+EOF
+for try in 1 2; do
+  set +e
+  PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=$([ "$try" -eq 1 ] && printf 1) OS_HOST_SH="$work/bin/host.sh" \
+    "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" \
+    > "$work/add$try.out" 2> "$work/add$try.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { cat "$work/add$try.out" "$work/add$try.err" >&2; team_fail "add-person try $try exit $rc"; }
+done
+grep -q '^main: could not go back to main' "$work/add1.err" || team_fail "add-person did not say it stayed off main"
+git --git-dir "$work/origin.git" show "rules/ada/add-bo:people/Bo Baker.md" >/dev/null 2>&1 \
+  || team_fail "add-person branch has no page"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "add-person retry left the folder off main"
+rm -rf "$co/users/bo"
+
 # join.sh: the terms pull request gets auto-merge, and the folder is back on main.
 mkdir -p "$co/users/sam" "$work/home/.claude"
 git -C "$co/users/sam" init -q -b main
@@ -133,6 +188,25 @@ git -C "$co" update-ref -d refs/remotes/origin/sync/sam
 FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
 grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
   || team_fail "join did not say auto-merge is off"
+
+# Round 3 (37): the checkout back to main is refused after the terms push. The run still
+# opens the pull request. A retry (terms on origin/sync/sam, not on main, and the clone
+# still on sync/sam) opens it again and goes back to main.
+git --git-dir "$work/origin.git" branch -q -D sync/sam
+git -C "$co" branch -q -D sync/sam
+git -C "$co" update-ref -d refs/remotes/origin/sync/sam
+: > "$work/host.log"
+PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=1 join_run > "$work/join4.out"
+grep -qx 'terms: proposed' "$work/join4.out" || team_fail "refused checkout: no terms"
+grep -qx 'pr: 7' "$work/join4.out" || team_fail "refused checkout: no pull request"
+grep -q '^main: could not go back to main' "$work/join.err" || team_fail "join did not say it stayed off main"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "sync/sam" ] || team_fail "the shim did not refuse"
+: > "$work/host.log"
+join_run > "$work/join5.out"
+grep -qx 'terms: already' "$work/join5.out" || team_fail "retry did not see the pending terms"
+grep -q '^open-pr acme-os --head sync/sam ' "$work/host.log" || team_fail "retry did not open the pull request"
+grep -qx 'pr: 7' "$work/join5.out" || team_fail "retry printed no pull request"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "retry left the folder off main"
 
 # Round 3 (30): a v0 clone that pulled the upgrade. main tracks memory/logs/ while
 # memory/logs is still a worktree of branch logs. join moves it out and keeps every log.

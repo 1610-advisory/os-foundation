@@ -179,9 +179,10 @@ if [ -d "$ROOT/bots" ]; then
 fi
 
 os_git_commit "$ROOT" "Offboard: ${PERSON}" "${paths[@]}"
-os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+# The branch is this script's own, rebuilt from origin/main. A retry replaces it.
+os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
-git -C "$ROOT" checkout -q main 2>/dev/null || git -C "$ROOT" checkout -q -b main origin/main
+os_back_to_main "$ROOT"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 

@@ -92,9 +92,10 @@ page=$(os_write_person_page "$ROOT" "$PERSON" "$name" "$gh" "$email" "$role" "$a
 
 # Director updates CODEOWNERS on the area repo, by its own PR, after the page.
 os_git_commit "$ROOT" "People: add ${PERSON}" "$page"
-os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+# The branch is this script's own, rebuilt from origin/main. A retry replaces it.
+os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
-git -C "$ROOT" checkout -q main 2>/dev/null || git -C "$ROOT" checkout -q -b main origin/main
+os_back_to_main "$ROOT"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "People: add ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 
@@ -133,8 +134,8 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   git -C "$ROOT/areas/$a" checkout -q -B "$abranch" origin/main
   os_codeowners "$ROOT/areas/$a" "$(os_at_users "$ADMIN_GH" "$gh")" "$(os_forgejo_owner "$ADMIN_GH" "$gh")"
   os_git_commit "$ROOT/areas/$a" "Rules: director for ${a}" .github/CODEOWNERS .gitea/CODEOWNERS
-  os_with_git_token git -C "$ROOT/areas/$a" push --set-upstream origin "$abranch"
-  git -C "$ROOT/areas/$a" checkout -q main 2>/dev/null || git -C "$ROOT/areas/$a" checkout -q -b main origin/main
+  os_with_git_token git -C "$ROOT/areas/$a" push --force --set-upstream origin "$abranch"
+  os_back_to_main "$ROOT/areas/$a"
   set +e
   pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}")
   pr_rc=$?

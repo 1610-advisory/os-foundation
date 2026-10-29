@@ -396,6 +396,17 @@ EOF
   return "$rc"
 }
 
+# After a push of the caller's own branch: go back to main so pull fast-forwards. A
+# refused checkout (a local change in the way) never stops the run: the change is on the
+# host, and the pull request still opens.
+os_back_to_main() {
+  local dir=$1
+  git -C "$dir" checkout -q main 2>/dev/null && return 0
+  git -C "$dir" checkout -q -b main origin/main 2>/dev/null && return 0
+  printf 'main: could not go back to main (a local change is in the way). The change is pushed. Run git checkout main when your work is saved.\n' >&2
+  return 0
+}
+
 # Commit only the paths the caller changed. Never "git add -A" in a shared root:
 # untracked or held files (a held secret, a private note) would go up past the scan.
 os_git_commit() {

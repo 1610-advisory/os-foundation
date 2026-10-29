@@ -186,7 +186,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
    - Codex: `~/.codex/AGENTS.md` gets one plain `Read <path>` line when `~/.codex` exists.
    - Pi: `~/.pi/agent/AGENTS.md` gets the same plain line when `~/.pi/agent` exists.
    - Cursor: one plain line only if a rules file already exists (`~/.cursor/rules.md` or `~/.cursor/User/rules.md`).
-8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr` and `host.sh auto-merge`, like push and propose. The pull request merges by itself when the checks pass. If auto-merge is refused, it prints one plain line and the pull request stays open. A people page is not a rules file, so this does not call `sync.sh propose`. It commits only that page. After the push it switches the company folder back to `main`, so `pull` fast-forwards. A second run before that pull request merges finds the change on `origin/sync/<me>` and prints `terms: already`.
+8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr` and `host.sh auto-merge`, like push and propose. The pull request merges by itself when the checks pass. If auto-merge is refused, it prints one plain line and the pull request stays open. A people page is not a rules file, so this does not call `sync.sh propose`. It commits only that page. After the push it switches the company folder back to `main`, so `pull` fast-forwards. If that switch is refused (a local change in the way), it prints `main: could not go back to main ...` and still opens the pull request. A second run before that pull request merges finds the change on `origin/sync/<me>` and prints `terms: already`. It switches back to `main` and opens the pull request if none is open.
 
 Tests must point `HOME`, `XDG_CONFIG_HOME`, and `OS_JOBS_DIR` at a sandbox.
 
@@ -215,7 +215,7 @@ add-person.sh --help
 
 Same person steps as `team-on.sh` for one person, on a team that is already on. It does not change `level`. It does not print the review-key command.
 
-The people-page commit goes by pull request, because `main` is already protected. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
+The people-page commit goes by pull request, because `main` is already protected. After the push it switches the folder back to `main`. If that switch is refused, it prints one plain line and still opens the pull request. A second run rebuilds the branch from `origin/main`, replaces it on the host, and opens the pull request if none is open. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
 
 Answers keys: `root` (optional), and one `person.<slug>.*` block. `area.<area>.director` when this person becomes a director.
 

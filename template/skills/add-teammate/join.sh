@@ -216,15 +216,40 @@ if [ -f "$HOME/.cursor/User/rules.md" ]; then
   os_pointer "$HOME/.cursor/User/rules.md" "Read ${PROFILE}"
 fi
 
+# Open (or reuse) the terms pull request from sync/<me>, then turn on auto-merge.
+join_terms_pr() {
+  local pr number
+  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  [ -n "$number" ] || return 0
+  printf 'pr: %s\n' "$number"
+  # Like push and propose: the terms pull request merges by itself when the checks pass.
+  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
+  fi
+}
+
 accepted=$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)
-# A second run before the terms pull request merges: the change is on origin/sync/<me>.
-if [ -z "$accepted" ] && [ -n "$PAGE" ]; then
+# A second run before the terms pull request merges: the change is on origin/sync/<me>,
+# not on origin/main. The clone may still be on sync/<me> (a refused checkout), so its
+# own page says accepted too.
+if [ -n "$PAGE" ]; then
   os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
-  if git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:'; then
+  if ! git -C "$ROOT" show "origin/main:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:' \
+    && git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:'; then
     accepted=pending
   fi
 fi
-if [ -n "$accepted" ]; then
+if [ "$accepted" = "pending" ]; then
+  # A run that stopped before open-pr left no pull request: open it now. open-pr reuses
+  # one that is open.
+  printf '%s\n' "terms: already"
+  os_back_to_main "$ROOT"
+  join_terms_pr
+elif [ -n "$accepted" ]; then
   printf '%s\n' "terms: already"
 else
   branch="sync/${ME}"
@@ -236,20 +261,9 @@ else
   os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
   # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
   # host each night, so a clone left on it never fast-forwards again.
-  git -C "$ROOT" checkout -q main 2>/dev/null || git -C "$ROOT" checkout -q -b main origin/main
-  pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "sync: ${ME}")
-  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  os_back_to_main "$ROOT"
   printf 'terms: proposed\n'
-  if [ -n "$number" ]; then
-    printf 'pr: %s\n' "$number"
-    # Like push and propose: the terms pull request merges by itself when the checks pass.
-    if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
-      printf '%s\n' "auto-merge: on"
-    else
-      printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
-        "$COMPANY_REPO" "$number" "$COMPANY_REPO"
-    fi
-  fi
+  join_terms_pr
 fi
 
 printf '%s\n' "join: ok"
