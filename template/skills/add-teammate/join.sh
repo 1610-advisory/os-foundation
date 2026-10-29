@@ -232,39 +232,56 @@ join_terms_pr() {
   fi
 }
 
-accepted=$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)
-# A second run before the terms pull request merges: the change is on origin/sync/<me>,
-# not on origin/main. The clone may still be on sync/<me> (a refused checkout), so its
-# own page says accepted too.
-if [ -n "$PAGE" ]; then
-  os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
-  # The page template has an empty terms_accepted: key. Only a date counts.
-  if ! git -C "$ROOT" show "origin/main:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-' \
-    && git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'; then
-    accepted=pending
+# Where the terms stand comes from the host: on origin/main (merged), on
+# origin/sync/<me> (pushed; a run that stopped before open-pr left no pull request), or
+# not yet. The page template has an empty terms_accepted: key: only a date counts. The
+# clone may still be on sync/<me> (a refused checkout), so its own page proves nothing.
+# Offline, the local page decides.
+terms_dated() {
+  git -C "$ROOT" show "$1:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'
+}
+if os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null; then
+  if terms_dated origin/main; then
+    terms=merged
+  elif terms_dated "origin/sync/${ME}"; then
+    terms=pushed
+  else
+    terms=none
   fi
-fi
-if [ "$accepted" = "pending" ]; then
-  # A run that stopped before open-pr left no pull request: open it now. open-pr reuses
-  # one that is open.
-  printf '%s\n' "terms: already"
-  os_back_to_main "$ROOT"
-  join_terms_pr
-elif [ -n "$accepted" ]; then
-  printf '%s\n' "terms: already"
+elif [ -n "$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)" ]; then
+  terms=merged
 else
-  branch="sync/${ME}"
-  os_with_git_token git -C "$ROOT" fetch origin
-  git -C "$ROOT" checkout -q -B "$branch" origin/main
-  PAGE=$(os_person_file "$ROOT" "$ME")
-  os_fm_set "$PAGE" terms_accepted "$(os_today)"
-  os_git_commit "$ROOT" "Join: accept terms" "$PAGE"
-  os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
-  # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
-  # host each night, so a clone left on it never fast-forwards again.
-  os_back_to_main "$ROOT"
-  printf 'terms: proposed\n'
-  join_terms_pr
+  terms=none
 fi
+case "$terms" in
+  merged)
+    printf '%s\n' "terms: already"
+    ;;
+  pushed)
+    # open-pr reuses a pull request that is open, or opens one.
+    printf '%s\n' "terms: already"
+    os_back_to_main "$ROOT"
+    join_terms_pr
+    ;;
+  *)
+    branch="sync/${ME}"
+    os_with_git_token git -C "$ROOT" fetch origin
+    # Build on the host's sync/<me> when it has one, so the push is a fast-forward.
+    base=origin/main
+    if git -C "$ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      base="origin/${branch}"
+    fi
+    git -C "$ROOT" checkout -q -B "$branch" "$base"
+    PAGE=$(os_person_file "$ROOT" "$ME")
+    os_fm_set "$PAGE" terms_accepted "$(os_today)"
+    os_git_commit "$ROOT" "Join: accept terms" "$PAGE"
+    os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+    # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
+    # host each night, so a clone left on it never fast-forwards again.
+    os_back_to_main "$ROOT"
+    printf 'terms: proposed\n'
+    join_terms_pr
+    ;;
+esac
 
 printf '%s\n' "join: ok"

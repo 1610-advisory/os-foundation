@@ -109,6 +109,13 @@ mkdir -p "$work/shim"
 real_git=$(command -v git)
 cat > "$work/shim/git" << EOF
 #!/bin/bash
+if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
+  case " \$* " in
+    *" push --set-upstream origin sync/"*)
+      printf '%s\n' "error: failed to push some refs" >&2
+      exit 1 ;;
+  esac
+fi
 if [ -n "\${FAKE_REFUSE_MAIN:-}" ]; then
   case " \$* " in
     *" checkout -q main "*|*" checkout -q -b main origin/main "*)
@@ -165,7 +172,7 @@ cat > "$work/bin/host.sh" << EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$work/host.log"
 case "\$1" in
-  open-pr) printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
+  open-pr) [ -z "\${FAKE_NO_OPENPR:-}" ] || exit 5; printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
   auto-merge) [ -z "\${FAKE_NO_AUTOMERGE:-}" ] || exit 1; printf '%s\n' '{"ok":true}' ;;
   get-token) printf '%s\n' local-token ;;
   *) printf '%s\n' '{"ok":true}' ;;
@@ -212,6 +219,42 @@ grep -qx 'terms: already' "$work/join5.out" || team_fail "retry did not see the 
 grep -q '^open-pr acme-os --head sync/sam ' "$work/host.log" || team_fail "retry did not open the pull request"
 grep -qx 'pr: 7' "$work/join5.out" || team_fail "retry printed no pull request"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "retry left the folder off main"
+
+# Round 4 (43): a join that stopped after the terms commit, or after the push, opens the
+# pull request on the next run.
+reset_sync_sam() {
+  git --git-dir "$work/origin.git" branch -q -D sync/sam
+  git -C "$co" checkout -q main 2>/dev/null || true
+  git -C "$co" branch -q -D sync/sam 2>/dev/null || true
+  git -C "$co" update-ref -d refs/remotes/origin/sync/sam
+}
+join_try() {
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE=true OS_HOST_SH="$work/bin/host.sh" \
+    "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>"$work/join.err"
+}
+# The terms push fails: nothing is on the host. The retry proposes again and opens it.
+reset_sync_sam
+if PATH="$work/shim:$PATH" FAKE_REFUSE_PUSH=1 join_try > "$work/join6.out"; then
+  team_fail "join with a refused terms push exited 0"
+fi
+git --git-dir "$work/origin.git" rev-parse --verify --quiet refs/heads/sync/sam >/dev/null && team_fail "the shim did not refuse the push"
+: > "$work/host.log"
+join_try > "$work/join7.out" || { cat "$work/join.err" >&2; team_fail "retry after a refused push failed"; }
+grep -qx 'terms: proposed' "$work/join7.out" || team_fail "retry after a refused push did not propose"
+grep -qx 'pr: 7' "$work/join7.out" || team_fail "retry after a refused push opened no pull request"
+git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -Eq '^terms_accepted: [0-9]{4}-' \
+  || team_fail "retry did not push the terms"
+# open-pr fails after the push: the terms are on origin/sync/sam only. The retry opens it.
+reset_sync_sam
+if FAKE_NO_OPENPR=1 join_try > "$work/join8.out"; then
+  team_fail "join with a failed open-pr exited 0"
+fi
+grep -q '^pr: ' "$work/join8.out" && team_fail "a failed open-pr printed a pull request"
+: > "$work/host.log"
+join_try > "$work/join9.out" || { cat "$work/join.err" >&2; team_fail "retry after a failed open-pr failed"; }
+grep -qx 'terms: already' "$work/join9.out" || team_fail "retry after open-pr did not see the pushed terms"
+grep -q '^open-pr acme-os --head sync/sam ' "$work/host.log" || team_fail "retry after a failed open-pr did not open it"
+grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "retry after a failed open-pr did not turn on auto-merge"
 
 # Round 3 (30): a v0 clone that pulled the upgrade. main tracks memory/logs/ while
 # memory/logs is still a worktree of branch logs. join moves it out and keeps every log.
