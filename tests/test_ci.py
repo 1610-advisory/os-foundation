@@ -414,7 +414,7 @@ class ToolCopyTests(unittest.TestCase):
         (repo / ".claude" / "skills").symlink_to("../skills")
         (repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
         (repo / "company-profile.md").write_text(
-            "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+            "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\nhost: forgejo\n---\n",
             encoding="utf-8",
         )
         git(repo, "init", "-q", "-b", "main")
@@ -479,7 +479,7 @@ class ToolCopyTests(unittest.TestCase):
                 (path / ".agents" / "skills").symlink_to("../skills")
                 (path / ".claude" / "skills").symlink_to("../skills")
                 (path / "company-profile.md").write_text(
-                    "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\n---\n",
+                    "---\ntype: company-profile\nsummary: Acme\ncompany_slug: acme\nlevel: team\nswitches: []\nos_version: 0\nhost: forgejo\n---\n",
                     encoding="utf-8",
                 )
             return path

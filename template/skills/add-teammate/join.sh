@@ -238,8 +238,9 @@ accepted=$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)
 # own page says accepted too.
 if [ -n "$PAGE" ]; then
   os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
-  if ! git -C "$ROOT" show "origin/main:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:' \
-    && git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -q '^terms_accepted:'; then
+  # The page template has an empty terms_accepted: key. Only a date counts.
+  if ! git -C "$ROOT" show "origin/main:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-' \
+    && git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'; then
     accepted=pending
   fi
 fi

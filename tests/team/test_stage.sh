@@ -64,6 +64,7 @@ github: acme-member-d
 role: writer
 left: ""
 manager: ada
+terms_accepted: ""
 ---
 # Sam Member
 EOF
