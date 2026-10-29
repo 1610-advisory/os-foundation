@@ -18,6 +18,8 @@ export GIT_COMMITTER_NAME="Ada Admin" GIT_COMMITTER_EMAIL="ada.admin@acme.test"
 # os_git_commit: only the named path goes in. Untracked files stay untracked.
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'rm -rf "$work"; os_cleanup' EXIT
 repo="$work/unit"
 mkdir -p "$repo/people"
 git -C "$repo" init -q -b main

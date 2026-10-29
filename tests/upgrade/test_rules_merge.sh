@@ -512,6 +512,8 @@ git -C "$dirty" show-ref --verify --quiet refs/heads/upgrade/v1 && team_fail "di
 # Both rules files over the cap append into one spill file.
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'rm -rf "$work"; os_cleanup' EXIT
 DIR="$root/template/skills/upgrade"
 ROOT="$work/bothspill"
 ANSWERS=""

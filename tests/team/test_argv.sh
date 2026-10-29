@@ -95,6 +95,8 @@ export OS_HOST_BIN="$work/bin/host.sh"
 
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'rm -rf "$work"; os_cleanup' EXIT
 PATH="$work/bin:$PATH" os_with_git_token git push origin main
 
 if grep -F -q -f "$work/token" "$OS_ARGV_LOG"; then
