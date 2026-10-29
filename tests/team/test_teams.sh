@@ -5,7 +5,7 @@ set -euo pipefail
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/common.sh"
-root=$(team_root)
+osf=$(team_root)
 team_need git jq
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -35,7 +35,7 @@ export FAKE_TEAMS="$work/teams" FAKE_HOST_LOG="$work/host.log"
 names() {
   (
     # shellcheck disable=SC1091
-    . "$root/template/skills/add-teammate/lib.sh"
+    . "$osf/template/skills/add-teammate/lib.sh"
     os_team_names "$1"
     printf '%s %s\n' "$(os_team_company)" "$(os_team_area marketing)"
   )
@@ -54,7 +54,7 @@ printf '%s\n' "company acme-os" > "$FAKE_TEAMS"
 guard() {
   (
     # shellcheck disable=SC1091
-    . "$root/template/skills/add-teammate/lib.sh"
+    . "$osf/template/skills/add-teammate/lib.sh"
     os_team_guard "$1" "$2"
   )
 }
@@ -113,7 +113,7 @@ mkdir -p "$HOME"
 printf '%s\n' "company acme-os" "area-marketing acme-marketing" "area-marketing acmeb-marketing" > "$FAKE_TEAMS"
 : > "$FAKE_HOST_LOG"
 set +e
-"$root/template/skills/add-teammate/team-on.sh" --answers "$work/answers" > "$work/on.out" 2> "$work/on.err"
+"$osf/template/skills/add-teammate/team-on.sh" --answers "$work/answers" > "$work/on.out" 2> "$work/on.err"
 rc=$?
 set -e
 [ "$rc" -eq 2 ] || { cat "$work/on.out" "$work/on.err" >&2; team_fail "team-on with a shared team: exit $rc, want 2"; }
