@@ -694,8 +694,14 @@ class SyncFixTests(unittest.TestCase):
     def test_logs_wait_when_an_old_copy_pushes_the_logs_branch_back(self):
         # logsfix (68): after the branch was deleted, fetch --prune left this clone with no
         # logs ref. An old copy pushes logs back: the push still asks the host and holds.
-        # Offline counts as there. A repo with no v0 history asks no one.
+        # Offline counts as there. A repo with no v0 history asks no one. Run with /bin/bash
+        # (3.2 on macOS): there a failed host check once ended the check with no answer.
         bare = self.seed_origin()
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+
+        def push(env):
+            return run([shell, str(SYNC / "sync.sh"), "push"], env=env, cwd=self.company)
+
         real_git = shutil.which("git")
         bindir = self.tmp / "bin"
         bindir.mkdir()
@@ -715,7 +721,7 @@ class SyncFixTests(unittest.TestCase):
         logs = self.company / "memory" / "logs"
         logs.mkdir(parents=True)
         (logs / "2026-10-01-mia.md").write_text("a log with no v0 history\n")
-        result = self.sync("push", env=offline)
+        result = push(offline)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("memory/logs/2026-10-01-mia.md", self.tree("refs/heads/sync/mia"))
         # The upgrade landed (memory/logs-archive/ on main), and branch logs is gone here.
@@ -733,15 +739,15 @@ class SyncFixTests(unittest.TestCase):
         run(["git", "-C", str(old), "push", "-q", str(bare), "logs"], env=self.env, check=True)
         self.assertEqual(self.git("for-each-ref", "refs/remotes/origin/logs", "refs/heads/logs").stdout, "")
         (logs / "2026-10-02-mia.md").write_text("v1 log, same person and day\n")
-        result = self.sync("push", env=env)
+        result = push(env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
         self.assertIn("push hold root memory/logs/2026-10-02-mia.md v0 logs", self.sync_log())
         run(["git", "--git-dir", str(bare), "branch", "-D", "logs"], env=self.env, check=True)
-        result = self.sync("push", env=offline)
+        result = push(offline)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
-        result = self.sync("push", env=env)
+        result = push(env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
 

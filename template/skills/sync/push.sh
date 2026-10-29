@@ -51,10 +51,10 @@ sync_v0_logs_open() {
     printf 'no\n'
     return 0
   fi
-  set +e
-  sync_git "$repo" ls-remote --exit-code origin refs/heads/logs >/dev/null 2>&1
-  rc=$?
-  set -e
+  # After ||, not between set +e and set -e: sync_git turns set -e back on before it
+  # returns, and bash 3.2 would then end this $( ) with no answer.
+  rc=0
+  sync_git "$repo" ls-remote --exit-code origin refs/heads/logs >/dev/null 2>&1 || rc=$?
   if [ "$rc" -eq 2 ]; then
     printf 'no\n'
   else
@@ -576,7 +576,7 @@ sync_push_one() {
     fi
     case "$kind:$path" in
       root:memory/logs/*|area:memory/logs/*)
-        [ -n "$v0open" ] || v0open=$(sync_v0_logs_open "$repo")
+        [ -n "$v0open" ] || v0open=$(sync_v0_logs_open "$repo") || v0open=yes
         if [ "$v0open" = "yes" ]; then
           sync_hold_line "$id" "$path" "$V0_LOGS_REASON" >> "$added"
           sync_log "push hold ${id} ${path} v0 logs"
