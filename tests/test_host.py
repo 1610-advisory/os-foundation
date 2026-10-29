@@ -31,6 +31,8 @@ VERBS = [
     "grant",
     "revoke",
     "org-remove",
+    "invites",
+    "cancel-invites",
     "archive-repo",
     "open-pr",
     "auto-merge",
@@ -216,6 +218,8 @@ class GithubDryRunTests(unittest.TestCase):
             ("revoke-user.jsonl", ["revoke", "acme-os", "ada"], None),
             ("revoke-team.jsonl", ["revoke", "acme-os", "team:writers"], None),
             ("org-remove.jsonl", ["org-remove", "ada"], None),
+            ("invites.jsonl", ["invites", "ada"], None),
+            ("cancel-invites-repo.jsonl", ["cancel-invites", "ada", "acme-os"], None),
             ("archive-repo.jsonl", ["archive-repo", "acme-os"], None),
             (
                 "open-pr.jsonl",

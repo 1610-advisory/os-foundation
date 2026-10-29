@@ -627,20 +627,22 @@ cmd_user_access() {
       read|pull|triage) access="read" ;;
       *) access="none" ;;
     esac
-    jq -nc --arg access "$access" '{access:$access}'
-    return 0
-  fi
-  if grep -q 'HTTP 404' "$err"; then
-    jq -nc '{access:"none"}'
-    return 0
-  fi
-  if grep -q 'HTTP 403' "$err"; then
+  elif grep -q 'HTTP 404' "$err"; then
+    access="none"
+  elif grep -q 'HTTP 403' "$err"; then
     host_scrub_file "$err" >&2
     host_die 4 "cannot read collaborators: sign in as an org owner"
+  else
+    kind=$(host_classify_gh "$err" "$code")
+    host_scrub_file "$err" >&2
+    exit "$kind"
   fi
-  kind=$(host_classify_gh "$err" "$code")
-  host_scrub_file "$err" >&2
-  exit "$kind"
+  # A pending invite is access: the person gets it the moment they accept.
+  if [ "$access" = "none" ] \
+    && [ "$(host_user_invites "$user" "$name" | jq 'length')" -gt 0 ]; then
+    access="invited"
+  fi
+  jq -nc --arg access "$access" '{access:$access}'
 }
 
 cmd_secret_exists() {
@@ -816,6 +818,74 @@ cmd_org_remove() {
   fi
   host_gh_ok DELETE "/orgs/${OS_ORG}/members/${user}" >/dev/null
   jq -nc --arg user "$user" '{ok:true, user:$user}'
+}
+
+# The invite list of the org, or of one repo. Unscoped: org.
+host_invites_path() {
+  if [ -n "$1" ]; then
+    printf '%s/invitations' "$(host_repo "$1")"
+  else
+    printf '/orgs/%s/invitations' "$OS_ORG"
+  fi
+}
+
+# Pending invites for <user>: [{id, permission}]. An org invite has the login
+# at the top. A repo invite has it under invitee.
+host_user_invites() {
+  local user=$1 repo=$2 all
+  all=$(host_gh_all "$(host_invites_path "$repo")") || exit $?
+  printf '%s' "$all" | jq -c --arg u "$user" '
+    [ .[]
+      | select(((.login // .invitee.login // "") | ascii_downcase) == ($u | ascii_downcase))
+      | {id: .id, permission: (.permissions // .role // "")} ]'
+}
+
+host_need_invite_args() {
+  [ -n "$POS1" ] || host_die 1 "user is required"
+  [ -z "$POS3" ] || host_die 1 "too many arguments"
+  host_require_name "user" "$POS1"
+  if [ -n "$POS2" ]; then
+    host_require_name "name" "$POS2"
+  fi
+  host_require_org
+}
+
+cmd_invites() {
+  local list
+  host_need_invite_args
+  if host_dry; then
+    host_emit GET "$(host_invites_path "$POS2")"
+    return 0
+  fi
+  list=$(host_user_invites "$POS1" "$POS2")
+  jq -nc --argjson invites "$list" '{invites:$invites}'
+}
+
+# Cancel every pending invite for <user>: the org's, or one repo's. 404 is gone already.
+cmd_cancel_invites() {
+  local list id n errf rc path
+  host_need_invite_args
+  path=$(host_invites_path "$POS2")
+  if host_dry; then
+    host_emit GET "$path"
+    return 0
+  fi
+  list=$(host_user_invites "$POS1" "$POS2")
+  n=0
+  for id in $(printf '%s' "$list" | jq -r '.[].id'); do
+    host_require_int "invite id" "$id"
+    errf=$(host_mktemp)
+    set +e
+    host_gh_call DELETE "${path}/${id}" >/dev/null 2>"$errf"
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
+      cat "$errf" >&2
+      exit "$rc"
+    fi
+    n=$((n + 1))
+  done
+  jq -nc --arg user "$POS1" --argjson n "$n" '{ok:true, user:$user, cancelled:$n}'
 }
 
 cmd_archive() {
@@ -1131,6 +1201,8 @@ case "$VERB" in
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
+  invites) cmd_invites ;;
+  cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;

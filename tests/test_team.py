@@ -48,6 +48,9 @@ class TeamScripts(unittest.TestCase):
     def test_forgejo(self):
         run_script("test_forgejo.sh")
 
+    def test_invites(self):
+        run_script("test_invites.sh")
+
 
 class UpgradeScripts(unittest.TestCase):
     def test_rules_merge(self):

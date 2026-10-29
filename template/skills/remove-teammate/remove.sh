@@ -100,17 +100,23 @@ try_host() {
   set -e
 }
 
+# A person who never accepted has pending invites, not membership. Cancel those too,
+# or they get access the moment they accept.
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
   try_host team-remove "$(os_team_area "$area")" "$GH"
   try_host revoke "$(os_area_repo "$SLUG" "$area")" "$GH"
+  try_host cancel-invites "$GH" "$(os_area_repo "$SLUG" "$area")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
 try_host team-remove company "$GH"
 try_host revoke "$COMPANY_REPO" "$GH"
+try_host cancel-invites "$GH" "$COMPANY_REPO"
 try_host revoke "$WS_REPO" "$GH"
+try_host cancel-invites "$GH" "$WS_REPO"
+try_host cancel-invites "$GH"
 try_host org-remove "$GH"
 
 STILL=""
@@ -121,18 +127,38 @@ check_gone() {
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
-    STILL="${STILL} ${repo}"
+    STILL="${STILL} ${repo} (not checked)"
     return 1
   fi
   access=$(printf '%s' "$out" | jq -r '.access // "none"')
   if [ "$access" != "none" ]; then
-    STILL="${STILL} ${repo}"
+    STILL="${STILL} ${repo} (${access})"
+    return 1
+  fi
+  return 0
+}
+
+# The org invite is checked after the fact too.
+check_org_invite() {
+  local out rc n
+  set +e
+  out=$(os_host invites "$GH")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} org (not checked)"
+    return 1
+  fi
+  n=$(printf '%s' "$out" | jq '.invites | length')
+  if [ "$n" != "0" ]; then
+    STILL="${STILL} org (invited)"
     return 1
   fi
   return 0
 }
 
 failed=0
+check_org_invite || failed=1
 check_gone "$COMPANY_REPO" || failed=1
 area=""
 while IFS= read -r area; do
@@ -195,6 +221,18 @@ else
 fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
+  # Like propose: the pull request merges by itself when its checks pass.
+  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
+  fi
+  # A BOT.md is a rules file. On GitHub its code-owner review is the admin, the author here.
+  if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
+    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
+      "$COMPANY_REPO" "$number"
+  fi
 fi
 printf '%s\n' "phi: app-level-not-in-v1"
 

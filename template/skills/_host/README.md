@@ -32,13 +32,15 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]` | Protect `main`. See the rules below. |
 | `unprotect <name>` | Lift the rule on `main` (`rule_name` or `branch_name`). Deletes that rule by its name. No matching rule: already unprotected, exit 0. `protect` restores it. GitHub: first removes a v0 classic rule on `main` (it would refuse a push too; 404 is fine), then the `main` and `rules-review` rulesets. `protect` puts the v1 rulesets back, not the classic rule. |
 | `secret-exists <name>` | `{"exists":true}` or `{"exists":false}`. Never prints the value. |
-| `user-access <repo> <user>` | `{"access":"none"\|"read"\|"write"\|"admin"}`. A missing user is `none`. |
+| `user-access <repo> <user>` | `{"access":"none"\|"read"\|"write"\|"admin"\|"invited"}`. A missing user is `none`. GitHub: a pending repo invite is `invited`, because the person gets access the moment they accept. |
 | `team-create <team>` | Create an org team. An existing team is ok: it prints that team. |
 | `team-add <team> <user>` | Add a user to a team |
 | `team-remove <team> <user>` | Remove a user from a team |
 | `grant <name> <user\|team:<team>> <read\|write\|admin>` | Grant repo access |
 | `revoke <name> <user\|team:<team>>` | Revoke repo access |
 | `org-remove <user>` | Remove a user from the org |
+| `invites <user> [<repo>]` | Pending invites for the user: the org's, or one repo's. `{"invites":[{"id","permission"}]}`. Forgejo has no pending invites: it adds people at once, so the list is empty. |
+| `cancel-invites <user> [<repo>]` | Cancel each pending invite for the user: the org's, or one repo's. A second run is fine. `{"ok":true,"user":...,"cancelled":N}`. |
 | `archive-repo <name>` | Archive the repo |
 | `open-pr <name> --head <branch> --base main --title <text> [--body-file <file>]` | Open a pull request, or update the open one from the same head. `{"number":N,"url":...}` |
 | `auto-merge <name> <number>` | Merge when required checks pass. Merge commit, not squash. A second call is success: `{"auto_merge":"already"}`. |

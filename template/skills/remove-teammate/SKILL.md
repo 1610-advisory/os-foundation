@@ -27,17 +27,17 @@ The script refuses to remove the last admin. If this person is the last admin, h
 
 Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
-After the revokes, the script asks the host what access the person still has on the company repo, each area repo and their workspace (`host.sh user-access`). It prints `revoked:` only when every one is `none`. Otherwise it lists each repo that still has access and exits with an error.
+After the revokes, the script asks the host what access the person still has: any pending org invite (`host.sh invites`), and access on the company repo, each area repo and their workspace (`host.sh user-access`). A pending invite counts as access: the person would get in the moment they accept. It prints `revoked:` only when nothing is left. Otherwise it lists each place that still has access and exits with an error.
 
 If it exits with an error, tell the admin the exact message and each repo it lists. Never say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
 
 ## 3. What it does, in this order
 
-1. **Revoke first.** It removes the person from their teams, from each repo grant and from the org. Their sign-in no longer reaches any company repo.
+1. **Revoke first.** It removes the person from their teams, from each repo grant and from the org. It cancels every pending invite too, for a person who never accepted. Their sign-in no longer reaches any company repo.
 2. **Workspace.** It archives their workspace repo. Only the admin can read it. The company keeps it. The admin may turn on deletion.
 3. **People page.** It sets `left:` to today on their page in `people/`. The page stays.
 4. **Bots.** Each bot they owned gets the new `owner:` in its `BOT.md`.
-5. **By pull request.** The changes to `people/` and `bots/` go on one branch and one pull request. `bots/` holds rules files, so the model review runs. On GitHub, when `bots/` changed, the admin is the author, and GitHub never counts the author's own approval. Then the admin waits for the green checks and opens the pull request. They tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge". Nobody writes to `main`.
+5. **By pull request.** The changes to `people/` and `bots/` go on one branch and one pull request. It merges by itself when the checks pass. `bots/` holds rules files, so the model review runs. On GitHub, when `bots/` changed, the admin is the author, and GitHub never counts the author's own approval. The script prints `merge-by-hand:`. Then the admin waits for the green checks and opens the pull request. They tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge". Nobody writes to `main`.
 6. **Vendor seats.** It prints one `seat:` line per AI vendor seat listed under Connections in `architecture.md`.
 
 Their notes and action logs stay in the areas. They are company knowledge.

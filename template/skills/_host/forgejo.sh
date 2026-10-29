@@ -648,6 +648,27 @@ cmd_org_remove() {
   jq -nc --arg user "$user" '{ok:true, user:$user}'
 }
 
+# Forgejo adds people to teams and repos at once. It has no pending invites.
+fj_need_invite_args() {
+  [ -n "$POS1" ] || host_die 1 "user is required"
+  [ -z "$POS3" ] || host_die 1 "too many arguments"
+  host_require_name "user" "$POS1"
+  if [ -n "$POS2" ]; then
+    host_require_name "name" "$POS2"
+  fi
+  host_require_org
+}
+
+cmd_invites() {
+  fj_need_invite_args
+  jq -nc '{invites:[]}'
+}
+
+cmd_cancel_invites() {
+  fj_need_invite_args
+  jq -nc --arg user "$POS1" '{ok:true, user:$user, cancelled:0}'
+}
+
 cmd_archive() {
   local name body
   host_need_name
@@ -906,6 +927,8 @@ case "$VERB" in
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
+  invites) cmd_invites ;;
+  cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;

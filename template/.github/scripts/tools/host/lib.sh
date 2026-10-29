@@ -714,6 +714,8 @@ Verbs:
   grant <name> <user|team:<team>> <read|write|admin>
   revoke <name> <user|team:<team>>
   org-remove <user>
+  invites <user> [<repo>]
+  cancel-invites <user> [<repo>]
   archive-repo <name>
   open-pr <name> --head <branch> --base main --title <text> [--body-file <file>]
   auto-merge <name> <number>
