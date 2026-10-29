@@ -655,4 +655,60 @@ set -e
 [ "$tok_rc" -eq 0 ] || team_fail "dry run token failure exit was $tok_rc"
 grep -q 'could not fetch acme-shop' "$work/token.out" || team_fail "dry run hid the fetch failure"
 
+# Round 3 (32): layout. A placeholder goes when company lines fill its section; a blank
+# line stays before each heading; a table row keeps its header; a line from a v0 section
+# with no subheading does not land under a v1 subheading; a subheading at the end of a
+# section comes along with its lines.
+lay="$work/layout"
+mkdir -p "$lay"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$lay/real.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+s = s.replace("- (setup fills this in)", "- Launch the spring line")
+s = s.replace("| `templates/` | Note templates | everyone |", "| `templates/` | Note templates | everyone |\n| `recipes/` | House recipes | the kitchen |")
+out = []
+for line in s.split("\n"):
+    if line.startswith("## Skills"):
+        out += ["- The bakery area holds the oven schedule.", ""]
+    if line.startswith("## Memory"):
+        out += ["### Our own skills", "- `skills/order-flour/` orders flour on Mondays.", ""]
+    out.append(line)
+Path(os.environ["OSF_OUT"]).write_text("\n".join(out))
+PY
+bash "$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" --real "$lay/real.md" --v1 "$root/template/AGENTS.md" \
+  --scope company --map "$root/template/skills/upgrade/rules-map.txt" --out "$lay/out.md" > /dev/null
+OSF_OUT="$lay/out.md" python3 - << 'PY' || team_fail "merge layout"
+import os, sys
+from pathlib import Path
+lines = Path(os.environ["OSF_OUT"]).read_text().split("\n")
+def at(text):
+    return lines.index(text)
+bad = []
+if "- (setup fills this in)" in lines:
+    bad.append("placeholder stayed")
+right_now = at("### Right now")
+if lines.index("- Launch the spring line") < right_now:
+    bad.append("right-now line is above its heading")
+bakery = at("- The bakery area holds the oven schedule.")
+if not bakery < right_now:
+    bad.append("an Areas line landed under ### Right now")
+row = at("| `recipes/` | House recipes | the kitchen |")
+if lines[row - 2:row] != ["| Path | What it is | Who reads it |", "|---|---|---|"]:
+    bad.append("table row has no header")
+if lines[row - 3].strip() != "":
+    bad.append("no blank line before the table")
+sub = at("### Our own skills")
+if lines[sub + 1] != "- `skills/order-flour/` orders flour on Mondays." or lines[sub - 1].strip() != "":
+    bad.append("subheading lines out of place")
+if sub > at("## Memory and logs"):
+    bad.append("subheading landed in the wrong section")
+for i, line in enumerate(lines):
+    if line.startswith("#") and i > 0 and lines[i - 1].strip() != "":
+        bad.append("no blank line before: " + line)
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
+
 printf '%s\n' "PASS rules-merge"
