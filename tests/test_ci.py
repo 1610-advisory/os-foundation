@@ -543,6 +543,35 @@ class BundledScanTests(unittest.TestCase):
                 self.assertNotIn(line.split()[-1].strip("\"'"), proc.stdout + proc.stderr)
 
 
+class ToolsReleaseTests(unittest.TestCase):
+    """B28: upgrade puts newer check tools on main by .github/scripts/tools-release.
+
+    A change to the check tools needs a higher release, or a company that has the old
+    tools keeps them. Bump tools-release, then put the new release and hash below.
+    """
+
+    FIXTURE = ROOT / "tests" / "ci" / "fixtures" / "tools-release.txt"
+
+    def test_changed_tools_bump_the_release(self):
+        import hashlib
+
+        base = ROOT / "template" / ".github"
+        files = [base / "workflows" / "checks.yml"] + sorted(
+            p for p in (base / "scripts").rglob("*") if p.is_file() and p.name != "tools-release"
+        )
+        digest = hashlib.sha256()
+        for p in files:
+            digest.update(str(p.relative_to(base)).encode() + b"\0" + p.read_bytes() + b"\0")
+        release = (base / "scripts" / "tools-release").read_text().strip()
+        self.assertRegex(release, r"^[0-9]{10}$")
+        want_release, want_hash = self.FIXTURE.read_text().split()
+        self.assertEqual(
+            (release, digest.hexdigest()),
+            (want_release, want_hash),
+            "check tools changed: raise template/.github/scripts/tools-release, then update " + str(self.FIXTURE.name),
+        )
+
+
 class BaseRulesTests(unittest.TestCase):
     def test_review_rules_come_from_base(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")

@@ -48,7 +48,9 @@ The script stops early in these cases. Each one changes nothing.
 
 - **Windows.** Under Git Bash on Windows it prints `run the upgrade from a Mac or Linux clone of the company repo` and exits 2. Windows teammates get the result by their normal pull.
 - **Already v1.** `main` has `level:` in `company-profile.md` and both skill links committed as links. It prints `upgrade: already v1` and exits 0.
-- **Pending.** A branch `upgrade/v1` exists but is not merged. It prints `upgrade: pending upgrade/v1` and how to start over: `git checkout main`, then delete the `upgrade/v1` branch and any area `upgrade/scripts` branch. It exits 0.
+- **Pending, no host.** A branch `upgrade/v1` exists and there is no host: the person merges it by hand. It prints `upgrade: pending upgrade/v1` and `To start over, run in the company folder: git checkout main && git branch -D upgrade/v1` (plus the same for each area `upgrade/scripts`). It exits 0 and changes nothing.
+- **An earlier run's branches (host on).** The upgrade owns `upgrade/v1` (company) and `upgrade/scripts` (each area), in the folder and on the host. A branch is its own when its last commit is one the upgrade makes (`Upgrade to v1`, or a subject that starts `Upgrade: `). A folder left on its own upgrade branch goes back to `main`: `switched <folder> to main from <branch> (an earlier upgrade run)`. With a host, the dry run prints `change: replace <repo> <branch> (an earlier upgrade run made it; its pull request is reused)`. A real run rebuilds the branch from `main` and pushes it with `--force-with-lease` (only if the host branch has not moved since the run looked). It prints `replaced: <repo> <branch> (an earlier upgrade run made it)`. `open-pr` updates the open pull request from that branch, or opens a new one when the old one was closed. So a stopped or superseded run needs no start-over: run it again.
+- **Someone else's commits on an upgrade branch.** It prints one line per branch: `upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make. To keep them, merge or close its pull request first. To start over, in <folder> run: <commands> (that also closes its pull request). Then run upgrade again.` The commands are exact: `git checkout main && git branch -D <branch>` for the folder, `git push origin --delete <branch>` for the host, only the parts that hold such commits. A real run exits 2 before any change. The dry run prints the same line and goes on.
 - **A dirty area.** An area repo has uncommitted changes. It prints `the area areas/<name> has uncommitted changes. Commit or stash them, then run upgrade again.` A real run exits 2 before any company commit. The dry run prints the same line. An area `memory/logs/` worktree with uncommitted logs prints `areas/<name>/memory/logs has uncommitted changes. Commit them on the logs branch, then run upgrade again.` the same way.
 - **An area fetch fails** (host on). It prints `could not fetch <repo>`. A real run exits 3 before any commit.
 - **Free GitHub org** (team or app on GitHub). `host.sh plan-check` stops it with exit 3, before any commit or push: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Solo does not check the plan. A plan the sign-in cannot see stops it the same way: `Could not read the plan of the GitHub org <org>: sign in as an org owner, then run this again. Team setup needs an org owner.` A dry run does not stop: it prints `finding: plan: <that line>` and `finding: plan blocks: check tools on main, protect, and the upgrade pull requests. A real run stops before any change.`, then the full report.
@@ -106,9 +108,9 @@ If the folder is app-linked (`app-link.json` or `OS_APP_LINK=1`), the dry-run sa
 
 When `host` is not `none` and `host.sh` is present, the script opens one pull request. At `team` or `app` it first does these steps, once per repo (the company repo, then each area repo), and prints each one. Solo skips steps 1 and 2:
 
-1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Every other `CODEOWNERS` line stays, after the rules lines, under `# Kept from before the upgrade.` Then `host.sh unprotect <repo>` (on GitHub this also removes the v0 classic rule, which would refuse the push), a push to `main`, and step 2. If the push is refused, it runs `protect` at once and stops: `main` is never left open. If that `protect` fails too, it prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`. No company content goes to `main`. When `main` has them: `checks-on-main: <repo> already`, no push.
+1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Every other `CODEOWNERS` line stays, after the rules lines, under `# Kept from before the upgrade.` Then `host.sh unprotect <repo>` (on GitHub this also removes the v0 classic rule, which would refuse the push), a push to `main`, and step 2. If the push is refused, it runs `protect` at once and stops: `main` is never left open. If that `protect` fails too, it prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`. No company content goes to `main`. When `main` has them, it compares them with this release's (`.github/workflows/checks.yml` and `.github/scripts/`; `review.conf` and `CODEOWNERS` stay as they are). The same: `checks-on-main: <repo> already`, no push. Different, and `.github/scripts/tools-release` on `main` is lower (tools from before the marker are release 0): it commits this release's tools on top of `origin/main` (`Upgrade: update check tools on main`) and pushes them by the same safe path, then prints `checks-on-main: <repo> updated the check tools on main (release <old> to <new>)`. Different, and `main`'s release is the same or higher: no push, `checks-on-main: <repo> already: kept the check tools on main (release <main>; this upgrade has <new>)`. Older tools never go over newer ones.
 2. `protected: <repo>`: `host.sh protect <repo> --code-owners --approvals 0`. On GitHub that also replaces the v0 classic rule (one code-owner approval, which only the admin could give) and turns on auto-merge.
-3. The area pull requests, then the company pull request. On Forgejo each gets `host.sh auto-merge`. If that fails, it prints `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.` and goes on. On GitHub every upgrade pull request is the admin's own rules change, and GitHub never counts the author's own approval. So each one prints `merge-by-hand: <repo> <n>` and gets no auto-merge. The `rules-review` ruleset lets an org admin bypass it on a pull request (`bypass_mode: pull_request`). Auto-merge does not use that bypass, and with it on GitHub shows "Disable auto-merge" in place of the bypass box. The dry-run `pr-plan:` line ends in `merge-by-hand` on GitHub and `auto-merge` on Forgejo. Solo with a host: no auto-merge; the person merges.
+3. The area pull requests, then the company pull request. On Forgejo each gets `host.sh auto-merge`. If that fails, it prints `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.` and goes on. On GitHub every upgrade pull request is the admin's own rules change, and GitHub never counts the author's own approval. So each one prints `merge-by-hand: <repo> <n>: it will not merge by itself. When its checks are green, the admin opens it, ticks "Merge without waiting for requirements to be met (bypass rules)" and clicks "Bypass rules and merge".` and gets no auto-merge. The `rules-review` ruleset lets an org admin bypass it on a pull request (`bypass_mode: pull_request`). Auto-merge does not use that bypass, and with it on GitHub shows "Disable auto-merge" in place of the bypass box. The dry-run `pr-plan:` line ends in `merge-by-hand` on GitHub and `auto-merge` on Forgejo. Solo with a host: no auto-merge; the person merges.
 
 At `team` or `app` it prints `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY` first, and `no review key yet: ...` when the org key is not there.
 
@@ -118,9 +120,9 @@ Each area repo gets its own pull request for the check scripts, on `upgrade/scri
 
 | Code | Meaning |
 |---|---|
-| 0 | ok, including a dry-run that found conflicts, `upgrade: already v1` and `upgrade: pending upgrade/v1` |
+| 0 | ok, including a dry-run that found conflicts or `upgrade: stopped:` lines, `upgrade: already v1` and `upgrade: pending upgrade/v1` (no host) |
 | 1 | usage |
-| 2 | refused (not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on) |
+| 2 | refused (not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on, someone else's commits on an upgrade branch) |
 | 3 | tool error (`git filter-repo` missing) or host error (an area fetch failed, the check tools could not reach `main`, a Free GitHub org at team level) |
 | 4 | auth failed |
 
@@ -129,6 +131,9 @@ Each area repo gets its own pull request for the check scripts, on `upgrade/scri
 ```
 upgrade: already v1
 upgrade: pending upgrade/v1
+To start over, run in the company folder: git checkout main && git branch -D upgrade/v1. Then run upgrade again.
+switched <folder> to main from <branch> (an earlier upgrade run)
+upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make. ...
 upgrade: dry-run
 v0: logs-branch
 v0: no-links
@@ -159,14 +164,16 @@ keep: 90 days
 change: logs-history areas/<name>
 change: checks-on-main <repo>
 change: protect <repo>
+change: replace <repo> <branch> (an earlier upgrade run made it; its pull request is reused)
 todo: answer slug (...)
 todo: answer review_vendor (...)
 review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY
-checks-on-main: <repo> [already]
+checks-on-main: <repo> [already | already: kept the check tools on main (...) | updated the check tools on main (release <old> to <new>)]
 protected: <repo>
 pr: <repo> <number>
 auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.
-merge-by-hand: <repo> <n>
+replaced: <repo> <branch> (an earlier upgrade run made it)
+merge-by-hand: <repo> <n>: it will not merge by itself. When its checks are green, the admin opens it, ticks ... and clicks "Bypass rules and merge".
 pr: <number>
 admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".
 logs-tag: could not push the logs-archive tag to <repo>. ...

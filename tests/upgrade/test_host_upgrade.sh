@@ -47,7 +47,9 @@ case "$1" in
     printf '{"plan":"%s"}\n' "${FAKE_PLAN:-team}"
     ;;
   secret-exists) printf '%s\n' '{"exists":true}' ;;
-  open-pr) printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
+  open-pr)
+    [ "${FAKE_OPENPR:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
+    printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
   auto-merge)
     [ "${FAKE_AUTOMERGE:-fail}" = "ok" ] && { printf '%s\n' '{"ok":true}'; exit 0; }
     printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
@@ -163,8 +165,8 @@ grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/r
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
-grep -qx 'merge-by-hand: acme2-os 5' "$work/run.out" || team_fail "no merge-by-hand line for the company"
-grep -qx 'merge-by-hand: acme2-marketing 5' "$work/run.out" || team_fail "no merge-by-hand line for the area"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme2-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the area"
 grep -q 'pr-plan: [^ ]*marketing branch upgrade/scripts files .* merge-by-hand$' "$work/dry.out" \
   || team_fail "dry run did not plan merge-by-hand"
 git --git-dir "$work/git/acme2-os.git" rev-parse --verify --quiet refs/heads/upgrade/v1 >/dev/null \
@@ -210,13 +212,99 @@ for pair in "$co:acme2-os:upgrade/v1" "$area:acme2-marketing:upgrade/scripts"; d
   [ "$rc" -eq 0 ] || { cat "$work/scan.out" >&2; team_fail "$repo upgrade pull request fails its own secret scan"; }
 done
 
-# A second run after start-over keeps main as it is: the tools are already there.
+# B27: a second run, with no start-over, replaces its own branches on the host and reuses
+# the pull requests. main stays as it is: the tools are already there.
 before=$(git --git-dir "$work/git/acme2-os.git" rev-parse main)
-git -C "$co" checkout -q main
-git -C "$co" branch -D upgrade/v1 -q
+old_v1=$(git --git-dir "$work/git/acme2-os.git" rev-parse upgrade/v1)
 : > "$FAKE_HOST_LOG"
-"$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run2.out" 2>&1 || true
+"$upgrade" --dry-run --root "$co" --template "$root/template" --answers "$work/answers" > "$work/dry2.out" 2>&1 \
+  || { cat "$work/dry2.out" >&2; team_fail "second dry run failed"; }
+grep -q 'pending' "$work/dry2.out" && team_fail "second dry run says pending"
+grep -qx 'change: replace acme2-os upgrade/v1 (an earlier upgrade run made it; its pull request is reused)' "$work/dry2.out" \
+  || { cat "$work/dry2.out" >&2; team_fail "dry run does not plan to replace upgrade/v1"; }
+grep -q 'change: replace acme2-marketing upgrade/scripts' "$work/dry2.out" || team_fail "dry run does not plan to replace upgrade/scripts"
+set +e
+"$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run2.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/run2.out" >&2; team_fail "second run exit $rc"; }
+grep -qx 'checks-on-main: acme2-os already' "$work/run2.out" || team_fail "second run: tools not already there"
+grep -qx 'replaced: acme2-os upgrade/v1 (an earlier upgrade run made it)' "$work/run2.out" || team_fail "second run did not replace upgrade/v1"
+grep -qx 'replaced: acme2-marketing upgrade/scripts (an earlier upgrade run made it)' "$work/run2.out" \
+  || team_fail "second run did not replace upgrade/scripts"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse main)" = "$before" ] || team_fail "second run wrote main again"
+[ "$(git --git-dir "$work/git/acme2-os.git" rev-parse upgrade/v1)" != "$old_v1" ] || team_fail "upgrade/v1 was not rebuilt"
+git --git-dir "$work/git/acme2-os.git" cat-file -e "upgrade/v1:memory/logs/2026-10-01-ada.md" || team_fail "rebuilt upgrade/v1 lost the logs"
+
+# B27: run, stop after the push (the host refuses the pull request), run again: success.
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_OPENPR=fail "$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/stop.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || { cat "$work/stop.out" >&2; team_fail "the stopped run did not stop"; }
+"$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run3.out" 2>&1 \
+  || { cat "$work/run3.out" >&2; team_fail "run after a stop failed"; }
+grep -q 'switched the company folder to main from upgrade/v1' "$work/run3.out" || team_fail "run after a stop: no switch to main"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run3.out" || team_fail "run after a stop: no company pull request"
+
+# B27: someone else's commit on the host branch stops the run before any change, with the commands.
+git clone -q -b main "$work/git/acme2-marketing.git" "$work/hand"
+git -C "$work/hand" checkout -q upgrade/scripts
+printf '%s\n' "a fix by hand" > "$work/hand/hand.md"
+commit_all "$work/hand" "Fix the area note by hand"
+git -C "$work/hand" push -q origin upgrade/scripts
+hand_tip=$(git --git-dir "$work/git/acme2-marketing.git" rev-parse upgrade/scripts)
+"$upgrade" --dry-run --root "$co" --template "$root/template" --answers "$work/answers" > "$work/dry4.out" 2>&1 \
+  || { cat "$work/dry4.out" >&2; team_fail "dry run with a hand commit failed"; }
+want='upgrade: stopped: acme2-marketing has commits on upgrade/scripts that the upgrade did not make. To keep them, merge or close its pull request first. To start over, in areas/marketing run: git push origin --delete upgrade/scripts (that also closes its pull request). Then run upgrade again.'
+grep -qxF "$want" "$work/dry4.out" || { cat "$work/dry4.out" >&2; team_fail "dry run: no stop line for the hand commit"; }
+: > "$FAKE_HOST_LOG"
+set +e
+"$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run4.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 2 ] || { cat "$work/run4.out" >&2; team_fail "hand commit: exit $rc, want 2"; }
+grep -qxF "$want" "$work/run4.out" || team_fail "real run: no stop line for the hand commit"
+[ "$(git --git-dir "$work/git/acme2-marketing.git" rev-parse upgrade/scripts)" = "$hand_tip" ] || team_fail "the hand commit was replaced"
+grep -qE '^(unprotect|protect|open-pr) ' "$FAKE_HOST_LOG" && team_fail "a host change ran before the stop"
+# The line's commands work: then the run goes through.
+git -C "$area" push -q origin --delete upgrade/scripts
+"$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run5.out" 2>&1 \
+  || { cat "$work/run5.out" >&2; team_fail "run after the printed commands failed"; }
+
+# B28: main has check tools from an older release (no tools-release, an older script).
+# The upgrade updates them, by the same path as the first push. Never older over newer.
+for kind in older newer; do
+  git clone -q -b main "$work/git/acme2-os.git" "$work/tools-$kind"
+  if [ "$kind" = older ]; then
+    git -C "$work/tools-$kind" rm -q .github/scripts/tools-release
+  else
+    printf '%s\n' 9999999999 > "$work/tools-$kind/.github/scripts/tools-release"
+  fi
+  printf '%s\n' "# an old line" >> "$work/tools-$kind/.github/scripts/run-checks.sh"
+  commit_all "$work/tools-$kind" "Tools: $kind"
+  git -C "$work/tools-$kind" push -q origin main
+  : > "$FAKE_HOST_LOG"
+  "$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/tools-$kind.out" 2>&1 \
+    || { cat "$work/tools-$kind.out" >&2; team_fail "$kind tools run failed"; }
+  rel=$(cat "$root/template/.github/scripts/tools-release")
+  if [ "$kind" = older ]; then
+    grep -qx "checks-on-main: acme2-os updated the check tools on main (release 0 to ${rel})" "$work/tools-$kind.out" \
+      || { cat "$work/tools-$kind.out" >&2; team_fail "older tools were not updated"; }
+    git --git-dir "$work/git/acme2-os.git" show main:.github/scripts/run-checks.sh | grep -q '^# an old line' \
+      && team_fail "main still has the old check tools"
+    order=$(grep -E "^(unprotect|protect) acme2-os " "$FAKE_HOST_LOG" | cut -d' ' -f1 | tr '\n' ' ')
+    [ "$order" = "unprotect protect " ] || team_fail "tools update host order was: $order"
+  else
+    grep -qx "checks-on-main: acme2-os already: kept the check tools on main (release 9999999999; this upgrade has ${rel})" \
+      "$work/tools-$kind.out" || { cat "$work/tools-$kind.out" >&2; team_fail "newer tools were not kept"; }
+    git --git-dir "$work/git/acme2-os.git" show main:.github/scripts/run-checks.sh | grep -q '^# an old line' \
+      || team_fail "newer tools on main were replaced"
+    grep -q '^unprotect acme2-os' "$FAKE_HOST_LOG" && team_fail "kept tools but lifted protection"
+  fi
+done
 
 # Item 24: auto-merge is on, but on GitHub the admin's own rules pull request needs the bypass click.
 co5="$work/automerge"
@@ -224,8 +312,8 @@ make_v0 "$co5" acme5-os
 : > "$FAKE_HOST_LOG"
 FAKE_AUTOMERGE=ok "$upgrade" --root "$co5" --template "$root/template" --answers "$work/answers" > "$work/am.out" 2>&1 \
   || { cat "$work/am.out" >&2; team_fail "auto-merge run failed"; }
-grep -qx 'merge-by-hand: acme5-os 5' "$work/am.out" || team_fail "no merge-by-hand line for the company"
-grep -qx 'merge-by-hand: acme5-marketing 5' "$work/am.out" || team_fail "no merge-by-hand line for the area"
+grep -q '^merge-by-hand: acme5-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme5-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the area"
 grep -q 'Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".' "$work/am.out" \
   || team_fail "no bypass click path"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
