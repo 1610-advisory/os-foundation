@@ -285,14 +285,21 @@ function is_placeholder(line) {
 
 # Insert a block at the end of v1 lines (from, to]: after the last line with text,
 # so a blank line stays before the next heading. A setup placeholder there goes.
-function place(from, to, depth, text,    j, pos) {
-  for (j = from + 1; j <= to; j++) if (is_placeholder(v1[j])) drop[j] = 1
-  pos = to
-  while (pos > from && (v1[pos] ~ /^[[:space:]]*$/ || drop[pos])) pos--
+function place(from, to, depth, text,    j, pos, hs) {
   # Blank lines at the edges of a block are spacing, not content.
   while (substr(text, 1, 1) == "\n") text = substr(text, 2)
   while (length(text) > 1 && substr(text, length(text) - 1) == "\n\n") text = substr(text, 1, length(text) - 1)
   if (text == "") return
+  # The lines land at the end of the range, in the part under its last heading. Only
+  # that part loses its setup placeholder. A block that starts with its own heading is
+  # a new part: it fills no placeholder.
+  if (text !~ /^#/) {
+    hs = from
+    for (j = to; j > from; j--) if (v1[j] ~ /^#/) { hs = j; break }
+    for (j = hs + 1; j <= to; j++) if (is_placeholder(v1[j])) drop[j] = 1
+  }
+  pos = to
+  while (pos > from && (v1[pos] ~ /^[[:space:]]*$/ || drop[pos])) pos--
   # A table or a heading needs a blank line before it.
   if (text ~ /^(\||#)/) text = "\n" text
   add_insert(pos, depth, text)

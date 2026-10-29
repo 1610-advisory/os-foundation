@@ -284,6 +284,42 @@ grep -q 'change: .gitattributes' "$work/attrs.out" || team_fail "dry-run missed 
 cmp -s "$attrs/.gitattributes" "$tpl/.gitattributes" || team_fail "company gitattributes was not copied"
 cmp -s "$attrs/areas/marketing/.gitattributes" "$tpl/skills/add-area/templates/marketing/.gitattributes" || team_fail "area gitattributes was not copied"
 
+# Round 4 (46): a company ### under Areas, Right now not filled. The placeholder stays.
+lay="$work/layout"
+mkdir -p "$lay"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$lay/real2.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+out = []
+for line in s.split("\n"):
+    if line.startswith("## Skills"):
+        out += ["### Our partners", "- Acme Supply delivers flour.", ""]
+    out.append(line)
+Path(os.environ["OSF_OUT"]).write_text("\n".join(out))
+PY
+bash "$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" --real "$lay/real2.md" --v1 "$root/template/AGENTS.md" \
+  --scope company --map "$root/template/skills/upgrade/rules-map.txt" --out "$lay/out2.md" > /dev/null
+OSF_OUT="$lay/out2.md" python3 - << 'PY' || team_fail "merge layout: unfilled placeholder"
+import os, sys
+from pathlib import Path
+lines = Path(os.environ["OSF_OUT"]).read_text().split("\n")
+bad = []
+if "- (setup fills this in)" not in lines:
+    bad.append("the Right now placeholder was dropped")
+elif lines.index("- (setup fills this in)") < lines.index("### Right now"):
+    bad.append("placeholder moved")
+if "### Our partners" not in lines:
+    bad.append("company subheading lost")
+else:
+    sub = lines.index("### Our partners")
+    if lines[sub + 1] != "- Acme Supply delivers flour.":
+        bad.append("company subheading lost its line")
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
+
 # Round 3 (34): an area kind with no .gitattributes of its own gets the _area copy, and so
 # does an area whose rules file is already v1. Both land in the area's upgrade commit.
 ga="$work/ga"
