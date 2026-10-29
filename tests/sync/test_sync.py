@@ -780,6 +780,44 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("note.md", tree)
         self.assertRegex(self.host_page(bare, "sync/mia"), r"(?m)^terms_accepted: \"?\d{4}-")
 
+    def test_push_and_pull_leave_no_temp_files(self):
+        # logsfix (57): the nightly job runs push and pull every day. Each run must leave
+        # the temp folder as it found it, or a person's temp folder fills over months.
+        bare, answers = self.join_ready()
+        tmpdir = self.tmp / "tmpdir"
+        tmpdir.mkdir()
+        self.env["TMPDIR"] = str(tmpdir)
+        # macOS mktemp ignores TMPDIR. This shim behaves like GNU mktemp, so every temp file
+        # a script makes is counted here, on any system.
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        real = shutil.which("mktemp")
+        (shim / "mktemp").write_text(
+            "#!/bin/sh\n"
+            f'if [ $# -eq 0 ]; then exec {real} "${{TMPDIR:-/tmp}}/tmp.XXXXXXXX"; fi\n'
+            f'if [ $# -eq 1 ] && [ "$1" = -d ]; then exec {real} -d "${{TMPDIR:-/tmp}}/tmp.XXXXXXXX"; fi\n'
+            f'exec {real} "$@"\n'
+        )
+        (shim / "mktemp").chmod(0o755)
+        self.env["PATH"] = f"{shim}{os.pathsep}{self.env['PATH']}"
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(os.listdir(tmpdir)), [], "join left temp files")
+        for n in range(3):
+            (self.company / f"note-{n}.md").write_text(f"a shop note {n}\n")
+            result = self.sync("push")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", "refs/heads/sync/mia"], env=self.env, check=True)
+            for args in (("pull",), ("pull", "--full"), ("status",)):
+                result = self.sync(*args)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # A failed push (no host) cleans up too.
+        self.git("remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        (self.company / "note-x.md").write_text("one more\n")
+        self.sync("push")
+        self.sync("pull", "--full")
+        self.assertEqual(sorted(os.listdir(tmpdir)), [], "push or pull left temp files")
+
     def test_a_push_clears_only_a_push_error(self):
         # Round 3 (41): a good push never clears an error a pull left in another run.
         script = (
