@@ -913,7 +913,9 @@ checks_on_main() {
     git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
     author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
     # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
-    # refuse this push. From here until protect, every way out puts protection back.
+    # refuse this push. From here until protect, every way out puts protection back
+    # (upgrade_on_exit covers a stop this function does not catch).
+    UNPROTECTED=$repo
     os_host unprotect "$repo" >/dev/null
     err=$(mktemp)
     if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
@@ -941,10 +943,28 @@ checks_on_main() {
 # Protect main with the v1 rules. If that fails, say plainly that main is open.
 reprotect() {
   local repo=$1
+  UNPROTECTED=""
   if ! os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null; then
     os_die 3 "PROTECTION IS OFF on ${repo}: run skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
   fi
 }
+
+# Any exit between unprotect and protect (a host error, set -e) protects main again,
+# or prints that main is open.
+UNPROTECTED=""
+upgrade_on_exit() {
+  local rc=$? repo=$UNPROTECTED
+  [ -n "$repo" ] || return "$rc"
+  UNPROTECTED=""
+  if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
+    printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
+  else
+    printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
+  fi
+  [ "$rc" -ne 0 ] || rc=3
+  exit "$rc"
+}
+trap upgrade_on_exit EXIT
 
 REVIEW_VENDOR=""
 REVIEW_MODEL=""

@@ -54,7 +54,10 @@ case "$1" in
   protect)
     [ "${FAKE_PROTECT:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
     printf '%s\n' '{"ok":true}' ;;
-  unprotect) printf '%s\n' '{"ok":true}' ;;
+  unprotect)
+    # A host error part way, after the classic rule went (item 40).
+    [ "${FAKE_UNPROTECT:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -242,6 +245,27 @@ set -e
 [ "$rc" -eq 3 ] || { cat "$work/refused2.out" >&2; team_fail "refused push, failed protect exit was $rc"; }
 grep -qx 'PROTECTION IS OFF on acme4-os: run skills/_host/host.sh protect acme4-os --code-owners --approvals 0' "$work/refused2.out" \
   || team_fail "no PROTECTION IS OFF line"
+[ "$(grep -c 'PROTECTION IS OFF' "$work/refused2.out")" -eq 1 ] || team_fail "PROTECTION IS OFF printed more than once"
+
+# Round 3 (40): unprotect itself stops part way (set -e). The exit trap protects again.
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_UNPROTECT=fail "$upgrade" --root "$co4" --template "$root/template" --answers "$work/answers" > "$work/unprot.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || team_fail "a failed unprotect exited 0"
+order=$(grep -E "^(unprotect|protect|open-pr) acme4-os " "$FAKE_HOST_LOG" | cut -d' ' -f1 | tr '\n' ' ')
+[ "$order" = "unprotect protect " ] || team_fail "failed unprotect host order was: $order"
+grep -qx 'upgrade stopped. Protection on acme4-os is back on.' "$work/unprot.out" || team_fail "no back-on line after a failed unprotect"
+# And when protect fails too, the line says main is open.
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_UNPROTECT=fail FAKE_PROTECT=fail "$upgrade" --root "$co4" --template "$root/template" --answers "$work/answers" > "$work/unprot2.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || team_fail "failed unprotect and protect exited 0"
+grep -qx 'PROTECTION IS OFF on acme4-os: run skills/_host/host.sh protect acme4-os --code-owners --approvals 0' "$work/unprot2.out" \
+  || team_fail "no PROTECTION IS OFF line after a failed unprotect"
 
 # B9: no slug anywhere. Stop with a plain line before any push or host change.
 co2="$work/noslug"

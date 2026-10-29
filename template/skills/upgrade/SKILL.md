@@ -101,6 +101,7 @@ Run `<upgrade> --root <company folder> --template <template>`. It stages only th
   - `Could not read the plan of the GitHub org <org>: sign in as an org owner`: it stopped before any write. Only an org owner sees the plan, and team setup needs one. The admin signs in as an org owner, then runs it again.
   - `the company slug is not known`: it stopped before any push. Add `slug=<slug>` to the answers file and run it again.
   - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped, and `main` is protected again. Do what the line says, then run it again. Each step is safe to run twice.
+  - `upgrade stopped. Protection on <repo> is back on.`: a host error stopped it while protection was lifted. `main` is protected again. Do what the line before it says, then run it again.
   - `PROTECTION IS OFF on <repo>: run ...`: protecting `main` again failed. Give the admin that exact line first. The admin runs it in their own terminal. Then stop.
 - **Solo, no host:** do step 7 first. Then merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
   Each area repo with old rules also has a branch `upgrade/scripts` with its rules merge. The upgrade leaves that branch checked out. After step 7, in each such area run `git -C areas/<area> checkout main`, then `git -C areas/<area> merge --no-ff upgrade/scripts`.

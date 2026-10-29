@@ -496,7 +496,9 @@ host_drop_classic() {
   errf=$(host_mktemp)
   # host_gh_call turns set -e back on. The || keeps a 404 from ending the script.
   rc=0
+  HOST_CLASSIC_DROPPED=0
   host_gh_call DELETE "$(host_repo "$name")/branches/main/protection" >/dev/null 2>"$errf" || rc=$?
+  [ "$rc" -ne 0 ] || HOST_CLASSIC_DROPPED=1
   if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
     cat "$errf" >&2
     rm -f "$errf"
@@ -531,6 +533,15 @@ host_protection_off() {
   host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
 }
 
+# unprotect stopped part way. Main is open only if the classic rule is already gone.
+host_unprotect_stop() {
+  local name=$1
+  if [ "${HOST_CLASSIC_DROPPED:-0}" -eq 1 ]; then
+    host_protection_off "$name"
+  fi
+  exit 3
+}
+
 cmd_unprotect() {
   local name list id saved_main saved_review deleted_main deleted_review
   host_need_name
@@ -544,25 +555,26 @@ cmd_unprotect() {
   # A v0 repo has a classic rule on main too. It would refuse the push that follows.
   # It goes first: if that fails, nothing is lifted. protect puts the v1 rulesets in its place.
   host_drop_classic "$name"
-  list=$(host_gh_all "$(host_repo "$name")/rulesets")
+  # From here, a failure with the classic rule gone leaves main open: say so plainly.
+  list=$(host_gh_all "$(host_repo "$name")/rulesets") || host_unprotect_stop "$name"
   saved_main=$(host_mktemp)
   saved_review=$(host_mktemp)
   deleted_main=0
   deleted_review=0
   id=$(host_ruleset_id "$list" main)
   if [ -n "$id" ]; then
-    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main"
+    host_gh_call GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main" || host_unprotect_stop "$name"
   fi
   id=$(host_ruleset_id "$list" rules-review)
   if [ -n "$id" ]; then
-    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review"
+    host_gh_call GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review" || host_unprotect_stop "$name"
   fi
   id=$(host_ruleset_id "$list" main)
   if [ -n "$id" ]; then
     if host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
       deleted_main=1
     else
-      exit 3
+      host_unprotect_stop "$name"
     fi
   fi
   id=$(host_ruleset_id "$list" rules-review)

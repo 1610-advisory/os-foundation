@@ -79,6 +79,7 @@ case "$method $path" in
     ;;
   "GET /repos/acme/acme-os/rulesets?per_page=100&page=1")
     [ ! -f "$dir/rulesets-free" ] || refuse 403 "Upgrade to GitHub Pro or make this repository public to enable this feature."
+    [ ! -f "$dir/rulesets-down" ] || refuse 502 "Server Error"
     printf '%s\n' '[]'
     ;;
   "POST /repos/acme/acme-os/rulesets")

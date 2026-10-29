@@ -401,6 +401,21 @@ class GithubSecondRunTests(unittest.TestCase):
         proc = run(["unprotect", "acme-os"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_unprotect_says_main_is_open_when_it_stops_after_the_classic_rule(self):
+        # Round 3 (40): the classic rule is gone, then the ruleset list fails. Never silent.
+        self.flag("classic")
+        self.flag("rulesets-down")
+        proc = run(["unprotect", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn(
+            "PROTECTION IS OFF on acme-os: run skills/_host/host.sh protect acme-os --code-owners --approvals 0",
+            proc.stderr,
+        )
+        # No classic rule was there: the rulesets were never touched, so main is not open.
+        proc = run(["unprotect", "acme-os"], self.env)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn("PROTECTION IS OFF", proc.stderr)
+
     def test_unprotect_stops_when_the_classic_rule_stays(self):
         self.flag("classic-denied")
         proc = run(["unprotect", "acme-os"], self.env)
