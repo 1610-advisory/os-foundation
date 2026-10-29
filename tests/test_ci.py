@@ -587,7 +587,7 @@ class GitAuthHeaderTests(unittest.TestCase):
             tmp = Path(raw)
             bin_dir = self.fake_git(tmp)
             proc = run(
-                ["bash", "-c", 'source "$1"; ci_git fetch origin main', "git", str(SCRIPTS / "lib.sh")],
+                ["bash", "-c", 'source "$1"; trap ci_cleanup EXIT; ci_git fetch origin main', "git", str(SCRIPTS / "lib.sh")],
                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_DIR": raw, "JOB_TOKEN": self.TOKEN},
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -638,7 +638,7 @@ class PathMatchTests(unittest.TestCase):
             [
                 "bash",
                 "-c",
-                'source "$1"; ci_path_match "$2" "$3" "$4"',
+                'source "$1"; trap ci_cleanup EXIT; ci_path_match "$2" "$3" "$4"',
                 "match",
                 str(script),
                 kind,
