@@ -63,7 +63,7 @@ A real run refuses a dirty tree. It stages only the upgrade paths. The result is
 - committed links `.agents/skills` and `.claude/skills` pointing at `../skills`
 - the `logs` branch merged under `memory/logs/` with its history; each area with its own v0 `logs` branch gets the same in its `upgrade/scripts` branch (`Upgrade: logs history`), and its own `logs-archive-<date>` tag
 - the `/memory/logs/` line removed from `.gitignore`
-- `level`, `switches`, and `os_version` added to `company-profile.md`
+- `level`, `switches`, `os_version` and `host` added to `company-profile.md`. With no host answer and no `host:` there, it writes `host: none`.
 - the approval tier table only when `level` is `team` or `app`
 - new skills copied from the template
 - new files copied into a skill the company already has; a file that exists is not touched

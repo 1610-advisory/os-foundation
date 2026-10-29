@@ -1040,6 +1040,9 @@ fi
 os_fm_set "$ROOT/company-profile.md" os_version "$OS_VER"
 if [ -n "${HOST_KIND:-}" ]; then
   os_fm_set "$ROOT/company-profile.md" host "$HOST_KIND"
+elif [ -z "$(os_fm_get "$ROOT/company-profile.md" host 2>/dev/null || true)" ]; then
+  # No host answer and none in the profile: write it like the template does.
+  os_fm_set "$ROOT/company-profile.md" host none
 fi
 if [ -n "${ANSWERS:-}" ] && val=$(os_answer host_url "$ANSWERS"); then
   os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "$val")"

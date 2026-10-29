@@ -48,6 +48,7 @@ Findings, one per line:
 finding: link: .agents/skills is missing
 finding: copy: areas/marketing/skills/lint/SKILL.md differs
 finding: level: missing
+finding: host: missing (add host: none to company-profile.md, or github or forgejo)
 finding: switch: dream
 finding: size: AGENTS.md
 finding: placeholder: company-profile.md

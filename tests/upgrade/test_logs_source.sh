@@ -84,5 +84,7 @@ git -C "$nologs" commit -q -m "v0 no logs"
   || { cat "$work/nologs.out" >&2; team_fail "no-logs upgrade failed"; }
 grep -q '^keep: skills/logs-folder' "$work/nologs.out" || team_fail "no keep line for the logs skill"
 git -C "$nologs" ls-tree -r --name-only upgrade/v1 | grep -q '^skills/logs-folder/' || team_fail "no-logs run deleted the logs skill"
+# Round 3 (35): no host answer and no host in the v0 profile writes host: none.
+git -C "$nologs" show upgrade/v1:company-profile.md | grep -qx 'host: none' || team_fail "no host: none in the profile"
 
 printf '%s\n' "PASS logs-source"

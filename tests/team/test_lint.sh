@@ -69,6 +69,7 @@ set -e
 [ "$rc" -eq 1 ] || team_fail "bad tree should exit 1"
 printf '%s\n' "$out" | grep -q 'link: ' || team_fail "missing link finding"
 printf '%s\n' "$out" | grep -q 'level: dreamland' || team_fail "missing level finding"
+printf '%s\n' "$out" | grep -qx 'finding: host: missing (add host: none to company-profile.md, or github or forgejo)' || team_fail "missing host finding"
 printf '%s\n' "$out" | grep -q 'switch: dream' || team_fail "missing dream finding"
 printf '%s\n' "$out" | grep -q 'switch: not-a-switch' || team_fail "missing switch finding"
 printf '%s\n' "$out" | grep -q 'placeholder: README.md' || team_fail "missing placeholder finding"
@@ -87,6 +88,7 @@ company_slug: acme
 level: solo
 switches: []
 os_version: v1.0.0
+host: none
 ---
 
 # Acme Co
