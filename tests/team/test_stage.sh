@@ -305,7 +305,7 @@ fi
 grep -q 'could not remove the logs worktree, and some files may be gone from memory/logs. A full copy is in ' "$work/join.err" \
   || { cat "$work/join.err" >&2; team_fail "join did not name the copy"; }
 grep -q 'Nothing was removed' "$work/join.err" && team_fail "join said nothing was removed after a partial remove"
-wt_save=$(sed -n 's/.*A full copy is in \([^ ]*\)\. Ask the admin\..*/\1/p' "$work/join.err" | head -n 1)
+wt_save=$(sed -n 's/.*A full copy is in \([^ ]*\)\. Keep that folder.*/\1/p' "$work/join.err" | head -n 1)
 [ -f "$wt_save/2026-10-04-sam.md" ] || team_fail "the named copy has no day-four log"
 rm -rf "$wt_save"
 join_run > "$work/join3.out"

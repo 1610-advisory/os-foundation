@@ -91,10 +91,10 @@ if v0logs_stuck "$ROOT" HEAD; then
   v0_err=$(mktemp)
   # Each failure line says what happened and where the copy is, when there is one.
   if ! v0_save=$(v0logs_park "$ROOT" join_git 2>"$v0_err"); then
-    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err"). Ask the admin."
+    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err")."
   fi
   if ! v0_n=$(v0logs_put_back "$ROOT" "$v0_save" 2>"$v0_err"); then
-    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err"). Ask the admin."
+    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err")."
   fi
   rm -f "$v0_err"
   printf 'v0-logs: moved, %s files kept as local changes\n' "$v0_n"
