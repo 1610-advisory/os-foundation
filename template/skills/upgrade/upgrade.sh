@@ -1054,9 +1054,11 @@ fi
 if [ "$V0_LOGS" -eq 1 ]; then
   tmp=$(mktemp -d)
   git clone --quiet --branch logs --single-branch "$ROOT" "$tmp/logs"
-  # memory/logs/archive/, not memory/logs/: a teammate's old logs worktree has files at
-  # memory/logs/<name>, and a plain git pull would write over them (they are ignored).
-  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs/archive --force
+  # memory/logs-archive/, outside memory/logs/: a teammate's old clone has its logs
+  # worktree at memory/logs/, which its main ignores. Its first plain git pull writes over
+  # any ignored file in the way, so main puts nothing under memory/logs/ (sync push holds
+  # logs there until the host's logs branch is deleted).
+  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs-archive --force
   git -C "$ROOT" remote remove logs-prefixed 2>/dev/null || true
   git -C "$ROOT" remote add logs-prefixed "$tmp/logs"
   git -C "$ROOT" fetch --quiet logs-prefixed
@@ -1150,7 +1152,7 @@ area_logs_park() {
   fi
 }
 
-# Then merge the logs under memory/logs/ with their history, on the area branch.
+# Then merge the logs under memory/logs-archive/ with their history, on the area branch.
 area_logs_merge() {
   local area=$1 name tmp
   name=$(basename "$area")
@@ -1160,7 +1162,7 @@ area_logs_merge() {
   fi
   tmp=$(mktemp -d)
   git clone --quiet --branch logs --single-branch "$area" "$tmp/logs"
-  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs/archive --force
+  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs-archive --force
   git -C "$area" fetch --quiet "$tmp/logs" "logs:refs/os-upgrade/logs"
   rm -rf "$tmp"
   if git -C "$area" merge-base --is-ancestor refs/os-upgrade/logs HEAD 2>/dev/null; then
@@ -1366,8 +1368,9 @@ rm -f "$pr_body"
 if [ "$TEAM_LOGS" -eq 1 ]; then
   printf '%s\n' "teammates: in an old (v0) copy of this folder, do not run git pull. It can write over logs there. Each teammate does this instead:"
   printf '%s\n' 'teammates: 1. In the old folder, save the logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push.'
-  printf '%s\n' "teammates: 2. After the upgrade pull requests merge and the admin runs add-teammate Part A again: rename the old folder, then join as a new teammate (add-teammate Part B; on Windows join.sh runs in Git Bash). The old logs are in memory/logs/archive/. Logs pushed after this run come in by the next full sync pull."
+  printf '%s\n' "teammates: 2. After the upgrade pull requests merge and the admin runs add-teammate Part A again: rename the old folder, then join as a new teammate (add-teammate Part B; on Windows join.sh runs in Git Bash). The old logs are in memory/logs-archive/. Logs pushed after this run come in by the next full sync pull."
   printf '%s\n' "teammates: 3. When the new folder has their logs, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3. Full steps: skills/upgrade/SKILL.md section 11."
+  printf '%s\n' "admin: until the old logs branch is gone, sync push keeps logs in each folder (held), so a plain pull on an old copy can write over nothing. When every teammate has moved, delete it: git push origin --delete logs, in the company folder and in each area that had one."
 fi
 
 if [ -n "$HAND" ]; then

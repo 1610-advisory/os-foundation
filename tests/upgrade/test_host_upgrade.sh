@@ -175,12 +175,12 @@ grep -qx 'upgrade: open pull requests: acme2-marketing 5, acme2-os 5. Merge each
 
 # B11: area logs move like the company logs.
 area="$co/areas/marketing"
-git -C "$area" cat-file -e "upgrade/scripts:memory/logs/archive/2026-10-01-ada.md" || team_fail "area logs not on upgrade/scripts"
+git -C "$area" cat-file -e "upgrade/scripts:memory/logs-archive/2026-10-01-ada.md" || team_fail "area logs not on upgrade/scripts"
 git -C "$area" show upgrade/scripts:.gitignore | grep -qx '/memory/logs/' && team_fail "area .gitignore still hides logs"
 git -C "$area" rev-parse --verify --quiet "refs/tags/logs-archive-$(date +%Y-%m-%d)" >/dev/null || team_fail "area logs tag"
-git --git-dir "$work/git/acme2-marketing.git" cat-file -e "upgrade/scripts:memory/logs/archive/2026-10-01-ada.md" \
+git --git-dir "$work/git/acme2-marketing.git" cat-file -e "upgrade/scripts:memory/logs-archive/2026-10-01-ada.md" \
   || team_fail "area logs not pushed"
-git -C "$co" cat-file -e "upgrade/v1:memory/logs/archive/2026-10-01-ada.md" || team_fail "company logs not moved"
+git -C "$co" cat-file -e "upgrade/v1:memory/logs-archive/2026-10-01-ada.md" || team_fail "company logs not moved"
 # logsfix (53): the snapshot tags go to the host, so every clone can catch up later logs.
 git --git-dir "$work/git/acme2-os.git" rev-parse -q --verify "refs/tags/logs-archive-$(date +%Y-%m-%d)" >/dev/null \
   || team_fail "company logs tag not pushed"
@@ -188,6 +188,7 @@ git --git-dir "$work/git/acme2-marketing.git" rev-parse -q --verify "refs/tags/l
   || team_fail "area logs tag not pushed"
 grep -q '^log-freeze: ' "$work/dry.out" || team_fail "no log-freeze line in the dry run"
 grep -q '^teammates: 1\. In the old folder, save the logs' "$work/run.out" || team_fail "no teammates steps"
+grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each folder (held)" "$work/run.out" || team_fail "no admin line for the old logs branch"
 
 # A second run after start-over keeps main as it is: the tools are already there.
 before=$(git --git-dir "$work/git/acme2-os.git" rev-parse main)

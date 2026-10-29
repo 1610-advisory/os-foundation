@@ -32,6 +32,30 @@ sync_not_workspace_only() {
   return 1
 }
 
+# After a v0 upgrade, a teammate's old clone keeps branch logs checked out at memory/logs/,
+# ignored by its main. Its first plain git pull writes over any file main has there. So
+# while the host still has branch logs, logs stay here (held) and never go to main. The
+# admin deletes that branch when every teammate has moved (upgrade SKILL.md section 11).
+# Prints yes or no. Offline counts as yes. A repo that never had branch logs asks no one.
+V0_LOGS_REASON="waits until the old logs branch is deleted on the host (skills/upgrade/SKILL.md section 11)"
+sync_v0_logs_open() {
+  local repo=$1 rc
+  if ! git -C "$repo" show-ref --verify --quiet refs/remotes/origin/logs \
+    && ! git -C "$repo" show-ref --verify --quiet refs/heads/logs; then
+    printf 'no\n'
+    return 0
+  fi
+  set +e
+  sync_git "$repo" ls-remote --exit-code origin refs/heads/logs >/dev/null 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ]; then
+    printf 'no\n'
+  else
+    printf 'yes\n'
+  fi
+}
+
 # Refresh origin/rules/* with fetch --prune, so a branch the host deleted (its pull
 # request closed or merged) stops holding files. Writes "<sha> <ref>" for each ref the
 # prune dropped to SYNC_GONE_RULES. Offline: the refs stay as they are and still hold.
@@ -456,7 +480,7 @@ sync_push_one() {
   local id=$2
   local kind
   local changed hits path rule reason added commit_files messages diff eng decision msg pending
-  local scan_rc
+  local scan_rc v0open=""
   case "$id" in
     root) kind=root ;;
     area:*) kind=area ;;
@@ -544,6 +568,16 @@ sync_push_one() {
       sync_log "push hold ${id} ${path} rules"
       continue
     fi
+    case "$kind:$path" in
+      root:memory/logs/*|area:memory/logs/*)
+        [ -n "$v0open" ] || v0open=$(sync_v0_logs_open "$repo")
+        if [ "$v0open" = "yes" ]; then
+          sync_hold_line "$id" "$path" "$V0_LOGS_REASON" >> "$added"
+          sync_log "push hold ${id} ${path} v0 logs"
+          continue
+        fi
+        ;;
+    esac
     if [ -f "$repo/$path" ] && sync_is_binary "$repo/$path" && ! sync_binary_allowed "$path"; then
       sync_hold_line "$id" "$path" "binary file: add it by hand with a pull request" >> "$added"
       sync_log "push hold ${id} ${path} binary"
