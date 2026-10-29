@@ -47,7 +47,8 @@ git -C "$fresh" show-ref --verify --quiet refs/heads/logs && team_fail "dry run 
 git -C "$fresh" cat-file -e upgrade/v1:memory/logs-archive/2026-10-01-ada.md 2>/dev/null || team_fail "fresh clone skipped the logs move"
 git -C "$fresh" log --format=%s upgrade/v1 -- memory/logs-archive/2026-10-01-ada.md | grep -qx 'Logs: day one' \
   || team_fail "logs history missing"
-git -C "$fresh" ls-tree -r --name-only upgrade/v1 | grep -q '^skills/logs-folder/' && team_fail "logs-folder was kept after the move"
+# No grep -q after git in a pipe: under pipefail an early match is a SIGPIPE failure.
+[ -z "$(git -C "$fresh" ls-tree --name-only upgrade/v1 skills/logs-folder/)" ] || team_fail "logs-folder was kept after the move"
 
 # A local logs that is not the same as origin/logs: stop with one line, change nothing.
 stale="$work/stale"
@@ -85,7 +86,7 @@ git -C "$nologs" commit -q -m "v0 no logs"
 "$upgrade" --root "$nologs" --template "$root/template" --level solo > "$work/nologs.out" 2>&1 \
   || { cat "$work/nologs.out" >&2; team_fail "no-logs upgrade failed"; }
 grep -q '^keep: skills/logs-folder' "$work/nologs.out" || team_fail "no keep line for the logs skill"
-git -C "$nologs" ls-tree -r --name-only upgrade/v1 | grep -q '^skills/logs-folder/' || team_fail "no-logs run deleted the logs skill"
+[ -n "$(git -C "$nologs" ls-tree --name-only upgrade/v1 skills/logs-folder/)" ] || team_fail "no-logs run deleted the logs skill"
 # Round 3 (35): no host answer and no host in the v0 profile writes host: none.
 git -C "$nologs" show upgrade/v1:company-profile.md | grep -qx 'host: none' || team_fail "no host: none in the profile"
 
