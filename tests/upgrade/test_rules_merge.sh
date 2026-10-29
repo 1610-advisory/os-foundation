@@ -284,6 +284,57 @@ grep -q 'change: .gitattributes' "$work/attrs.out" || team_fail "dry-run missed 
 cmp -s "$attrs/.gitattributes" "$tpl/.gitattributes" || team_fail "company gitattributes was not copied"
 cmp -s "$attrs/areas/marketing/.gitattributes" "$tpl/skills/add-area/templates/marketing/.gitattributes" || team_fail "area gitattributes was not copied"
 
+# Round 3 (34): an area kind with no .gitattributes of its own gets the _area copy, and so
+# does an area whose rules file is already v1. Both land in the area's upgrade commit.
+ga="$work/ga"
+mkdir -p "$ga/areas/books" "$ga/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$ga/"
+rm -rf "$work/template"
+cp "$root/template/skills/upgrade/v0/areas/finance/AGENTS.md" "$ga/areas/books/AGENTS.md"
+cp "$root/template/skills/add-area/templates/_area/AGENTS.md" "$ga/areas/shop/AGENTS.md"
+git -C "$ga" init -q -b main
+commit_all "$ga" "v0 ga"
+for a in books shop; do
+  git -C "$ga/areas/$a" init -q -b main
+  commit_all "$ga/areas/$a" "area"
+done
+"$upgrade" --dry-run --root "$ga" --template "$root/template" --level solo > "$work/ga-dry.out"
+grep -qx 'change: .gitattributes areas/books' "$work/ga-dry.out" || team_fail "dry run missed books gitattributes"
+grep -qx 'change: .gitattributes areas/shop' "$work/ga-dry.out" || team_fail "dry run missed shop gitattributes"
+"$upgrade" --root "$ga" --template "$root/template" --level solo > "$work/ga.out"
+for a in books shop; do
+  git -C "$ga/areas/$a" show "upgrade/scripts:.gitattributes" > "$work/ga-$a.attrs" 2>/dev/null \
+    || team_fail "$a gitattributes not committed"
+  cmp -s "$work/ga-$a.attrs" "$root/template/skills/add-area/templates/_area/.gitattributes" \
+    || team_fail "$a gitattributes is not the _area copy"
+done
+
+# Round 3 (33): a merged company AGENTS.md between 9,000 and 10,000 gets one plain size line.
+big="$work/bigco"
+mkdir -p "$big"
+cp "$root/template/skills/upgrade/v0/CLAUDE.md" "$big/CLAUDE.md"
+cp "$root/template/company-profile.md" "$big/company-profile.md"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$big/AGENTS.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+extra = "\n".join("- Acme Co rule %d: keep the shop tidy and the counter clear." % n for n in range(12))
+Path(os.environ["OSF_OUT"]).write_text(s.replace("- (setup fills this in)", extra))
+PY
+git -C "$big" init -q -b main
+commit_all "$big" "v0 big"
+"$upgrade" --dry-run --root "$big" --template "$root/template" --level solo > "$work/big.out"
+size=$(awk -F'chars=' '/^change: rules-merge AGENTS.md /{print $2; exit}' "$work/big.out")
+if [ "${size:-0}" -gt 9000 ] && [ "$size" -lt 10000 ]; then
+  grep -q "^todo: AGENTS.md is ${size} characters, over the 9,000 it sets for itself. Move " "$work/big.out" \
+    || team_fail "no size line at $size"
+else
+  team_fail "big fixture merged to ${size:-?} characters, not between 9,000 and 10,000"
+fi
+[ "$(grep -c '^todo: AGENTS.md is ' "$work/big.out")" -eq 1 ] || team_fail "size line count"
+grep -q '^todo: CLAUDE.md is ' "$work/big.out" && team_fail "size line for CLAUDE.md"
+
 # COMPANY_SLUG comes only from an area rules file. No answers, no profile key, no remote, folder name is not <slug>-os.
 slugco="$work/slugonly"
 mkdir -p "$slugco/areas/shop"

@@ -67,7 +67,7 @@ A real run refuses a dirty tree. It stages only the upgrade paths. The result is
 - the approval tier table only when `level` is `team` or `app`
 - new skills copied from the template
 - new files copied into a skill the company already has; a file that exists is not touched
-- `.gitattributes` from the template, only when the folder has none
+- `.gitattributes` from the template, only when the folder has none. Each area gets the `_area` copy, merged or not.
 - `/company-rules.md` and `/area-rules.md` lines in the code-owner files, when the folder has them, with the owners of `AGENTS.md`
 - a stock skill file replaced only when its bytes match `v0-hashes.txt` (os-foundation `main` at `c2034af`)
 - `skills/logs-folder/` removed only when it matches that hash
@@ -138,6 +138,7 @@ change: level-block
 change: tier-table
 change: rules-merge <path> company-lines=<n> chars=<m>
 change: rules-spill <path> -> company-rules.md
+todo: AGENTS.md is <m> characters, over the 9,000 it sets for itself. Move ...
 todo: fill {{OWNER_NAME}}
 change: .gitattributes [areas/<name>]
 change: skill-files skills/<name> new=<n>
@@ -172,5 +173,6 @@ A dry-run prints `upgrade: dry-run` and no `pr:` line. A real run prints `upgrad
 
 - `change: rules-merge` comes once per rules file: `AGENTS.md`, `CLAUDE.md`, and each `areas/<name>/AGENTS.md` and `CLAUDE.md`. `company-lines` is the count of company lines kept. `chars` is the size of the merged file in bytes.
 - `change: rules-spill` comes only when the merged file would be 10,000 bytes or more. In an area the file is `area-rules.md`.
+- `todo: AGENTS.md is <m> characters` comes when the merged company `AGENTS.md` is over 9,000 but under 10,000. It says what to move out.
 - `change: skill-moved` comes only for a company skill in a tracked copy folder.
 - A changed `AGENTS.md` or `CLAUDE.md` is not a conflict. The rules merge handles it.

@@ -288,6 +288,10 @@ rules_merge_one() {
   printf 'change: rules-merge %s company-lines=%s chars=%s\n' "$rel" "$lines" "$chars"
   if [ "$spill" = "1" ]; then
     printf 'change: rules-spill %s -> %s\n' "$rel" "$link"
+  elif [ "$scope" = "company" ] && [ "$chars" -gt 9000 ]; then
+    # The company AGENTS.md sets itself 9,000. Over 10,000 spills by itself.
+    printf 'todo: %s is %s characters, over the 9,000 it sets for itself. Move the longest company lines under "## This company" and "## Layout and skills" to %s or a skill, and add "- Read %s for rules this company added." under "## This company".\n' \
+      "$rel" "$chars" "$link" "$link"
   fi
   rules_todos "$tmp/out.md"
   if [ "$write" = "1" ] && [ "$spill" = "1" ]; then
@@ -345,8 +349,9 @@ rules_area_v1() {
 rules_one_area() {
   local area=$1 write=$2 name kind base v1 rel
   name=$(basename "$area")
-  [ -f "$area/AGENTS.md" ] || return 0
-  if rules_is_v1_file "$area/AGENTS.md"; then
+  # Every area gets .gitattributes (Windows line endings), merged or not.
+  if [ ! -f "$area/AGENTS.md" ] || rules_is_v1_file "$area/AGENTS.md"; then
+    rules_maybe_attrs "$area" _area "$write" "areas/${name}"
     return 0
   fi
   kind=$(rules_best_kind "$area/AGENTS.md")
@@ -368,8 +373,11 @@ rules_maybe_attrs() {
   local dest_dir=$1 kind=$2 write=$3 rel=$4 src
   src=""
   if [ -n "$kind" ]; then
+    # Only _area has one today. A kind without its own uses the _area copy.
     if [ -f "$TEMPLATE/skills/add-area/templates/$kind/.gitattributes" ]; then
       src="$TEMPLATE/skills/add-area/templates/$kind/.gitattributes"
+    elif [ -f "$TEMPLATE/skills/add-area/templates/_area/.gitattributes" ]; then
+      src="$TEMPLATE/skills/add-area/templates/_area/.gitattributes"
     fi
   elif [ -f "$TEMPLATE/.gitattributes" ]; then
     src="$TEMPLATE/.gitattributes"
