@@ -346,6 +346,30 @@ git -C "$co" push -q origin logs-archive-2026-10-29
 rm -rf "$co/memory/logs"
 git -C "$co" worktree add -q "$co/memory/logs" logs
 printf '%s\n' "day one" "sam line" > "$co/memory/logs/2026-10-01-sam.md"
+# logsfix (70): after the reset, one kept file cannot be copied back (a log open in an
+# editor). join fails, and memory/logs is back as it was, so the next join starts over.
+mkdir -p "$work/cpshim"
+cat > "$work/cpshim/cp" << EOF
+#!/bin/bash
+if [ -n "\${FAKE_CP_FAIL:-}" ] && [ "\$1" = -p ]; then
+  case "\$2" in *os-logs-keep.*/"\$FAKE_CP_FAIL") exit 1 ;; esac
+fi
+exec $(command -v cp) "\$@"
+EOF
+chmod 700 "$work/cpshim/cp"
+old_logs=$(git -C "$co/memory/logs" rev-parse HEAD)
+if PATH="$work/cpshim:$PATH" FAKE_CP_FAIL=2026-10-01-sam.md join_try > "$work/join-cp.out"; then
+  team_fail "join (70) with a failed restore exited 0"
+fi
+grep -q 'could not put the files changed here back into memory/logs, so memory/logs is back as it was' "$work/join.err" \
+  || { cat "$work/join.err" >&2; team_fail "join (70) did not say memory/logs is back"; }
+[ -f "$co/memory/logs/.git" ] || team_fail "join (70) removed the logs worktree"
+[ "$(git -C "$co/memory/logs" rev-parse HEAD)" = "$old_logs" ] || team_fail "join (70) left the logs folder at the host's tip"
+[ "$(cat "$co/memory/logs/2026-10-01-sam.md")" = "$(printf '%s\n' "day one" "sam line")" ] || team_fail "join (70) lost the edit"
+[ ! -e "$co/memory/logs/2026-10-01-sam.old-branch.md" ] || team_fail "join (70) left a file beside"
+cp_keep=$(sed -n 's/.*A copy of them is also in \([^ ]*\)\. Close.*/\1/p' "$work/join.err" | head -n 1)
+[ -f "$cp_keep/files/2026-10-01-sam.md" ] || team_fail "join (70) did not name the kept copy"
+rm -rf "$cp_keep"
 join_run > "$work/join10.out"
 grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join10.out" \
   || { cat "$work/join10.out" >&2; team_fail "join (66) did not move the v0 logs worktree"; }
