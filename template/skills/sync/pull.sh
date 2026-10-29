@@ -328,6 +328,7 @@ sync_pull_fail() {
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
     "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }." ;;
+    "v0 catch-up: "*) plain="${reason#v0 catch-up: }." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
@@ -474,9 +475,20 @@ sync_pull_fetched() {
     SYNC_V0_SAVE=""
   fi
   # Logs pushed to the old logs branch after the upgrade come in as local changes.
-  if [ "$rc" -eq 0 ] && n=$(v0logs_catch_up "$repo") && [ "${n:-0}" -gt 0 ]; then
-    printf 'logs: %s files written to the old logs branch after the upgrade are now in memory/logs/archive/ in %s. The next push sends them.\n' "$n" "$id"
-    sync_log "pull logs-catch-up ${id} ${n} files"
+  if [ "$rc" -eq 0 ]; then
+    err=$(sync_mktemp)
+    if n=$(v0logs_catch_up "$repo" 2>"$err"); then
+      if [ "${n% *}" -gt 0 ]; then
+        printf 'logs: %s files written to the old logs branch after the upgrade are now in memory/logs-archive/ in %s. The next push sends them.\n' "${n% *}" "$id"
+      fi
+      if [ "${n#* }" -gt 0 ]; then
+        printf 'logs: %s files from the old logs branch had a different copy here in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "${n#* }" "$id"
+      fi
+      [ "$n" = "0 0" ] || sync_log "pull logs-catch-up ${id} ${n% *} files ${n#* } beside"
+    else
+      sync_pull_fail "$id" "v0 catch-up: $(head -n 1 "$err")"
+      rc=1
+    fi
   fi
   return "$rc"
 }
