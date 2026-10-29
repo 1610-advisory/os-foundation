@@ -32,6 +32,22 @@ sync_not_workspace_only() {
   return 1
 }
 
+# A file whose content is already on a rules/* branch on the host (remove-teammate,
+# add-person, propose) waits for that pull request. It never goes on the standing one too.
+sync_pending_branch() {
+  local repo=$1 path=$2 ref want
+  [ -f "$repo/$path" ] || return 1
+  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    if [ "$(git -C "$repo" rev-parse -q --verify "${ref}:${path}" 2>/dev/null)" = "$want" ]; then
+      printf '%s\n' "${ref#refs/remotes/origin/}"
+      return 0
+    fi
+  done < <(git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin/rules/)
+  return 1
+}
+
 sync_hold_rules() {
   case "$(basename "$1")" in
     company-rules.md|area-rules.md) return 0 ;;
@@ -407,7 +423,7 @@ sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg
+  local changed hits path rule reason added commit_files messages diff eng decision msg pending
   local scan_rc
   case "$id" in
     root) kind=root ;;
@@ -479,6 +495,11 @@ sync_push_one() {
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     if awk -F: -v p="$path" 'index($0, p ":") == 1 { found=1 } END { exit !found }' "$hits"; then
+      continue
+    fi
+    if [ "$kind" != "workspace" ] && pending=$(sync_pending_branch "$repo" "$path"); then
+      sync_hold_line "$id" "$path" "waits for its own pull request (${pending})" >> "$added"
+      sync_log "push hold ${id} ${path} pending ${pending}"
       continue
     fi
     if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then

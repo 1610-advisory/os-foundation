@@ -98,6 +98,10 @@ files=$(git --git-dir "$work/origin.git" diff --name-only main rules/ada/offboar
 [ -f "$co/meetings/2026-10-28 Kickoff.md" ] || team_fail "untracked meeting note is gone"
 [ -f "$co/inbox/held.md" ] || team_fail "held file is gone"
 [ -z "$(git -C "$co" ls-files meetings inbox)" ] || team_fail "untracked files were committed"
+# Round 3 (42): the person running remove sees the page marked left, as a local change on
+# main. main itself gets it only by the offboard pull request.
+grep -qx 'left: 2026-10-28' "$co/people/Sam Member.md" || team_fail "remove: the local page is not marked left"
+git -C "$co" show "main:people/Sam Member.md" | grep -q '^left: 2026' && team_fail "remove committed to main"
 
 # A git that refuses the checkout back to main, like a local change in the way would.
 mkdir -p "$work/shim"

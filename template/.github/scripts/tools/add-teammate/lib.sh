@@ -407,6 +407,20 @@ os_back_to_main() {
   return 0
 }
 
+# Back on main, put the branch's copy of each path in the folder as a local change, so
+# the person sees it now. It still reaches main only by the branch's pull request: sync
+# push holds a file whose content waits on a rules/* branch on the host.
+os_show_branch_files() {
+  local dir=$1 branch=$2 p rel
+  shift 2
+  [ "$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)" = "main" ] || return 0
+  for p in "$@"; do
+    rel=${p#"$dir"/}
+    mkdir -p "$dir/$(dirname "$rel")"
+    git -C "$dir" show "${branch}:${rel}" > "$dir/$rel" 2>/dev/null || true
+  done
+}
+
 # Commit only the paths the caller changed. Never "git add -A" in a shared root:
 # untracked or held files (a held secret, a private note) would go up past the scan.
 os_git_commit() {

@@ -659,6 +659,35 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("2026-10-27-mia.md: personal-life fact", status)
         self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
 
+    def test_a_file_waiting_on_its_own_pull_request_is_held(self):
+        # Round 3 (42): remove-teammate leaves the offboard change in the folder so the
+        # person sees it. Its pull request stays the only path to main.
+        self.seed_origin()
+        page = self.company / "people" / "Mia.md"
+        self.git("add", "people/Mia.md")
+        self.git("commit", "-q", "-m", "page")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "rules/ada/offboard-mia")
+        page.write_text(page.read_text().replace("---\n\n#", "left: 2026-10-28\n---\n\n#"))
+        self.git("commit", "-q", "-am", "Offboard: mia")
+        self.git("push", "-q", "origin", "rules/ada/offboard-mia")
+        self.git("checkout", "-q", "main")
+        self.git("show", "rules/ada/offboard-mia:people/Mia.md")
+        page.write_text(self.git("show", "rules/ada/offboard-mia:people/Mia.md").stdout)
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree("refs/heads/sync/mia")
+        self.assertIn("note.md", tree)
+        diff = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "diff", "--name-only", "main", "sync/mia"],
+            env=self.env,
+        ).stdout.splitlines()
+        self.assertNotIn("people/Mia.md", diff)
+        status = self.sync("status").stdout
+        self.assertIn("people/Mia.md: waits for its own pull request (rules/ada/offboard-mia)", status)
+        self.assertIn("left: 2026-10-28", page.read_text())
+
     def test_area_drafts_and_logs_are_area_work(self):
         script = 'source "$1/lib.sh"; source "$1/push.sh"; sync_not_workspace_only "$2" "$3"'
 

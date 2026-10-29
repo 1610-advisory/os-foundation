@@ -183,6 +183,7 @@ os_git_commit "$ROOT" "Offboard: ${PERSON}" "${paths[@]}"
 os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
+os_show_branch_files "$ROOT" "$branch" "${paths[@]}"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 

@@ -215,7 +215,7 @@ add-person.sh --help
 
 Same person steps as `team-on.sh` for one person, on a team that is already on. It does not change `level`. It does not print the review-key command.
 
-The people-page commit goes by pull request, because `main` is already protected. After the push it switches the folder back to `main`. If that switch is refused, it prints one plain line and still opens the pull request. A second run rebuilds the branch from `origin/main`, replaces it on the host, and opens the pull request if none is open. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
+The people-page commit goes by pull request, because `main` is already protected. After the push it switches the folder back to `main` and leaves the new page there as a local edit. It reaches `main` only by that pull request: `sync push` holds it until it merges. If that switch is refused, it prints one plain line and still opens the pull request. A second run rebuilds the branch from `origin/main`, replaces it on the host, and opens the pull request if none is open. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
 
 Answers keys: `root` (optional), and one `person.<slug>.*` block. `area.<area>.director` when this person becomes a director.
 
