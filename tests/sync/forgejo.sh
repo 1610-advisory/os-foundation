@@ -263,13 +263,15 @@ seed_repo "$netdir" "$nname"
 printf '%s\n' "offline note" > "$netdir/offline.md"
 git -C "$netdir" remote set-url origin "http://127.0.0.1:9/acme/${nname}.git"
 sync_env "$netdir"
-lines_before=$(wc -l < "$XDG_CONFIG_HOME/acme-os/state/sync.log" | tr -d ' ')
+# Held files of the cases above are gone from this folder: push drops them (B26) and logs
+# "held gone". Count the other lines.
+lines_before=$(grep -vc ' held gone ' "$XDG_CONFIG_HOME/acme-os/state/sync.log" || true)
 set +e
 bash "$SYNC" push
 nrc=$?
 set -e
 [ "$nrc" -ne 0 ] || fail "network failure should not succeed"
-lines_after=$(wc -l < "$XDG_CONFIG_HOME/acme-os/state/sync.log" | tr -d ' ')
+lines_after=$(grep -vc ' held gone ' "$XDG_CONFIG_HOME/acme-os/state/sync.log" || true)
 added=$((lines_after - lines_before))
 [ "$added" -eq 1 ] || fail "network failure wrote $added log lines"
 printf '%s\n' "PASS network"
