@@ -242,20 +242,16 @@ join_terms_pr() {
 # origin/sync/<me> (pushed; a run that stopped before open-pr left no pull request), or
 # not yet. The page template has an empty terms_accepted: key: only a date counts. The
 # clone may still be on sync/<me> (a refused checkout), so its own page proves nothing.
-# Offline, the local page decides.
 terms_dated() {
   git -C "$ROOT" show "$1:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'
 }
-if os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null; then
-  if terms_dated origin/main; then
-    terms=merged
-  elif terms_dated "origin/sync/${ME}"; then
-    terms=pushed
-  else
-    terms=none
-  fi
-elif [ -n "$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)" ]; then
+# Offline, stop: a dated page here may be from a run that stopped before open-pr.
+os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null \
+  || os_die 3 "could not reach the host: run join again when online; the terms pull request may not be open yet"
+if terms_dated origin/main; then
   terms=merged
+elif terms_dated "origin/sync/${ME}"; then
+  terms=pushed
 else
   terms=none
 fi

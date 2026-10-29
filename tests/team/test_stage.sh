@@ -114,6 +114,11 @@ if [ -n "\${FAKE_REFUSE_WTREMOVE:-}" ]; then
     *" worktree remove "*) printf '%s\n' "error: could not remove a file (locked)" >&2; exit 1 ;;
   esac
 fi
+if [ -n "\${FAKE_REFUSE_FETCH:-}" ]; then
+  case " \$* " in
+    *" fetch "*) printf '%s\n' "fatal: unable to access the host" >&2; exit 1 ;;
+  esac
+fi
 if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
   case " \$* " in
     *" push --set-upstream origin sync/"*)
@@ -255,6 +260,20 @@ if FAKE_NO_OPENPR=1 join_try > "$work/join8.out"; then
   team_fail "join with a failed open-pr exited 0"
 fi
 grep -q '^pr: ' "$work/join8.out" && team_fail "a failed open-pr printed a pull request"
+# Round 5 (50): offline, with a dated page in the folder (left on sync/sam). join must not
+# guess "already": it stops with exit 3 and one line, and opens nothing.
+git -C "$co" checkout -q sync/sam
+grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the folder page is not dated"
+: > "$work/host.log"
+rc=0
+PATH="$work/shim:$PATH" FAKE_REFUSE_FETCH=1 join_try > "$work/join-off.out" || rc=$?
+[ "$rc" -eq 3 ] || { cat "$work/join.err" >&2; team_fail "offline join exit was $rc, not 3"; }
+grep -qx 'could not reach the host: run join again when online; the terms pull request may not be open yet' "$work/join.err" \
+  || { cat "$work/join.err" >&2; team_fail "offline join line"; }
+grep -q 'terms: already' "$work/join-off.out" && team_fail "offline join said terms: already"
+grep -q 'join: ok' "$work/join-off.out" && team_fail "offline join said ok"
+grep -q '^open-pr ' "$work/host.log" && team_fail "offline join called open-pr"
+git -C "$co" checkout -q main
 : > "$work/host.log"
 join_try > "$work/join9.out" || { cat "$work/join.err" >&2; team_fail "retry after a failed open-pr failed"; }
 grep -qx 'terms: already' "$work/join9.out" || team_fail "retry after open-pr did not see the pushed terms"
