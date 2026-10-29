@@ -33,4 +33,7 @@ esac
 
 adapter="${DIR}/${OS_HOST}.sh"
 [ -f "$adapter" ] || host_die 3 "adapter is missing"
+# exec skips the EXIT trap: remove this script's temp folder first.
+host_cleanup
+export TMPDIR="$HOST_PARENT_TMP"
 exec "$adapter" "$verb" "$@"

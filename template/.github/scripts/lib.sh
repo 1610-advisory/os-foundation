@@ -23,9 +23,12 @@ ci_tmp_files=""
 # ci_mktemp runs in $( ), so the list above never reaches this shell. Every temp file goes
 # in one folder made here instead, and ci_cleanup (the entry script's EXIT trap) removes it.
 # A runner that is not thrown away after each job keeps a clean temp folder.
-ci_run_tmp=$(command mktemp -d "${TMPDIR:-/tmp}/os-check.XXXXXX") || ci_die 1 "could not make a temp folder"
-chmod 700 "$ci_run_tmp"
-export TMPDIR="$ci_run_tmp"
+# A second source in the same shell keeps the first folder.
+if [ -z "${ci_run_tmp:-}" ] || [ ! -d "$ci_run_tmp" ]; then
+  ci_run_tmp=$(command mktemp -d "${TMPDIR:-/tmp}/os-check.XXXXXX") || ci_die 1 "could not make a temp folder"
+  chmod 700 "$ci_run_tmp"
+  export TMPDIR="$ci_run_tmp"
+fi
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then

@@ -11,9 +11,12 @@ nr_die() {
 
 # One temp folder per run: every mktemp here, and in the scripts a run starts, lands in it.
 # The entry script's EXIT trap calls nr_tmp_cleanup, so a nightly run leaves nothing behind.
-NR_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-nightly.XXXXXX") || nr_die "could not make a temp folder: check the free disk space"
-chmod 700 "$NR_RUN_TMP"
-export TMPDIR="$NR_RUN_TMP"
+# A second source in the same shell keeps the first folder.
+if [ -z "${NR_RUN_TMP:-}" ] || [ ! -d "$NR_RUN_TMP" ]; then
+  NR_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-nightly.XXXXXX") || nr_die "could not make a temp folder: check the free disk space"
+  chmod 700 "$NR_RUN_TMP"
+  export TMPDIR="$NR_RUN_TMP"
+fi
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then

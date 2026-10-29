@@ -27,9 +27,12 @@ BOT_TMP_FILES=""
 # bot_mktemp runs in $( ), so the list above never reaches this shell. Every temp file goes
 # in one folder made here instead, and bot_cleanup (each entry script's EXIT trap) removes
 # it. A scheduled bot run leaves nothing behind.
-BOT_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-bot.XXXXXX") || bot_die 1 "could not make a temp folder: check the free disk space"
-chmod 700 "$BOT_RUN_TMP"
-export TMPDIR="$BOT_RUN_TMP"
+# A second source in the same shell keeps the first folder.
+if [ -z "${BOT_RUN_TMP:-}" ] || [ ! -d "$BOT_RUN_TMP" ]; then
+  BOT_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-bot.XXXXXX") || bot_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$BOT_RUN_TMP"
+  export TMPDIR="$BOT_RUN_TMP"
+fi
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then

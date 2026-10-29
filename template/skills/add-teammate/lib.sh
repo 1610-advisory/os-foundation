@@ -21,9 +21,12 @@ os_die() {
 # old logs copy) uses OS_KEEP_TMP, outside it.
 OS_KEEP_TMP=${OS_KEEP_TMP:-${TMPDIR:-/tmp}}
 export OS_KEEP_TMP
-OS_RUN_TMP=$(command mktemp -d "${OS_KEEP_TMP%/}/os-team.XXXXXX") || os_die 1 "could not make a temp folder: check the free disk space"
-chmod 700 "$OS_RUN_TMP"
-export TMPDIR="$OS_RUN_TMP"
+# A second source in the same shell keeps the first folder.
+if [ -z "${OS_RUN_TMP:-}" ] || [ ! -d "$OS_RUN_TMP" ]; then
+  OS_RUN_TMP=$(command mktemp -d "${OS_KEEP_TMP%/}/os-team.XXXXXX") || os_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$OS_RUN_TMP"
+  export TMPDIR="$OS_RUN_TMP"
+fi
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then

@@ -29,9 +29,13 @@ host_require_bin() {
 # this shell: every temp file goes in one folder made here, and host_cleanup removes it.
 # The trap is set here too, so a script that only sources this file cleans up.
 HOST_TMP_FILES=""
-HOST_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-host.XXXXXX") || host_die 1 "could not make a temp folder: check the free disk space"
-chmod 700 "$HOST_RUN_TMP"
-export TMPDIR="$HOST_RUN_TMP"
+HOST_PARENT_TMP=${HOST_PARENT_TMP:-${TMPDIR:-/tmp}}
+# A second source in the same shell keeps the first folder.
+if [ -z "${HOST_RUN_TMP:-}" ] || [ ! -d "$HOST_RUN_TMP" ]; then
+  HOST_RUN_TMP=$(command mktemp -d "${TMPDIR:-/tmp}/os-host.XXXXXX") || host_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$HOST_RUN_TMP"
+  export TMPDIR="$HOST_RUN_TMP"
+fi
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then
