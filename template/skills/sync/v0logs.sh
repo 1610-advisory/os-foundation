@@ -172,7 +172,7 @@ v0logs_catch_up() {
     else
       n=$((n + 1))
     fi
-    if ! mkdir -p "$(dirname "$repo/$dest")" || ! git -C "$repo" cat-file blob "$blob" > "$repo/$dest"; then
+    if ! mkdir -p "$(dirname "$repo/$dest")" 2>/dev/null || ! { git -C "$repo" cat-file blob "$blob" > "$repo/$dest"; } 2>/dev/null; then
       printf '%s\n' "could not write ${dest} from the old logs branch. Check the free disk space, then run skills/sync/sync.sh pull --full again" >&2
       return 1
     fi

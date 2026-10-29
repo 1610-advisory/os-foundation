@@ -1015,8 +1015,9 @@ class SyncFixTests(unittest.TestCase):
 
     def test_v0_logs_merge_when_the_host_logs_moved(self):
         # logsfix (52, 53): someone else pushed to logs after the upgrade. The park merges
-        # the host's logs before its push. The catch-up brings the other log into
-        # memory/logs-archive/ as a local change and says so; a second pull does not repeat it.
+        # the host's logs before its push, and the folder moves to the merged tip, so the
+        # copy holds both. A log pushed to the old branch after that comes in by catch-up
+        # as a local change, with one line; a second pull does not repeat it.
         bare, logs = self.v0_clone_after_upgrade(archive=True)
         noa = self.logs_clone("noa")
         (noa / "2026-10-05-noa.md").write_text("noa, after the upgrade\n")
@@ -1035,6 +1036,15 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual((arc / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
         self.assertEqual((arc / "2026-10-05-noa.md").read_text(), "noa, after the upgrade\n")
         self.assertEqual(list(logs.iterdir()) if logs.exists() else [], [])
+        self.assertNotIn("logs: ", result.stdout)
+        run(["git", "-C", str(noa), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env, check=True)
+        (noa / "2026-10-06-noa.md").write_text("noa, later still\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: noa later"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((arc / "2026-10-06-noa.md").read_text(), "noa, later still\n")
         self.assertIn(
             "logs: 1 files written to the old logs branch after the upgrade are now in memory/logs-archive/ in root. "
             "The next push sends them.",
@@ -1077,8 +1087,8 @@ class SyncFixTests(unittest.TestCase):
         # on the old branch goes beside it; main's file stays as it is.
         bare, logs = self.v0_clone_after_upgrade(archive=True)
         self.assertEqual(self.sync("pull", "--full").returncode, 0)
-        self.git("checkout", "-q", "--", ".")
-        self.git("clean", "-qfd")
+        self.git("checkout", "-q", "--", "memory/logs-archive")
+        self.git("clean", "-qfd", "--", "memory/logs-archive")
         main_copy = self.company / "memory" / "logs-archive" / "2026-10-01-mia.md"
         self.assertEqual(main_copy.read_text(), "day one\n")
         noa = self.logs_clone("noa")
@@ -1088,11 +1098,12 @@ class SyncFixTests(unittest.TestCase):
         result = self.sync("pull", "--full")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(main_copy.read_text(), "day one\n")
-        self.assertEqual(self.git("status", "--porcelain").stdout, "?? memory/logs-archive/2026-10-01-mia.old-branch.md\n")
+        self.assertEqual(self.git("status", "--porcelain", "--", str(main_copy)).stdout, "")
         self.assertEqual(
             (main_copy.parent / "2026-10-01-mia.old-branch.md").read_text(), "day one, edited on the old branch\n"
         )
-        self.assertIn("pull logs-catch-up root 0 files 1 beside", self.sync_log())
+        # The cleaned day-two log comes back as a new file; day one goes beside.
+        self.assertIn("pull logs-catch-up root 1 files 1 beside", self.sync_log())
 
     def test_v0_logs_merge_brings_both_sides_into_the_copy(self):
         # logsfix (60): both sides changed the same log without a conflict. The merged file
