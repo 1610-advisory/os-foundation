@@ -97,7 +97,10 @@ if v0logs_stuck "$ROOT" HEAD; then
     os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err")."
   fi
   rm -f "$v0_err"
-  printf 'v0-logs: moved, %s files kept as local changes\n' "$v0_n"
+  printf 'v0-logs: moved, %s files kept as local changes\n' "${v0_n% *}"
+  if [ "${v0_n#* }" -gt 0 ]; then
+    printf 'v0-logs: %s files were changed here and on the old logs branch, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "${v0_n#* }"
+  fi
 fi
 
 PAGE=$(os_person_file "$ROOT" "$ME" || true)

@@ -1055,7 +1055,7 @@ class SyncFixTests(unittest.TestCase):
         # The unpushed log commit went to the host first.
         log = run(["git", "--git-dir", str(bare), "log", "--format=%s", "logs"], env=self.env).stdout
         self.assertIn("Logs: day two", log)
-        self.assertIn("pull v0-logs root worktree removed, 3 files kept as local changes", self.sync_log())
+        self.assertIn("pull v0-logs root worktree removed, 3 files kept as local changes, 0 beside", self.sync_log())
         # The files are local changes now, so the next push sends them.
         status = self.git("status", "--porcelain").stdout
         self.assertIn("memory/logs/2026-10-01-mia.md", status)
@@ -1135,6 +1135,24 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertNotIn("logs: ", again.stdout)
         self.assertEqual(beside.read_text(), "changed on the old branch\n")
+        # logsfix (69): the old branch moves again. The new text gets its own name beside
+        # it, with one line; the first one is not written over, and nothing repeats.
+        run(["git", "-C", str(noa), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env, check=True)
+        (noa / "2026-10-01-mia.md").write_text("changed on the old branch\nand again\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: later edit"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        third = self.sync("pull", "--full")
+        self.assertEqual(third.returncode, 0, third.stdout + third.stderr)
+        self.assertEqual(mine.read_text(), "my fix, here only\n")
+        self.assertEqual(beside.read_text(), "changed on the old branch\n")
+        self.assertEqual(
+            mine.with_name("2026-10-01-mia.old-branch-2.md").read_text(), "changed on the old branch\nand again\n"
+        )
+        self.assertIn("logs: 1 files from the old logs branch had a different copy here in root", third.stdout)
+        fourth = self.sync("pull", "--full")
+        self.assertEqual(fourth.returncode, 0, fourth.stdout + fourth.stderr)
+        self.assertNotIn("logs: ", fourth.stdout)
+        self.assertFalse(mine.with_name("2026-10-01-mia.old-branch-3.md").exists())
 
     def test_catch_up_never_writes_over_a_file_main_tracks(self):
         # logsfix (59): main already tracks the archived log, unchanged here. A late edit
@@ -1181,6 +1199,65 @@ class SyncFixTests(unittest.TestCase):
             run(["git", "--git-dir", str(bare), "show", "logs:2026-10-01-mia.md"], env=self.env).stdout, merged
         )
         self.assertFalse((arc / "2026-10-01-mia.old-branch.md").exists())
+
+    def test_blocked_fast_forward_keeps_the_newer_logs(self):
+        # logsfix (66): this teammate never pulled logs, so the old folder is behind the
+        # upgrade's snapshot, and one edit here overlaps a change made there. That file
+        # keeps the person's copy, with the other text beside it. Every other log keeps the
+        # newer text, so the next push sends nothing older.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/memory/logs/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "v0 ignore")
+        self.git("push", "-q", "origin", "main")
+        self.git("worktree", "add", "-q", "--detach", "memory/logs")
+        logs = self.company / "memory" / "logs"
+        run(["git", "-C", str(logs), "checkout", "-q", "--orphan", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "rm", "-rfq", "."], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\n")
+        (logs / "2026-10-04-ada.md").write_text("ada first\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: first"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("day one\nnoa's line\n")
+        (noa / "2026-10-04-ada.md").write_text("ada first\nada later\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # The upgrade ran elsewhere, from the host's newest logs.
+        other = self.tmp / "upgrader"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / ".gitignore").write_text("")
+        moved = other / "memory" / "logs-archive"
+        moved.mkdir(parents=True)
+        for name in ("2026-10-01-mia.md", "2026-10-04-ada.md"):
+            (moved / name).write_text((noa / name).read_text())
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "Upgrade to v1"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        run(["git", "-C", str(other), "tag", "-a", "logs-archive-2026-10-01", "origin/logs", "-m", "snapshot"],
+            env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "logs-archive-2026-10-01"], env=self.env, check=True)
+        # Here, on the old base: an edit to day one, not committed.
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
+        self.assertEqual(self.git("status", "--porcelain", "--", "memory/logs-archive/2026-10-04-ada.md").stdout, "")
+        self.assertEqual((arc / "2026-10-01-mia.md").read_text(), "day one\nmia's line\n")
+        self.assertEqual((arc / "2026-10-01-mia.old-branch.md").read_text(), "day one\nnoa's line\n")
+        self.assertIn(
+            "logs: 1 files in the old logs folder were changed here and on the old logs branch in root, so the old "
+            "text is beside each one as <name>.old-branch.md. Nothing was written over.",
+            result.stdout,
+        )
+        self.assertIn("pull v0-logs root worktree removed, 1 files kept as local changes, 1 beside", self.sync_log())
+        again = self.sync("pull", "--full")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("logs: ", again.stdout)
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
 
     def test_failed_catch_up_is_a_pull_error(self):
         # logsfix (61): a catch-up write that fails is one plain pull error, kept in status.

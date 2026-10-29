@@ -317,4 +317,47 @@ grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join3.out" || te
 [ "$(cat "$co/memory/logs/2026-10-04-sam.md")" = "day four, not committed" ] || team_fail "join lost an untracked log"
 git -C "$co" diff --quiet -- memory/logs/2026-10-01-sam.md || team_fail "the tracked log changed"
 
+# logsfix (66): a v0 clone behind the upgrade's snapshot, with one edit that overlaps a
+# change made on branch logs. join keeps that file as the person's copy with the other
+# text beside it. Every other log keeps the newer text.
+rm -f "$co/memory/logs/2026-10-04-sam.md"
+git -C "$co" worktree add -q "$work/lw2" logs
+printf '%s\n' "ada first" > "$work/lw2/2026-10-05-ada.md"
+git -C "$work/lw2" add 2026-10-05-ada.md
+git -C "$work/lw2" commit -q -m "Logs: ada"
+git -C "$co" worktree remove "$work/lw2"
+git -C "$co" push -q origin logs
+git -C "$co" worktree add -q --detach "$work/lw3" logs
+printf '%s\n' "day one" "noa line" > "$work/lw3/2026-10-01-sam.md"
+printf '%s\n' "ada first" "ada later" > "$work/lw3/2026-10-05-ada.md"
+git -C "$work/lw3" commit -q -am "Logs: noa"
+git -C "$work/lw3" push -q origin HEAD:logs
+git -C "$co" worktree remove "$work/lw3"
+git -C "$co" fetch -q origin
+git -C "$co" rm -rq memory/logs
+mkdir -p "$co/memory/logs-archive"
+git -C "$co" show origin/logs:2026-10-01-sam.md > "$co/memory/logs-archive/2026-10-01-sam.md"
+git -C "$co" show origin/logs:2026-10-05-ada.md > "$co/memory/logs-archive/2026-10-05-ada.md"
+git -C "$co" add memory/logs-archive
+git -C "$co" commit -q -m "Upgrade to v1: logs archive"
+git -C "$co" push -q origin main
+git -C "$co" tag -a logs-archive-2026-10-29 origin/logs -m snapshot
+git -C "$co" push -q origin logs-archive-2026-10-29
+rm -rf "$co/memory/logs"
+git -C "$co" worktree add -q "$co/memory/logs" logs
+printf '%s\n' "day one" "sam line" > "$co/memory/logs/2026-10-01-sam.md"
+join_run > "$work/join10.out"
+grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join10.out" \
+  || { cat "$work/join10.out" >&2; team_fail "join (66) did not move the v0 logs worktree"; }
+grep -qx 'v0-logs: 1 files were changed here and on the old logs branch, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.' "$work/join10.out" \
+  || team_fail "join (66) did not say what went beside"
+[ ! -e "$co/memory/logs/.git" ] || team_fail "join (66) left the logs worktree"
+[ "$(cat "$co/memory/logs-archive/2026-10-05-ada.md")" = "$(printf '%s\n' "ada first" "ada later")" ] \
+  || team_fail "join (66) wrote an older log over the archive"
+git -C "$co" diff --quiet -- memory/logs-archive/2026-10-05-ada.md || team_fail "join (66) changed a log the person did not touch"
+[ "$(cat "$co/memory/logs-archive/2026-10-01-sam.md")" = "$(printf '%s\n' "day one" "sam line")" ] \
+  || team_fail "join (66) lost the person's edit"
+[ "$(cat "$co/memory/logs-archive/2026-10-01-sam.old-branch.md")" = "$(printf '%s\n' "day one" "noa line")" ] \
+  || team_fail "join (66) did not put the other text beside the edited log"
+
 printf '%s\n' "PASS stage"

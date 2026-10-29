@@ -467,7 +467,10 @@ sync_pull_fetched() {
   if [ -n "$SYNC_V0_SAVE" ]; then
     err=$(sync_mktemp)
     if n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE" 2>"$err"); then
-      sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
+      if [ "${n#* }" -gt 0 ]; then
+        printf 'logs: %s files in the old logs folder were changed here and on the old logs branch in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "${n#* }" "$id"
+      fi
+      sync_log "pull v0-logs ${id} worktree removed, ${n% *} files kept as local changes, ${n#* } beside"
     else
       sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
       rc=1
