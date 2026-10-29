@@ -688,6 +688,35 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("people/Mia.md: waits for its own pull request (rules/ada/offboard-mia)", status)
         self.assertIn("left: 2026-10-28", page.read_text())
 
+        # Round 4 (47): the pull request is closed and the host deletes its branch. The
+        # local origin/rules/* ref is stale; push prunes it, says so, and stops holding.
+        run(["git", "--git-dir", str(self.tmp / "origin.git"), "branch", "-D", "rules/ada/offboard-mia"], env=self.env)
+        self.assertEqual(self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "people/Mia.md: its own pull request (rules/ada/offboard-mia) was closed and its branch is gone, "
+            "so push no longer waits for it",
+            result.stderr,
+        )
+        self.assertNotEqual(self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0)
+        diff = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "diff", "--name-only", "main", "sync/mia"],
+            env=self.env,
+        ).stdout.splitlines()
+        self.assertIn("people/Mia.md", diff)
+        self.assertNotIn("waits for its own pull request", self.sync("status").stdout)
+
+    def test_pull_prunes_a_branch_the_host_deleted(self):
+        # Round 4 (47): pull fetches with --prune, so a stale origin/rules/* ref goes.
+        self.seed_origin()
+        self.git("update-ref", "refs/remotes/origin/rules/ada/offboard-mia", "HEAD")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotEqual(
+            self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0
+        )
+
     def test_a_push_clears_only_a_push_error(self):
         # Round 3 (41): a good push never clears an error a pull left in another run.
         script = (

@@ -32,6 +32,38 @@ sync_not_workspace_only() {
   return 1
 }
 
+# Refresh origin/rules/* with fetch --prune, so a branch the host deleted (its pull
+# request closed or merged) stops holding files. Writes "<sha> <ref>" for each ref the
+# prune dropped to SYNC_GONE_RULES. Offline: the refs stay as they are and still hold.
+sync_rules_refresh() {
+  local repo=$1 before
+  SYNC_GONE_RULES=$(sync_mktemp)
+  [ -n "$(git -C "$repo" for-each-ref --count=1 refs/remotes/origin/rules/)" ] || return 0
+  before=$(sync_mktemp)
+  git -C "$repo" for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/rules/ > "$before"
+  sync_git "$repo" fetch --prune origin >/dev/null 2>&1 || return 0
+  while IFS=' ' read -r sha ref; do
+    [ -n "$ref" ] || continue
+    git -C "$repo" show-ref --verify --quiet "$ref" || printf '%s %s\n' "$sha" "$ref" >> "$SYNC_GONE_RULES"
+  done < "$before"
+}
+
+# The rules/* branch the host deleted that held this file's content, if any. Not when
+# origin/main has that content: then the pull request merged.
+sync_gone_branch() {
+  local repo=$1 path=$2 sha ref want
+  [ -s "${SYNC_GONE_RULES:-}" ] && [ -f "$repo/$path" ] || return 1
+  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
+  [ "$(git -C "$repo" rev-parse -q --verify "origin/main:${path}" 2>/dev/null)" != "$want" ] || return 1
+  while IFS=' ' read -r sha ref; do
+    if [ "$(git -C "$repo" rev-parse -q --verify "${sha}:${path}" 2>/dev/null)" = "$want" ]; then
+      printf '%s\n' "${ref#refs/remotes/origin/}"
+      return 0
+    fi
+  done < "$SYNC_GONE_RULES"
+  return 1
+}
+
 # A file whose content is already on a rules/* branch on the host (remove-teammate,
 # add-person, propose) waits for that pull request. It never goes on the standing one too.
 sync_pending_branch() {
@@ -329,7 +361,7 @@ sync_apply_commit() {
   name=$(printf '%s\n' "$author" | head -n 1)
   email=$(printf '%s\n' "$author" | tail -n 1)
   tmp=""
-  sync_git "$repo" fetch origin >/dev/null 2>&1
+  sync_git "$repo" fetch --prune origin >/dev/null 2>&1
   rc=$?
   if [ "$rc" -ne 0 ]; then
     sync_apply_fail "$repo" "" "$id" "could not reach origin"
@@ -444,6 +476,7 @@ sync_push_one() {
   if [ ! -s "$changed" ]; then
     return 0
   fi
+  [ "$kind" = "workspace" ] || sync_rules_refresh "$repo"
   added=$(sync_mktemp)
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -501,6 +534,10 @@ sync_push_one() {
       sync_hold_line "$id" "$path" "waits for its own pull request (${pending})" >> "$added"
       sync_log "push hold ${id} ${path} pending ${pending}"
       continue
+    fi
+    if [ "$kind" != "workspace" ] && pending=$(sync_gone_branch "$repo" "$path"); then
+      printf '%s\n' "${path}: its own pull request (${pending}) was closed and its branch is gone, so push no longer waits for it" >&2
+      sync_log "push release ${id} ${path} ${pending} gone"
     fi
     if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then
       sync_hold_line "$id" "$path" "$RULES_REASON" >> "$added"

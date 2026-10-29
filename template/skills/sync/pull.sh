@@ -496,7 +496,8 @@ sync_pull_ff() {
   local repo=$1
   local id=$2
   local save tag old link_save err n
-  if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
+  # --prune drops origin/* refs whose branch the host deleted (push's pending hold reads them).
+  if ! sync_git "$repo" fetch --prune origin >/dev/null 2>&1; then
     sync_pull_fail "$id" "could not reach origin"
     return 1
   fi
