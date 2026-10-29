@@ -648,6 +648,24 @@ cmd_org_remove() {
   jq -nc --arg user "$user" '{ok:true, user:$user}'
 }
 
+# Org membership of <user>: active or none. Forgejo has no pending invites.
+cmd_org_membership() {
+  local user
+  [ -n "$POS1" ] || host_die 1 "user is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_name "user" "$POS1"
+  host_require_org
+  user=$POS1
+  if ! fj_call GET "/orgs/${OS_ORG}/members/${user}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200|204) jq -nc --arg user "$user" '{user:$user, state:"active"}' ;;
+    404) jq -nc --arg user "$user" '{user:$user, state:"none"}' ;;
+    *) fj_fail ;;
+  esac
+}
+
 # The repos a team grants. A missing team: exists false, no repos.
 cmd_team_repos() {
   local team page=1 n all='[]'
@@ -956,6 +974,7 @@ case "$VERB" in
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
+  org-membership) cmd_org_membership ;;
   invites) cmd_invites ;;
   cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;

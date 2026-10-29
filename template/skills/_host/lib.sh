@@ -715,6 +715,7 @@ Verbs:
   grant <name> <user|team:<team>> <read|write|admin>
   revoke <name> <user|team:<team>>
   org-remove <user>
+  org-membership <user>
   invites <user> [<repo>]
   cancel-invites <user> [<repo>]
   archive-repo <name>

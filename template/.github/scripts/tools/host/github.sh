@@ -595,7 +595,7 @@ cmd_unprotect() {
 }
 
 cmd_user_access() {
-  local name user out err code perm access kind
+  local name user out err code perm access kind invites
   [ -n "$POS1" ] || host_die 1 "name is required"
   [ -n "$POS2" ] || host_die 1 "user is required"
   [ -z "$POS3" ] || host_die 1 "too many arguments"
@@ -638,9 +638,12 @@ cmd_user_access() {
     exit "$kind"
   fi
   # A pending invite is access: the person gets it the moment they accept.
-  if [ "$access" = "none" ] \
-    && [ "$(host_user_invites "$user" "$name" | jq 'length')" -gt 0 ]; then
-    access="invited"
+  # A failed invite list is not "no invite": exit with its status.
+  if [ "$access" = "none" ]; then
+    invites=$(host_user_invites "$user" "$name") || exit $?
+    if [ "$(printf '%s' "$invites" | jq 'length')" -gt 0 ]; then
+      access="invited"
+    fi
   fi
   jq -nc --arg access "$access" '{access:$access}'
 }
@@ -820,6 +823,34 @@ cmd_org_remove() {
   jq -nc --arg user "$user" '{ok:true, user:$user}'
 }
 
+# Org membership of <user>: active, pending (an invite), or none. Any error exits non-zero.
+cmd_org_membership() {
+  local user errf rc out
+  [ -n "$POS1" ] || host_die 1 "user is required"
+  [ -z "$POS2" ] || host_die 1 "too many arguments"
+  host_require_name "user" "$POS1"
+  host_require_org
+  user=$POS1
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/memberships/${user}"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  set +e
+  out=$(host_gh_call GET "/orgs/${OS_ORG}/memberships/${user}" 2>"$errf")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      jq -nc --arg user "$user" '{user:$user, state:"none"}'
+      return 0
+    fi
+    cat "$errf" >&2
+    exit "$rc"
+  fi
+  printf '%s' "$out" | jq -c --arg user "$user" '{user:$user, state:(.state // "unknown"), role:(.role // "")}'
+}
+
 # The repos a team grants. A missing team: exists false, no repos.
 cmd_team_repos() {
   local team slug errf rc all
@@ -834,10 +865,9 @@ cmd_team_repos() {
     return 0
   fi
   errf=$(host_mktemp)
-  set +e
-  host_gh_call GET "/orgs/${OS_ORG}/teams/${slug}" >/dev/null 2>"$errf"
-  rc=$?
-  set -e
+  # host_gh_call turns set -e back on. The || keeps its failure from exiting here.
+  rc=0
+  host_gh_call GET "/orgs/${OS_ORG}/teams/${slug}" >/dev/null 2>"$errf" || rc=$?
   if [ "$rc" -ne 0 ]; then
     if grep -q 'HTTP 404' "$errf"; then
       jq -nc --arg team "$team" '{team:$team, exists:false, repos:[]}'
@@ -887,7 +917,7 @@ cmd_invites() {
     host_emit GET "$(host_invites_path "$POS2")"
     return 0
   fi
-  list=$(host_user_invites "$POS1" "$POS2")
+  list=$(host_user_invites "$POS1" "$POS2") || exit $?
   jq -nc --argjson invites "$list" '{invites:$invites}'
 }
 
@@ -900,15 +930,14 @@ cmd_cancel_invites() {
     host_emit GET "$path"
     return 0
   fi
-  list=$(host_user_invites "$POS1" "$POS2")
+  list=$(host_user_invites "$POS1" "$POS2") || exit $?
   n=0
   for id in $(printf '%s' "$list" | jq -r '.[].id'); do
     host_require_int "invite id" "$id"
     errf=$(host_mktemp)
-    set +e
-    host_gh_call DELETE "${path}/${id}" >/dev/null 2>"$errf"
-    rc=$?
-    set -e
+    # host_gh_call turns set -e back on. The || keeps its failure from exiting here.
+    rc=0
+    host_gh_call DELETE "${path}/${id}" >/dev/null 2>"$errf" || rc=$?
     if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
       cat "$errf" >&2
       exit "$rc"
@@ -1232,6 +1261,7 @@ case "$VERB" in
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
+  org-membership) cmd_org_membership ;;
   invites) cmd_invites ;;
   cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;
