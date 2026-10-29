@@ -567,15 +567,25 @@ sync_push_one() {
   if ! sync_apply_commit "$repo" "$id" "$kind" "$commit_files" "$msgfile"; then
     return 1
   fi
-  # Keep an error an earlier repo set in this run.
-  if [ -z "${SYNC_RUN_ERROR:-}" ]; then
-    sync_held_error ""
-  fi
+  sync_push_clear_error
   sync_log "push ok ${id}"
   if [ "$kind" != "workspace" ]; then
     sync_pull_one "$repo" "$id" || true
   fi
   return 0
+}
+
+# A good push clears an error an earlier push left. It never clears a pull error (a
+# clean pull clears that), and never an error an earlier repo set in this run.
+sync_push_clear_error() {
+  local err
+  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
+  case "$err" in
+    ""|"pull failed for "*) return 0 ;;
+  esac
+  sync_held_error ""
 }
 
 # Bot runs already committed on sync/<bot>. Push those commits as they are.

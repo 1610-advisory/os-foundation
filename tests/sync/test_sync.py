@@ -688,6 +688,24 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("people/Mia.md: waits for its own pull request (rules/ada/offboard-mia)", status)
         self.assertIn("left: 2026-10-28", page.read_text())
 
+    def test_a_push_clears_only_a_push_error(self):
+        # Round 3 (41): a good push never clears an error a pull left in another run.
+        script = (
+            'source "$1/lib.sh"; source "$1/push.sh"; SYNC_HELD="$2"; '
+            'sync_mktemp() { mktemp; }; sync_push_clear_error; jq -r .last_error "$2"'
+        )
+        held = self.tmp / "held.json"
+        pull_err = "pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."
+        for before, after in [
+            (pull_err, pull_err),
+            ("auto-merge is off on acme-os: pull request 1 is open but will not merge by itself", ""),
+            ("", ""),
+        ]:
+            held.write_text(json.dumps({"files": [], "last_error": before}))
+            out = run(["bash", "-c", script, "x", str(SYNC), str(held)], env=self.env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(out.stdout.strip(), after)
+
     def test_area_drafts_and_logs_are_area_work(self):
         script = 'source "$1/lib.sh"; source "$1/push.sh"; sync_not_workspace_only "$2" "$3"'
 

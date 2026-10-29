@@ -104,7 +104,7 @@ The log lines (`pull ok <repo>`, `pull fail <repo> <reason>`) and exit codes are
 
 A v0 clone keeps `memory/logs/` as a git worktree of branch `logs`. The upgrade removes it only on the computer that ran it. Once `origin/main` tracks `memory/logs/`, `pull` moves it out before the fast-forward: it pushes log commits the host lacks to `logs`, copies every file (committed, edited or untracked), removes the worktree, fast-forwards, then puts back each file that `main` lacks or holds a different copy of. Those are local changes; the next push sends them. Log line: `pull v0-logs <repo> worktree removed, <n> files kept as local changes`. If the push or the removal fails, nothing is removed and the pull fails with one line.
 
-A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error.
+A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error. A good push clears only an error that a push set. It never clears a pull error.
 
 ### State file
 
