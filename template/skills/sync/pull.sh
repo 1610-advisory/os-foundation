@@ -461,16 +461,20 @@ sync_pull_leave_own_branch() {
 sync_pull_fetched() {
   local repo=$1
   local id=$2
-  local rc=0 n err
+  local rc=0 n err written beside kept
   SYNC_V0_SAVE=""
   sync_pull_ff "$repo" "$id" || rc=$?
   if [ -n "$SYNC_V0_SAVE" ]; then
     err=$(sync_mktemp)
     if n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE" 2>"$err"); then
-      if [ "${n#* }" -gt 0 ]; then
-        printf 'logs: %s files in the old logs folder were changed here and on the old logs branch in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "${n#* }" "$id"
+      read -r written beside kept <<< "$n"
+      if [ "$beside" -gt 0 ]; then
+        printf 'logs: %s files in the old logs folder were changed here and on the old logs branch in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "$beside" "$id"
       fi
-      sync_log "pull v0-logs ${id} worktree removed, ${n% *} files kept as local changes, ${n#* } beside"
+      if [ "$kept" -gt 0 ]; then
+        printf 'logs: %s files in memory/logs-archive/ have a change here that is not committed in %s, so the copy from the old logs folder is beside each one as <name>.old-branch.md. Nothing was written over.\n' "$kept" "$id"
+      fi
+      sync_log "pull v0-logs ${id} worktree removed, ${written} files kept as local changes, ${beside} beside, ${kept} beside a change not committed"
     else
       sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
       rc=1

@@ -113,8 +113,9 @@ v0logs_push() {
 # added that <ref> touches too stops a plain fast-forward. Then only those files are kept
 # aside, the folder resets to <ref>, and they come back: the person's copy stays, and when
 # <ref> has other text for it, that text goes beside it (v0logs_beside). Every other file
-# takes the text at <ref>. On a failure nothing is lost: it prints one plain line to stderr
-# and returns 1.
+# takes the text at <ref>. If any step fails, the folder goes back as it was (v0logs_undo),
+# so the next run starts from the same place. It prints one plain line to stderr and
+# returns 1.
 v0logs_follow() {
   local repo=$1 ref=$2 wt old keep rel blob name bad=0
   wt="$repo/memory/logs"
@@ -124,15 +125,19 @@ v0logs_follow() {
   keep=$(mktemp -d "${OS_KEEP_TMP:-${TMPDIR:-/tmp}}/os-logs-keep.XXXXXX") || return 1
   # Changed against the last commit (staged or not), and every untracked file.
   { git -C "$wt" diff --name-only --no-renames HEAD; git -C "$wt" ls-files -o; } | sort -u > "$keep/.list"
+  : > "$keep/.gone"
+  : > "$keep/.beside"
   while IFS= read -r rel; do
-    [ -f "$wt/$rel" ] || continue
+    if [ ! -f "$wt/$rel" ]; then
+      printf '%s\n' "$rel" >> "$keep/.gone"
+      continue
+    fi
     if ! { mkdir -p "$(dirname "$keep/files/$rel")" && cp -p "$wt/$rel" "$keep/files/$rel"; } 2>/dev/null; then
       bad=1
     fi
   done < "$keep/.list"
   if [ "$bad" -ne 0 ] || ! git -C "$wt" reset -q --hard "$ref" >/dev/null 2>&1; then
-    git -C "$wt" reset -q --hard "$old" >/dev/null 2>&1 || true
-    [ ! -d "$keep/files" ] || cp -Rp "$keep/files/." "$wt/" 2>/dev/null || true
+    v0logs_undo "$wt" "$old" "$keep" || true
     printf 'could not bring memory/logs up to the host'"'"'s logs branch. Nothing was removed. A copy of the files changed here is in %s. Check the free disk space, then run this again\n' "$keep" >&2
     return 1
   fi
@@ -142,15 +147,40 @@ v0logs_follow() {
     if [ -n "$blob" ] && [ "$blob" != "$(git -C "$wt" rev-parse -q --verify "$old:$rel" 2>/dev/null || true)" ] \
       && [ "$blob" != "$(git -C "$wt" hash-object -- "$keep/files/$rel")" ] \
       && name=$(v0logs_beside "$wt" "$rel" "$blob"); then
+      printf '%s\n' "$name" >> "$keep/.beside"
       git -C "$wt" cat-file blob "$blob" > "$wt/$name" || bad=1
     fi
     { mkdir -p "$(dirname "$wt/$rel")" && cp -p "$keep/files/$rel" "$wt/$rel"; } 2>/dev/null || bad=1
   done < "$keep/.list"
   if [ "$bad" -ne 0 ]; then
-    printf 'could not put the files changed here back into memory/logs. Nothing was removed. A copy of them is in %s. Copy them back into memory/logs, then run this again\n' "$keep" >&2
+    # Never leave the folder at <ref> with a file missing: the next run would see it up
+    # to date and move it out without that file.
+    if v0logs_undo "$wt" "$old" "$keep"; then
+      printf 'could not put the files changed here back into memory/logs, so memory/logs is back as it was. Nothing was removed. A copy of them is also in %s. Close any program that has a log open, then run this again\n' "$keep" >&2
+    else
+      printf 'could not put the files changed here back into memory/logs. A copy of them is in %s. Copy them back into memory/logs, then run this again\n' "$keep" >&2
+    fi
     return 1
   fi
   rm -rf "$keep"
+}
+
+# Put memory/logs (<wt>) back as it was before v0logs_follow: the folder at <old>, no file
+# it wrote beside, every file kept aside back, and every file the person had removed gone
+# again. Returns 1 when a step fails.
+v0logs_undo() {
+  local wt=$1 old=$2 keep=$3 rel bad=0
+  git -C "$wt" reset -q --hard "$old" >/dev/null 2>&1 || bad=1
+  while IFS= read -r rel; do
+    rm -f "$wt/$rel" || bad=1
+  done < "$keep/.beside"
+  if [ -d "$keep/files" ]; then
+    cp -Rp "$keep/files/." "$wt/" 2>/dev/null || bad=1
+  fi
+  while IFS= read -r rel; do
+    rm -f "$wt/$rel" || bad=1
+  done < "$keep/.gone"
+  [ "$bad" -eq 0 ]
 }
 
 # Push log commits the host lacks, copy every file out, remove the worktree.
@@ -184,22 +214,34 @@ v0logs_park() {
 # (it differs from the folder's last commit, branch logs) is their copy: it wins over
 # main's, and main's copy stays in history. A file still as committed is the old branch's
 # text: it goes in only when main lacks it, or when main's copy is an earlier version of
-# it on branch logs. So an older text never replaces a newer one. Prints "<written>
-# <beside>": beside counts the v0logs_beside files v0logs_follow made. If any copy fails (a
-# file lock on Windows), the saved folder stays, one plain line names it on stderr, and it
-# returns 1. Every step is checked by hand: bash 3.2 runs this in $( ), where set -e does
-# not reach.
+# it on branch logs. So an older text never replaces a newer one. A place with a change not
+# committed on main (an edit made in memory/logs-archive/) is never written over: the
+# person's copy goes beside it (v0logs_beside). Prints "<written> <beside> <kept>": beside
+# counts the v0logs_beside files v0logs_follow made, kept the places left as they were with
+# the copy beside. If any copy fails (a file lock on Windows), the saved folder stays, one
+# plain line names it on stderr, and it returns 1. Every step is checked by hand: bash 3.2
+# runs this in $( ), where set -e does not reach.
 v0logs_put_back() {
-  local repo=$1 save=$2 rel dest n=0 m=0 bad=0 head blob
+  local repo=$1 save=$2 rel target dest name n=0 m=0 k=0 bad=0 head blob
   head=$(git -C "$repo" rev-parse -q --verify refs/heads/logs 2>/dev/null || true)
   while IFS= read -r rel; do
     rel=${rel#./}
-    dest="$repo/$(v0logs_target "$repo" "$rel")"
+    target=$(v0logs_target "$repo" "$rel")
+    dest="$repo/$target"
     if [ -f "$dest" ]; then
       cmp -s "$save/$rel" "$dest" && continue
       blob=$(git -C "$repo" hash-object -- "$save/$rel")
       if [ -n "$head" ] && [ "$blob" = "$(git -C "$repo" rev-parse -q --verify "$head:$rel" 2>/dev/null || true)" ]; then
+        v0logs_committed "$repo" "$target" "$dest" || continue
         v0logs_earlier "$repo" "$head" "$rel" "$dest" || continue
+      elif ! v0logs_committed "$repo" "$target" "$dest"; then
+        name=$(v0logs_beside "$repo" "$target" "$blob") || continue
+        if cp -p "$save/$rel" "$repo/$name"; then
+          k=$((k + 1))
+        else
+          bad=$((bad + 1))
+        fi
+        continue
       fi
     fi
     if mkdir -p "$(dirname "$dest")" && cp -p "$save/$rel" "$dest"; then
@@ -214,7 +256,14 @@ v0logs_put_back() {
     return 1
   fi
   rm -rf "$save"
-  printf '%s %s\n' "$((n - m))" "$m"
+  printf '%s %s %s\n' "$((n - m))" "$m" "$k"
+}
+
+# 0 when <file> holds the text main's last commit has at <path>.
+v0logs_committed() {
+  local repo=$1 path=$2 file=$3 blob
+  blob=$(git -C "$repo" rev-parse -q --verify "HEAD:$path" 2>/dev/null) || return 1
+  [ "$(git -C "$repo" hash-object -- "$file" 2>/dev/null)" = "$blob" ]
 }
 
 # 0 when the text of <file> is one of the versions <rel> had on <commit>'s history.
