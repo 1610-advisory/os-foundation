@@ -1271,8 +1271,11 @@ class SyncFixTests(unittest.TestCase):
         run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
         # A file where the folder must go: the write cannot happen.
         (self.company / "memory" / "logs-archive" / "late").write_text("in the way\n")
-        result = self.sync("pull", "--full")
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        # logsfix (67): the shell the jobs use (/bin/bash, 3.2 on macOS) exits 1 through
+        # the EXIT trap.
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+        result = run([shell, str(SYNC / "sync.sh"), "pull", "--full"], env=self.env, cwd=self.company)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(
             "pull failed for root: could not write memory/logs-archive/late/2026-10-06-noa.md from the old logs "
             "branch. Check the free disk space, then run skills/sync/sync.sh pull --full again.",
