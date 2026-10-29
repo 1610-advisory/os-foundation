@@ -124,7 +124,13 @@ If the folder has an old `logs` branch (the company folder, and each area that h
 ## 9. Going back
 
 The whole upgrade is one merge commit. One revert undoes it.
-- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass.
+- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass. On GitHub the admin's own pull request needs the bypass box (section 6).
+- **Team on a host:** that revert undoes the merge only. Two things stay on each repo (the company repo and each area repo): the `Upgrade: check tools on main` commit and the v1 rules on `main`. To undo them too, in this order:
+  1. Revert each area's `upgrade/scripts` merge the same way: a branch from `origin/main`, `git revert -m 1 <merge commit>`, a pull request.
+  2. In each repo, revert the `Upgrade: check tools on main` commit by a pull request the same way (`git revert <commit>`, no `-m`). That also puts back the v0 `CODEOWNERS` line. Its checks still run: they run from `main`.
+  3. On GitHub, the admin merges each of these pull requests with the bypass box, as in section 6.
+  4. When all have merged, `main` has no check tools, so the v1 rules would block every pull request. Lift them. In the company folder run `git checkout main` but do not pull yet: it still has `skills/_host/` and the v1 `company-profile.md`. Run `skills/_host/host.sh unprotect <repo>` for the company repo and each area repo. Then pull.
+  5. The v0 rule on `main` (a pull request with one code-owner approval) is gone. The admin adds it back by hand in the repo settings: Branches, a rule for `main`, "Require a pull request before merging", one approval, "Require review from Code Owners".
 - **Solo, no host:** run `git revert -m 1 <merge commit>` on `main`. Solo commits to `main` as usual.
 
 ## 10. Tell the person
