@@ -18,22 +18,13 @@ The script comes with the new os-foundation version.
 
 Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run the upgrade from a Mac or Linux clone of the company repo`) and changes nothing. If the person only has Windows, the admin runs it from a Mac or Linux clone.
 
-**Teammates with an old (v0) copy must not run a plain `git pull` after the upgrade.** In v0 `memory/logs/` is a separate git worktree that `main` ignores. A plain pull can write over files there. This version puts the old logs in `memory/logs/archive/`, so a plain pull no longer collides with them. Still, give teammates the one safe path:
-1. **Before the real run: the log freeze.** The dry run prints a `log-freeze:` line. Ask every teammate to save their logs in each folder that has `memory/logs/`: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. Nobody writes a log until the upgrade pull requests merge.
-2. **After the merge, each teammate** (the run prints these as `teammates:` lines): in the old folder, save the logs again the same way. Clone the company repo into a new folder and join there (`add-teammate` Part B, on Windows too). The old logs are in `memory/logs/archive/`. Logs pushed to the old branch after the run come in by the next full `sync.sh pull`. When the new folder has their logs, delete the old one.
-3. A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead. It moves the old logs folder out and keeps every file.
-
-1. Read the newest version: the one line at `https://1610.sh/os/version` (for example `v1.0.0`). `unreleased` means there is no version yet: say so and stop.
-2. Clone it to a temporary folder outside the company folder:
-   `git clone --depth 1 --branch <version> https://github.com/1610-advisory/os-foundation.git <temp>/os-foundation`
-3. In the steps below, `<upgrade>` means `<temp>/os-foundation/template/skills/upgrade/upgrade.sh`. Always add `--root <company folder> --template <temp>/os-foundation/template`.
-4. Check `git filter-repo --version`. Missing? Help install it (on a Mac, `brew install git-filter-repo`). The logs move needs it.
+**A team: the log freeze comes first.** The dry run prints a `log-freeze:` line when an old `logs` branch is there. Before the real run, ask every teammate to save their logs in each folder that has `memory/logs/`: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. Nobody writes a log until the upgrade pull requests merge. Teammates never run a plain `git pull` in their old folder. Section 11 is what they do after the merge.
 
 ## 2. Level
 
 Ask: "Does anyone else use this company OS with you?" Suggest no.
 - No: the level is `solo`. Add nothing.
-- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, run `add-teammate` Part A with the same people. It adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs.
+- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, follow section 11: the admin runs `add-teammate` Part A with the same people (it adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs), then each teammate joins.
 - Yes, but the folder was never on a git host: upgrade at `solo`. Then run `add-teammate` Part A.
 
 ## 3. Clean folder
@@ -127,7 +118,7 @@ If the folder has an old `logs` branch (the company folder, and each area that h
 - Its files move to `memory/logs/archive/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request. New logs go in `memory/logs/` as usual.
 - The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). With a host the tag goes up too. Keep it 90 days. Then it may be deleted. The script never deletes it.
 - Logs pushed to the old branch after the run: each full `sync.sh pull` compares the tag with the host's `logs` branch. It writes any later log into `memory/logs/archive/` as a local change and says so (`logs: <n> files ...`). The next push sends them.
-- Teammates: section 1, "Teammates with an old (v0) copy".
+- Teammates: section 11.
 
 ## 9. Going back
 
@@ -152,3 +143,16 @@ One line each:
 - With a host: the link to each pull request. On Forgejo it merges when the checks pass. On GitHub the admin merges it with the bypass box (step 6).
 
 Then delete the temporary folder.
+
+## 11. After the merge: the team
+
+A v0 team only. Do these in order. The run printed the same steps as `teammates:` lines.
+
+1. **Admin.** Wait until every upgrade pull request has merged. Then run `add-teammate` Part A again with the same people. It adds what v0 did not have: people pages, workspaces, teams and the OS jobs. It sends each person a hand-off message.
+2. **Each teammate, in the old folder.** Never run `git pull` there. In v0 `memory/logs/` is a separate git folder that `main` ignored, and a plain pull can write over it. If the old folder has `memory/logs/`, save the logs once more: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. On Windows, run these in Git Bash.
+3. **Rename the old folder**, for example `~/{{COMPANY_SLUG}}-os` to `~/{{COMPANY_SLUG}}-os-old`. That keeps the usual folder name free.
+4. **Join as a new teammate:** `add-teammate` Part B, B1 to B5, with the hand-off message. It clones into the usual folder, shows the joining terms and runs `join.sh`. On Windows `join.sh` runs in Git Bash, as B4 shows.
+5. **Check.** The old logs are in `memory/logs/archive/` in the new folder. Logs pushed to the old branch after the upgrade come in by the next full pull: run `skills/sync/sync.sh pull --full` to get them now. A file of theirs that never reached the host (`git status` in the old folder lists it) is copied into the new folder by hand.
+6. **Delete the old folder.**
+
+A teammate who already has the v1 `sync` skill skips steps 2 to 6: `skills/sync/sync.sh pull` moves the old logs folder out and keeps every file. They still run `join.sh` once if they never did.

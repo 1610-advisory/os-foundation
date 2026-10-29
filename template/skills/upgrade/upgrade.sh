@@ -1360,8 +1360,8 @@ rm -f "$pr_body"
 if [ "$TEAM_LOGS" -eq 1 ]; then
   printf '%s\n' "teammates: in an old (v0) copy of this folder, do not run git pull. It can write over logs there. Each teammate does this instead:"
   printf '%s\n' 'teammates: 1. In the old folder, save the logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push.'
-  printf '%s\n' "teammates: 2. After the upgrade pull requests merge, clone the company repo into a new folder and join there (add-teammate Part B). The old logs are in memory/logs/archive/. Logs pushed after this run come in by the next full sync pull."
-  printf '%s\n' "teammates: 3. When the new folder has their logs, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3."
+  printf '%s\n' "teammates: 2. After the upgrade pull requests merge and the admin runs add-teammate Part A again: rename the old folder, then join as a new teammate (add-teammate Part B; on Windows join.sh runs in Git Bash). The old logs are in memory/logs/archive/. Logs pushed after this run come in by the next full sync pull."
+  printf '%s\n' "teammates: 3. When the new folder has their logs, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3. Full steps: skills/upgrade/SKILL.md section 11."
 fi
 
 if [ -n "$HAND" ]; then
