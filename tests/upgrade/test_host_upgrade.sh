@@ -157,15 +157,15 @@ grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-m
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
 
-# B7c: auto-merge failed, the run went on and says so in one line.
-grep -q 'auto-merge is off on acme2-marketing: pull request 5 stays open' "$work/run.out" || team_fail "auto-merge line"
+# Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
+# they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
+grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
+grep -qx 'merge-by-hand: acme2-os 5' "$work/run.out" || team_fail "no merge-by-hand line for the company"
+grep -qx 'merge-by-hand: acme2-marketing 5' "$work/run.out" || team_fail "no merge-by-hand line for the area"
+grep -q 'pr-plan: [^ ]*marketing branch upgrade/scripts files .* merge-by-hand$' "$work/dry.out" \
+  || team_fail "dry run did not plan merge-by-hand"
 git --git-dir "$work/git/acme2-os.git" rev-parse --verify --quiet refs/heads/upgrade/v1 >/dev/null \
-  || team_fail "company upgrade/v1 was not pushed after the auto-merge failure"
-
-# Item 23: the company pull request gets auto-merge too. Never "upgrade: ok" with a pull request left open.
-grep -q '^auto-merge acme2-os ' "$FAKE_HOST_LOG" || team_fail "company pull request got no auto-merge"
-grep -q 'auto-merge is off on acme2-os: pull request 5 stays open until the admin merges it' "$work/run.out" \
-  || team_fail "company auto-merge line"
+  || team_fail "company upgrade/v1 was not pushed"
 grep -q '^upgrade: ok' "$work/run.out" && team_fail "upgrade: ok with pull requests left open"
 grep -qx 'upgrade: open pull requests: acme2-marketing 5, acme2-os 5. Merge each one when its checks pass.' "$work/run.out" \
   || team_fail "last line does not name the open pull requests"
@@ -198,7 +198,25 @@ grep -qx 'merge-by-hand: acme5-marketing 5' "$work/am.out" || team_fail "no merg
 grep -q 'Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".' "$work/am.out" \
   || team_fail "no bypass click path"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
-grep -q 'auto-merge is off' "$work/am.out" && team_fail "auto-merge line when auto-merge worked"
+grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
+grep -q 'If it shows "Disable auto-merge", click that first.' "$work/am.out" || team_fail "no disable-auto-merge step"
+
+# Forgejo: the pull requests get auto-merge. A refusal (B7c, item 23) is one line, the run
+# goes on, and the last line names the open pull requests.
+co6="$work/forgejo"
+make_v0 "$co6" acme6-os
+printf '%s\n' 'level=team' 'host=forgejo' 'host_url=http://localhost:3300' 'org=acme' 'review_vendor=xai' > "$work/fj.answers"
+: > "$FAKE_HOST_LOG"
+"$upgrade" --root "$co6" --template "$root/template" --answers "$work/fj.answers" > "$work/fj.out" 2>&1 \
+  || { cat "$work/fj.out" >&2; team_fail "forgejo upgrade failed"; }
+grep -q '^auto-merge acme6-os ' "$FAKE_HOST_LOG" || team_fail "forgejo company pull request got no auto-merge"
+grep -q 'auto-merge is off on acme6-marketing: pull request 5 stays open' "$work/fj.out" || team_fail "forgejo area auto-merge line"
+grep -q 'auto-merge is off on acme6-os: pull request 5 stays open until the admin merges it' "$work/fj.out" \
+  || team_fail "forgejo company auto-merge line"
+grep -q 'merge-by-hand' "$work/fj.out" && team_fail "forgejo printed merge-by-hand"
+grep -q 'bypass rules' "$work/fj.out" && team_fail "forgejo printed the GitHub bypass steps"
+grep -qx 'upgrade: open pull requests: acme6-marketing 5, acme6-os 5. Merge each one when its checks pass.' "$work/fj.out" \
+  || team_fail "forgejo last line does not name the open pull requests"
 
 # Item 25: a refused push to main never leaves main open. Protect runs again before the stop.
 co4="$work/refused"

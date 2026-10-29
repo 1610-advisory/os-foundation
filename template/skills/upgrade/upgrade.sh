@@ -767,6 +767,16 @@ review_rules_source() {
   return 1
 }
 
+# How an upgrade pull request merges. GitHub team: by the admin's bypass click, so it
+# never gets auto-merge (that hides the bypass box). Forgejo team: auto-merge.
+pr_merge_word() {
+  if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
+    printf '%s\n' merge-by-hand
+  else
+    printf '%s\n' auto-merge
+  fi
+}
+
 plan_area_scripts() {
   local area name repo slug files
   [ -d "$TEMPLATE/.github/scripts" ] || return 0
@@ -787,7 +797,7 @@ plan_area_scripts() {
     if area_lacks_review_rules "$area" && review_rules_source >/dev/null; then
       files=".github/scripts review-rules.md"
     fi
-    printf 'pr-plan: %s branch upgrade/scripts files %s auto-merge\n' "$repo" "$files"
+    printf 'pr-plan: %s branch upgrade/scripts files %s %s\n' "$repo" "$files" "$(pr_merge_word)"
     if logs_source "$area" "areas/${name}"; then
       printf 'change: logs-history areas/%s\n' "$name"
     fi
@@ -1131,16 +1141,17 @@ pr_merge_path() {
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
   fi
-  if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
-    printf 'auto-merge is off on %s: pull request %s stays open until the admin merges it.\n' "$repo" "$number"
+  if [ "$UP_HOST" = "github" ]; then
+    # The admin wrote it and it changes rules files. GitHub never counts the author's own
+    # code-owner approval. The admin bypass on rules-review is a click on the merge box.
+    # Auto-merge stays off: with it on, GitHub shows "Disable auto-merge" in place of
+    # that box.
+    printf 'merge-by-hand: %s %s\n' "$repo" "$number"
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
   fi
-  if [ "$UP_HOST" = "github" ]; then
-    # The admin wrote it and it changes rules files. GitHub never counts the author's own
-    # code-owner approval. The admin bypass on rules-review is a click on the merge box;
-    # auto-merge does not use it.
-    printf 'merge-by-hand: %s %s\n' "$repo" "$number"
+  if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
+    printf 'auto-merge is off on %s: pull request %s stays open until the admin merges it.\n' "$repo" "$number"
     HAND="${HAND:+${HAND}, }${repo} ${number}"
   fi
 }
@@ -1293,7 +1304,7 @@ rm -f "$pr_body"
 
 if [ -n "$HAND" ]; then
   if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
-    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".'
+    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request. If it shows "Disable auto-merge", click that first. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".'
   fi
   printf 'upgrade: open pull requests: %s. Merge each one when its checks pass.\n' "$HAND"
 else
