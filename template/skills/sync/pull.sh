@@ -329,7 +329,7 @@ sync_pull_fail() {
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
     "v0 logs: "*) plain="the old logs folder memory/logs could not be moved (${reason#v0 logs: }). Nothing was removed. Ask the admin." ;;
-    "unpushed: "*) plain="this copy has ${reason#unpushed: } commits that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
+    "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
       detail=${reason#reclone}
@@ -472,13 +472,14 @@ sync_pull_fetched() {
   return "$rc"
 }
 
-# Commits on HEAD that no origin branch holds or ever held here. A rewrite moves the
-# host branches, so their old tips (kept in this clone's reflog) count as on the host.
-# No reflog to read: every commit not on a branch now counts.
+# Commits on HEAD or any local branch that no origin branch holds or ever held here. A
+# rewrite moves the host branches, so their old tips (kept in this clone's reflog) count
+# as on the host. No reflog to read: every commit not on a host branch now counts.
 sync_unpushed_count() {
   local repo=$1 ref
   {
     printf '%s\n' HEAD
+    git -C "$repo" for-each-ref --format='%(refname)' refs/heads
     git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin | while IFS= read -r ref; do
       printf '^%s\n' "$ref"
       git -C "$repo" reflog show --format='^%H' "$ref" -- 2>/dev/null || true

@@ -1038,7 +1038,7 @@ class SyncFixTests(unittest.TestCase):
         result = self.sync("pull")
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(
-            "pull failed for root: this copy has 1 commits that are not on the host, so it was not swapped",
+            "pull failed for root: this copy has 1 commits (on any local branch) that are not on the host, so it was not swapped",
             result.stderr,
         )
         after = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
@@ -1047,6 +1047,21 @@ class SyncFixTests(unittest.TestCase):
         self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
         log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
         self.assertNotIn("pull reclone root", log)
+
+    def test_reclone_holds_while_another_local_branch_has_unpushed_work(self):
+        # Round 4 (44): HEAD is clean, but a local branch the host never had would be lost.
+        self.seed_origin()
+        self.git("checkout", "-q", "-b", "draft-ideas")
+        (self.company / "idea.md").write_text("not pushed\n")
+        self.git("add", "idea.md")
+        self.git("commit", "-q", "-m", "idea")
+        self.git("checkout", "-q", "main")
+        self.rewrite_origin("20261024235954")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("this copy has 1 commits (on any local branch) that are not on the host", result.stderr)
+        self.assertEqual(self.git("show", "draft-ideas:idea.md").stdout, "not pushed\n")
+        self.assertNotIn("pull reclone root", self.sync_log())
 
     def test_reclone_runs_when_every_commit_was_on_the_host(self):
         # The old main tip was on the host before the rewrite: that is not unpushed work.
