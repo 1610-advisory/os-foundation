@@ -51,6 +51,15 @@ if [ "$tier" != "a" ] && [ "$tier" != "b" ]; then
   exit 1
 fi
 
+# Every temp file of this run (harness, scenarios, the product, the seats) goes in one
+# folder, removed on exit. Scenario output stays in .out/.
+OSF_RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/osf-acme.XXXXXX")
+export TMPDIR="$OSF_RUN_TMP"
+trap 'rm -rf "$OSF_RUN_TMP"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 selected="$PHASE_A"
 if [ -n "$only" ]; then
   selected=$(printf '%s\n' "$only" | tr ',' ' ')
