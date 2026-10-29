@@ -62,7 +62,7 @@ The company table applies (`../../AGENTS.md`, section 6). This area may tighten 
 
 | Tier | What | Approver |
 |---|---|---|
-| `../../skills/app-setup/` (company skill) | "build an app", "make a portal", "host this", "use a VPS / Cloudflare", "which software should I use" | |
+| (none yet) | | |
 
 ## Changes and review
 
