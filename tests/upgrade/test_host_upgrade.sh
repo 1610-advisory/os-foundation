@@ -190,6 +190,26 @@ grep -q '^log-freeze: ' "$work/dry.out" || team_fail "no log-freeze line in the 
 grep -q '^teammates: 1\. In the old folder, save the logs' "$work/run.out" || team_fail "no teammates steps"
 grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each folder (held)" "$work/run.out" || team_fail "no admin line for the old logs branch"
 
+# B21: the upgrade pull request passes its own secret scan, run the way CI runs it: main's
+# bundled scanner (the runner has no gitleaks) over the pull request range, at its head.
+for pair in "$co:acme2-os:upgrade/v1" "$area:acme2-marketing:upgrade/scripts"; do
+  dir=${pair%%:*}
+  rest=${pair#*:}
+  repo=${rest%%:*}
+  branch=${rest#*:}
+  bare="$work/git/${repo}.git"
+  git --git-dir "$bare" show main:.github/scripts/tools/secret-scan.sh > "$work/ci-scan.sh"
+  rm -rf "$work/pr-head"
+  git -C "$dir" worktree add -q --detach "$work/pr-head" "$branch"
+  set +e
+  (cd "$work/pr-head" && OS_SECRET_SCAN=bundled bash "$work/ci-scan.sh" \
+    --range "$(git --git-dir "$bare" rev-parse main)..$(git -C "$dir" rev-parse "$branch")") > "$work/scan.out" 2>&1
+  rc=$?
+  set -e
+  git -C "$dir" worktree remove --force "$work/pr-head"
+  [ "$rc" -eq 0 ] || { cat "$work/scan.out" >&2; team_fail "$repo upgrade pull request fails its own secret scan"; }
+done
+
 # A second run after start-over keeps main as it is: the tools are already there.
 before=$(git --git-dir "$work/git/acme2-os.git" rev-parse main)
 git -C "$co" checkout -q main

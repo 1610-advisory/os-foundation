@@ -293,9 +293,13 @@ bundled_awk() {
       if (at) return at
       return 0
     }
-    function site_has_run(s, at,    off, start, end) {
+    # A $ or backtick before the run makes it a variable or a command, not a literal:
+    # token=$(host_token), token="${TOKEN_FILE_PATH}".
+    function site_has_run(s, at,    off, start, end, c) {
       while (at <= length(s) && is_space(substr(s, at, 1))) at++
       for (off = 0; off <= 2; off++) {
+        c = substr(s, at + off - 1, 1)
+        if (off > 0 && (c == "$" || c == "`")) return 0
         start = at + off
         end = run_end(s, start, "gen")
         if (end - start >= 16) return 1
@@ -389,6 +393,9 @@ bundled_awk() {
       expect_clean("password = short")
       expect_clean("-----BE" "GIN OPENSSH")
       expect_clean("PRIVATE" " KEY")
+      expect_clean("token=$(host_forgejo_token)")
+      expect_clean("  token=\"$(sync_bot_take_token \"$bot\")\"")
+      expect_clean("token=${OS_REVIEW_TOKEN_FILE}")
       if (self_ok) print "self-test ok"
     }
     BEGIN {
