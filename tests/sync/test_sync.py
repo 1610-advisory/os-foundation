@@ -751,6 +751,33 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
 
+    def test_a_deleted_held_file_leaves_the_list(self):
+        # B26: status and push drop a held file that is gone, so no session reports it.
+        self.seed_origin()
+        (self.company / "habits.md").write_text("WORKSPACE-ME how I like to work\n")
+        (self.company / "keep.md").write_text("WORKSPACE-ME still here\n")
+        (self.company / "ok.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertIn("habits.md: belongs in the workspace", self.sync("status").stdout)
+        (self.company / "habits.md").unlink()
+        # An entry from a repo push does not visit, like the deleted area note in rehearsal 2.
+        held = self.home / ".config" / "acme-os" / "state" / "held.json"
+        data = json.loads(held.read_text())
+        data["files"].append({"repo": "area:marketing", "path": "notes/ad-tool-login.md", "reason": "secret: github-pat"})
+        held.write_text(json.dumps(data))
+        status = self.sync("status").stdout
+        self.assertNotIn("habits.md", status)
+        self.assertNotIn("ad-tool-login.md", status)
+        self.assertIn("keep.md: belongs in the workspace", status)
+        self.assertIn("held gone root habits.md", self.sync_log())
+        (self.company / "keep.md").unlink()
+        (self.company / "ok2.md").write_text("another shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertNotIn("keep.md", held.read_text())
+        self.assertIn("nothing held", self.sync("status").stdout)
+
     def test_a_file_waiting_on_its_own_pull_request_is_held(self):
         # Round 3 (42): remove-teammate leaves the offboard change in the folder so the
         # person sees it. Its pull request stays the only path to main.

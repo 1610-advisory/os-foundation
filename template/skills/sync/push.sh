@@ -987,7 +987,9 @@ cmd_push() {
   sync_identity || return 1
   [ -f "$HOST_SH" ] || sync_die 1 "host.sh is missing"
   local rc=0
+  sync_held_prune
   sync_each sync_push_one || rc=1
+  sync_held_prune
   return "$rc"
 }
 
