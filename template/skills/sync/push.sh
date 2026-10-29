@@ -36,12 +36,18 @@ sync_not_workspace_only() {
 # ignored by its main. Its first plain git pull writes over any file main has there. So
 # while the host still has branch logs, logs stay here (held) and never go to main. The
 # admin deletes that branch when every teammate has moved (upgrade SKILL.md section 11).
-# Prints yes or no. Offline counts as yes. A repo that never had branch logs asks no one.
+# Prints yes or no. A repo with v0 history asks the host each time, since an old copy can
+# push branch logs back after the admin deleted it: only "no such branch" is no, and
+# offline counts as yes. A repo with no v0 history (no logs branch, no logs-archive tag,
+# no memory/logs-archive/) asks no one.
 V0_LOGS_REASON="waits until the old logs branch is deleted on the host (skills/upgrade/SKILL.md section 11)"
 sync_v0_logs_open() {
   local repo=$1 rc
   if ! git -C "$repo" show-ref --verify --quiet refs/remotes/origin/logs \
-    && ! git -C "$repo" show-ref --verify --quiet refs/heads/logs; then
+    && ! git -C "$repo" show-ref --verify --quiet refs/heads/logs \
+    && [ -z "$(git -C "$repo" for-each-ref --count=1 --format='%(refname)' 'refs/tags/logs-archive-*')" ] \
+    && [ -z "$(git -C "$repo" ls-tree --name-only HEAD memory/logs-archive/ 2>/dev/null)" ] \
+    && [ -z "$(git -C "$repo" ls-tree --name-only origin/main memory/logs-archive/ 2>/dev/null)" ]; then
     printf 'no\n'
     return 0
   fi

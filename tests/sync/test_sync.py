@@ -691,6 +691,60 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("memory/logs/2026-10-01-mia.md", self.tree("refs/heads/sync/mia"))
 
+    def test_logs_wait_when_an_old_copy_pushes_the_logs_branch_back(self):
+        # logsfix (68): after the branch was deleted, fetch --prune left this clone with no
+        # logs ref. An old copy pushes logs back: the push still asks the host and holds.
+        # Offline counts as there. A repo with no v0 history asks no one.
+        bare = self.seed_origin()
+        real_git = shutil.which("git")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        shim = bindir / "git"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            "  *' ls-remote '*) [ -z \"${FAKE_OFFLINE:-}\" ] || exit 128 ;;\n"
+            "esac\n"
+            f"exec '{real_git}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        offline = env.copy()
+        offline["FAKE_OFFLINE"] = "1"
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-01-mia.md").write_text("a log with no v0 history\n")
+        result = self.sync("push", env=offline)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs/2026-10-01-mia.md", self.tree("refs/heads/sync/mia"))
+        # The upgrade landed (memory/logs-archive/ on main), and branch logs is gone here.
+        arc = self.company / "memory" / "logs-archive"
+        arc.mkdir(parents=True)
+        (arc / "2026-09-01-mia.md").write_text("an old log\n")
+        self.git("add", "memory/logs-archive")
+        self.git("commit", "-q", "-m", "Upgrade to v1")
+        self.git("push", "-q", "origin", "HEAD:main")
+        old = self.tmp / "old-logs"
+        run(["git", "init", "-q", "-b", "logs", str(old)], env=self.env, check=True)
+        (old / "2026-10-02-mia.md").write_text("from an old copy\n")
+        run(["git", "-C", str(old), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(old), "commit", "-q", "-m", "Logs: old copy"], env=self.env, check=True)
+        run(["git", "-C", str(old), "push", "-q", str(bare), "logs"], env=self.env, check=True)
+        self.assertEqual(self.git("for-each-ref", "refs/remotes/origin/logs", "refs/heads/logs").stdout, "")
+        (logs / "2026-10-02-mia.md").write_text("v1 log, same person and day\n")
+        result = self.sync("push", env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
+        self.assertIn("push hold root memory/logs/2026-10-02-mia.md v0 logs", self.sync_log())
+        run(["git", "--git-dir", str(bare), "branch", "-D", "logs"], env=self.env, check=True)
+        result = self.sync("push", env=offline)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
+        result = self.sync("push", env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs/2026-10-02-mia.md", self.tree("refs/heads/sync/mia"))
+
     def test_a_file_waiting_on_its_own_pull_request_is_held(self):
         # Round 3 (42): remove-teammate leaves the offboard change in the folder so the
         # person sees it. Its pull request stays the only path to main.
