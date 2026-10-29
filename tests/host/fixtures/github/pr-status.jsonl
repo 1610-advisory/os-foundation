@@ -1,4 +1,3 @@
 {"body":null,"method":"GET","path":"/repos/acme/acme-os/pulls/12"}
 {"body":null,"method":"GET","path":"/repos/acme/acme-os/pulls/12/reviews"}
-{"body":null,"method":"GET","path":"/repos/acme/acme-os/commits/{sha}/check-runs"}
-{"body":null,"method":"GET","path":"/repos/acme/acme-os/commits/{sha}/status"}
+{"body":{"query":"query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}","variables":{"name":"acme-os","number":12,"owner":"acme"}},"method":"POST","path":"graphql"}

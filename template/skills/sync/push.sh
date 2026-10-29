@@ -10,8 +10,76 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 fi
 
 RULES_REASON="rules file: propose it with sync.sh propose"
+WORKSPACE_REASON="belongs in the workspace"
 
 # Upgrade spill files are rules files. Held like AGENTS.md.
+# Logs (root or area) and an area's drafts/ folder are area work, never "belongs in the
+# workspace" (push-check.md rule 5, AGENTS.md section 6 Auto tier, start-core Phase E).
+sync_not_workspace_only() {
+  local kind=$1 path=$2
+  case "$kind" in
+    root|area) ;;
+    *) return 1 ;;
+  esac
+  case "$path" in
+    memory/logs/*) return 0 ;;
+  esac
+  if [ "$kind" = "area" ]; then
+    case "$path" in
+      drafts/*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+# Refresh origin/rules/* with fetch --prune, so a branch the host deleted (its pull
+# request closed or merged) stops holding files. Writes "<sha> <ref>" for each ref the
+# prune dropped to SYNC_GONE_RULES. Offline: the refs stay as they are and still hold.
+sync_rules_refresh() {
+  local repo=$1 before
+  SYNC_GONE_RULES=$(sync_mktemp)
+  [ -n "$(git -C "$repo" for-each-ref --count=1 refs/remotes/origin/rules/)" ] || return 0
+  before=$(sync_mktemp)
+  git -C "$repo" for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/rules/ > "$before"
+  sync_git "$repo" fetch --prune origin >/dev/null 2>&1 || return 0
+  while IFS=' ' read -r sha ref; do
+    [ -n "$ref" ] || continue
+    git -C "$repo" show-ref --verify --quiet "$ref" || printf '%s %s\n' "$sha" "$ref" >> "$SYNC_GONE_RULES"
+  done < "$before"
+}
+
+# The rules/* branch the host deleted that held this file's content, if any. Not when
+# origin/main has that content: then the pull request merged.
+sync_gone_branch() {
+  local repo=$1 path=$2 sha ref want
+  [ -s "${SYNC_GONE_RULES:-}" ] && [ -f "$repo/$path" ] || return 1
+  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
+  [ "$(git -C "$repo" rev-parse -q --verify "origin/main:${path}" 2>/dev/null)" != "$want" ] || return 1
+  while IFS=' ' read -r sha ref; do
+    if [ "$(git -C "$repo" rev-parse -q --verify "${sha}:${path}" 2>/dev/null)" = "$want" ]; then
+      printf '%s\n' "${ref#refs/remotes/origin/}"
+      return 0
+    fi
+  done < "$SYNC_GONE_RULES"
+  return 1
+}
+
+# A file whose content is already on a rules/* branch on the host (remove-teammate,
+# add-person, propose) waits for that pull request. It never goes on the standing one too.
+sync_pending_branch() {
+  local repo=$1 path=$2 ref want
+  [ -f "$repo/$path" ] || return 1
+  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    if [ "$(git -C "$repo" rev-parse -q --verify "${ref}:${path}" 2>/dev/null)" = "$want" ]; then
+      printf '%s\n' "${ref#refs/remotes/origin/}"
+      return 0
+    fi
+  done < <(git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin/rules/)
+  return 1
+}
+
 sync_hold_rules() {
   case "$(basename "$1")" in
     company-rules.md|area-rules.md) return 0 ;;
@@ -293,7 +361,7 @@ sync_apply_commit() {
   name=$(printf '%s\n' "$author" | head -n 1)
   email=$(printf '%s\n' "$author" | tail -n 1)
   tmp=""
-  sync_git "$repo" fetch origin >/dev/null 2>&1
+  sync_git "$repo" fetch --prune origin >/dev/null 2>&1
   rc=$?
   if [ "$rc" -ne 0 ]; then
     sync_apply_fail "$repo" "" "$id" "could not reach origin"
@@ -376,6 +444,7 @@ sync_apply_commit() {
   "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
   rc=$?
   if [ "$rc" -ne 0 ]; then
+    sync_held_error "auto-merge is off on ${name_on_host}: pull request ${number} is open but will not merge by itself. Ask the admin to run skills/_host/host.sh protect ${name_on_host} --code-owners --approvals 0"
     sync_log "push fail ${id} auto-merge"
     return 1
   fi
@@ -386,7 +455,7 @@ sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg
+  local changed hits path rule reason added commit_files messages diff eng decision msg pending
   local scan_rc
   case "$id" in
     root) kind=root ;;
@@ -407,6 +476,7 @@ sync_push_one() {
   if [ ! -s "$changed" ]; then
     return 0
   fi
+  [ "$kind" = "workspace" ] || sync_rules_refresh "$repo"
   added=$(sync_mktemp)
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -460,6 +530,15 @@ sync_push_one() {
     if awk -F: -v p="$path" 'index($0, p ":") == 1 { found=1 } END { exit !found }' "$hits"; then
       continue
     fi
+    if [ "$kind" != "workspace" ] && pending=$(sync_pending_branch "$repo" "$path"); then
+      sync_hold_line "$id" "$path" "waits for its own pull request (${pending})" >> "$added"
+      sync_log "push hold ${id} ${path} pending ${pending}"
+      continue
+    fi
+    if [ "$kind" != "workspace" ] && pending=$(sync_gone_branch "$repo" "$path"); then
+      printf '%s\n' "${path}: its own pull request (${pending}) was closed and its branch is gone, so push no longer waits for it" >&2
+      sync_log "push release ${id} ${path} ${pending} gone"
+    fi
     if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then
       sync_hold_line "$id" "$path" "$RULES_REASON" >> "$added"
       sync_log "push hold ${id} ${path} rules"
@@ -502,6 +581,12 @@ sync_push_one() {
     decision=$(printf '%s' "$eng" | jq -r '.decision')
     reason=$(printf '%s' "$eng" | jq -r '.reason')
     msg=$(printf '%s' "$eng" | jq -r '.message')
+    # push-check.md rule 5 is a path rule here: the model does not get to overrule it.
+    if [ "$decision" = "hold" ] && [ "$reason" = "$WORKSPACE_REASON" ] && sync_not_workspace_only "$kind" "$path"; then
+      decision=commit
+      msg="Update ${path}"
+      sync_log "push path-rule ${id} ${path} area work"
+    fi
     if [ "$decision" = "hold" ]; then
       sync_hold_line "$id" "$path" "$reason" >> "$added"
       sync_log "push hold ${id} ${path} engine"
@@ -519,12 +604,25 @@ sync_push_one() {
   if ! sync_apply_commit "$repo" "$id" "$kind" "$commit_files" "$msgfile"; then
     return 1
   fi
-  sync_held_error ""
+  sync_push_clear_error
   sync_log "push ok ${id}"
   if [ "$kind" != "workspace" ]; then
     sync_pull_one "$repo" "$id" || true
   fi
   return 0
+}
+
+# A good push clears an error an earlier push left. It never clears a pull error (a
+# clean pull clears that), and never an error an earlier repo set in this run.
+sync_push_clear_error() {
+  local err
+  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
+  case "$err" in
+    ""|"pull failed for "*) return 0 ;;
+  esac
+  sync_held_error ""
 }
 
 # Bot runs already committed on sync/<bot>. Push those commits as they are.

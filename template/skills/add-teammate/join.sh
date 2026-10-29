@@ -77,6 +77,29 @@ export OS_PROFILE="$ROOT/company-profile.md"
 printf '%s\n' "company-clone: done"
 printf '%s\n' "me: $ME"
 
+# A v0 clone that pulled the upgrade: memory/logs is still a worktree of branch logs
+# while main tracks memory/logs/. Move it out without losing a log (v0logs.sh).
+# shellcheck disable=SC1091
+. "$DIR/../sync/v0logs.sh"
+join_git() {
+  local dir=$1
+  shift
+  os_with_git_token git -C "$dir" "$@"
+}
+if v0logs_stuck "$ROOT" HEAD; then
+  os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null || true
+  v0_err=$(mktemp)
+  # Each failure line says what happened and where the copy is, when there is one.
+  if ! v0_save=$(v0logs_park "$ROOT" join_git 2>"$v0_err"); then
+    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err"). Ask the admin."
+  fi
+  if ! v0_n=$(v0logs_put_back "$ROOT" "$v0_save" 2>"$v0_err"); then
+    os_die 3 "the old logs folder memory/logs could not be moved: $(head -n 1 "$v0_err"). Ask the admin."
+  fi
+  rm -f "$v0_err"
+  printf 'v0-logs: moved, %s files kept as local changes\n' "$v0_n"
+fi
+
 PAGE=$(os_person_file "$ROOT" "$ME" || true)
 [ -n "$PAGE" ] || os_die 2 "no people page for $ME"
 
@@ -199,23 +222,68 @@ if [ -f "$HOME/.cursor/User/rules.md" ]; then
   os_pointer "$HOME/.cursor/User/rules.md" "Read ${PROFILE}"
 fi
 
-accepted=$(os_fm_get "$PAGE" terms_accepted 2>/dev/null || true)
-if [ -n "$accepted" ]; then
-  printf '%s\n' "terms: already"
-else
-  branch="sync/${ME}"
-  os_with_git_token git -C "$ROOT" fetch origin
-  git -C "$ROOT" checkout -q -B "$branch" origin/main
-  PAGE=$(os_person_file "$ROOT" "$ME")
-  os_fm_set "$PAGE" terms_accepted "$(os_today)"
-  os_git_commit "$ROOT" "Join: accept terms"
-  os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
-  pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "sync: ${ME}")
+# Open (or reuse) the terms pull request from sync/<me>, then turn on auto-merge.
+join_terms_pr() {
+  local pr number
+  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
-  printf 'terms: proposed\n'
-  if [ -n "$number" ]; then
-    printf 'pr: %s\n' "$number"
+  [ -n "$number" ] || return 0
+  printf 'pr: %s\n' "$number"
+  # Like push and propose: the terms pull request merges by itself when the checks pass.
+  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
   fi
+}
+
+# Where the terms stand comes from the host: on origin/main (merged), on
+# origin/sync/<me> (pushed; a run that stopped before open-pr left no pull request), or
+# not yet. The page template has an empty terms_accepted: key: only a date counts. The
+# clone may still be on sync/<me> (a refused checkout), so its own page proves nothing.
+terms_dated() {
+  git -C "$ROOT" show "$1:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'
+}
+# Offline, stop: a dated page here may be from a run that stopped before open-pr.
+os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null \
+  || os_die 3 "could not reach the host: run join again when online; the terms pull request may not be open yet"
+if terms_dated origin/main; then
+  terms=merged
+elif terms_dated "origin/sync/${ME}"; then
+  terms=pushed
+else
+  terms=none
 fi
+case "$terms" in
+  merged)
+    printf '%s\n' "terms: already"
+    ;;
+  pushed)
+    # open-pr reuses a pull request that is open, or opens one.
+    printf '%s\n' "terms: already"
+    os_back_to_main "$ROOT"
+    join_terms_pr
+    ;;
+  *)
+    branch="sync/${ME}"
+    os_with_git_token git -C "$ROOT" fetch origin
+    # Build on the host's sync/<me> when it has one, so the push is a fast-forward.
+    base=origin/main
+    if git -C "$ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      base="origin/${branch}"
+    fi
+    git -C "$ROOT" checkout -q -B "$branch" "$base"
+    PAGE=$(os_person_file "$ROOT" "$ME")
+    os_fm_set "$PAGE" terms_accepted "$(os_today)"
+    os_git_commit "$ROOT" "Join: accept terms" "$PAGE"
+    os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+    # The terms change is on the host now. Stay on main: push rebuilds sync/<me> on the
+    # host each night, so a clone left on it never fast-forwards again.
+    os_back_to_main "$ROOT"
+    printf 'terms: proposed\n'
+    join_terms_pr
+    ;;
+esac
 
 printf '%s\n' "join: ok"

@@ -46,9 +46,11 @@ jobs:
           git init -q .
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
           # The token is an environment value. It is not a command argument.
+          # Git over HTTP on GitHub takes only basic auth (x-access-token:<token>). Forgejo takes it too.
+          git_auth=$(printf '%s' "x-access-token:${JOB_TOKEN}" | base64 | tr -d '\r\n')
           GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0=http.extraHeader \
-            GIT_CONFIG_VALUE_0="Authorization: token ${JOB_TOKEN}" \
+            GIT_CONFIG_VALUE_0="Authorization: basic ${git_auth}" \
             GIT_TERMINAL_PROMPT=0 \
             git -c credential.helper= fetch --depth 1 origin main
           git checkout -q --detach FETCH_HEAD

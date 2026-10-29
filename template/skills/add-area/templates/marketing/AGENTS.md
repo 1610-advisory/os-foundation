@@ -56,7 +56,7 @@ Check whether it is installed (Claude: the `ai-cmo` skills are listed). If not, 
 ### Work folders
 
 - `plans/` — content plans
-- `drafts/` — copy in progress
+- `drafts/` — copy in progress, shared with everyone who reads this area. A private draft goes in your workspace `drafts/`.
 - `data/` — exports and metrics
 
 ## Skills
@@ -89,3 +89,4 @@ Same as the company rules (`../../AGENTS.md`, section 7).
 - Solo: commit to `main`, logs included.
 - [team]: nobody writes to `main`. Notes and logs go on the standing PR through `sync`.
 - [team]: propose a rules change (`AGENTS.md`, `CLAUDE.md`, `skills/`) with `../../skills/sync/sync.sh propose <topic> areas/<area>/<file>...`. Paths start at the company root. A different model reviews it first. Then the area director approves with one click.
+- [team] on GitHub: the director's own change needs the admin's approval. GitHub never counts the author's own approval.

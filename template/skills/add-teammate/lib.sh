@@ -396,11 +396,45 @@ EOF
   return "$rc"
 }
 
+# After a push of the caller's own branch: go back to main so pull fast-forwards. A
+# refused checkout (a local change in the way) never stops the run: the change is on the
+# host, and the pull request still opens.
+os_back_to_main() {
+  local dir=$1
+  git -C "$dir" checkout -q main 2>/dev/null && return 0
+  git -C "$dir" checkout -q -b main origin/main 2>/dev/null && return 0
+  printf 'main: could not go back to main (a local change is in the way). The change is pushed. Run git checkout main when your work is saved.\n' >&2
+  return 0
+}
+
+# Back on main, put the branch's copy of each path in the folder as a local change, so
+# the person sees it now. It still reaches main only by the branch's pull request: sync
+# push holds a file whose content waits on a rules/* branch on the host.
+os_show_branch_files() {
+  local dir=$1 branch=$2 p rel
+  shift 2
+  [ "$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)" = "main" ] || return 0
+  for p in "$@"; do
+    rel=${p#"$dir"/}
+    mkdir -p "$dir/$(dirname "$rel")"
+    git -C "$dir" show "${branch}:${rel}" > "$dir/$rel" 2>/dev/null || true
+  done
+}
+
+# Commit only the paths the caller changed. Never "git add -A" in a shared root:
+# untracked or held files (a held secret, a private note) would go up past the scan.
 os_git_commit() {
-  local dir=$1 msg=$2
+  local dir=$1 msg=$2 p
+  shift 2
+  [ $# -gt 0 ] || os_die 1 "os_git_commit: name the paths to commit"
   (
     cd "$dir" || exit 1
-    git add -A
+    for p in "$@"; do
+      # A path that is gone and was never tracked has nothing to stage.
+      if [ -e "$p" ] || [ -L "$p" ] || git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
+        git add -A -- "$p"
+      fi
+    done
     if git diff --cached --quiet; then
       exit 0
     fi
@@ -585,7 +619,8 @@ os_write_workspace() {
   if [ ! -d "$dest/.git" ]; then
     git -C "$dest" init -q
     git -C "$dest" checkout -q -b main 2>/dev/null || git -C "$dest" symbolic-ref HEAD refs/heads/main
-    os_git_commit "$dest" "Workspace: start"
+    # A new folder this script just filled: everything in it is the start.
+    os_git_commit "$dest" "Workspace: start" .
   fi
 }
 
@@ -653,6 +688,11 @@ os_review_state() {
   out=$(os_host secret-exists OS_REVIEW_KEY 2>/dev/null)
   rc=$?
   set -e
+  # 4: the sign-in may not read org secrets. The key may be there.
+  if [ "$rc" -eq 4 ]; then
+    printf '%s\n' "denied"
+    return 0
+  fi
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "unchecked"
     return 0
@@ -683,12 +723,20 @@ os_repo_url() {
 
 os_hand_off() {
   local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6 host=$7 host_url=$8
-  local company_url ws_url
+  local company_url ws_url host_line
   company_url=$(os_repo_url "$host" "$host_url" "$org" "$company_repo")
   ws_url=$(os_repo_url "$host" "$host_url" "$org" "$ws")
+  # github.com has no host_url. Name the host and org instead: github.com/<org>.
+  host_line=$host_url
+  if [ "$host" = "github" ]; then
+    host_line=${host_url:-https://github.com}
+    host_line=${host_line#https://}
+    host_line=${host_line#http://}
+    host_line="${host_line%/}/${org}"
+  fi
   printf 'hand-off: %s\n' "$slug"
   printf 'Hand-off for %s. Company repo: %s. Host: %s. Areas: %s. Workspace: %s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
-    "$name" "$company_url" "$host_url" "$areas" "$ws_url"
+    "$name" "$company_url" "$host_line" "$areas" "$ws_url"
 }
 
 os_split_areas() {

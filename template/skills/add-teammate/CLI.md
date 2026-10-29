@@ -13,7 +13,13 @@ team-on.sh --answers <file>
 team-on.sh --help
 ```
 
-Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to main.
+Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to a main that has commits. A repo an earlier run made but left empty (its first push failed) gets that first push on the next run: `host.sh unprotect` first, then the push, then `protect` as usual. It prints `first push: <repo>`. A repo is never protected while it is empty. The "Team: turn on" commit holds only the files team-on writes (`company-profile.md`, `.github/`, `.gitea/`, `privacy.md`, the people pages; in an area `.github/`, `.gitea/`, `review-rules.md`). Untracked files in the folder stay local.
+
+GitHub: before any change it reads the `gh` sign-in scopes (`host.sh whoami`). If `admin:org` or `workflow` is missing, it stops with exit 4: `the gh sign-in needs admin:org and workflow: run gh auth refresh -s admin:org,workflow`. A fine-grained token sends no scope list. Then the host calls show what it lacks.
+
+GitHub, next: `host.sh plan-check` reads the org plan. A Free org stops with exit 3, before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Rulesets on private repos need a paid plan. Only an org owner sees the plan, and team setup needs one. A hidden plan stops it the same way, before any change: `Could not read the plan of the GitHub org <org>: sign in as an org owner, then run this again. Team setup needs an org owner.`
+
+Every create verb is safe to run twice: an existing repo, team, member, grant or ruleset is ok.
 
 ### Flags
 
@@ -74,6 +80,8 @@ no review key: every pull request fails the model review until you add one
 
 It does not say weaker. If the secret exists and `review_kind` is `same-vendor`, it prints `weaker review: same vendor`. It still does not read the value.
 
+If the check itself fails (GitHub answers 403 without `admin:org`), it prints `could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)`, not the no-key sentence.
+
 Before the first push it writes `.github/review.conf`:
 
 ```
@@ -109,7 +117,7 @@ kind=second-vendor
 | 0 | ok |
 | 1 | usage |
 | 2 | refused (synced folder, bad answers, slug still a placeholder) |
-| 3 | host or tool error |
+| 3 | host or tool error, a Free GitHub org, or a refused push: `push refused for <repo>: ...` names the likely cause, for example the missing `workflow` scope |
 | 4 | auth failed |
 
 ### What it prints
@@ -125,6 +133,13 @@ workspace: <slug>-user-<person>
 protected: <slug>-os
 hand-off: <person-slug>
 Hand-off for <Name>. Company repo: <host_url>/<org>/<slug>-os. Host: <host_url>. Areas: <areas>. Workspace: <host_url>/<org>/<slug>-user-<person>.
+```
+
+On github.com the host part is `github.com/<org>`, for example `Host: github.com/acme.`
+
+```
+first push: <slug>-os
+could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)
 ```
 
 A missing key prints the no-review-key sentence. A same-vendor key prints `weaker review: same vendor`.
@@ -161,6 +176,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 
 1. Refuses a synced folder.
 2. If `company-profile.md` is already in `root`, the company clone is done.
+   - A v0 clone that already pulled the upgrade can still have `memory/logs/` as a worktree of branch `logs`. Join moves it out the way `sync.sh pull` does (sync `CLI.md`): it pushes log commits the host lacks, removes the worktree, and keeps every log file as a local change. It prints `v0-logs: moved, <n> files kept as local changes`. If that fails, join exits 3 with one line. A failure before the removal removes nothing. A later one names the folder that holds a full copy.
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
 4. Clones `users/<me>/` from `<slug>-user-<me>`. A missing workspace is an error: `your workspace <repo> is not reachable: ask the admin`. Join exits non-zero.
 5. Writes `me` under the config dir.
@@ -170,7 +186,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
    - Codex: `~/.codex/AGENTS.md` gets one plain `Read <path>` line when `~/.codex` exists.
    - Pi: `~/.pi/agent/AGENTS.md` gets the same plain line when `~/.pi/agent` exists.
    - Cursor: one plain line only if a rules file already exists (`~/.cursor/rules.md` or `~/.cursor/User/rules.md`).
-8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr`. A people page is not a rules file, so this does not call `sync.sh propose`.
+8. Records `terms_accepted: YYYY-MM-DD` on the person's people page, on branch `sync/<me>`, then `host.sh open-pr` and `host.sh auto-merge`, like push and propose. The pull request merges by itself when the checks pass. If auto-merge is refused, it prints one plain line and the pull request stays open. A people page is not a rules file, so this does not call `sync.sh propose`. It commits only that page. After the push it switches the company folder back to `main`, so `pull` fast-forwards. If that switch is refused (a local change in the way), it prints `main: could not go back to main ...` and still opens the pull request. A second run reads where the terms stand on the host. On `origin/main`: `terms: already`, nothing to do. On `origin/sync/<me>` only: `terms: already`, then it switches back to `main` and opens the pull request if none is open (an earlier run stopped before `open-pr`). Neither: it proposes them again, on top of `origin/sync/<me>` when that exists (an earlier run stopped before the push). Only a date counts: the page template has an empty `terms_accepted:` key. If the host cannot be reached, join stops with exit 3 and `could not reach the host: run join again when online; the terms pull request may not be open yet`. It never guesses from the page in the folder.
 
 Tests must point `HOME`, `XDG_CONFIG_HOME`, and `OS_JOBS_DIR` at a sandbox.
 
@@ -199,7 +215,7 @@ add-person.sh --help
 
 Same person steps as `team-on.sh` for one person, on a team that is already on. It does not change `level`. It does not print the review-key command.
 
-The people-page commit goes by pull request, because `main` is already protected. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
+The people-page commit goes by pull request, because `main` is already protected. After the push it switches the folder back to `main` and leaves the new page there as a local edit. It reaches `main` only by that pull request: `sync push` holds it until it merges. If that switch is refused, it prints one plain line and still opens the pull request. A second run rebuilds the branch from `origin/main`, replaces it on the host, and opens the pull request if none is open. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
 
 Answers keys: `root` (optional), and one `person.<slug>.*` block. `area.<area>.director` when this person becomes a director.
 

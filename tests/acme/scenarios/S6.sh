@@ -42,7 +42,8 @@ count=$(find "$dest/areas/marketing/notes" -name 'n-*.md' | wc -l | tr -d ' ')
 if [ "$count" -lt 25 ]; then
   osf_result "S6 FAIL expected 25 files, found $count"
 fi
-if ! grep -R -q '^Decision:' "$dest/memory/logs"; then
+# Area work logs to the area's memory/logs (template AGENTS.md, Memory and logs).
+if ! grep -R -q '^Decision:' "$dest/memory/logs" "$dest/areas/marketing/memory/logs" 2>/dev/null; then
   osf_result "S6 FAIL Decision line missing"
 fi
 

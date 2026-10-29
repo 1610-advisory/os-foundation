@@ -165,19 +165,25 @@ os_fm_set "$PAGE" left "$WHEN"
 
 moved=0
 bot=""
+paths=("$PAGE")
 if [ -d "$ROOT/bots" ]; then
   for bot in "$ROOT"/bots/*/BOT.md; do
     [ -f "$bot" ] || continue
     owner=$(os_fm_get "$bot" owner 2>/dev/null || true)
     if [ "$owner" = "$PERSON" ]; then
       os_fm_set "$bot" owner "$NEW_OWNER"
+      paths+=("$bot")
       moved=1
     fi
   done
 fi
 
-os_git_commit "$ROOT" "Offboard: ${PERSON}"
-os_with_git_token git -C "$ROOT" push --set-upstream origin "$branch"
+os_git_commit "$ROOT" "Offboard: ${PERSON}" "${paths[@]}"
+# The branch is this script's own, rebuilt from origin/main. A retry replaces it.
+os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
+# The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
+os_back_to_main "$ROOT"
+os_show_branch_files "$ROOT" "$branch" "${paths[@]}"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 

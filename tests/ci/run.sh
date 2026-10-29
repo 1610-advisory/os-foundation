@@ -842,10 +842,11 @@ EOF
       osf_api "$admin" GET "/api/v1/repos/acme/${up_area}/contents/.github/scripts/tools/secret-scan.sh?ref=main"
       main_code=$OSF_HTTP_CODE
       osf_api_discard
+      # The upgrade puts the check tools on main first, so the pull request can pass its checks.
       if [ "$main_code" = "200" ]; then
-        fail "upgrade area pr"
-      else
         pass "upgrade area pr"
+      else
+        fail "upgrade area pr"
       fi
     else
       cat "$work/upgrade.out" >>"$log" 2>/dev/null || true

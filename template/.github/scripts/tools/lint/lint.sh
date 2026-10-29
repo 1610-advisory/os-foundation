@@ -162,6 +162,13 @@ else
     *) finding "level: $LEVEL" ;;
   esac
 
+  HOST=$(os_fm_get "$PROFILE" host 2>/dev/null || true)
+  case "$HOST" in
+    none|github|forgejo) ;;
+    "") finding "host: missing (add host: none to company-profile.md, or github or forgejo)" ;;
+    *) finding "host: $HOST" ;;
+  esac
+
   SWITCHES=$(os_fm_get "$PROFILE" switches 2>/dev/null || true)
   allowed=" bots traces cloud-handoff mdx-reports benchmarks "
   if [ -f "$ROOT/scale.md" ]; then

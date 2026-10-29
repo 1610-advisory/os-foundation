@@ -8,6 +8,8 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/links.sh"
 # shellcheck disable=SC1091
+. "$DIR/v0logs.sh"
+# shellcheck disable=SC1091
 . "$DIR/pull.sh"
 # shellcheck disable=SC1091
 . "$DIR/push.sh"

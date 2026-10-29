@@ -235,6 +235,81 @@ function emit_inserts(idx,    i, j, d, tmpd, tmpt, n) {
   for (i = 1; i <= n; i++) printf "%s", ins_text[idx, i] > out_path
 }
 
+# A company line joins the current block. Lines under a different ### subheading
+# start a new block, so each lands under its own subheading. A table row brings the
+# table's header and separator rows along, so it never lands alone.
+function add_company(i,    ts) {
+  if (block != "" && block_sub != cur_sub) flush_block()
+  block_sub = cur_sub
+  if (rline[i] ~ /^\|/ && !tbl_open) {
+    ts = i
+    while (ts > rstart && rline[ts - 1] ~ /^\|/) ts--
+    if (ts < i - 1 && !is_company[ts] && rline[ts + 1] ~ /^\|[ :|-]+$/) {
+      block = block rline[ts] "\n" rline[ts + 1] "\n"
+    }
+  }
+  if (rline[i] ~ /^\|/) tbl_open = 1
+  block = block rline[i] "\n"
+  is_company[i] = 1
+  company_n++
+}
+
+# Stash the block. Applied after v1 is filled, because targets are v1 headings.
+function flush_block() {
+  if (block == "") return
+  if (sec_is_pre) spill_body = spill_body block
+  else {
+    if (!spill_named) {
+      spill_body = spill_body "## " name "\n"
+      spill_named = 1
+    }
+    spill_body = spill_body block
+  }
+  hold_n++
+  hold_target[hold_n] = target
+  hold_depth[hold_n] = depth
+  hold_block[hold_n] = block
+  hold_name[hold_n] = name
+  hold_sub[hold_n] = block_sub
+  block = ""
+}
+
+function tail_add(text) {
+  if (tail != "" && tail !~ /\n\n$/) tail = tail "\n"
+  tail = tail text
+}
+
+function is_placeholder(line) {
+  return line ~ /^- \(setup fills this in\)[[:space:]]*$/
+}
+
+# Insert a block at the end of v1 lines (from, to]: after the last line with text,
+# so a blank line stays before the next heading. A setup placeholder there goes.
+function place(from, to, depth, text,    j, pos, hs) {
+  # Blank lines at the edges of a block are spacing, not content.
+  while (substr(text, 1, 1) == "\n") text = substr(text, 2)
+  while (length(text) > 1 && substr(text, length(text) - 1) == "\n\n") text = substr(text, 1, length(text) - 1)
+  if (text == "") return
+  # The lines land at the end of the range, in the part under its last heading. Only
+  # that part loses its setup placeholder. A block that starts with its own heading is
+  # a new part: it fills no placeholder.
+  if (text !~ /^#/) {
+    hs = from
+    for (j = to; j > from; j--) if (v1[j] ~ /^#/) { hs = j; break }
+    for (j = hs + 1; j <= to; j++) if (is_placeholder(v1[j])) drop[j] = 1
+  }
+  pos = to
+  while (pos > from && (v1[pos] ~ /^[[:space:]]*$/ || drop[pos])) pos--
+  # A table or a heading needs a blank line before it.
+  if (text ~ /^(\||#)/) text = "\n" text
+  add_insert(pos, depth, text)
+}
+
+function find_in(text, from, to,    j) {
+  for (j = from; j <= to; j++) if (v1[j] == text) return j
+  return 0
+}
+
 BEGIN {
   if (base_path == "" || real_path == "") {
     print "rules-merge: missing file" > "/dev/stderr"
@@ -309,7 +384,8 @@ BEGIN {
         block = block rline[i] "\n"
         company_n++
       }
-      tail = tail block
+      tail_add(block)
+      block = ""
       continue
     }
 
@@ -321,7 +397,25 @@ BEGIN {
     rend = (s == 0) ? rsec_end[0] : rsec_end[s]
     block = ""
     if (rstart == 0 || rend == 0 || rstart > rend) continue
+    sec_is_pre = (s == 0)
+    spill_named = 0
+    cur_sub = ""
+    block_sub = ""
+    tbl_open = 0
+    delete is_company
+    if (s == 0) {
+      target = "_preamble"
+      depth = 1
+    } else {
+      target = map_target(name)
+      if (target == "") target = "## " name
+      if (target ~ /^### /) depth = 3
+      else if (target ~ /^## /) depth = 2
+      else if (target ~ /^# /) depth = 1
+    }
     for (i = rstart; i <= rend; i++) {
+      if (rline[i] ~ /^### /) cur_sub = rline[i]
+      if (rline[i] !~ /^\|/) tbl_open = 0
       best = 0
       best_score = -1
       exact = 0
@@ -353,8 +447,7 @@ BEGIN {
         cap_ok = 1
         pattern_match(bline[best], rline[i], 1)
         if (!cap_ok) {
-          block = block rline[i] "\n"
-          company_n++
+          add_company(i)
           continue
         }
       }
@@ -362,31 +455,10 @@ BEGIN {
         used[best] = 1
         matched++
       } else {
-        block = block rline[i] "\n"
-        company_n++
+        add_company(i)
       }
     }
-    if (block == "") continue
-    target = ""
-    depth = 2
-    if (s == 0) {
-      target = "_preamble"
-      depth = 1
-      spill_body = spill_body block
-    } else {
-      target = map_target(name)
-      if (target == "") target = "## " name
-      if (target ~ /^### /) depth = 3
-      else if (target ~ /^## /) depth = 2
-      else if (target ~ /^# /) depth = 1
-      spill_body = spill_body "## " name "\n" block
-    }
-    # Stash. Applied after v1 is filled, because targets are v1 headings.
-    hold_n++
-    hold_target[hold_n] = target
-    hold_depth[hold_n] = depth
-    hold_block[hold_n] = block
-    hold_name[hold_n] = name
+    flush_block()
   }
 
   if (score_only) {
@@ -416,25 +488,58 @@ BEGIN {
       add_insert(endi, hold_depth[h], hold_block[h])
       continue
     }
+    text = hold_block[h]
+    hsub = hold_sub[h]
+    # A subheading that matched v0 is not in the block. Carry it when v1 lacks it.
+    if (hsub != "" && index(text, hsub "\n") != 1) carried = hsub "\n" text
+    else carried = text
     start = find_v1_heading(target)
     if (start == 0) {
       # Keep the lines. Do not drop them.
       label = hold_name[h]
-      if (label == "_preamble") tail = tail hold_block[h]
-      else tail = tail "## " label "\n" hold_block[h]
+      if (label == "_preamble") tail_add(carried)
+      else tail_add("## " label "\n" carried)
       continue
     }
     endi = block_end(start)
-    add_insert(endi, hold_depth[h], hold_block[h])
+    if (hsub != "") {
+      si = find_in(hsub, start + 1, endi)
+      if (si > 0) place(si, block_end(si), hold_depth[h], text)
+      else place(start, endi, hold_depth[h], carried)
+      continue
+    }
+    # No subheading: the lines belong before the first ### of the v1 section.
+    firstsub = 0
+    if (heading_level(v1[start]) < 3) {
+      for (j = start + 1; j <= endi; j++) if (heading_level(v1[j]) == 3) { firstsub = j; break }
+    }
+    if (firstsub > 0) place(start, firstsub - 1, hold_depth[h], text)
+    else place(start, endi, hold_depth[h], text)
   }
 
   # Index 0 inserts belong before the first line (v1 starts with a heading).
   emit_inserts(0)
+  last = ""
   for (i = 1; i <= vn; i++) {
+    if (drop[i]) continue
     printf "%s\n", v1[i] > out_path
-    emit_inserts(i)
+    last = v1[i]
+    if (ins_n[i] > 0) {
+      emit_inserts(i)
+      last = "x"
+      # Keep a blank line before the next heading.
+      nx = i + 1
+      while (nx <= vn && drop[nx]) nx++
+      if (nx <= vn && heading_level(v1[nx]) > 0) {
+        printf "\n" > out_path
+        last = ""
+      }
+    }
   }
-  if (tail != "") printf "%s", tail > out_path
+  if (tail != "") {
+    if (last !~ /^[[:space:]]*$/) printf "\n" > out_path
+    printf "%s", tail > out_path
+  }
   close(out_path)
 
   if (plain_path != "") {

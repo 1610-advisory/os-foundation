@@ -183,6 +183,18 @@ run_id="${OSF_ACME_RUN_ID:-$(date +%Y%m%dT%H%M%S)-$$}"
 seat_dir="$root/tests/acme/.out/$run_id/$seat"
 mkdir -p "$seat_dir/xdg" "$seat_dir/logs" "$seat_dir/work"
 chmod 700 "$root/tests/acme/.out" "$seat_dir" "$seat_dir/xdg"
+# The seat is the person osf_use_seat chose: join writes <slug>-os/me in their config,
+# so the seat gets that file too. Only me: tokens stay in the environment.
+if [ -n "${XDG_CONFIG_HOME:-}" ]; then
+  for me_file in "$XDG_CONFIG_HOME"/*-os/me; do
+    [ -f "$me_file" ] || continue
+    me_dir="$seat_dir/xdg/$(basename "$(dirname "$me_file")")"
+    mkdir -p "$me_dir"
+    chmod 700 "$me_dir"
+    cp "$me_file" "$me_dir/me"
+    chmod 600 "$me_dir/me"
+  done
+fi
 
 helper="$root/tests/acme/lib/git-credential-seat.sh"
 ssh_off="$root/tests/acme/lib/ssh-off.sh"

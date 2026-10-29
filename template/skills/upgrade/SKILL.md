@@ -28,7 +28,8 @@ Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run 
 
 Ask: "Does anyone else use this company OS with you?" Suggest no.
 - No: the level is `solo`. Add nothing.
-- Yes: still upgrade at `solo` first. Then run `add-teammate` Part A. It turns on the team level with the v1 parts.
+- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, run `add-teammate` Part A with the same people. It adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs.
+- Yes, but the folder was never on a git host: upgrade at `solo`. Then run `add-teammate` Part A.
 
 ## 3. Clean folder
 
@@ -44,9 +45,11 @@ A real run refuses a folder with uncommitted changes. The same goes for each are
    - `upgrade: already v1`: `main` already has the v1 parts. Say so and stop.
    - `upgrade: pending upgrade/v1`: an upgrade branch is already there. Either its pull request is open, or an earlier run stopped. Check for an open upgrade pull request first. If it is open, finish that one (step 7). Start over only with the person's OK. Then follow the `To start over:` line the script printed.
    - `the area areas/<name> has uncommitted changes`: go to step 3 for that area. Then run the dry run again.
+   - `finding: plan: <line>` and `finding: plan blocks: ...`: the GitHub org plan (or a sign-in that cannot see it) blocks a team upgrade. The rest of the report is still right. Tell the person the line. A real run stops before any change until that is fixed.
    - `could not fetch <repo>`: the area repo on the host could not be reached. Check the sign-in and the network. Then run the dry run again.
 4. Show the person each `change: rules-merge` line. Say plainly: "Your own lines in the rules files are kept exactly as written. They move under the new v1 headings." Give the count from `company-lines=`.
 5. A `change: rules-spill` line means the rules file would be 10,000 bytes or more. Say: "Your own rules lines go to `company-rules.md` (an area: `area-rules.md`), unchanged. `AGENTS.md` gets one line that says to read it." When `CLAUDE.md` spills too, its lines go to the end of the same file under `## From CLAUDE.md`.
+   A `todo: AGENTS.md is <m> characters` line means the file is over the 9,000 it sets for itself. Read the line to the person. Offer to move the lines it names after the upgrade.
 6. For each `todo: fill` line, ask the person for that value, one at a time. Write the answers to a file in the temporary folder, one `key=value` per line (the keys are in `skills/upgrade/CLI.md`). Add `--answers <file>` to every later run. Run the dry run again.
 
 What an upgrade may add or change:
@@ -83,7 +86,23 @@ Ask once: "Apply this upgrade?" Suggest yes when the report has no surprises.
 
 Run `<upgrade> --root <company folder> --template <template>`. It stages only the upgrade paths. It makes branch `upgrade/v1` with one merge commit, even when there was no `logs` branch. It never writes to `main` itself.
 
-- **Host on** (`host:` is not `none`): it opens one pull request and prints `pr:`. Rules files change, so the model review runs. The admin is the author and the code owner, so the model review alone is enough. Nobody writes to `main`, the admin included.
+- **Team on a host** (`level: team` or `app`, and `host:` is not `none`): on GitHub it first checks the org plan. A Free org stops before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` There is no Free-plan team mode. Solo still upgrades on a Free org. Before any pull request it prints each step:
+  1. `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY`. Without that key the model review fails. The admin sets it as in add-teammate A3.
+  2. `checks-on-main: <repo>`, for the company repo and each area repo. The checks run their tools from `main`, never from the pull request, and a v0 `main` has none. So the upgrade lifts protection, pushes one commit with only the check files (`.github/workflows/checks.yml`, `.github/scripts/`, `.github/review.conf`, and rules-only `CODEOWNERS` in place of the v0 `* @admin` line; every other line the company added stays) to `main`, and protects again. On GitHub, lifting protection also removes the v0 classic rule. If the push is refused, it protects `main` again before it stops. No company content goes to `main`. `checks-on-main: <repo> already` means `main` had them.
+  3. `protected: <repo>`. The v1 rules replace the v0 rule that needed one code-owner approval. Auto-merge is allowed on the repo.
+  4. `pr: <repo> <n>` for each area, then `pr: <n>` for the company.
+
+  The checks are secret scan, `lint` and model review. Nobody writes to `main` by hand, the admin included.
+  - **Forgejo:** each pull request gets auto-merge. They merge by themselves on green checks. The last line is `upgrade: ok`.
+  - **GitHub:** the admin wrote these pull requests and they change rules files. GitHub never counts the author's own approval, so they do not merge by themselves. The upgrade does not turn on auto-merge for them: with it on, GitHub shows "Disable auto-merge" in place of the bypass box. Each one prints `merge-by-hand: <repo> <n>`. For each one, the admin must wait for the green checks. Open the pull request. If it shows "Disable auto-merge" (an earlier run turned it on), click that first. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge". The script prints those steps too. Only an org admin has that box.
+  - `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it` (Forgejo): the run goes on. The admin merges it when its checks pass.
+  - `upgrade: open pull requests: <repo> <n>, ...`: the last line when any pull request will not merge by itself. It replaces `upgrade: ok`. Tell the admin each one and what to click.
+  - Solo with a host: no plan check, no check tools on `main`, no protect, no auto-merge. It opens the pull requests only, and the last line names them. The person merges them.
+  - `Could not read the plan of the GitHub org <org>: sign in as an org owner`: it stopped before any write. Only an org owner sees the plan, and team setup needs one. The admin signs in as an org owner, then runs it again.
+  - `the company slug is not known`: it stopped before any push. Add `slug=<slug>` to the answers file and run it again.
+  - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped, and `main` is protected again. Do what the line says, then run it again. Each step is safe to run twice.
+  - `upgrade stopped. Protection on <repo> is back on.`: a host error stopped it while protection was lifted. `main` is protected again. Do what the line before it says, then run it again.
+  - `PROTECTION IS OFF on <repo>: run ...`: protecting `main` again failed. Give the admin that exact line first. The admin runs it in their own terminal. Then stop.
 - **Solo, no host:** do step 7 first. Then merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
   Each area repo with old rules also has a branch `upgrade/scripts` with its rules merge. The upgrade leaves that branch checked out. After step 7, in each such area run `git -C areas/<area> checkout main`, then `git -C areas/<area> merge --no-ff upgrade/scripts`.
 
@@ -99,14 +118,20 @@ Before the person approves the upgrade pull request (solo: before the merge), op
 
 ## 8. The old logs branch
 
-If the folder has an old `logs` branch:
-- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`.
+If the folder has an old `logs` branch (the company folder, and each area that has one):
+- Its files move to `memory/logs/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request.
 - The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). Keep it 90 days. Then it may be deleted. The script never deletes it.
 
 ## 9. Going back
 
 The whole upgrade is one merge commit. One revert undoes it.
-- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass.
+- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass. On GitHub the admin's own pull request needs the bypass box (section 6).
+- **Team on a host:** that revert undoes the merge only. Two things stay on each repo (the company repo and each area repo): the `Upgrade: check tools on main` commit and the v1 rules on `main`. To undo them too, in this order:
+  1. Revert each area's `upgrade/scripts` merge the same way: a branch from `origin/main`, `git revert -m 1 <merge commit>`, a pull request.
+  2. In each repo, revert the `Upgrade: check tools on main` commit by a pull request the same way (`git revert <commit>`, no `-m`). That also puts back the v0 `CODEOWNERS` line. Its checks still run: they run from `main`.
+  3. On GitHub, the admin merges each of these pull requests with the bypass box, as in section 6.
+  4. When all have merged, `main` has no check tools, so the v1 rules would block every pull request. Lift them. In the company folder run `git checkout main` but do not pull yet: it still has `skills/_host/` and the v1 `company-profile.md`. Run `skills/_host/host.sh unprotect <repo>` for the company repo and each area repo. Then pull.
+  5. The v0 rule on `main` (a pull request with one code-owner approval) is gone. The admin adds it back by hand in the repo settings: Branches, a rule for `main`, "Require a pull request before merging", one approval, "Require review from Code Owners".
 - **Solo, no host:** run `git revert -m 1 <merge commit>` on `main`. Solo commits to `main` as usual.
 
 ## 10. Tell the person
@@ -117,6 +142,6 @@ One line each:
 - Any line to move later by its own rules change.
 - What was skipped (conflicts kept as they were).
 - How to go back.
-- With a host: the link to the pull request. It merges when the checks pass.
+- With a host: the link to each pull request. On Forgejo it merges when the checks pass. On GitHub the admin merges it with the bypass box (step 6).
 
 Then delete the temporary folder.

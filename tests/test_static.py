@@ -739,5 +739,67 @@ class ShellcheckTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "OK 0 files")
 
 
+
+def table_cells(line: str) -> list[str]:
+    """Cells of one Markdown table row. A pipe inside backticks is text."""
+    cells, cur, code = [], "", False
+    for ch in line.strip()[1:]:
+        if ch == "`":
+            code = not code
+        if ch == "|" and not code:
+            cells.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return cells
+
+
+class RulesTableTests(unittest.TestCase):
+    """Round 4 (49): every row sits in the right table in the shipped rules files."""
+
+    def rules_files(self):
+        tpl = ROOT / "template"
+        yield tpl / "AGENTS.md"
+        yield from sorted((tpl / "skills" / "add-area" / "templates").glob("*/AGENTS.md"))
+
+    def tables(self, path):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        i = 0
+        while i < len(lines):
+            if lines[i].startswith("|") and i + 1 < len(lines) and set(lines[i + 1].replace("|", "").strip()) <= set("-: ") \
+                    and lines[i + 1].startswith("|"):
+                header = table_cells(lines[i])
+                rows = []
+                j = i + 2
+                while j < len(lines) and lines[j].startswith("|"):
+                    rows.append((j + 1, table_cells(lines[j])))
+                    j += 1
+                yield header, rows
+                i = j
+            else:
+                i += 1
+
+    def test_rows_match_their_table(self):
+        for path in self.rules_files():
+            rel = path.relative_to(ROOT)
+            for header, rows in self.tables(path):
+                for lineno, cells in rows:
+                    self.assertEqual(len(cells), len(header), f"{rel}:{lineno}: {len(cells)} cells under a {len(header)}-column header")
+                    # A skill row (a skills/ path first) belongs only in a Skill table.
+                    if "skills/" in cells[0] and cells[0].startswith("`"):
+                        self.assertEqual(header[0], "Skill", f"{rel}:{lineno}: a skill row in the '{header[0]}' table")
+
+    def test_the_check_catches_a_skill_row_in_the_tiers_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "AGENTS.md"
+            bad.write_text(
+                "| Tier | What | Approver |\n|---|---|---|\n| `../../skills/app-setup/` (company skill) | \"build an app\" | |\n",
+                encoding="utf-8",
+            )
+            (header, rows), = list(self.tables(bad))
+            self.assertNotEqual(header[0], "Skill")
+            self.assertIn("skills/", rows[0][1][0])
+
+
 if __name__ == "__main__":
     unittest.main()

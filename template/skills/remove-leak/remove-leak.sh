@@ -130,7 +130,7 @@ if [ -n "$PR_N" ]; then
     git -C "$LOCAL" checkout -q -B "$HEAD_BRANCH" "origin/$HEAD_BRANCH"
     if [ -n "$LEAK_PATH" ] && [ -e "$LOCAL/$LEAK_PATH" ]; then
       rm -f "$LOCAL/$LEAK_PATH"
-      os_git_commit "$LOCAL" "Revert leak on open pull request"
+      os_git_commit "$LOCAL" "Revert leak on open pull request" "$LEAK_PATH"
       os_with_git_token git -C "$LOCAL" push origin "$HEAD_BRANCH"
     fi
     if [ -n "$LEAK_PATH" ]; then
@@ -205,7 +205,7 @@ if [ -n "$LEAK_PATH" ]; then
 else
   printf '%s\n' "- remove-leak: repo ${REPO_NAME} rule: ${RULE}" >> "$WORK/repo/memory/logs/$(os_today)-${ME}.md"
 fi
-os_git_commit "$WORK/repo" "Audit: remove leak"
+os_git_commit "$WORK/repo" "Audit: remove leak" "memory/logs/$(os_today)-${ME}.md"
 
 git -C "$WORK/repo" remote add origin "$URL"
 

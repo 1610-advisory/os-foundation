@@ -632,13 +632,38 @@ host_git_push() {
 }
 
 host_one_push() {
-  local dir=$1 kind=$2
+  local dir=$1 kind=$2 err rc
   shift 2
+  err=$(host_mktemp)
+  set +e
   if [ "$kind" = "github" ]; then
-    git -C "$dir" -c credential.helper='!gh auth git-credential' push "$@"
-    return 0
+    git -C "$dir" -c credential.helper='!gh auth git-credential' push "$@" 2>"$err"
+  else
+    git -C "$dir" -c credential.helper= push "$@" 2>"$err"
   fi
-  git -C "$dir" -c credential.helper= push "$@"
+  rc=$?
+  set -e
+  host_scrub_file "$err" >&2
+  if [ "$rc" -ne 0 ]; then
+    host_push_refused "$err"
+  fi
+  rm -f "$err"
+}
+
+# A refused push is a host error (exit 3) with one plain line.
+host_push_refused() {
+  local err=$1
+  if grep -qi 'workflow' "$err"; then
+    host_die 3 "push refused: the sign-in cannot write workflow files. Add the workflow scope (gh auth refresh -s workflow), or give the token Workflows: write."
+  fi
+  # git says "unable to access" for an HTTP 403 too, so the refusals go first.
+  if grep -qiE 'authentication failed|permission to .* denied|error: 40[13]|push to create' "$err"; then
+    host_die 3 "push refused: the sign-in cannot write to this repo"
+  fi
+  if grep -qiE 'could not resolve|unable to access|connection refused|timed out' "$err"; then
+    host_die 5 "push failed: the host is offline"
+  fi
+  host_die 3 "push refused by the host: see the git message above"
 }
 
 host_usage_text() {

@@ -122,6 +122,30 @@ host_gh_call() {
   return "$GH_STATUS"
 }
 
+# Make <name> or read it when it exists. A second run must not fail.
+# GitHub answers 422 when the name is taken. Print the new or the existing body.
+host_gh_create() {
+  local create=$1 read=$2 body=$3 errf out rc
+  errf=$(host_mktemp)
+  set +e
+  out=$(host_gh_call POST "$create" "$body" 2>"$errf")
+  rc=$?
+  set -e
+  if [ "$rc" -eq 0 ]; then
+    rm -f "$errf"
+    printf '%s' "$out"
+    return 0
+  fi
+  if grep -q 'HTTP 422' "$errf"; then
+    rm -f "$errf"
+    host_gh_ok GET "$read"
+    return 0
+  fi
+  cat "$errf" >&2
+  rm -f "$errf"
+  exit "$rc"
+}
+
 host_gh_ok() {
   local body
   set +e
@@ -227,7 +251,8 @@ host_gh_all() {
     case "$path" in
       *'?'*) sep='&' ;;
     esac
-    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}")
+    # set -e does not reach into $( ). Stop here, or a failed page loops forever.
+    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}") || exit $?
     n=$(printf '%s' "$chunk" | jq 'if type == "array" then length else 0 end')
     all=$(jq -n --argjson a "$all" --argjson b "$chunk" 'if ($b|type) == "array" then $a + $b else $a end')
     if [ "$n" -lt 100 ]; then
@@ -246,7 +271,8 @@ host_gh_keyed() {
     case "$path" in
       *'?'*) sep='&' ;;
     esac
-    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}")
+    # set -e does not reach into $( ). Stop here, or a failed page loops forever.
+    chunk=$(host_gh_ok GET "${path}${sep}per_page=100&page=${page}") || exit $?
     n=$(printf '%s' "$chunk" | jq --arg k "$key" '.[$k] | length')
     all=$(jq -n --argjson a "$all" --argjson b "$chunk" --arg k "$key" '$a + ($b[$k] // [])')
     if [ "$n" -lt 100 ]; then
@@ -257,6 +283,27 @@ host_gh_keyed() {
   printf '%s' "$all"
 }
 
+# A Free org answers a ruleset call on a private repo with 403 "Upgrade to GitHub Pro".
+host_ruleset_call() {
+  local errf rc out
+  errf=$(host_mktemp)
+  set +e
+  out=$("$@" 2>"$errf")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if grep -qi 'upgrade to github' "$errf"; then
+      rm -f "$errf"
+      host_free_plan
+    fi
+    cat "$errf" >&2
+    rm -f "$errf"
+    exit "$rc"
+  fi
+  rm -f "$errf"
+  printf '%s' "$out"
+}
+
 host_upsert_ruleset() {
   local repo_name=$1 ruleset_name=$2 body=$3
   local list existing
@@ -264,12 +311,12 @@ host_upsert_ruleset() {
     host_emit POST "$(host_repo "$repo_name")/rulesets" "$body"
     return 0
   fi
-  list=$(host_gh_all "$(host_repo "$repo_name")/rulesets")
+  list=$(host_ruleset_call host_gh_all "$(host_repo "$repo_name")/rulesets") || exit $?
   existing=$(printf '%s' "$list" | jq -r --arg name "$ruleset_name" '.[] | select(.name==$name) | .id' | head -n 1)
   if [ -n "$existing" ]; then
-    host_gh_ok PUT "$(host_repo "$repo_name")/rulesets/${existing}" "$body" >/dev/null
+    host_ruleset_call host_gh_ok PUT "$(host_repo "$repo_name")/rulesets/${existing}" "$body" >/dev/null
   else
-    host_gh_ok POST "$(host_repo "$repo_name")/rulesets" "$body" >/dev/null
+    host_ruleset_call host_gh_ok POST "$(host_repo "$repo_name")/rulesets" "$body" >/dev/null
   fi
 }
 
@@ -291,11 +338,51 @@ cmd_whoami() {
     host_emit GET "/user"
     return 0
   fi
-  local body login
-  body=$(host_gh_ok GET "/user")
+  local out err code body login scopes
+  host_require_bin gh
+  out=$(host_mktemp)
+  err=$(host_mktemp)
+  set +e
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" -i "/user" >"$out" 2>"$err"
+  else
+    gh api -i "/user" >"$out" 2>"$err"
+  fi
+  code=$?
+  set -e
+  if [ "$code" -ne 0 ]; then
+    GH_STATUS=$(host_classify_gh "$err" "$code")
+    host_scrub_file "$err" >&2
+    exit "$GH_STATUS"
+  fi
+  # -i prints the headers, a blank line, then the body.
+  body=$(tr -d '\r' < "$out" | awk 'b { print } /^$/ { b = 1 }')
   login=$(printf '%s' "$body" | jq -r '.login // empty')
   [ -n "$login" ] || host_die 3 "host did not return a login"
-  jq -nc --arg login "$login" '{login:$login}'
+  # gh sign-in: X-OAuth-Scopes lists the scopes. A fine-grained token sends none: scopes is null.
+  scopes=$(tr -d '\r' < "$out" | awk 'b { exit } /^$/ { b = 1 } { print }' \
+    | sed -n 's/^[Xx]-[Oo][Aa][Uu][Tt][Hh]-[Ss][Cc][Oo][Pp][Ee][Ss]:[[:space:]]*//p' | head -n 1)
+  if tr -d '\r' < "$out" | awk 'b { exit } /^$/ { b = 1 } { print }' | grep -qi '^x-oauth-scopes:'; then
+    jq -nc --arg login "$login" --arg s "$scopes" \
+      '{login:$login, scopes:($s | split(",") | map(gsub("^ +| +$"; "")) | map(select(length > 0)))}'
+  else
+    jq -nc --arg login "$login" '{login:$login, scopes:null}'
+  fi
+}
+
+# Auto-merge must be on, or the standing pull request never merges by itself.
+# A failure is one plain line. The caller goes on.
+host_allow_auto_merge() {
+  local name=$1 body
+  body=$(jq -nc '{allow_auto_merge:true}')
+  if host_dry; then
+    host_emit PATCH "$(host_repo "$name")" "$body"
+    return 0
+  fi
+  if ! host_gh_call PATCH "$(host_repo "$name")" "$body" >/dev/null 2>&1; then
+    printf '%s\n' "could not turn on auto-merge for ${name}: sign in as an org owner, then run skills/_host/host.sh protect ${name}" >&2
+    return 1
+  fi
 }
 
 cmd_create_repo() {
@@ -309,12 +396,14 @@ cmd_create_repo() {
   body=$(jq -nc --arg name "$name" '{name:$name, private:true, visibility:"private"}')
   if host_dry; then
     host_emit POST "/orgs/${OS_ORG}/repos" "$body"
+    host_allow_auto_merge "$name"
     if [ -n "$SOURCE" ] && [ "$PUSH" = "1" ]; then
       host_push_source "$SOURCE" "$(host_clone_url "$name")"
     fi
     return 0
   fi
-  result=$(host_gh_ok POST "/orgs/${OS_ORG}/repos" "$body")
+  result=$(host_gh_create "/orgs/${OS_ORG}/repos" "$(host_repo "$name")" "$body")
+  host_allow_auto_merge "$name" || true
   if [ -n "$SOURCE" ] && [ "$PUSH" = "1" ]; then
     url=$(printf '%s' "$result" | jq -r '.clone_url // empty')
     if [ -z "$url" ]; then
@@ -346,18 +435,77 @@ cmd_repo_access() {
   esac
 }
 
+# Rulesets on a private repo need a paid plan. A Free org gets 403 on every one.
+host_free_plan() {
+  host_die 3 "This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again."
+}
+
+# Only an org owner sees .plan. Team setup needs an org owner anyway, so a hidden plan
+# stops here too, before any write.
+host_plan_name() {
+  local body plan
+  body=$(host_gh_ok GET "/orgs/${OS_ORG}") || exit $?
+  plan=$(printf '%s' "$body" | jq -r '.plan.name // empty')
+  [ "$plan" != "free" ] || host_free_plan
+  [ -n "$plan" ] || host_die 3 "Could not read the plan of the GitHub org ${OS_ORG}: sign in as an org owner, then run this again. Team setup needs an org owner."
+  printf '%s' "$plan"
+}
+
+cmd_plan_check() {
+  local plan
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}"
+    return 0
+  fi
+  plan=$(host_plan_name) || exit $?
+  jq -nc --arg plan "$plan" '{plan: $plan}'
+}
+
 cmd_protect() {
   local name main_body review_body
   host_need_name
   name=$POS1
   main_body=$(host_main_ruleset_body)
   review_body=$(host_rules_review_body)
+  # Before any write: a Free org stops here with one line.
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}"
+  else
+    host_plan_name >/dev/null
+  fi
   host_upsert_ruleset "$name" main "$main_body"
   host_upsert_ruleset "$name" rules-review "$review_body"
+  # Also covers a repo made before this setting (a v0 repo in upgrade).
+  host_allow_auto_merge "$name" || true
+  host_drop_classic "$name"
   if host_dry; then
     return 0
   fi
   jq -nc --arg name "$name" '{ok:true, name:$name, rulesets:["main","rules-review"]}'
+}
+
+# A v0 repo has a classic rule on main: one code-owner approval. The rulesets above
+# replace it. They are already on, so main is never unprotected. 404: no classic rule.
+host_drop_classic() {
+  local name=$1 errf rc
+  if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/branches/main/protection"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  # host_gh_call turns set -e back on. The || keeps a 404 from ending the script.
+  rc=0
+  HOST_CLASSIC_DROPPED=0
+  host_gh_call DELETE "$(host_repo "$name")/branches/main/protection" >/dev/null 2>"$errf" || rc=$?
+  [ "$rc" -ne 0 ] || HOST_CLASSIC_DROPPED=1
+  if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
+    cat "$errf" >&2
+    rm -f "$errf"
+    printf '%s\n' "could not remove the old classic rule on ${name} main: sign in as an org owner" >&2
+    exit "$rc"
+  fi
+  rm -f "$errf"
 }
 
 host_ruleset_id() {
@@ -385,34 +533,48 @@ host_protection_off() {
   host_die 3 "PROTECTION IS OFF on ${name}: run skills/_host/host.sh protect ${name} --code-owners --approvals 0"
 }
 
+# unprotect stopped part way. Main is open only if the classic rule is already gone.
+host_unprotect_stop() {
+  local name=$1
+  if [ "${HOST_CLASSIC_DROPPED:-0}" -eq 1 ]; then
+    host_protection_off "$name"
+  fi
+  exit 3
+}
+
 cmd_unprotect() {
   local name list id saved_main saved_review deleted_main deleted_review
   host_need_name
   name=$POS1
   if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/branches/main/protection"
     host_emit DELETE "$(host_repo "$name")/rulesets/main"
     host_emit DELETE "$(host_repo "$name")/rulesets/rules-review"
     return 0
   fi
-  list=$(host_gh_all "$(host_repo "$name")/rulesets")
+  # A v0 repo has a classic rule on main too. It would refuse the push that follows.
+  # It goes first: if that fails, nothing is lifted. protect puts the v1 rulesets in its place.
+  host_drop_classic "$name"
+  # From here, a failure with the classic rule gone leaves main open: say so plainly.
+  list=$(host_gh_all "$(host_repo "$name")/rulesets") || host_unprotect_stop "$name"
   saved_main=$(host_mktemp)
   saved_review=$(host_mktemp)
   deleted_main=0
   deleted_review=0
   id=$(host_ruleset_id "$list" main)
   if [ -n "$id" ]; then
-    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main"
+    host_gh_call GET "$(host_repo "$name")/rulesets/${id}" > "$saved_main" || host_unprotect_stop "$name"
   fi
   id=$(host_ruleset_id "$list" rules-review)
   if [ -n "$id" ]; then
-    host_gh_ok GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review"
+    host_gh_call GET "$(host_repo "$name")/rulesets/${id}" > "$saved_review" || host_unprotect_stop "$name"
   fi
   id=$(host_ruleset_id "$list" main)
   if [ -n "$id" ]; then
     if host_gh_call DELETE "$(host_repo "$name")/rulesets/${id}" >/dev/null; then
       deleted_main=1
     else
-      exit 3
+      host_unprotect_stop "$name"
     fi
   fi
   id=$(host_ruleset_id "$list" rules-review)
@@ -533,7 +695,9 @@ cmd_team_create() {
     host_emit POST "/orgs/${OS_ORG}/teams" "$body"
     return 0
   fi
-  host_gh_ok POST "/orgs/${OS_ORG}/teams" "$body" | jq -c '{name:.name, slug:.slug, id:.id}'
+  # An existing team is ok, like on Forgejo.
+  host_gh_create "/orgs/${OS_ORG}/teams" "/orgs/${OS_ORG}/teams/$(host_slugify "$team")" "$body" \
+    | jq -c '{name:.name, slug:.slug, id:.id}'
 }
 
 cmd_team_add() {
@@ -734,6 +898,19 @@ cmd_auto_merge() {
   fi
   code=$?
   set -e
+  if [ "$code" -ne 0 ] && grep -qi 'auto merge is not allowed' "$err"; then
+    # A repo made before v1 has auto-merge off. Turn it on, then try once more.
+    if host_allow_auto_merge "$name"; then
+      set +e
+      if [ -n "$GH_HOSTNAME" ]; then
+        gh pr merge "$number" --repo "${OS_ORG}/${name}" --auto --merge --hostname "$GH_HOSTNAME" >"$err" 2>&1
+      else
+        gh pr merge "$number" --repo "${OS_ORG}/${name}" --auto --merge >"$err" 2>&1
+      fi
+      code=$?
+      set -e
+    fi
+  fi
   if [ "$code" -ne 0 ]; then
     low=$(tr '[:upper:]' '[:lower:]' < "$err")
     case "$low" in
@@ -760,27 +937,46 @@ cmd_pr_status() {
   if host_dry; then
     host_emit GET "$(host_repo "$name")/pulls/${number}"
     host_emit GET "$(host_repo "$name")/pulls/${number}/reviews"
-    host_emit GET "$(host_repo "$name")/commits/{sha}/check-runs"
-    host_emit GET "$(host_repo "$name")/commits/{sha}/status"
+    host_emit POST "graphql" "$(host_rollup_body "$name" "$number")"
     return 0
   fi
-  local pr sha reviews checks statuses
+  local pr sha reviews checks statuses rollup errf
   pr=$(host_gh_ok GET "$(host_repo "$name")/pulls/${number}")
   sha=$(printf '%s' "$pr" | jq -r '.head.sha // empty')
   [ -n "$sha" ] || host_die 3 "pull request has no head"
   reviews=$(host_gh_all "$(host_repo "$name")/pulls/${number}/reviews")
-  checks=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/check-runs" check_runs)
-  statuses=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/status" statuses)
+  # A fine-grained token can never read REST check-runs. The GraphQL rollup works
+  # with one (Commit statuses and Actions read) and with a gh sign-in. REST is the fallback.
+  errf=$(host_mktemp)
+  if rollup=$(host_gh_call POST "graphql" "$(host_rollup_body "$name" "$number")" 2>"$errf"); then
+    checks=$(printf '%s' "$rollup" | jq -c '
+      [.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
+        | if .__typename == "CheckRun"
+          then {name:.name, state:((.conclusion // .status) | ascii_downcase)}
+          else {name:.context, state:(.state | ascii_downcase)} end]')
+    statuses='[]'
+  else
+    checks=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/check-runs" check_runs \
+      | jq -c '[.[] | {name:.name, state:(.conclusion // .status)}]')
+    statuses=$(host_gh_keyed "$(host_repo "$name")/commits/${sha}/status" statuses \
+      | jq -c '[.[] | {name:.context, state:.state}]')
+  fi
+  rm -f "$errf"
   jq -nc --argjson pr "$pr" --argjson reviews "$reviews" --argjson checks "$checks" --argjson statuses "$statuses" '
     {
       state: $pr.state,
       merged: $pr.merged,
       approved: ([$reviews[]?.state] | map(ascii_downcase) | index("approved") != null),
-      checks: (
-        [$checks[] | {name:.name, state:(.conclusion // .status)}]
-        + [$statuses[] | {name:.context, state:.state}]
-      )
+      checks: ($checks + $statuses)
     }'
+}
+
+host_rollup_body() {
+  local name=$1 number=$2
+  jq -nc --arg owner "$OS_ORG" --arg name "$name" --argjson number "$number" '{
+    query: "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name conclusion status} ... on StatusContext{context state}}}}}}}}}}",
+    variables: {owner:$owner, name:$name, number:$number}
+  }'
 }
 
 cmd_pr_comment() {
@@ -922,6 +1118,7 @@ cmd_delete() {
 
 case "$VERB" in
   whoami) cmd_whoami ;;
+  plan-check) cmd_plan_check ;;
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;

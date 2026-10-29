@@ -371,6 +371,11 @@ case "$method $path" in
   "GET /repos/acme/acme-os/rulesets/2")
     printf '%s\n' '{"name":"rules-review","id":2,"rules":[]}'
     ;;
+  "DELETE /repos/acme/acme-os/branches/main/protection")
+    # No v0 classic rule on this repo.
+    printf '%s\n' "gh: Branch not protected (HTTP 404)" >&2
+    exit 1
+    ;;
   "DELETE /repos/acme/acme-os/rulesets/1")
     exit 0
     ;;

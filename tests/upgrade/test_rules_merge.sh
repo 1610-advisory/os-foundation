@@ -284,6 +284,93 @@ grep -q 'change: .gitattributes' "$work/attrs.out" || team_fail "dry-run missed 
 cmp -s "$attrs/.gitattributes" "$tpl/.gitattributes" || team_fail "company gitattributes was not copied"
 cmp -s "$attrs/areas/marketing/.gitattributes" "$tpl/skills/add-area/templates/marketing/.gitattributes" || team_fail "area gitattributes was not copied"
 
+# Round 4 (46): a company ### under Areas, Right now not filled. The placeholder stays.
+lay="$work/layout"
+mkdir -p "$lay"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$lay/real2.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+out = []
+for line in s.split("\n"):
+    if line.startswith("## Skills"):
+        out += ["### Our partners", "- Acme Supply delivers flour.", ""]
+    out.append(line)
+Path(os.environ["OSF_OUT"]).write_text("\n".join(out))
+PY
+bash "$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" --real "$lay/real2.md" --v1 "$root/template/AGENTS.md" \
+  --scope company --map "$root/template/skills/upgrade/rules-map.txt" --out "$lay/out2.md" > /dev/null
+OSF_OUT="$lay/out2.md" python3 - << 'PY' || team_fail "merge layout: unfilled placeholder"
+import os, sys
+from pathlib import Path
+lines = Path(os.environ["OSF_OUT"]).read_text().split("\n")
+bad = []
+if "- (setup fills this in)" not in lines:
+    bad.append("the Right now placeholder was dropped")
+elif lines.index("- (setup fills this in)") < lines.index("### Right now"):
+    bad.append("placeholder moved")
+if "### Our partners" not in lines:
+    bad.append("company subheading lost")
+else:
+    sub = lines.index("### Our partners")
+    if lines[sub + 1] != "- Acme Supply delivers flour.":
+        bad.append("company subheading lost its line")
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
+
+# Round 3 (34): an area kind with no .gitattributes of its own gets the _area copy, and so
+# does an area whose rules file is already v1. Both land in the area's upgrade commit.
+ga="$work/ga"
+mkdir -p "$ga/areas/books" "$ga/areas/shop"
+git -C "$root" archive c2034af template | tar -x -C "$work"
+cp -R "$work/template/." "$ga/"
+rm -rf "$work/template"
+cp "$root/template/skills/upgrade/v0/areas/finance/AGENTS.md" "$ga/areas/books/AGENTS.md"
+cp "$root/template/skills/add-area/templates/_area/AGENTS.md" "$ga/areas/shop/AGENTS.md"
+git -C "$ga" init -q -b main
+commit_all "$ga" "v0 ga"
+for a in books shop; do
+  git -C "$ga/areas/$a" init -q -b main
+  commit_all "$ga/areas/$a" "area"
+done
+"$upgrade" --dry-run --root "$ga" --template "$root/template" --level solo > "$work/ga-dry.out"
+grep -qx 'change: .gitattributes areas/books' "$work/ga-dry.out" || team_fail "dry run missed books gitattributes"
+grep -qx 'change: .gitattributes areas/shop' "$work/ga-dry.out" || team_fail "dry run missed shop gitattributes"
+"$upgrade" --root "$ga" --template "$root/template" --level solo > "$work/ga.out"
+for a in books shop; do
+  git -C "$ga/areas/$a" show "upgrade/scripts:.gitattributes" > "$work/ga-$a.attrs" 2>/dev/null \
+    || team_fail "$a gitattributes not committed"
+  cmp -s "$work/ga-$a.attrs" "$root/template/skills/add-area/templates/_area/.gitattributes" \
+    || team_fail "$a gitattributes is not the _area copy"
+done
+
+# Round 3 (33): a merged company AGENTS.md between 9,000 and 10,000 gets one plain size line.
+big="$work/bigco"
+mkdir -p "$big"
+cp "$root/template/skills/upgrade/v0/CLAUDE.md" "$big/CLAUDE.md"
+cp "$root/template/company-profile.md" "$big/company-profile.md"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$big/AGENTS.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+extra = "\n".join("- Acme Co rule %d: keep the shop tidy and the counter clear." % n for n in range(12))
+Path(os.environ["OSF_OUT"]).write_text(s.replace("- (setup fills this in)", extra))
+PY
+git -C "$big" init -q -b main
+commit_all "$big" "v0 big"
+"$upgrade" --dry-run --root "$big" --template "$root/template" --level solo > "$work/big.out"
+size=$(awk -F'chars=' '/^change: rules-merge AGENTS.md /{print $2; exit}' "$work/big.out")
+if [ "${size:-0}" -gt 9000 ] && [ "$size" -lt 10000 ]; then
+  grep -q "^todo: AGENTS.md is ${size} characters, over the 9,000 it sets for itself. Move " "$work/big.out" \
+    || team_fail "no size line at $size"
+else
+  team_fail "big fixture merged to ${size:-?} characters, not between 9,000 and 10,000"
+fi
+[ "$(grep -c '^todo: AGENTS.md is ' "$work/big.out")" -eq 1 ] || team_fail "size line count"
+grep -q '^todo: CLAUDE.md is ' "$work/big.out" && team_fail "size line for CLAUDE.md"
+
 # COMPANY_SLUG comes only from an area rules file. No answers, no profile key, no remote, folder name is not <slug>-os.
 slugco="$work/slugonly"
 mkdir -p "$slugco/areas/shop"
@@ -654,5 +741,61 @@ tok_rc=$?
 set -e
 [ "$tok_rc" -eq 0 ] || team_fail "dry run token failure exit was $tok_rc"
 grep -q 'could not fetch acme-shop' "$work/token.out" || team_fail "dry run hid the fetch failure"
+
+# Round 3 (32): layout. A placeholder goes when company lines fill its section; a blank
+# line stays before each heading; a table row keeps its header; a line from a v0 section
+# with no subheading does not land under a v1 subheading; a subheading at the end of a
+# section comes along with its lines.
+lay="$work/layout"
+mkdir -p "$lay"
+OSF_SRC="$root/template/skills/upgrade/v0/AGENTS.md" OSF_OUT="$lay/real.md" python3 - << 'PY'
+import os
+from pathlib import Path
+s = Path(os.environ["OSF_SRC"]).read_text()
+s = s.replace("- (setup fills this in)", "- Launch the spring line")
+s = s.replace("| `templates/` | Note templates | everyone |", "| `templates/` | Note templates | everyone |\n| `recipes/` | House recipes | the kitchen |")
+out = []
+for line in s.split("\n"):
+    if line.startswith("## Skills"):
+        out += ["- The bakery area holds the oven schedule.", ""]
+    if line.startswith("## Memory"):
+        out += ["### Our own skills", "- `skills/order-flour/` orders flour on Mondays.", ""]
+    out.append(line)
+Path(os.environ["OSF_OUT"]).write_text("\n".join(out))
+PY
+bash "$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" --real "$lay/real.md" --v1 "$root/template/AGENTS.md" \
+  --scope company --map "$root/template/skills/upgrade/rules-map.txt" --out "$lay/out.md" > /dev/null
+OSF_OUT="$lay/out.md" python3 - << 'PY' || team_fail "merge layout"
+import os, sys
+from pathlib import Path
+lines = Path(os.environ["OSF_OUT"]).read_text().split("\n")
+def at(text):
+    return lines.index(text)
+bad = []
+if "- (setup fills this in)" in lines:
+    bad.append("placeholder stayed")
+right_now = at("### Right now")
+if lines.index("- Launch the spring line") < right_now:
+    bad.append("right-now line is above its heading")
+bakery = at("- The bakery area holds the oven schedule.")
+if not bakery < right_now:
+    bad.append("an Areas line landed under ### Right now")
+row = at("| `recipes/` | House recipes | the kitchen |")
+if lines[row - 2:row] != ["| Path | What it is | Who reads it |", "|---|---|---|"]:
+    bad.append("table row has no header")
+if lines[row - 3].strip() != "":
+    bad.append("no blank line before the table")
+sub = at("### Our own skills")
+if lines[sub + 1] != "- `skills/order-flour/` orders flour on Mondays." or lines[sub - 1].strip() != "":
+    bad.append("subheading lines out of place")
+if sub > at("## Memory and logs"):
+    bad.append("subheading landed in the wrong section")
+for i, line in enumerate(lines):
+    if line.startswith("#") and i > 0 and lines[i - 1].strip() != "":
+        bad.append("no blank line before: " + line)
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    sys.exit(1)
+PY
 
 printf '%s\n' "PASS rules-merge"

@@ -197,8 +197,7 @@ sync_rm_temp() {
   # Skip the clone's own top-level .git. A nested repo is deeper.
   found=$(find "$tree" -mindepth 2 -name .git -print -prune 2>/dev/null | head -n 1 || true)
   if [ -n "$found" ]; then
-    sync_log "pull fail ${id} reclone: left ${tree}"
-    sync_held_error "reclone left ${tree}"
+    sync_pull_fail "$id" "reclone: left ${tree}"
     return 1
   fi
   rm -rf "$tree"
@@ -234,7 +233,7 @@ sync_reclone() {
   parent=$(dirname "$repo")
   new="$parent/.sync-reclone-$$"
   if ! sync_git "$repo" clone -- "$url" "$new"; then
-    sync_log "pull fail ${id} could not reach origin"
+    sync_pull_fail "$id" "could not reach origin"
     return 1
   fi
   rules=$(sync_mktemp)
@@ -268,56 +267,96 @@ sync_reclone() {
     fi
     mkdir -p "$new/$(dirname "$path")" || true
     if ! cp "$repo/$path" "$new/$path"; then
-      sync_log "pull fail ${id} reclone: could not copy ${path}; nothing removed"
+      sync_pull_fail "$id" "reclone: could not copy ${path}; nothing removed"
       sync_rm_temp "$new" "$id" || true
       return 1
     fi
     printf '%s\n' "$path" >> "$copied"
   done < <(sync_changed_names "$repo")
   if ! git -C "$new" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    sync_log "pull fail ${id} reclone: could not copy ${new}; nothing removed"
+    sync_pull_fail "$id" "reclone: could not copy ${new}; nothing removed"
     sync_rm_temp "$new" "$id" || true
     return 1
   fi
   local old="$parent/.sync-old-$$"
   if ! mv "$repo" "$old"; then
-    sync_log "pull fail ${id} reclone: could not copy ${repo}; nothing removed"
+    sync_pull_fail "$id" "reclone: could not copy ${repo}; nothing removed"
     sync_rm_temp "$new" "$id" || true
     return 1
   fi
   if ! mv "$new" "$repo"; then
     mv "$old" "$repo" || true
-    sync_log "pull fail ${id} reclone: could not copy ${repo}; nothing removed"
+    sync_pull_fail "$id" "reclone: could not copy ${repo}; nothing removed"
     sync_rm_temp "$new" "$id" || true
     return 1
   fi
   if [ "${OS_SYNC_RECLONE_FAIL:-}" = "nested" ]; then
     sync_reclone_restore "$repo" "$old" "$new" "$id" || true
-    sync_log "pull fail ${id} reclone"
+    sync_pull_fail "$id" "reclone"
     return 1
   fi
   if ! sync_move_nested "$old" "$repo"; then
     sync_reclone_restore "$repo" "$old" "$new" "$id" || true
-    sync_log "pull fail ${id} reclone: could not copy areas; nothing removed"
+    sync_pull_fail "$id" "reclone: could not copy areas; nothing removed"
     return 1
   fi
   if [ "${OS_SYNC_RECLONE_FAIL:-}" = "after-nested" ]; then
     OS_SYNC_MOVE_BACK_FAIL=1
     sync_reclone_restore "$repo" "$old" "$new" "$id" || true
-    sync_log "pull fail ${id} reclone: could not copy areas; nothing removed"
+    sync_pull_fail "$id" "reclone: could not copy areas; nothing removed"
     return 1
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     if ! cmp -s "$old/$path" "$repo/$path"; then
       sync_reclone_restore "$repo" "$old" "$new" "$id" || true
-      sync_log "pull fail ${id} reclone: could not copy ${path}; nothing removed"
+      sync_pull_fail "$id" "reclone: could not copy ${path}; nothing removed"
       return 1
     fi
   done < "$copied"
   rm -rf "$old"
   sync_record_rewrite "$id" "$tag"
   sync_log "pull reclone ${id} ${tag}"
+}
+
+# A failed pull: the log line, one plain line for the person, and last_error, so
+# sync.sh status shows it. The log keeps the short reason; the person gets the fix.
+sync_pull_fail() {
+  local id=$1 reason=$2 plain detail
+  case "$reason" in
+    "could not reach origin") plain="could not reach the host. Check the internet connection and sign-in, then run it again." ;;
+    "no origin/main") plain="the host has no main branch. Ask the admin." ;;
+    "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
+    "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
+    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }. Ask the admin." ;;
+    "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
+    "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
+    reclone*)
+      detail=${reason#reclone}
+      detail=${detail#: }
+      plain="could not swap in a fresh copy from the host${detail:+ (${detail})}. Nothing was removed. Ask the admin."
+      ;;
+    *) plain=$reason ;;
+  esac
+  sync_log "pull fail ${id} ${reason}"
+  # One line per repo. The first reason is the one to act on.
+  [ "${SYNC_PULL_FAILED:-}" != "$id" ] || return 0
+  SYNC_PULL_FAILED=$id
+  printf 'pull failed for %s: %s\n' "$id" "$plain" >&2
+  if [ -z "${SYNC_RUN_ERROR:-}" ]; then
+    sync_held_error "pull failed for ${id}: ${plain}"
+  fi
+}
+
+# A clean pull clears an error an earlier pull left. It never clears a push error.
+sync_pull_clear_error() {
+  local err
+  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
+  case "$err" in
+    "pull failed for "*) sync_held_error "" ;;
+  esac
 }
 
 sync_pull_mark() {
@@ -373,22 +412,112 @@ sync_pull_one() {
   return "$rc"
 }
 
+# A clone left on the person's own sync branch never fast-forwards: push rebuilds
+# that branch on the host. join.sh did this before it went back to main, and so
+# did v0. Go back to main only when every change made on the branch is on the host
+# (origin/main or origin/sync/<me>). Never drop work that is not pushed.
+sync_pull_leave_own_branch() {
+  local repo=$1
+  local id=$2
+  local me cur base path
+  me=$(sync_me)
+  [ -n "$me" ] || return 0
+  cur=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)
+  [ "$cur" = "sync/${me}" ] || return 0
+  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null || true)
+  if [ -z "$base" ]; then
+    sync_log "pull hold ${id} on sync/${me}: no common history with main"
+    return 0
+  fi
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if git -C "$repo" diff --quiet HEAD origin/main -- "$path"; then
+      continue
+    fi
+    if git -C "$repo" rev-parse --verify --quiet "origin/sync/${me}" >/dev/null \
+      && git -C "$repo" diff --quiet HEAD "origin/sync/${me}" -- "$path"; then
+      continue
+    fi
+    sync_log "pull hold ${id} on sync/${me}: ${path} is not pushed yet"
+    return 0
+  done < <(git -C "$repo" diff --name-only "$base" HEAD)
+  # A plain checkout keeps uncommitted and untracked files. It refuses rather than overwrite one.
+  if git -C "$repo" show-ref --verify --quiet refs/heads/main; then
+    git -C "$repo" checkout -q main 2>/dev/null || {
+      sync_log "pull hold ${id} on sync/${me}: could not switch to main"
+      return 0
+    }
+  else
+    git -C "$repo" checkout -q -b main origin/main 2>/dev/null || {
+      sync_log "pull hold ${id} on sync/${me}: could not switch to main"
+      return 0
+    }
+  fi
+  sync_log "pull ok ${id} back on main from sync/${me}"
+}
+
+# A v0 clone keeps memory/logs as a worktree of branch logs after the upgrade lands
+# (v0logs.sh). It goes before the fast-forward; its files come back after it.
 sync_pull_fetched() {
   local repo=$1
   local id=$2
-  local save tag old link_save
-  if ! sync_git "$repo" fetch origin >/dev/null 2>&1; then
-    sync_log "pull fail ${id} could not reach origin"
+  local rc=0 n err
+  SYNC_V0_SAVE=""
+  sync_pull_ff "$repo" "$id" || rc=$?
+  if [ -n "$SYNC_V0_SAVE" ]; then
+    err=$(sync_mktemp)
+    if n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE" 2>"$err"); then
+      sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
+    else
+      sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
+      rc=1
+    fi
+    SYNC_V0_SAVE=""
+  fi
+  return "$rc"
+}
+
+# Commits on HEAD or any local branch that no origin branch holds or ever held here. A
+# rewrite moves the host branches, so their old tips (kept in this clone's reflog) count
+# as on the host. No reflog to read: every commit not on a host branch now counts.
+sync_unpushed_count() {
+  local repo=$1 ref
+  {
+    printf '%s\n' HEAD
+    git -C "$repo" for-each-ref --format='%(refname)' refs/heads
+    git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin | while IFS= read -r ref; do
+      printf '^%s\n' "$ref"
+      git -C "$repo" reflog show --format='^%H' "$ref" -- 2>/dev/null || true
+    done
+  } | git -C "$repo" rev-list --count --stdin 2>/dev/null || printf '%s\n' unknown
+}
+
+sync_pull_ff() {
+  local repo=$1
+  local id=$2
+  local save tag old link_save err n
+  # --prune drops origin/* refs whose branch the host deleted (push's pending hold reads them).
+  if ! sync_git "$repo" fetch --prune origin >/dev/null 2>&1; then
+    sync_pull_fail "$id" "could not reach origin"
     return 1
   fi
   if ! git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null; then
-    sync_log "pull fail ${id} no origin/main"
+    sync_pull_fail "$id" "no origin/main"
     return 1
   fi
+  if v0logs_stuck "$repo" origin/main; then
+    err=$(sync_mktemp)
+    if ! SYNC_V0_SAVE=$(v0logs_park "$repo" sync_git 2>"$err"); then
+      SYNC_V0_SAVE=""
+      sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
+      return 1
+    fi
+  fi
+  sync_pull_leave_own_branch "$repo" "$id"
   if git -C "$repo" merge-base --is-ancestor HEAD origin/main; then
     save=$(sync_prepare_ff "$repo" || true)
     if [ -z "$save" ]; then
-      sync_log "pull fail ${id} local changes"
+      sync_pull_fail "$id" "local changes"
       return 1
     fi
     old=$(git -C "$repo" rev-parse HEAD)
@@ -399,7 +528,7 @@ sync_pull_fetched() {
       sync_put_back_stashed_links "$repo" "$link_save"
       rm -rf "$link_save"
       rm -f "${link_save}.has"
-      sync_log "pull fail ${id} not fast-forward"
+      sync_pull_fail "$id" "not fast-forward"
       return 1
     fi
     rm -rf "$save"
@@ -414,10 +543,16 @@ sync_pull_fetched() {
   fi
   tag=$(sync_rewrite_tag "$repo" "$id" || true)
   if [ -n "$tag" ]; then
+    # A reclone keeps only changed files. Commits the host never had would be lost.
+    n=$(sync_unpushed_count "$repo")
+    if [ "$n" != "0" ]; then
+      sync_pull_fail "$id" "unpushed: ${n}"
+      return 1
+    fi
     sync_reclone "$repo" "$id" "$tag"
     return $?
   fi
-  sync_log "pull fail ${id} not fast-forward"
+  sync_pull_fail "$id" "not fast-forward"
   return 1
 }
 
@@ -1062,6 +1197,9 @@ cmd_pull() {
     sync_pull_run_full || rc=$?
   else
     sync_pull_run_quick || rc=$?
+  fi
+  if [ "$rc" -eq 0 ]; then
+    sync_pull_clear_error
   fi
   return "$rc"
 }

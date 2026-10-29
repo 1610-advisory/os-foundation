@@ -57,7 +57,10 @@ For each repo that has changes:
 
 1. Secret scan. A hit holds that file. The reason names the rule, never the value. A scan error pushes nothing for that repo.
 2. Rules files in the company repo or an area are held. They are not sent to the engine. The reason is exactly: `rules file: propose it with sync.sh propose`. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, or anything under `.github/`, `.gitea/`, `.forgejo/`, or `.claude/`. In the workspace these files are the person's own. They are not held for this reason.
+   - A file whose content is already on a `rules/*` branch on the host (from `remove-teammate`, `add-person`, or `propose`) is held first, with the reason `waits for its own pull request (rules/<person>/<topic>)`. That pull request is its only path to `main`. Once it merges, the next `pull` makes the file clean. Push and pull fetch with `--prune`, so the hold reads the branches the host has now. If that pull request was closed and its branch deleted, push prints `<file>: its own pull request (<branch>) was closed and its branch is gone, so push no longer waits for it` and treats the file like any other. A closed pull request whose branch is kept still holds the file: delete the branch on the host to let it go.
 3. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
+   - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` (company repo or area) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
+   - An area's `drafts/` folder is shared copy in progress. Its files go to the area on the standing pull request, and everyone who reads the area sees them. A private draft goes in the person's workspace `drafts/`.
 4. Committable files are committed on `sync/<me>`, rebuilt from `origin/main`. The script force-pushes only that branch. It then calls `host.sh open-pr` and `host.sh auto-merge`, then `pull`.
 5. The workspace repo is pushed to its own `main`. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
 
@@ -95,7 +98,13 @@ For each company or area repo that already has commits on `sync/<bot>` that are 
 
 Use `pull --full` when something looks out of date, after a git step by hand, or for support. Session start in every `AGENTS.md` and the 15-minute job keep plain `pull`.
 
+A working copy left on the person's own branch `sync/<me>` never fast-forwards, because each push rebuilds that branch on the host. Before it fast-forwards, `pull` checks that every change made on that branch is on the host already (`origin/main` or `origin/sync/<me>`). If so, it switches to `main` and logs `pull ok <repo> back on main from sync/<me>`. Uncommitted and untracked files come along. If a change is not on the host, it stays on the branch and logs `pull hold <repo> on sync/<me>: <path> is not pushed yet`. It never drops that work. The next push sends it.
+
 The log lines (`pull ok <repo>`, `pull fail <repo> <reason>`) and exit codes are the same for both forms.
+
+A v0 clone keeps `memory/logs/` as a git worktree of branch `logs`. The upgrade removes it only on the computer that ran it. Once `origin/main` tracks `memory/logs/`, `pull` moves it out before the fast-forward: it pushes log commits the host lacks to `logs`, copies every file (committed, edited or untracked), removes the worktree, fast-forwards, then puts back each file that `main` lacks or holds a different copy of. Those are local changes; the next push sends them. Log line: `pull v0-logs <repo> worktree removed, <n> files kept as local changes`. If the push or the copy fails, nothing is removed and the pull fails with one line. If the removal stops part way, or a file cannot be copied back, the pull fails with one line that names the folder holding a full copy. That folder stays. It never logs success then. Plain text: `the old logs folder memory/logs could not be moved: <reason>. Ask the admin.`
+
+A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error. A good push clears only an error that a push set. It never clears a pull error.
 
 ### State file
 
@@ -126,6 +135,8 @@ rule: github-pat
 ```
 
 The rule id is the id `secret-scan.sh` printed. If `pull` cannot fast-forward and a newer tag of that shape is on the host, `pull` clones the repo again, carries uncommitted and held files, and drops a file whose content matches a named rule. Nested area and workspace repos are kept. The script records the tag and writes one log line.
+
+It never clones again while this copy has a commit the host never had, on `HEAD` or on any local branch: a fresh copy would lose it. It holds instead and prints `pull failed for <repo>: this copy has <n> commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy ...`. A commit that was on the host before the rewrite does not count.
 
 ## OS jobs
 

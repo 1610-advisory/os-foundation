@@ -60,6 +60,7 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
+- `auto-merge is off on <repo>: pull request <n> is open but will not merge by itself. ...`: the work went up, but that pull request waits. Tell the person to send the line to the admin. The admin runs the command in it once. The next push merges as usual.
 
 ## Propose a rules change
 
@@ -81,7 +82,9 @@ One topic per proposal.
 | `propose refused: secret scan error` | Run once more. |
 
 5. **Failed after the checks:** `propose fail <repo>: <step>` (`repo`, `fetch`, `worktree`, `copy <path>`, `commit`, `push`, `open-pr` or `auto-merge`), then `opened: <repo> <n>` for each pull request it already opened. Those stay open. Tell the person every line. Run the same command once more: it updates them. If it fails again, stop and tell the admin.
-6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves the company pull request, the area director the area one. When the approver is the author, the model review alone is enough. Example: the admin's own change.
+6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves the company pull request, the area director the area one.
+   - **Your own rules change on GitHub.** GitHub never counts the author's own approval. A director's own area change needs the admin's approval. The admin's own change: wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge". Only an org admin has that box.
+   - **Forgejo.** Forgejo asks no review of the author. Your own change merges on green checks.
 
 A failed review blocks the merge. Read the findings in plain words and offer a fix.
 

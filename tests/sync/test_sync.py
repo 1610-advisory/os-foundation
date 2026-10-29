@@ -614,6 +614,324 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("staged.md", show.stdout)
         self.assertNotIn("local.md", show.stdout)
 
+    def test_auto_merge_failure_is_held(self):
+        self.seed_origin()
+        host = self.host / "host.sh"
+        text = host.read_text()
+        start = text.index("  auto-merge)")
+        end = text.index(";;", start) + 2
+        host.write_text(text[:start] + "  auto-merge) echo 'Auto merge is not allowed' >&2; exit 3 ;;" + text[end:])
+        (self.company / "note.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("last error: auto-merge is off on", status.stdout)
+        self.assertIn("pull request 1 is open but will not merge by itself", status.stdout)
+
+    def git(self, *args, check=True):
+        return run(["git", "-C", str(self.company), *args], env=self.env, check=check)
+
+    def sync_log(self):
+        return (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+
+    def tree(self, ref):
+        return run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "ls-tree", "-r", "--name-only", ref],
+            env=self.env,
+        ).stdout.splitlines()
+
+    def test_logs_are_never_held_as_workspace_only(self):
+        # B13: rule 5 is a path rule. A log is Auto tier, even when the model says otherwise.
+        self.seed_origin()
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-28-mia.md").write_text("WORKSPACE-ME wrote the newsletter\n")
+        (logs / "2026-10-27-mia.md").write_text("PERSONAL-FACT\n")
+        (self.company / "habits.md").write_text("WORKSPACE-ME how I like to work\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree("refs/heads/sync/mia")
+        self.assertIn("memory/logs/2026-10-28-mia.md", tree)
+        self.assertNotIn("habits.md", tree)
+        self.assertNotIn("memory/logs/2026-10-27-mia.md", tree)
+        status = self.sync("status").stdout
+        self.assertIn("habits.md: belongs in the workspace", status)
+        self.assertIn("2026-10-27-mia.md: personal-life fact", status)
+        self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
+
+    def test_a_file_waiting_on_its_own_pull_request_is_held(self):
+        # Round 3 (42): remove-teammate leaves the offboard change in the folder so the
+        # person sees it. Its pull request stays the only path to main.
+        self.seed_origin()
+        page = self.company / "people" / "Mia.md"
+        self.git("add", "people/Mia.md")
+        self.git("commit", "-q", "-m", "page")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "rules/ada/offboard-mia")
+        page.write_text(page.read_text().replace("---\n\n#", "left: 2026-10-28\n---\n\n#"))
+        self.git("commit", "-q", "-am", "Offboard: mia")
+        self.git("push", "-q", "origin", "rules/ada/offboard-mia")
+        self.git("checkout", "-q", "main")
+        self.git("show", "rules/ada/offboard-mia:people/Mia.md")
+        page.write_text(self.git("show", "rules/ada/offboard-mia:people/Mia.md").stdout)
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree("refs/heads/sync/mia")
+        self.assertIn("note.md", tree)
+        diff = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "diff", "--name-only", "main", "sync/mia"],
+            env=self.env,
+        ).stdout.splitlines()
+        self.assertNotIn("people/Mia.md", diff)
+        status = self.sync("status").stdout
+        self.assertIn("people/Mia.md: waits for its own pull request (rules/ada/offboard-mia)", status)
+        self.assertIn("left: 2026-10-28", page.read_text())
+
+        # Round 4 (47): the pull request is closed and the host deletes its branch. The
+        # local origin/rules/* ref is stale; push prunes it, says so, and stops holding.
+        run(["git", "--git-dir", str(self.tmp / "origin.git"), "branch", "-D", "rules/ada/offboard-mia"], env=self.env)
+        self.assertEqual(self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "people/Mia.md: its own pull request (rules/ada/offboard-mia) was closed and its branch is gone, "
+            "so push no longer waits for it",
+            result.stderr,
+        )
+        self.assertNotEqual(self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0)
+        diff = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "diff", "--name-only", "main", "sync/mia"],
+            env=self.env,
+        ).stdout.splitlines()
+        self.assertIn("people/Mia.md", diff)
+        self.assertNotIn("waits for its own pull request", self.sync("status").stdout)
+
+    def test_pull_prunes_a_branch_the_host_deleted(self):
+        # Round 4 (47): pull fetches with --prune, so a stale origin/rules/* ref goes.
+        self.seed_origin()
+        self.git("update-ref", "refs/remotes/origin/rules/ada/offboard-mia", "HEAD")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotEqual(
+            self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0
+        )
+
+    def test_a_push_clears_only_a_push_error(self):
+        # Round 3 (41): a good push never clears an error a pull left in another run.
+        script = (
+            'source "$1/lib.sh"; source "$1/push.sh"; SYNC_HELD="$2"; '
+            'sync_mktemp() { mktemp; }; sync_push_clear_error; jq -r .last_error "$2"'
+        )
+        held = self.tmp / "held.json"
+        pull_err = "pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."
+        for before, after in [
+            (pull_err, pull_err),
+            ("auto-merge is off on acme-os: pull request 1 is open but will not merge by itself", ""),
+            ("", ""),
+        ]:
+            held.write_text(json.dumps({"files": [], "last_error": before}))
+            out = run(["bash", "-c", script, "x", str(SYNC), str(held)], env=self.env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(out.stdout.strip(), after)
+
+    def test_area_drafts_and_logs_are_area_work(self):
+        script = 'source "$1/lib.sh"; source "$1/push.sh"; sync_not_workspace_only "$2" "$3"'
+
+        def exempt(kind, path):
+            return run(["bash", "-c", script, "x", str(SYNC), kind, path], env=self.env).returncode == 0
+
+        self.assertTrue(exempt("area", "drafts/spring-post.md"))
+        self.assertTrue(exempt("area", "memory/logs/2026-10-28-mia.md"))
+        self.assertTrue(exempt("root", "memory/logs/2026-10-28-mia.md"))
+        self.assertFalse(exempt("root", "drafts/spring-post.md"))
+        self.assertFalse(exempt("area", "notes/habits.md"))
+        self.assertFalse(exempt("workspace", "memory/logs/2026-10-28-mia.md"))
+
+    def test_pull_leaves_own_sync_branch_once_pushed(self):
+        # B14: join left the clone on sync/mia. Push rebuilt that branch on the host.
+        bare = self.seed_origin()
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "README.md").write_text("seed\nterms accepted\n")
+        self.git("commit", "-q", "-am", "Join: accept terms")
+        self.git("push", "-q", "origin", "sync/mia")
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / "README.md").write_text("seed\nterms accepted\n")
+        run(["git", "-C", str(other), "commit", "-q", "-am", "rebuilt"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "-f", "origin", "HEAD:sync/mia"], env=self.env, check=True)
+        run(["git", "-C", str(other), "reset", "-q", "--hard", "origin/main"], env=self.env, check=True)
+        (other / "news.md").write_text("from main\n")
+        run(["git", "-C", str(other), "add", "news.md"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "news"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
+        (self.company / "scratch.md").write_text("not committed yet\n")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertTrue((self.company / "news.md").exists())
+        self.assertEqual((self.company / "scratch.md").read_text(), "not committed yet\n")
+        log = self.sync_log()
+        self.assertIn("back on main from sync/mia", log)
+        self.assertNotIn("not fast-forward", log)
+
+    def test_pull_keeps_unpushed_work_on_sync_branch(self):
+        self.seed_origin()
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "draft.md").write_text("only here\n")
+        self.git("add", "draft.md")
+        self.git("commit", "-q", "-m", "local only")
+        self.sync("pull")
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "sync/mia")
+        self.assertEqual((self.company / "draft.md").read_text(), "only here\n")
+        self.assertIn("on sync/mia: draft.md is not pushed yet", self.sync_log())
+
+    def test_failed_pull_says_why_and_status_shows_it(self):
+        # B19: a pull that cannot fetch was silent. Now it is one plain line and last_error.
+        bare = self.seed_origin()
+        moved = self.tmp / "away.git"
+        bare.rename(moved)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        lines = [l for l in result.stderr.splitlines() if l.startswith("pull failed for ")]
+        self.assertEqual(
+            lines,
+            ["pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."],
+            result.stderr,
+        )
+        status = self.sync("status").stdout
+        self.assertIn("last error: pull failed for root: could not reach the host", status)
+        self.assertIn("pull fail root could not reach origin", self.sync_log())
+        # The next clean pull clears it.
+        moved.rename(bare)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("last error: none", self.sync("status").stdout)
+
+    def test_clean_pull_keeps_a_push_error(self):
+        self.seed_origin()
+        script = 'source "$1/lib.sh"; sync_bind; sync_held_error "auto-merge is off on acme-os"'
+        run(["bash", "-c", script, "x", str(SYNC)], env=self.env, cwd=self.company, check=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.assertIn("last error: auto-merge is off on acme-os", self.sync("status").stdout)
+
+    def v0_clone_after_upgrade(self):
+        # v0: logs on branch logs, checked out at memory/logs/, ignored by main.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/memory/logs/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "v0 ignore")
+        self.git("push", "-q", "origin", "main")
+        self.git("worktree", "add", "-q", "--detach", "memory/logs")
+        logs = self.company / "memory" / "logs"
+        run(["git", "-C", str(logs), "checkout", "-q", "--orphan", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "rm", "-rfq", "."], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day one"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # The upgrade ran elsewhere: main now tracks memory/logs/ and no longer ignores it.
+        other = self.tmp / "upgrader"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / ".gitignore").write_text("")
+        (other / "memory" / "logs").mkdir(parents=True)
+        (other / "memory" / "logs" / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "Upgrade to v1"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        # On this clone, after the upgrade: a log commit not pushed yet, an edit, a new file.
+        (logs / "2026-10-02-mia.md").write_text("day two, committed only here\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day two"], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\nand a later line\n")
+        (logs / "2026-10-03-mia.md").write_text("day three, untracked\n")
+        return bare, logs
+
+    def test_pull_moves_a_v0_logs_worktree_without_losing_a_log(self):
+        # Round 3 (30): the upgrade removed the worktree only where it ran.
+        bare, logs = self.v0_clone_after_upgrade()
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        self.assertNotIn(str(logs), self.git("worktree", "list").stdout)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual((logs / "2026-10-01-mia.md").read_text(), "day one\nand a later line\n")
+        self.assertEqual((logs / "2026-10-02-mia.md").read_text(), "day two, committed only here\n")
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        # The unpushed log commit went to the host first.
+        log = run(["git", "--git-dir", str(bare), "log", "--format=%s", "logs"], env=self.env).stdout
+        self.assertIn("Logs: day two", log)
+        self.assertIn("pull v0-logs root worktree removed, 3 files kept as local changes", self.sync_log())
+        # The files are local changes now, so the next push sends them.
+        status = self.git("status", "--porcelain").stdout
+        self.assertIn("memory/logs/2026-10-01-mia.md", status)
+        self.assertIn("memory/logs/2026-10-03-mia.md", status)
+
+    def test_v0_logs_worktree_stays_when_the_push_fails(self):
+        bare, logs = self.v0_clone_after_upgrade()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pull failed for root: the old logs folder memory/logs could not be moved", result.stderr)
+        self.assertTrue((logs / ".git").exists())
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+
+    def test_v0_logs_put_back_failure_keeps_the_copy(self):
+        # Round 4 (45): a copy back fails after the worktree is gone (a file lock on
+        # Windows). The saved folder stays, one plain line names it, and no success is
+        # logged. Run with bash 3.2 when the system has it.
+        bare, logs = self.v0_clone_after_upgrade()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            "  *' -R'*) ;;\n"
+            "  *memory/logs/2026-10-03-mia.md*) exit 1 ;;\n"
+            "esac\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+        result = run([shell, str(SYNC / "sync.sh"), "pull", "--full"], env=env, cwd=self.company)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("could not copy 1 logs back into memory/logs. A full copy is in ", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        self.assertNotIn("worktree removed", self.sync_log())
+        self.assertIn("last error: pull failed for root: the old logs folder", self.sync("status").stdout)
+        shutil.rmtree(save, ignore_errors=True)
+
+    def test_partial_worktree_remove_says_where_the_copy_is(self):
+        # Round 4 (48): a remove that deletes some files, then stops.
+        bare, logs = self.v0_clone_after_upgrade()
+        real_git = shutil.which("git")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        shim = bindir / "git"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            f"  *' worktree remove '*) rm -f '{logs}/2026-10-03-mia.md'; exit 1 ;;\n"
+            "esac\n"
+            f"exec '{real_git}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.sync("pull", "--full", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("some files may be gone from memory/logs. A full copy is in ", result.stderr)
+        self.assertNotIn("Nothing was removed", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        shutil.rmtree(save, ignore_errors=True)
+
     def test_engine_must_print_one_json_line(self):
         self.seed_origin()
         engine = self.tmp / "two.sh"
@@ -778,6 +1096,65 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual((self.company / "block-copy.md").read_text(), "keep this\n")
         self.assertTrue((self.company / "company-profile.md").exists())
         self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
+
+    def rewrite_origin(self, stamp):
+        orphan = self.tmp / ("orphan-" + stamp)
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(["git", "-C", str(orphan), "tag", "-a", "os-rewrite-" + stamp, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-" + stamp], env=self.env, check=True)
+
+    def test_reclone_holds_while_a_commit_is_not_on_the_host(self):
+        # Round 3 (38): a reclone copies only changed files. A commit the host never had stays.
+        self.seed_origin()
+        (self.company / "mine.md").write_text("not pushed\n")
+        run(["git", "-C", str(self.company), "add", "mine.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "mine"], env=self.env, check=True)
+        head = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.rewrite_origin("20261024235956")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "pull failed for root: this copy has 1 commits (on any local branch) that are not on the host, so it was not swapped",
+            result.stderr,
+        )
+        after = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.assertEqual(after, head)
+        self.assertEqual((self.company / "mine.md").read_text(), "not pushed\n")
+        self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("pull reclone root", log)
+
+    def test_reclone_holds_while_another_local_branch_has_unpushed_work(self):
+        # Round 4 (44): HEAD is clean, but a local branch the host never had would be lost.
+        self.seed_origin()
+        self.git("checkout", "-q", "-b", "draft-ideas")
+        (self.company / "idea.md").write_text("not pushed\n")
+        self.git("add", "idea.md")
+        self.git("commit", "-q", "-m", "idea")
+        self.git("checkout", "-q", "main")
+        self.rewrite_origin("20261024235954")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("this copy has 1 commits (on any local branch) that are not on the host", result.stderr)
+        self.assertEqual(self.git("show", "draft-ideas:idea.md").stdout, "not pushed\n")
+        self.assertNotIn("pull reclone root", self.sync_log())
+
+    def test_reclone_runs_when_every_commit_was_on_the_host(self):
+        # The old main tip was on the host before the rewrite: that is not unpushed work.
+        self.seed_origin()
+        self.rewrite_origin("20261024235955")
+        result = self.sync("pull")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("commits that are not on the host", result.stderr)
+        self.assertIn("pull reclone root", log, result.stdout + result.stderr)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
 
     def test_reclone_leaves_nested_repo_when_move_back_fails(self):
         self.seed_origin()
