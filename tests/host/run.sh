@@ -18,6 +18,10 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
+# Every temp file of this run goes in one folder, which cleanup removes.
+RUN_TMP=$(mktemp -d)
+export TMPDIR="$RUN_TMP"
+
 pass() { PASS=$((PASS + 1)); printf 'PASS %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$*"; }
 
@@ -97,6 +101,7 @@ cleanup() {
   if [ "${KEEP:-}" != "1" ]; then
     docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
   fi
+  rm -rf "$RUN_TMP"
 }
 trap cleanup EXIT
 

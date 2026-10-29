@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -14,6 +17,9 @@ from pathlib import Path
 PATH_RE = re.compile(r"^/acme2-[A-Za-z0-9-]+/acme2-[A-Za-z0-9-]+/traces/[A-Za-z0-9._-]+\.jsonl$")
 HELPER = Path(__file__).resolve().parents[1] / "lib" / "git-credential-seat.sh"
 WORKDIR = Path(tempfile.mkdtemp(prefix="osf-traces-"))
+# The scenario stops this server with a TERM. Exit cleanly so the work folder goes.
+atexit.register(shutil.rmtree, WORKDIR, True)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
 
 def git(repo: Path, token: str, *args: str) -> int:

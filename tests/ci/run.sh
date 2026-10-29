@@ -57,6 +57,9 @@ repo="ci-checks-${stamp}"
 area_repo=""
 EXTRA_REPOS=""
 work=$(mktemp -d)
+# Every later temp file lands in the work folder, which cleanup removes.
+mkdir "$work/tmp"
+export TMPDIR="$work/tmp"
 log="$work/run.log"
 : > "$log"
 runner_saved="$work/runner-config.yml"
