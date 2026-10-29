@@ -29,6 +29,10 @@ if [ -z "${ci_run_tmp:-}" ] || [ ! -d "$ci_run_tmp" ]; then
   chmod 700 "$ci_run_tmp"
   export TMPDIR="$ci_run_tmp"
 fi
+# A stopped job exits through the entry script's EXIT trap, so the folder goes too.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
 mktemp() {
   if [ $# -eq 0 ]; then

@@ -6,6 +6,7 @@ set -euo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/lib.sh"
+trap ci_cleanup EXIT
 
 usage() {
   cat << 'EOF'
@@ -80,7 +81,6 @@ fi
 
 want=$(ci_lower "$user")
 owners_file=$(ci_mktemp)
-trap ci_cleanup EXIT
 
 add_owner() {
   local name
