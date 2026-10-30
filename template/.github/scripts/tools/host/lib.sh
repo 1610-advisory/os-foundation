@@ -712,6 +712,7 @@ Verbs:
   team-add <team> <user>
   team-remove <team> <user>
   team-repos <team>
+  org-repos
   grant <name> <user|team:<team>> <read|write|admin>
   revoke <name> <user|team:<team>>
   org-remove <user>

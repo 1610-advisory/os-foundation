@@ -921,6 +921,19 @@ cmd_invites() {
   jq -nc --argjson invites "$list" '{invites:$invites}'
 }
 
+# Every repo in the org, by name.
+cmd_org_repos() {
+  local all
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/repos"
+    return 0
+  fi
+  all=$(host_gh_all "/orgs/${OS_ORG}/repos") || exit $?
+  printf '%s' "$all" | jq -c '{repos: [.[].name]}'
+}
+
 # Cancel every pending invite for <user>: the org's, or one repo's. 404 is gone already.
 cmd_cancel_invites() {
   local list id n errf rc path
@@ -1258,6 +1271,7 @@ case "$VERB" in
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
   team-repos) cmd_team_repos ;;
+  org-repos) cmd_org_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
