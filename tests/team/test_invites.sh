@@ -131,6 +131,12 @@ case "$method $bare" in
       printf '%s\n' '{"state":"active","role":"member"}'
       exit 0
     fi
+    # B35: the host still says active on the first read after the removal.
+    if [ -n "${FAKE_ACTIVE_ONCE:-}" ] && [ ! -f "$FAKE_GH_STATE/active-read" ]; then
+      : > "$FAKE_GH_STATE/active-read"
+      printf '%s\n' '{"state":"active","role":"member"}'
+      exit 0
+    fi
     printf '%s\n' "gh: Not Found (HTTP 404)" >&2
     exit 1 ;;
   "DELETE /orgs/acme/members/"*)
@@ -168,7 +174,7 @@ EOF
 chmod 700 "$work/bin/host.sh"
 
 export FAKE_GH_STATE="$work/state" FAKE_GH_LOG="$work/gh.log" FAKE_HOST_LOG="$work/host.log"
-export PATH="$work/bin:$PATH" OS_HOST_SH="$work/bin/host.sh"
+export PATH="$work/bin:$PATH" OS_HOST_SH="$work/bin/host.sh" OS_RECHECK_WAIT=0
 : > "$FAKE_GH_LOG"
 
 # 1. Invites that will not cancel: no revoked:, no ok, and each one is named.
@@ -248,6 +254,18 @@ set -e
 must_stop "membership 500" 'org (not checked)'
 out=$("$root/template/skills/_host/host.sh" org-membership acme-member-m)
 [ "$(printf '%s' "$out" | jq -r '.state')" = "none" ] || team_fail "org-membership 404: $out"
+reset_state
+
+# B35: membership reads active once after org-remove, then gone. The re-check passes.
+: > "$FAKE_GH_LOG"
+set +e
+FAKE_ACTIVE_ONCE=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/b35.out" 2> "$work/b35.err"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/b35.out" "$work/b35.err" >&2; team_fail "B35: exit $rc after a late membership read"; }
+grep -qx 'remove: ok' "$work/b35.out" || team_fail "B35: no remove: ok"
+[ "$(grep -c '^GET /orgs/acme/memberships/' "$FAKE_GH_LOG")" -ge 2 ] || team_fail "B35: membership was not read again"
 reset_state
 
 # 2. The real run cancels every invite for the person, and only theirs.

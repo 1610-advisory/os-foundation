@@ -249,10 +249,25 @@ check_org_member() {
   return 0
 }
 
-check_org_invite || failed=1
-check_org_member || failed=1
-for repo in $REPOS; do
-  check_gone "$repo" || failed=1
+# The host removes access a little after it says yes (B35: GitHub org membership read
+# active for some seconds). Read again, up to 6 times 5 seconds apart. Only a read with
+# no access left counts. A list that could not be read before this stays a failure.
+before_failed=$failed
+before_still=$STILL
+tries=0
+while :; do
+  failed=$before_failed
+  STILL=$before_still
+  check_org_invite || failed=1
+  check_org_member || failed=1
+  for repo in $REPOS; do
+    check_gone "$repo" || failed=1
+  done
+  tries=$((tries + 1))
+  if [ "$failed" -eq "$before_failed" ] || [ "$tries" -ge 6 ]; then
+    break
+  fi
+  sleep "${OS_RECHECK_WAIT:-5}"
 done
 if [ "$failed" -ne 0 ]; then
   printf 'revoke failed. Still has access:%s\n' "$STILL" >&2
