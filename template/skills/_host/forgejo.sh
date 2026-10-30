@@ -694,6 +694,26 @@ cmd_team_repos() {
   jq -nc --arg team "$team" --argjson repos "$all" '{team:$team, exists:true, repos:$repos}'
 }
 
+# Every repo in the org, by name.
+cmd_org_repos() {
+  local page=1 n all='[]'
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  while true; do
+    if ! fj_call GET "/orgs/${OS_ORG}/repos?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[].name]')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --argjson repos "$all" '{repos:$repos}'
+}
+
 # Forgejo adds people to teams and repos at once. It has no pending invites.
 fj_need_invite_args() {
   [ -n "$POS1" ] || host_die 1 "user is required"
@@ -971,6 +991,7 @@ case "$VERB" in
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
   team-repos) cmd_team_repos ;;
+  org-repos) cmd_org_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;

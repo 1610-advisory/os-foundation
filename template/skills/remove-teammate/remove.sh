@@ -146,6 +146,22 @@ for area in $AREAS; do
   team_repos "$(os_team_area "$area")" || failed=1
 done
 add_repo "$WS_REPO"
+# A direct invite on any org repo counts too, such as an area no longer on the page.
+org_repos() {
+  local out rc r
+  set +e
+  out=$(os_host org-repos 2>/dev/null)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} org repos (not checked)"
+    return 1
+  fi
+  for r in $(printf '%s' "$out" | jq -r '(.repos // [])[]'); do
+    add_repo "$r"
+  done
+}
+org_repos || failed=1
 
 # The admin's private library repo has direct grants, not a team. When it exists, clear
 # it like the others. An answer the host cannot give is not checked, never gone.
@@ -293,8 +309,9 @@ if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
   if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
     # A BOT.md is a rules file. On GitHub its code-owner review is the admin, the author
-    # here. Auto-merge would hide the bypass box, so it stays off.
-    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
+    # here. Auto-merge would hide the bypass box, so it stays off. An earlier run on the
+    # same branch may have turned it on: the line says to turn it off first.
+    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. If it shows "Disable auto-merge", click that first. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
       "$COMPANY_REPO" "$number"
   elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
     # Like propose: the pull request merges by itself when its checks pass.

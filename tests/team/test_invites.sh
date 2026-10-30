@@ -67,6 +67,9 @@ printf '%s\n' '[{"id":93,"invitee":{"login":"acme-member-m"},"permissions":"writ
 printf '%s\n' '[{"id":94,"invitee":{"login":"acme-member-m"},"permissions":"write"}]' \
   > "$work/state/repo/acme-ops.json"
 printf '%s\n' '[{"name":"acme-os"},{"name":"acme-ops"}]' > "$work/state/team/acme-company.json"
+# Item 3: a direct invite on an old area that is on no page, no team and not checked out here.
+printf '%s\n' '[{"id":95,"invitee":{"login":"acme-member-m"},"permissions":"write"}]' \
+  > "$work/state/repo/acme-legacy.json"
 cp -R "$work/state" "$work/state0"
 
 cat > "$work/bin/gh" << 'EOF'
@@ -99,6 +102,11 @@ fail500() {
   exit 1
 }
 case "$method $bare" in
+  "GET /orgs/acme/repos")
+    [ -n "${FAKE_REPOS_500:-}" ] && fail500
+    [ "$page" = "1" ] || { printf '%s\n' '[]'; exit 0; }
+    for f in "$FAKE_GH_STATE"/repo/*.json; do basename "$f" .json; done | jq -Rsc 'split("\n") | map(select(. != "")) | map({name: .})'
+    exit 0 ;;
   "GET /orgs/acme/invitations"|"GET /repos/acme/"*"/invitations")
     [ -n "${FAKE_INVITES_500:-}" ] && fail500
     f=$(list_file "$bare")
@@ -177,6 +185,7 @@ grep -q 'acme-marketing (invited)' "$work/keep.err" || team_fail "pending area i
 grep -q 'acme-user-mia (invited)' "$work/keep.err" || team_fail "pending workspace invite was not named"
 grep -q 'acme-sales (invited)' "$work/keep.err" || team_fail "area not checked out here was not checked"
 grep -q 'acme-ops (invited)' "$work/keep.err" || team_fail "repo granted by the company team was not checked"
+grep -q 'acme-legacy (invited)' "$work/keep.err" || team_fail "item 3: invite on another org repo was not checked"
 grep -q 'PATCH /repos/acme/acme-user-mia$' "$FAKE_GH_LOG" && team_fail "workspace archived before access was gone"
 
 # Each failure below must stop before revoked: and remove: ok, with exit 3.
@@ -212,6 +221,15 @@ set -e
 must_stop "invite list 500" 'acme-marketing (not checked)'
 grep -q 'org (not checked)' "$work/f.err" || team_fail "org invite list 500 was not named"
 
+# Item 3: the org repo list answers 500: not checked, never ok.
+reset_state
+set +e
+FAKE_REPOS_500=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/f.out" 2> "$work/f.err"
+rc=$?
+set -e
+must_stop "org repos 500" 'org repos (not checked)'
+
 # 64. org-remove answers 500 and the person is still a member.
 reset_state
 set +e
@@ -246,7 +264,7 @@ grep -qx 'remove: ok' "$work/rm.out" || team_fail "missing remove: ok"
 grep -qx 'auto-merge: on' "$work/rm.out" || team_fail "offboard PR has no auto-merge: $(cat "$work/rm.out")"
 for want in "DELETE /orgs/acme/invitations/81" "DELETE /repos/acme/acme-marketing/invitations/91" \
   "DELETE /repos/acme/acme-user-mia/invitations/92" "DELETE /repos/acme/acme-sales/invitations/93" \
-  "DELETE /repos/acme/acme-ops/invitations/94"; do
+  "DELETE /repos/acme/acme-ops/invitations/94" "DELETE /repos/acme/acme-legacy/invitations/95"; do
   grep -qx "$want" "$FAKE_GH_LOG" || team_fail "not called: $want"
 done
 grep -q 'invitations/82' "$FAKE_GH_LOG" && team_fail "another person's invite was cancelled"
@@ -255,6 +273,7 @@ grep -q 'invitations/82' "$FAKE_GH_LOG" && team_fail "another person's invite wa
 [ "$(jq length "$work/state/repo/acme-user-mia.json")" = "0" ] || team_fail "workspace invite still pending"
 
 [ "$(jq length "$work/state/repo/acme-sales.json")" = "0" ] || team_fail "invite on an area not checked out here still pending"
+[ "$(jq length "$work/state/repo/acme-legacy.json")" = "0" ] || team_fail "item 3: invite on another org repo still pending"
 
 # 3. A second cancel is fine: nothing pending is success.
 out=$("$root/template/skills/_host/host.sh" cancel-invites acme-member-m acme-marketing)
@@ -280,7 +299,10 @@ set -e
 [ "$rc" -eq 0 ] || { cat "$work/bot.out" "$work/bot.err" >&2; team_fail "bot remove exit $rc"; }
 grep -qx 'bot-owner: ada' "$work/bot.out" || team_fail "bot owner not moved: $(cat "$work/bot.out")"
 grep -q '^merge-by-hand: acme-os 4: it changes bots/' "$work/bot.out" || team_fail "no merge-by-hand line"
-grep -q 'auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
+# Item 4: the first run (no bot) turned auto-merge on for this branch's pull request. The
+# second run says to turn it off first.
+grep -q 'If it shows "Disable auto-merge", click that first. Tick' "$work/bot.out" || team_fail "item 4: no step to turn auto-merge off"
+grep -q '^auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a bots/ change"
 
 printf '%s\n' "PASS invites"

@@ -37,6 +37,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `team-add <team> <user>` | Add a user to a team |
 | `team-remove <team> <user>` | Remove a user from a team |
 | `team-repos <team>` | The repos the team grants: `{"team":...,"exists":true,"repos":[...]}`. A missing team: `{"exists":false,"repos":[]}`. |
+| `org-repos` | Every repo in the org: `{"repos":[...]}`. A list it cannot read exits non-zero. |
 | `grant <name> <user\|team:<team>> <read\|write\|admin>` | Grant repo access |
 | `revoke <name> <user\|team:<team>>` | Revoke repo access |
 | `org-remove <user>` | Remove a user from the org |
