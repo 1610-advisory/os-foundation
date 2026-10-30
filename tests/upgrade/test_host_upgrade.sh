@@ -37,7 +37,9 @@ cat > "$work/bin/host.sh" << 'EOF'
 #!/bin/bash
 printf '%s %s host=%s org=%s\n' "$1" "${2:-}" "${OS_HOST:-unset}" "${OS_ORG:-unset}" >> "$FAKE_HOST_LOG"
 case "$1" in
-  get-token) printf '%s\n' local-token ;;
+  get-token)
+    [ "${FAKE_TOKEN:-ok}" = "ok" ] || exit 4
+    printf '%s\n' local-token ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}' ;;
   plan-check)
     if [ "${FAKE_PLAN:-team}" = "free" ]; then
@@ -444,5 +446,42 @@ grep -q 'review-command' "$work/solo.out" && team_fail "solo upgrade printed the
 git -C "$co3" show upgrade/v1:company-profile.md | grep -qx 'level: solo' || team_fail "solo upgrade level"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "solo upgrade asked for auto-merge"
 grep -q '^upgrade: open pull requests: acme3-marketing 5, acme3-os 5\.' "$work/solo.out" || team_fail "solo last line"
+
+# B34: run the upgrade from a template copy, as a person does. The folder is left on
+# upgrade/v1, whose tree holds skills/_host/host.sh. The next run switches back to main,
+# where that file is gone. It must still find the host and finish, or print why it stops.
+tpl="$work/tpl"
+cp -R "$root/template" "$tpl"
+cp "$work/bin/host.sh" "$tpl/skills/_host/host.sh"
+co7="$work/company7"
+make_v0 "$co7" acme7-os
+: > "$FAKE_HOST_LOG"
+set +e
+env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-1.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/b34-1.out" >&2; team_fail "B34 first run exit $rc"; }
+git -C "$co7" checkout -q upgrade/v1
+git -C "$co7/areas/marketing" checkout -q upgrade/scripts
+git -C "$co7" cat-file -e upgrade/v1:skills/_host/host.sh || team_fail "B34: upgrade/v1 has no host layer"
+for mode in --dry-run ""; do
+  set +e
+  # shellcheck disable=SC2086
+  env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" $mode --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-2.out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { cat "$work/b34-2.out" >&2; team_fail "B34: run again from the upgrade branch ($mode) exit $rc"; }
+  grep -q 'switched the company folder to main from upgrade/v1' "$work/b34-2.out" || team_fail "B34: no switch to main"
+  git -C "$co7" checkout -q upgrade/v1
+  git -C "$co7/areas/marketing" checkout -q upgrade/scripts
+done
+grep -qx 'replaced: acme7-os upgrade/v1 (an earlier upgrade run made it)' "$work/b34-2.out" || team_fail "B34: run again did not replace upgrade/v1"
+# A sign-in that fails after the switch prints its line (it used to be thrown away).
+set +e
+FAKE_TOKEN=fail env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" --dry-run --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-3.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 4 ] || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure exit $rc, want 4"; }
+grep -qx 'could not read the git token' "$work/b34-3.out" || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure printed no line"; }
 
 printf '%s\n' "PASS host-upgrade"

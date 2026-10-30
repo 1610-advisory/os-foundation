@@ -102,10 +102,25 @@ fi
 [ -n "$UP_ORG" ] || UP_ORG=$(os_fm_get "$ROOT/company-profile.md" org 2>/dev/null || true)
 # The slug names every repo. It goes into company-profile.md with the other profile lines.
 SLUG=$(rules_resolve_slug || true)
+# The host layer that comes with this upgrade script first. The company folder's own copy
+# goes away when a run switches the folder from an upgrade branch back to main (B34).
+up_find_host() {
+  if [ -z "${OS_HOST_SH:-}" ] && [ -f "$DIR/../_host/host.sh" ]; then
+    printf '%s\n' "$DIR/../_host/host.sh"
+    return 0
+  fi
+  os_find_host "$ROOT" "$DIR"
+}
+
+# Git with no output. os_with_git_token still prints why it stops (B34).
+up_git_quiet() {
+  git -c credential.helper= "$@" >/dev/null 2>&1
+}
+
 HOST_ON=0
 case "$UP_HOST" in
   github|forgejo)
-    if OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
+    if OS_HOST_BIN=$(up_find_host); then
       HOST_ON=1
       export OS_HOST_BIN OS_HOST="$UP_HOST" OS_HOST_URL="$UP_HOST_URL" OS_ORG="$UP_ORG" OS_SLUG="$SLUG"
       export OS_PROFILE="$ROOT/company-profile.md"
@@ -243,7 +258,7 @@ logs_source() {
   git -C "$dir" show-ref --verify --quiet refs/heads/logs && has_local=1
   if git -C "$dir" remote get-url origin >/dev/null 2>&1; then
     if [ "$HOST_ON" -eq 1 ]; then
-      os_with_git_token git -C "$dir" fetch -q origin "+refs/heads/logs:refs/remotes/origin/logs" >/dev/null 2>&1 || true
+      os_with_git_token up_git_quiet -C "$dir" fetch -q origin "+refs/heads/logs:refs/remotes/origin/logs" || true
     else
       git -C "$dir" fetch -q origin "+refs/heads/logs:refs/remotes/origin/logs" >/dev/null 2>&1 || true
     fi
@@ -368,7 +383,7 @@ preflight_wants_host() {
     github|forgejo) ;;
     *) return 1 ;;
   esac
-  os_find_host "$ROOT" "$DIR" >/dev/null
+  up_find_host >/dev/null
 }
 
 preflight_areas() {
@@ -405,7 +420,7 @@ preflight_areas() {
   done
   [ "$found" -eq 0 ] || return 0
   preflight_wants_host || return 0
-  bin=$(os_find_host "$ROOT" "$DIR")
+  bin=$(up_find_host)
   export OS_HOST_BIN="$bin"
   for area in "$ROOT"/areas/*; do
     [ -d "$area" ] || continue
@@ -1090,7 +1105,7 @@ checks_on_main() {
   rm -f "$err"
   git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
   rm -rf "$tmp"
-  os_with_git_token git -C "$dir" fetch origin >/dev/null 2>&1 || true
+  os_with_git_token up_git_quiet -C "$dir" fetch origin || true
   printf '%s\n' "$done_line"
   reprotect "$repo"
   printf 'protected: %s\n' "$repo"
@@ -1494,7 +1509,7 @@ push_logs_tags() {
   tags=$(git -C "$dir" for-each-ref --format='%(refname)' 'refs/tags/logs-archive-*')
   [ -n "$tags" ] || return 0
   # shellcheck disable=SC2086
-  if ! os_with_git_token git -C "$dir" push -q origin $tags >/dev/null 2>&1; then
+  if ! os_with_git_token up_git_quiet -C "$dir" push -q origin $tags; then
     printf 'logs-tag: could not push the logs-archive tag to %s. Logs written to the old logs branch after this run reach main only from this computer: run skills/sync/sync.sh pull --full here after the merge.\n' "$repo"
   fi
 }
