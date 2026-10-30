@@ -52,10 +52,17 @@ as_member() {
 cleanup() {
   if [ -f "$admin_token" ]; then
     as_admin || true
+    slugs=""
     while IFS= read -r name; do
       [ -n "$name" ] || continue
       OS_PROFILE="$sandbox/cleanup-profile.md" "$HOST" delete-repo "$name" --yes-test-only >/dev/null 2>&1 || true
+      case "$name" in
+        *-os) slugs="${slugs} ${name%-os}" ;;
+      esac
     done < "$repos_file"
+    # A new company's teams carry its slug. Delete them too, or each run leaves teams.
+    # shellcheck disable=SC2086
+    "$root/tests/acme/forgejo/delete-teams.sh" "$admin_token" "$url" acme $slugs >/dev/null 2>&1 || true
   fi
   rm -rf "$sandbox" "$repos_file"
 }

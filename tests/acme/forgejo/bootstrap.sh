@@ -237,14 +237,22 @@ ensure_org() {
 
 ensure_members_team() {
   local body id code
-  osf_api "$token_dir/acme-admin" GET "/api/v1/orgs/acme/teams"
-  if [ "$OSF_HTTP_CODE" != "200" ]; then
+  local page=1 n
+  id=""
+  # Page through the teams: test runs may leave more than one page.
+  while [ -z "$id" ]; do
+    osf_api "$token_dir/acme-admin" GET "/api/v1/orgs/acme/teams?limit=50&page=${page}"
+    if [ "$OSF_HTTP_CODE" != "200" ]; then
+      osf_api_discard
+      echo "FAIL: could not list teams" >&2
+      return 1
+    fi
+    id=$(jq -r '.[] | select(.name=="members") | .id' "$OSF_HTTP_BODY")
+    n=$(jq 'length' "$OSF_HTTP_BODY")
     osf_api_discard
-    echo "FAIL: could not list teams" >&2
-    return 1
-  fi
-  id=$(jq -r '.[] | select(.name=="members") | .id' "$OSF_HTTP_BODY")
-  osf_api_discard
+    [ "$n" -ge 50 ] || break
+    page=$((page + 1))
+  done
   if [ -n "$id" ] && [ "$id" != "null" ]; then
     OSF_MEMBERS_TEAM=$id
     return 0
