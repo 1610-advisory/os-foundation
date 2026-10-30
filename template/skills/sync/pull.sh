@@ -171,9 +171,15 @@ sync_move_nested() {
   if [ "${OS_SYNC_MOVE_BACK_FAIL:-}" = "1" ]; then
     return 1
   fi
-  for d in "$repo"/areas/* "$repo"/users/*; do
-    [ -e "$d/.git" ] || continue
+  # library/ is the admin's private repo. The company repo ignores it, so a
+  # clone never has it. Move it even without a .git: media is the only copy.
+  for d in "$repo"/areas/* "$repo"/users/* "$repo"/library; do
     rel=${d#"$repo/"}
+    if [ "$rel" = "library" ]; then
+      [ -e "$d" ] || continue
+    else
+      [ -e "$d/.git" ] || continue
+    fi
     if [ -e "$dest/$rel" ]; then
       return 1
     fi
@@ -186,12 +192,19 @@ sync_move_nested() {
 }
 
 # A temp tree that still has a git dir is left in place. Never delete it.
+# repo, when given, is the company folder library/ belongs in.
 sync_rm_temp() {
   local tree=$1
   local id=$2
+  local repo=${3:-}
   local found
   if [ ! -e "$tree" ]; then
     return 0
+  fi
+  # library/ may have no .git, and its media is the only copy. Say where it goes back.
+  if [ -e "$tree/library" ]; then
+    sync_pull_fail "$id" "reclone: library at ${tree}/library -> ${repo:-the company folder}/library"
+    return 1
   fi
   # Skip the clone's own top-level .git. A nested repo is deeper.
   found=$(find "$tree" -mindepth 2 -name .git -print -prune 2>/dev/null | head -n 1 || true)
@@ -212,7 +225,7 @@ sync_reclone_restore() {
   if [ -d "$repo" ] && [ -d "$old" ]; then
     mv "$repo" "$new.fail" 2>/dev/null || true
     mv "$old" "$repo" 2>/dev/null || true
-    sync_rm_temp "$new.fail" "$id" || return 1
+    sync_rm_temp "$new.fail" "$id" "$repo" || return 1
   fi
   return 0
 }
@@ -243,7 +256,7 @@ sync_reclone() {
     [ -n "$path" ] || continue
     [ -f "$repo/$path" ] || continue
     case "$path" in
-      areas/*|users/*) continue ;;
+      areas/*|users/*|library/*) continue ;;
     esac
     hit=0
     if [ -s "$rules" ]; then
@@ -331,6 +344,10 @@ sync_pull_fail() {
     "v0 catch-up: "*) plain="${reason#v0 catch-up: }." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
+    "reclone: library at "*)
+      detail=${reason#reclone: library at }
+      plain="the library at ${detail%% -> *} is the only copy: move it back to ${detail#* -> }. Then check the rest of ${detail%%/library -> *} and delete it."
+      ;;
     reclone*)
       detail=${reason#reclone}
       detail=${detail#: }

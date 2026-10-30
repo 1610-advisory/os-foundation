@@ -16,7 +16,7 @@ Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question
 
 The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
 
-Already have a Notion workspace, Drive folder, or brand guide? Setup helps you choose what stays there and what, if anything, you'd like to move. It records where the authoritative material lives and how to access it. Migration and daily sync aren't required.
+Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
 
 | Agent | How to start |
 |---|---|
@@ -41,6 +41,7 @@ Rather do it by hand? `git clone https://github.com/1610-advisory/os-foundation.
 │   └── logs/                 one short log per person per day
 ├── skills/                   your SOPs, written down for the agent
 ├── .agents/skills, .claude/skills   links to skills/, so every agent finds them
+├── library/                  private, owner and admin only: full copies of sources you chose
 └── areas/                    one folder per area of the business
     ├── marketing/
     ├── finance/
@@ -65,9 +66,9 @@ Other [Anthropic skills](https://github.com/anthropics/skills) are available to 
 
 ## Yours, not ours
 
-- **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki; the folder doesn't have to replace it.
-- **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It is not a second copy of a wiki you already use.
-- **Your privacy.** Your company folder stays on your computer and in your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords. Your AI provider still receives prompts and files for processing under its own settings and policies: local storage does not mean local-only AI. `privacy.md` in your folder lists every place a copy sits, and only the places that are on.
+- **You own it.** Your company OS is a folder you choose on your computer. It does not depend on this repo after setup. Existing knowledge can stay in Notion, Drive, or a wiki. For any source you choose, the folder keeps its own copy, so leaving a tool does not mean losing what it held.
+- **GitHub is optional, and later.** It helps when a teammate needs a copy of these working files, or when their changes should come back to you for review. It holds a copy of a wiki you already use only if you chose to copy it.
+- **Your privacy.** Your company folder stays on your computer and in your own GitHub. Nothing goes to 1610 unless you send it. Connections use each tool's own sign-in, and we never see your passwords. Your AI provider still receives prompts and files for processing under its own settings and policies: local storage does not mean local-only AI. The more the folder holds, the more an agent can read. `privacy.md` in your folder lists every place a copy sits, and only the places that are on.
 - **No tracking.** Nothing in your company OS reports back. The only number we see is how many times the setup file is fetched.
 
 ## Toolkits

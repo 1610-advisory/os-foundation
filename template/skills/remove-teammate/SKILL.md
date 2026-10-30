@@ -27,13 +27,13 @@ The script refuses to remove the last admin. If this person is the last admin, h
 
 Run `skills/remove-teammate/remove.sh --person <slug>`. Add `--new-bot-owner <slug>` when the admin named someone other than the manager. With no flag, the script uses the manager, else the admin.
 
-After the revokes, the script asks the host what access the person still has: any pending org invite (`host.sh invites`), org membership (`host.sh org-membership`), and access on the company repo, each area repo and their workspace (`host.sh user-access`). The areas are the ones on their page, the ones checked out here, and every repo their teams grant. An area that is not checked out here still counts. An answer the host cannot give counts as still there. A pending invite counts as access: the person would get in the moment they accept. It prints `revoked:` only when nothing is left. Otherwise it lists each place that still has access and exits with an error.
+After the revokes, the script asks the host what access the person still has: any pending org invite (`host.sh invites`), org membership (`host.sh org-membership`), and access on the company repo, each area repo, their workspace and the admin's library repo `<slug>-library` when it exists (`host.sh user-access`). The areas are the ones on their page, the ones checked out here, and every repo their teams grant. An area that is not checked out here still counts. An answer the host cannot give counts as still there. A pending invite counts as access: the person would get in the moment they accept. It prints `revoked:` only when nothing is left. Otherwise it lists each place that still has access and exits with an error.
 
 If it exits with an error, tell the admin the exact message and each repo it lists. Never say access is gone unless the script printed `revoked:`. Fix the cause it names and run it once more. If it stops again, stop.
 
 ## 3. What it does, in this order
 
-1. **Revoke first.** It removes the person from their teams, from each repo grant and from the org. It cancels every pending invite too, for a person who never accepted. Their sign-in no longer reaches any company repo.
+1. **Revoke first.** It removes the person from their teams, from each repo grant (the library repo too, which admins get by a direct grant) and from the org. It cancels every pending invite too, for a person who never accepted. Their sign-in no longer reaches any company repo.
 2. **Workspace.** It archives their workspace repo. Only the admin can read it. The company keeps it. The admin may turn on deletion.
 3. **People page.** It sets `left:` to today on their page in `people/`. The page stays.
 4. **Bots.** Each bot they owned gets the new `owner:` in its `BOT.md`.
@@ -58,9 +58,9 @@ The person accepted this when they joined (`joining-terms.md`). No step is neede
 
 - A day counts only when all three are true: the helper ran, their sign-in works, and the company repo says "no access".
 - Days with the computer off or offline do not count. An expired sign-in does not count.
-- After 14 counted days, the helper deletes the company folder. It warns on that computer first.
+- After 14 counted days, the helper deletes the company folder. It warns on that computer first. If the folder holds `library/`, it deletes nothing and holds instead: library media is never pushed, so that folder is its only copy. The admin moves `library/` out first.
 - So leave, holiday or a dead laptop never deletes anything. Only removed access does.
-- If it ever deletes by mistake: everything pushed is on the host. Run Part B of `add-teammate` again. It takes minutes.
+- If it ever deletes by mistake: everything pushed is on the host. Run Part B of `add-teammate` again. It takes minutes. Library media and data are never pushed, which is why the helper never deletes a folder that holds `library/`.
 
 Copies outside the folder (agent transcripts, backups, hand copies) are the person's to delete. They agreed to that when they joined.
 

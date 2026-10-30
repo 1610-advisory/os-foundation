@@ -68,6 +68,7 @@ grep -q '^level: team$' "$company/company-profile.md" || team_fail "level not se
 [ -L "$company/.agents/skills" ] || team_fail "link missing"
 [ "$(readlink "$company/.agents/skills")" = "../skills" ] || team_fail "link target wrong"
 grep -q '/memory/logs/' "$company/.gitignore" && team_fail "logs ignore line remains"
+git -C "$company" show HEAD:.gitignore | grep -qx '/library/' || team_fail "library ignore line missing"
 [ "$(team_sha "$company/notes/ours.md")" = "$before_notes" ] || team_fail "company note changed"
 [ "$(team_sha "$company/skills/lint/SKILL.md")" = "$before_skill" ] || team_fail "edited skill changed"
 [ "$(team_sha "$company/skills/lint/ours.md")" = "$before_ours" ] || team_fail "company skill file changed"

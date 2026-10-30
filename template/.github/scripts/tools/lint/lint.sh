@@ -223,9 +223,11 @@ if [ -d "$ROOT/areas" ]; then
 fi
 
 # Placeholders outside skills/. Skip .github/: workflow files use the actions form.
+# Skip library/: the admin's private repo of copies, never edited.
 ph=$(mktemp)
 find "$ROOT" -type f \
   -not -path "$ROOT/skills/*" \
+  -not -path "$ROOT/library/*" \
   -not -path "$ROOT/.github/*" \
   -not -path "$ROOT/.git/*" \
   -not -path "$ROOT/areas/*/.git/*" \

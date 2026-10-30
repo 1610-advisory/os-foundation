@@ -147,6 +147,22 @@ for area in $AREAS; do
 done
 add_repo "$WS_REPO"
 
+# The admin's private library repo has direct grants, not a team. When it exists, clear
+# it like the others. An answer the host cannot give is not checked, never gone.
+LIB_REPO="${SLUG}-library"
+set +e
+os_host repo-access "$LIB_REPO" >/dev/null 2>&1
+rc=$?
+set -e
+case "$rc" in
+  0) add_repo "$LIB_REPO" ;;
+  2) ;;
+  *)
+    STILL="${STILL} ${LIB_REPO} (not checked)"
+    failed=1
+    ;;
+esac
+
 # A person who never accepted has pending invites, not membership. Cancel those too,
 # or they get access the moment they accept.
 for area in $AREAS; do

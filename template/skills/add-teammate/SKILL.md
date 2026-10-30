@@ -61,6 +61,7 @@ Never run it for them, ask for the key in the chat, or read it back.
    - `the gh sign-in needs admin:org and workflow`: it stopped before any change. The admin runs `gh auth refresh -s admin:org,workflow`, then run it again.
    - `push refused for <repo>: the sign-in cannot write workflow files`: same fix, then run it again. The second run pushes the repo it left empty before it protects it.
 4. If it stops with an error, tell the admin the exact message. Fix the cause it names (if it names `sync.sh propose`, propose those files), then run it again once. A second run changes nothing already done. If it stops again, stop. Do not say the team level is on.
+5. **The library.** Only if `library/.git` exists on this computer: run step 3 of "Make it" in `library/README.md` now. That makes a private `{{COMPANY_SLUG}}-library` repo, grants it to admins only, and runs the access gate. Push only when every teammate's output is exactly `{"access":"none"}`. Any other output or any error: push nothing, stop, and tell the admin. The rest of the team level still stands.
 
 ### A5. Explain what turned on
 
@@ -76,6 +77,8 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 ### A6. Add one more person later
 
 Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
+
+If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 
 A new area later: run `add-area`.
 

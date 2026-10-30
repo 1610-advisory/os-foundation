@@ -8,6 +8,10 @@ Your company folder stays on your computer and in your own GitHub. Nothing goes 
 when: always
 Your computer holds the company folder and every area repo you can read; anyone who can open your computer account can read it, and it stays until you delete it.
 
+## library
+when: always
+If the admin keeps a library (`library/`, full copies of sources the company chose to copy), it is its own repo on the admin's computer and, at the team level, a private repo on the git host that only the owner and admins can read; its text is in git, its photos, audio, video and `data/` stay on that one computer until a later version syncs them, the AI vendor reads whatever the admin's agent reads from it, and each copy is removed when its retention says or when the admin deletes it.
+
 ## team-computers
 when: level: team
 Each teammate's computer holds a full copy of every repo their account can read; they and anyone who can open their computer account can read it, and the device helper deletes the company folder after the company removes their access.

@@ -24,7 +24,7 @@ Checks the company folder. Exit 0 when nothing is wrong. Exit 1 when there is a 
 3. No `logs` branch check. A `logs` branch is not a finding.
 4. `level` is `solo`, `team`, or `app`. Each `switches` name is a v1 switch (`bots`, `traces`, `cloud-handoff`, `mdx-reports`, `benchmarks`) or a name in the first column of the table in `scale.md`. `dream` is a finding.
 5. Agent rules files are under 10,000 characters: `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, and `bots/*/BOT.md`, at the root and in each area. Other files under `skills/` are not sized here. `skill-creator` ships a longer `SKILL.md` on purpose.
-6. No `{{...}}` outside `skills/`.
+6. No `{{...}}` outside `skills/` and `library/` (the admin's private repo of copies).
 7. A simple check that `users/<person>/profile/PROFILE.md` does not contain the company slug or the company name from the profile heading. The nightly check is the real one.
 
 ## Notices (not findings, not with `--ci`)

@@ -1262,6 +1262,10 @@ copy_skill_files
 if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
 fi
+# library/ is the admin's private repo. Never let the company repo take it in.
+if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/library/' "$ROOT/.gitignore"; then
+  printf '%s\n' "/library/" >> "$ROOT/.gitignore"
+fi
 
 refresh_check_tools() {
   local src

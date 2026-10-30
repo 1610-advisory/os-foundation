@@ -309,6 +309,35 @@ class SyncLocalTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((outside / "company-profile.md").exists())
 
+    def test_helper_keeps_a_folder_that_holds_the_library(self):
+        host = self.tmp / "fake-host3"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' '{\"access\":\"no-access\"}'\nexit 2\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"photo")
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        days = [f"2026-10-{day:02d}" for day in range(1, 14)]
+        (state / "helper.json").write_text(json.dumps({"days": days, "warned": True}))
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["OS_NOW"] = "2026-10-14"
+        result = self.sync("helper", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("library/ in it is the only copy of local media", result.stdout)
+        self.assertEqual((media / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((self.company / "company-profile.md").exists())
+        self.assertIn("helper hold library", (state / "sync.log").read_text())
+        status = self.sync("status")
+        self.assertIn("library/ is the only copy of local media", status.stdout)
+
     def test_collect_cases(self):
         write_profile(self.company / "company-profile.md", "app", ["traces"])
         bravo = self.home / "bravo"
@@ -1825,6 +1854,91 @@ class SyncFixTests(unittest.TestCase):
         status = self.sync("status")
         self.assertIn(".sync-reclone-", status.stdout)
         self.assertTrue(any(p.is_dir() for p in self.company.parent.glob(".sync-reclone-*")))
+
+    def push_rewrite(self, bare, stamp):
+        orphan = self.tmp / f"orphan-{stamp}"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        (orphan / ".gitignore").write_text("/library/\n")
+        run(["git", "-C", str(orphan), "add", "README.md", ".gitignore"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        name = f"os-rewrite-{stamp}"
+        run(["git", "-C", str(orphan), "tag", "-a", name, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", f"refs/tags/{name}"], env=self.env, check=True)
+
+    def make_library(self):
+        lib = self.company / "library"
+        (lib / "transcripts").mkdir(parents=True)
+        (lib / "media" / "ab").mkdir(parents=True)
+        (lib / ".gitignore").write_text("/media/*\n!/media/LOCAL.md\n")
+        (lib / "transcripts" / "2026-10-24 Kickoff.md").write_text("transcript\n")
+        run(["git", "init", "-q", "-b", "main", str(lib)], env=self.env, check=True)
+        run(["git", "-C", str(lib), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(lib), "commit", "-q", "-m", "Library: start"], env=self.env, check=True)
+        # Media is git-ignored: this file exists only on this computer.
+        (lib / "media" / "ab" / "ab12.jpg").write_bytes(b"photo")
+        (lib / "transcripts" / "unpushed.md").write_text("not committed\n")
+        return lib
+
+    def test_rewrite_keeps_the_library(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235956")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("pull reclone", log)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((lib / "transcripts" / "unpushed.md").exists())
+        head = run(["git", "-C", str(lib), "log", "-1", "--format=%s"], env=self.env, check=True)
+        self.assertEqual(head.stdout.strip(), "Library: start")
+        self.assertFalse(list(self.company.parent.glob(".sync-old-*")))
+
+    def test_failed_rewrite_puts_the_library_back(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235955")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+
+    def test_failed_move_back_never_deletes_a_library_without_git(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"only copy")
+        self.push_rewrite(bare, "20261024235954")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "after-nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        found = [p for p in self.tmp.rglob("ab12.jpg") if p.read_bytes() == b"only copy"]
+        self.assertTrue(found, "library media was deleted")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("reclone: library at", log)
+        # The person is told where the only copy is and where it goes, never "delete it".
+        status = self.sync("status")
+        kept = found[0].parents[2]
+        self.assertEqual(kept.name, "library")
+        line = [l for l in status.stdout.splitlines() if "the library at" in l]
+        self.assertTrue(line, status.stdout)
+        # Compare path tails: macOS temp paths may resolve through /private.
+        self.assertIn(f"/{kept.parent.name}/library is the only copy: move it back to ", line[0])
+        self.assertIn(f"/{self.company.name}/library. Then check the rest of ", line[0])
+        self.assertNotIn("Check it, then delete it", status.stdout)
+        self.assertFalse((self.company / "library").exists())
 
     def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
         self.seed_origin()

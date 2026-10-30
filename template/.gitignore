@@ -4,6 +4,9 @@
 # Each person's workspace is its own private repo (team level).
 /users/
 
+# The library is its own private repo: owner and admin only.
+/library/
+
 # Secrets and machine files
 .env
 .env.*

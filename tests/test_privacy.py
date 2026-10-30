@@ -31,6 +31,7 @@ APP_DB = "log of every connector call"
 CONNECTOR = "queue of suggestions not yet reviewed"
 CLOUD = "cloud coding agent"
 GIT_HOST = "rewrites it with `remove-leak`"
+LIBRARY = "only the owner and admins can read"
 
 
 def run(script, root, *args, cwd=None):
@@ -94,9 +95,9 @@ class PrivacyTests(unittest.TestCase):
 
     def test_solo_team_and_switch_fixtures_match_bytes(self):
         cases = (
-            ("solo", "solo", [], 6),
-            ("team", "team", [], 11),
-            ("team-bots-traces", "team", ["bots", "traces"], 12),
+            ("solo", "solo", [], 7),
+            ("team", "team", [], 12),
+            ("team-bots-traces", "team", ["bots", "traces"], 13),
         )
         for name, level, switches, count in cases:
             with self.subTest(name=name):
@@ -135,6 +136,7 @@ class PrivacyTests(unittest.TestCase):
         both = (FIXTURES / "team-bots-traces" / "privacy.md").read_text()
         for text in (solo, team, both):
             self.assertIn("Your computer holds the company folder", text)
+            self.assertIn(LIBRARY, text)
             self.assertNotIn(TRACES, text)
             self.assertNotIn(APP_DB, text)
             self.assertNotIn(CONNECTOR, text)
@@ -276,7 +278,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn(CONNECTOR, text)
         self.assertNotIn(BOTS, text)
         self.assertNotIn(CLOUD, text)
-        self.assertEqual(result.stdout.decode(), "privacy.md: 14 places\n")
+        self.assertEqual(result.stdout.decode(), "privacy.md: 15 places\n")
 
     def test_unknown_level_fails(self):
         text = "---\nlevel: tema\nswitches: []\n---\n"
@@ -388,7 +390,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn(BOTS, text)
         self.assertIn(TEAM_COMPUTERS, text)
         self.assertNotIn(TRACES, text)
-        self.assertEqual(result.stdout.decode(), "privacy.md: 14 places\n")
+        self.assertEqual(result.stdout.decode(), "privacy.md: 15 places\n")
 
         brackets = (
             "#!/bin/bash\n"
