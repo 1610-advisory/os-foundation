@@ -378,8 +378,13 @@ esac
 if [ -z "$text" ]; then
   fail "model review failed: no verdict"
 fi
+# A finding fails the review. Keep the review's own text in the comment and the job log,
+# so people can see what it found (B36).
 if printf '%s\n' "$text" | grep -q '^FINDING:'; then
-  fail "model review failed: the review reported a finding"
+  write_out "$text"
+  printf '\n%s\n' "model review failed: the review reported a finding" >> "$out_file"
+  printf '%s\n' "model review failed: the review reported a finding" >&2
+  exit 1
 fi
 verdict=$(last_verdict "$text")
 case "$verdict" in

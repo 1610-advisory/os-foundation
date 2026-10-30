@@ -915,7 +915,11 @@ class ReviewParseTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the review reported a finding", result.stderr)
-        self.assertIn("the review reported a finding", self.out.read_text(encoding="utf-8"))
+        out = self.out.read_text(encoding="utf-8")
+        self.assertIn("the review reported a finding", out)
+        # B36: the comment keeps what the review found.
+        self.assertIn("FINDING: 1 a.md:1 Bad.", out)
+        self.assertIn("VERDICT: PASS", out)
 
 
 class GithubStatusTests(unittest.TestCase):
