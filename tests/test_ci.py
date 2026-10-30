@@ -286,6 +286,101 @@ class ReviewErrorTests(unittest.TestCase):
         self.assertNotIn("\r", cfg)
 
 
+class ReviewRetryTests(unittest.TestCase):
+    """B32: a busy vendor (429 or 5xx) gets 3 tries in about 2 minutes, honouring Retry-After."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, text in (("rules.md", "Review rules.\n"), ("title", "t\n"), ("body", "b\n"), ("diff", "ok\n")):
+            (self.root / name).write_text(text, encoding="utf-8")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        # Each call answers the next "<code>[:<retry-after>]" in FAKE_SEQ.
+        curl = self.bin / "curl"
+        curl.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import os, sys
+            from pathlib import Path
+            cfg = Path(sys.argv[sys.argv.index("--config") + 1]).read_text(encoding="utf-8")
+            def opt(name):
+                return [l.split("=", 1)[1].strip().strip('"') for l in cfg.splitlines() if l.startswith(name + " = ")][0]
+            count = Path(os.environ["FAKE_COUNT"])
+            n = int(count.read_text()) if count.exists() else 0
+            count.write_text(str(n + 1))
+            code, _, after = os.environ["FAKE_SEQ"].split(",")[n].partition(":")
+            head = "HTTP/2 " + code + "\\r\\n"
+            if after:
+                head += "retry-after: " + after + "\\r\\n"
+            Path(opt("dump-header")).write_text(head + "\\r\\n", encoding="utf-8")
+            if code == "200":
+                body = '{"choices":[{"message":{"content":"SUMMARY: ok\\\\nVERDICT: PASS"}}]}'
+            else:
+                body = '{"error":{"message":"The model is at capacity"}}'
+            Path(opt("output")).write_text(body, encoding="utf-8")
+            sys.stdout.write(code)
+            """), encoding="utf-8")
+        curl.chmod(0o755)
+        sleep = self.bin / "sleep"
+        sleep.write_text('#!/bin/sh\nprintf \'%s\\n\' "$1" >> "$FAKE_SLEEPS"\n', encoding="utf-8")
+        sleep.chmod(0o755)
+
+    def review(self, seq):
+        count = self.root / "count"
+        count.unlink(missing_ok=True)
+        sleeps = self.root / "sleeps"
+        sleeps.write_text("", encoding="utf-8")
+        result = run(
+            ["bash", str(SCRIPTS / "model-review.sh"), "--rules", str(self.root / "rules.md"),
+             "--title-file", str(self.root / "title"), "--body-file", str(self.root / "body"),
+             "--diff-file", str(self.root / "diff"), "--out", str(self.root / "out")],
+            env={
+                "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                "OS_REVIEW_KEY": KEY,
+                "OS_REVIEW_VENDOR": "xai",
+                "FAKE_SEQ": seq,
+                "FAKE_COUNT": str(count),
+                "FAKE_SLEEPS": str(sleeps),
+            },
+        )
+        return result, int(count.read_text()), sleeps.read_text().split()
+
+    def test_429_then_200_passes_after_retry_after(self):
+        result, calls, sleeps = self.review("429:7,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, 2)
+        self.assertEqual(sleeps, ["7"])
+        self.assertIn("VERDICT: PASS", (self.root / "out").read_text(encoding="utf-8"))
+
+    def test_5xx_backs_off_without_retry_after(self):
+        result, calls, sleeps = self.review("503,502,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+
+    def test_retry_after_is_capped(self):
+        result, calls, sleeps = self.review("429:600,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sleeps, ["60"])
+
+    def test_still_busy_after_three_tries_fails_plainly(self):
+        result, calls, sleeps = self.review("429,500,429:30,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+        self.assertIn("the review service is busy: re-run the checks later", result.stderr)
+        self.assertEqual(
+            (self.root / "out").read_text(encoding="utf-8"),
+            "the review service is busy: re-run the checks later\n",
+        )
+        self.assertNotIn(KEY, result.stdout + result.stderr)
+
+    def test_other_errors_are_not_retried(self):
+        result, calls, sleeps = self.review("401,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (1, []))
+        self.assertIn("the review API returned HTTP 401", result.stderr)
+
+
 class ToolCopyTests(unittest.TestCase):
     def test_every_tool_copy_matches_its_source(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"
