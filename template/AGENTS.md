@@ -59,11 +59,11 @@ An area may tighten this table. It may never loosen it.
 Solo: commit to `main` after each piece of real work, logs included. One line per message: what changed.
 
 [team]:
-- Nobody writes to `main`. The admin is included.
+- Nobody writes to `main`, the admin included.
 - Notes and logs go on your branch `sync/<person>`. The nightly `sync` push puts them on one standing PR. It merges by itself when the checks pass.
-- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
+- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
 - Every rules PR gets a review by a different model first (`review-rules.md`).
-- Area rules: after the review, the area director approves with one click.
+- Area rules: after the review, the area director approves.
 - Company-root rules: after the review, the admin approves.
 - Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin's approval. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: the review is enough.
 - A failed review blocks the merge. Only the admin may override it. The admin must write the reason in the PR. The check logs it.
@@ -123,8 +123,8 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Existing knowledge
 
-- `memory/existing-sources.md` lists each source, its mode (`index` or `copy`) and where it is edited.
-- `library/` is the admin's private repo. Teammates never read, clone or make it. Admin: `me` (section 11) names a page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
+- `memory/existing-sources.md`: each source, its mode (`index` or `copy`), where it is edited.
+- `library/` is the admin's private repo. Teammates never read, clone or make it. Admin: `me` names a page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
 
 ## Conventions
 

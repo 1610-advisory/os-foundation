@@ -287,5 +287,18 @@ class LibraryFolderTests(unittest.TestCase):
         self.assertIn("If the folder holds `library/`, it deletes nothing and holds instead", text)
         self.assertIn("Library media and data are never pushed", text)
 
+    def test_rules_file_list_names_the_spill_files(self):
+        rules = (TEMPLATE / "AGENTS.md").read_text()
+        line = [l for l in rules.splitlines() if l.startswith("- Rules files (any")][0]
+        for name in ("`company-rules.md`", "`area-rules.md`", "`AGENTS.md`", "`skills/**`"):
+            self.assertIn(name, line)
+        self.assertLess(len(rules), 9000)
+
+    def test_changelog_line_is_in_the_unreleased_v1_section(self):
+        log = (ROOT / "CHANGELOG.md").read_text()
+        v1 = log.split("## v1.0.0 — unreleased")[1].split("\n## ")[0]
+        self.assertIn("**The folder can keep its own copy.**", v1)
+        self.assertNotIn("v1.1", log.split("## v1.0.0")[0])
+
 if __name__ == "__main__":
     unittest.main()
