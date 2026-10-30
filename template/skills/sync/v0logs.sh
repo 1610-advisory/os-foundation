@@ -113,7 +113,7 @@ v0logs_push() {
 # added that <ref> touches too stops a plain fast-forward. Then only those files are kept
 # aside, the folder resets to <ref>, and they come back: the person's copy stays, and when
 # <ref> has other text for it, that text goes beside it (v0logs_beside). Every other file
-# takes the text at <ref>. If any step fails, the folder goes back as it was (v0logs_undo),
+# takes the text at <ref>. If any step fails, the folder stays or goes back as it was (v0logs_undo),
 # so the next run starts from the same place. It prints one plain line to stderr and
 # returns 1.
 v0logs_follow() {
@@ -136,9 +136,17 @@ v0logs_follow() {
       bad=1
     fi
   done < "$keep/.list"
-  if [ "$bad" -ne 0 ] || ! git -C "$wt" reset -q --hard "$ref" >/dev/null 2>&1; then
-    v0logs_undo "$wt" "$old" "$keep" || true
-    printf 'could not bring memory/logs up to the host'"'"'s logs branch. Nothing was removed. A copy of the files changed here is in %s. Check the free disk space, then run this again\n' "$keep" >&2
+  # The copy aside failed: nothing in memory/logs was touched yet, so leave it as it is.
+  if [ "$bad" -ne 0 ]; then
+    printf 'could not keep aside the files changed here before bringing memory/logs up to the host'"'"'s logs branch. memory/logs was not changed. A part copy is in %s. Check the free disk space, then run this again\n' "$keep" >&2
+    return 1
+  fi
+  if ! git -C "$wt" reset -q --hard "$ref" >/dev/null 2>&1; then
+    if v0logs_undo "$wt" "$old" "$keep"; then
+      printf 'could not bring memory/logs up to the host'"'"'s logs branch, so memory/logs is back as it was. Nothing was removed. A copy of the files changed here is also in %s. Check the free disk space, then run this again\n' "$keep" >&2
+    else
+      printf 'could not bring memory/logs up to the host'"'"'s logs branch. A copy of the files changed here is in %s. Copy them back into memory/logs, then run this again\n' "$keep" >&2
+    fi
     return 1
   fi
   while IFS= read -r rel; do
@@ -170,10 +178,11 @@ v0logs_follow() {
 # again. Returns 1 when a step fails.
 v0logs_undo() {
   local wt=$1 old=$2 keep=$3 rel bad=0
-  git -C "$wt" reset -q --hard "$old" >/dev/null 2>&1 || bad=1
+  # Before the reset: a beside name can be a file <old> tracks, which the reset brings back.
   while IFS= read -r rel; do
     rm -f "$wt/$rel" || bad=1
   done < "$keep/.beside"
+  git -C "$wt" reset -q --hard "$old" >/dev/null 2>&1 || bad=1
   if [ -d "$keep/files" ]; then
     cp -Rp "$keep/files/." "$wt/" 2>/dev/null || bad=1
   fi
