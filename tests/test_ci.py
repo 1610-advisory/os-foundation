@@ -824,6 +824,19 @@ class PathMatchTests(unittest.TestCase):
         self.assertTrue(self.match("glob", "areas/x/AGENTS.md", "areas/x/AGENTS.md"))
         self.assertFalse(self.match("glob", "areas/x/AGENTS.md", "AGENTS.md"))
         self.assertFalse(self.match("regex", r".*AGENTS\.md", "AGENTS.md.extra"))
+        # Item 9: the owner lines match at any depth.
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "projects/launch/AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "skills/ingest/SKILL.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertFalse(self.match("glob", "**/skills/", "skills"))
+        self.assertFalse(self.match("glob", "**/skills/", "notes/skills.md"))
+        self.assertTrue(self.match("glob", "/skills/", "skills/ingest/SKILL.md"))
+        self.assertFalse(self.match("glob", "/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertTrue(self.match("glob", "docs/", "docs/a.md"))
+        self.assertTrue(self.match("glob", "docs/", "x/docs/a.md"))
+        self.assertTrue(self.match("regex", r"^(.*/)?AGENTS\.md$", "projects/launch/AGENTS.md"))
+        self.assertFalse(self.match("regex", r"^(.*/)?AGENTS\.md$", "AGENTS.md.bak"))
 
 
 class ReviewParseTests(unittest.TestCase):

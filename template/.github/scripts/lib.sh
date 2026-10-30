@@ -174,24 +174,32 @@ ci_path_match() {
         anchored = 1
         pat = substr(pat, 2)
       }
+      # A folder pattern (a trailing /) matches each file under a matching folder.
+      dir = 0
       if (pat != "" && substr(pat, length(pat), 1) == "/") {
         pat = substr(pat, 1, length(pat) - 1)
-        if (index(path, pat) == 1 && (length(path) == length(pat) || substr(path, length(pat) + 1, 1) == "/")) exit 0
-        exit 1
+        dir = 1
       }
-      if (anchored || index(pat, "/") > 0) {
-        if (gm(pat, path)) exit 0
-        exit 1
-      }
-      if (gm(pat, path)) exit 0
       n = split(path, segs, "/")
       acc = ""
-      for (i = n; i >= 1; i--) {
-        if (acc == "") acc = segs[i]
-        else acc = segs[i] "/" acc
-        if (gm(pat, acc)) exit 0
+      for (i = 1; i <= n; i++) {
+        acc = (i == 1) ? segs[1] : acc "/" segs[i]
+        if (dir && i == n) break
+        if (!dir && i < n) continue
+        if (fm(pat, acc)) exit 0
       }
       exit 1
+    }
+    # Anchored, or with a / inside: from the root. Else at any depth.
+    function fm(p, s,   k, m, parts, tail) {
+      if (anchored || index(p, "/") > 0) return gm(p, s)
+      m = split(s, parts, "/")
+      tail = ""
+      for (k = m; k >= 1; k--) {
+        tail = (tail == "") ? parts[k] : parts[k] "/" tail
+        if (gm(p, tail)) return 1
+      }
+      return 0
     }
   '
 }

@@ -1191,7 +1191,7 @@ printf '%s\n' '# Sample' > "$src/skills/sample/SKILL.md"
 trap 'cleanup; os_cleanup' EXIT
 os_codeowners "$src" "$(os_at_users acme-admin acme-director)" "$(os_forgejo_owner acme-admin acme-director)"
 if [ -f "$src/CODEOWNERS" ] || [ ! -f "$src/.gitea/CODEOWNERS" ] \
-  || ! grep -F -x -q '^skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \
+  || ! grep -F -x -q '^(.*/)?skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \
   || grep -q acme-admin "$src/.gitea/CODEOWNERS" \
   || ! grep -F -q '/.gitea/ @acme-director @acme-admin' "$src/.github/CODEOWNERS"; then
   fail "area rules uses product owners"

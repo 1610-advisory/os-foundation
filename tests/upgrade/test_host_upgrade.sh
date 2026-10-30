@@ -146,7 +146,7 @@ for repo in acme2-os acme2-marketing; do
   git --git-dir "$bare" show main:.github/review.conf | grep -qx 'vendor=xai' || team_fail "$repo review.conf vendor"
   # v1 owners: rules files only, so notes merge on green checks.
   git --git-dir "$bare" show main:.github/CODEOWNERS | grep -q '^\* ' && team_fail "$repo kept the v0 '*' owner line"
-  git --git-dir "$bare" show main:.github/CODEOWNERS | grep -qx '/AGENTS.md @acme-admin' || team_fail "$repo v1 owners"
+  git --git-dir "$bare" show main:.github/CODEOWNERS | grep -qx '**/AGENTS.md @acme-admin' || team_fail "$repo v1 owners"
   # Item 26: the company's own line stays, after the rules lines, so it still wins.
   if [ "$repo" = "acme2-os" ]; then
     owners_main=$(git --git-dir "$bare" show main:.github/CODEOWNERS)
