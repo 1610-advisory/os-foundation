@@ -152,7 +152,7 @@ for repo in acme2-os acme2-marketing; do
     owners_main=$(git --git-dir "$bare" show main:.github/CODEOWNERS)
     printf '%s\n' "$owners_main" | grep -qx '/docs/legal/ @acme-counsel' || team_fail "upgrade dropped a company CODEOWNERS line"
     [ "$(printf '%s\n' "$owners_main" | grep -n '^/docs/legal/' | cut -d: -f1)" -gt \
-      "$(printf '%s\n' "$owners_main" | grep -n '^/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
+      "$(printf '%s\n' "$owners_main" | grep -n -F '**/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
   fi
   # Only check files: no company content on main.
   changed=$(git --git-dir "$bare" diff --name-only main~1 main | grep -v '^\.github/' | grep -v '^\.gitea/' || true)
