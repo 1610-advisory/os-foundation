@@ -181,6 +181,10 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
 4. Clones `users/<me>/` from `<slug>-user-<me>`. A missing workspace is an error: `your workspace <repo> is not reachable: ask the admin`. Join exits non-zero.
 5. Writes `me` under the config dir.
+   Then it checks the engine (`OS_SYNC_ENGINE`, else `sync_engine:`). Each stop below is exit 3, before any job is installed:
+   - Not on `PATH`, but `~/.local/bin/claude` (or `claude.exe`) is there: `Claude Code is in ~/.local/bin, but that folder is not on PATH.` with the step. Mac, Linux: the line to add to the shell profile (`~/.zshrc`, `~/.bash_profile` or `~/.bashrc`). Windows: add `%USERPROFILE%\.local\bin` to the user PATH. Join never changes `PATH`.
+   - Not on `PATH` at all: the install line (`Claude Code CLI: ...`, or `install <tool> and put it on PATH`).
+   - `claude`: one short call, the engine command with "Print the word ok and nothing else." on stdin, at most `OS_ENGINE_TIMEOUT` seconds (default 60). No `ok` in the answer: `sign in once: run claude, sign in, then /exit`. Another engine is not called.
 6. Runs `skills/sync/sync.sh install-jobs` when that file exists.
 7. Writes one profile pointer in each agent config that exists. It does not overwrite other lines. A second run does not add a second line.
    - Claude Code: `~/.claude/CLAUDE.md` gets `@<root>/users/<me>/profile/PROFILE.md` when `~/.claude` exists.

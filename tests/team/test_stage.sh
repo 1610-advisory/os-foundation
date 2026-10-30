@@ -209,6 +209,61 @@ git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q 
 grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the local page is not dated"
 git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync/sam (55: temp worktree only)"
 
+# Item 11 (a): claude is in ~/.local/bin but not on PATH. Join says so, gives the step,
+# and stops before the jobs. A PATH with no claude on it, even when this computer has one.
+nocl="$work/nocl"
+mkdir -p "$nocl" "$work/home/.local/bin"
+path_nocl="$nocl"
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+  if [ -e "$d/claude" ]; then
+    for f in "$d"/*; do
+      [ "$(basename "$f")" = "claude" ] || ln -sf "$f" "$nocl/" 2>/dev/null || true
+    done
+  else
+    path_nocl="$path_nocl:$d"
+  fi
+done
+IFS=$old_ifs
+printf '%s\n' '#!/bin/sh' 'echo ok' > "$work/home/.local/bin/claude"
+chmod 755 "$work/home/.local/bin/claude"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" SHELL=/bin/zsh \
+  PATH="$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/path.out" 2> "$work/path.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/path.out" "$work/path.err" >&2; team_fail "item 11a: exit $rc, want 3"; }
+grep -qx 'Claude Code is in ~/.local/bin, but that folder is not on PATH. Run this once, then open a new terminal and run join again:' "$work/path.err" \
+  || team_fail "item 11a: no PATH line: $(cat "$work/path.err")"
+grep -qxF "echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc" "$work/path.err" || team_fail "item 11a: no PATH step"
+grep -q 'install.sh' "$work/path.err" && team_fail "item 11a: printed the install line again"
+grep -q '^join: ok' "$work/path.out" && team_fail "item 11a: join went on"
+rm -rf "$work/home/.local"
+
+# Item 11 (b): claude is on PATH but not signed in: one line, exit 3, no jobs. Signed in: on.
+mkdir -p "$work/claude-bin"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/bin/sh' 'cat > /dev/null' \
+  'if [ "${FAKE_CLAUDE:-}" = "ok" ]; then echo ok; exit 0; fi' \
+  'echo "Invalid API key. Please run /login"' 'exit 1' > "$work/claude-bin/claude"
+chmod 755 "$work/claude-bin/claude"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p --model haiku" \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign.out" 2> "$work/sign.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/sign.out" "$work/sign.err" >&2; team_fail "item 11b: exit $rc, want 3"; }
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign.err" || team_fail "item 11b: no sign-in line: $(cat "$work/sign.err")"
+grep -q '^sync-jobs\|^join: ok' "$work/sign.out" && team_fail "item 11b: join went on to the jobs"
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p --model haiku" FAKE_CLAUDE=ok \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign2.out" 2> "$work/sign2.err" \
+  || { cat "$work/sign2.out" "$work/sign2.err" >&2; team_fail "item 11b: signed in, join failed"; }
+grep -q 'sign in once' "$work/sign2.err" && team_fail "item 11b: signed in, still asked to sign in"
+
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
 git -C "$co" update-ref -d refs/remotes/origin/sync/sam

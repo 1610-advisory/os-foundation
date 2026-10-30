@@ -182,6 +182,24 @@ engine=$(os_trim "$engine")
 word=${engine%% *}
 word=$(os_trim "$word")
 if [ -z "$word" ] || ! command -v "$word" >/dev/null 2>&1; then
+  # The native installer puts claude in ~/.local/bin but does not put that folder on
+  # PATH. Say so, and the step. Do not edit PATH here.
+  if [ -z "$word" ] || [ "$word" = "claude" ]; then
+    if [ -f "$HOME/.local/bin/claude" ] || [ -f "$HOME/.local/bin/claude.exe" ]; then
+      if sync_is_windows; then
+        printf '%s\n' 'Claude Code is in %USERPROFILE%\.local\bin, but that folder is not on PATH. Add it to your user PATH: Start, type "environment variables for your account", open it, select Path, Edit, New, type %USERPROFILE%\.local\bin, OK. Then open a new terminal and run join again.' >&2
+      else
+        case "${SHELL:-}" in
+          */zsh) rc_file=.zshrc ;;
+          *) if [ "$(uname -s)" = "Darwin" ]; then rc_file=.bash_profile; else rc_file=.bashrc; fi ;;
+        esac
+        printf '%s\n' "Claude Code is in ~/.local/bin, but that folder is not on PATH. Run this once, then open a new terminal and run join again:" >&2
+        # shellcheck disable=SC2016
+        printf 'echo '"'"'export PATH="$HOME/.local/bin:$PATH"'"'"' >> ~/%s\n' "$rc_file" >&2
+      fi
+      exit 3
+    fi
+  fi
   if [ -n "$word" ] && [ "$word" != "claude" ]; then
     printf '%s\n' "install ${word} and put it on PATH" >&2
   elif sync_is_windows; then
@@ -190,6 +208,30 @@ if [ -z "$word" ] || ! command -v "$word" >/dev/null 2>&1; then
     printf '%s\n' "Claude Code CLI: curl -fsSL https://claude.ai/install.sh | bash" >&2
   fi
   exit 3
+fi
+# Claude Code outside the desktop app needs its own sign-in. One short call, at most
+# OS_ENGINE_TIMEOUT seconds (default 60), before any job is installed.
+if [ "$word" = "claude" ]; then
+  check_out=$(mktemp)
+  # shellcheck disable=SC2086
+  printf '%s\n' "Print the word ok and nothing else." | $engine > "$check_out" 2>/dev/null &
+  check_pid=$!
+  waited=0
+  while kill -0 "$check_pid" 2>/dev/null; do
+    if [ "$waited" -ge "${OS_ENGINE_TIMEOUT:-60}" ]; then
+      kill "$check_pid" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$check_pid" 2>/dev/null || true
+  if ! grep -qiw ok "$check_out"; then
+    rm -f "$check_out"
+    printf '%s\n' "sign in once: run claude, sign in, then /exit" >&2
+    exit 3
+  fi
+  rm -f "$check_out"
 fi
 sync_materialize_links "$ROOT" 1
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
