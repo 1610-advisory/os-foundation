@@ -1,5 +1,7 @@
 #!/bin/bash
 # Shared helpers for sync.sh. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 set -euo pipefail
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -14,6 +16,24 @@ fi
 SYNC_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SYNC_TMP_FILES=""
 SYNC_LOCK_DIR=""
+# One temp folder per run: every mktemp below, and in the scripts this run starts, lands
+# in it, and sync_cleanup removes it. sync_mktemp runs in $( ), so a list it keeps never
+# reaches this shell; the folder does. A folder that holds the person's own files during
+# a step comes from sync_keep_dir instead, outside the run folder, so a crash never
+# deletes it. A nightly job must leave the temp folder as it found it.
+OS_KEEP_TMP=${OS_KEEP_TMP:-${TMPDIR:-/tmp}}
+export OS_KEEP_TMP
+SYNC_RUN_TMP=""
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
 
 sync_die() {
   local code=$1
@@ -22,12 +42,50 @@ sync_die() {
   exit "$code"
 }
 
+# Called once by the entry script, before any temp file.
+sync_run_tmp() {
+  SYNC_RUN_TMP=$(mktemp -d "${OS_KEEP_TMP%/}/os-sync.XXXXXX") \
+    || sync_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$SYNC_RUN_TMP"
+  export TMPDIR="$SYNC_RUN_TMP"
+}
+
 sync_mktemp() {
   local f
   f=$(mktemp)
   chmod 600 "$f"
   SYNC_TMP_FILES="${SYNC_TMP_FILES} ${f}"
   printf '%s\n' "$f"
+}
+
+# The caller removes it when the step is done.
+sync_keep_dir() {
+  local d
+  d=$(mktemp -d "${OS_KEEP_TMP%/}/os-sync-keep.XXXXXX") || return 1
+  chmod 700 "$d"
+  printf '%s\n' "$d"
+}
+
+# One askpass file per run, written once in the run's private folder. It holds no
+# secret: it prints two variables that only the git call it serves gets.
+sync_askpass() {
+  local ask
+  if [ -n "$SYNC_RUN_TMP" ]; then
+    ask="$SYNC_RUN_TMP/askpass"
+  else
+    ask=$(sync_mktemp)
+  fi
+  if [ ! -s "$ask" ]; then
+    cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
+  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
+esac
+EOF
+    chmod 700 "$ask"
+  fi
+  printf '%s\n' "$ask"
 }
 
 sync_cleanup() {
@@ -43,6 +101,10 @@ sync_cleanup() {
     rm -f "$f"
   done
   SYNC_TMP_FILES=""
+  if [ -n "$SYNC_RUN_TMP" ]; then
+    rm -rf "$SYNC_RUN_TMP"
+  fi
+  SYNC_RUN_TMP=""
   if [ -n "$SYNC_LOCK_DIR" ] && [ -d "$SYNC_LOCK_DIR" ]; then
     rm -rf "$SYNC_LOCK_DIR"
   fi
@@ -332,15 +394,7 @@ sync_git() {
   local dir=$1
   shift
   local ask token user rc
-  ask=$(sync_mktemp)
-  chmod 700 "$ask"
-  cat > "$ask" << 'EOF'
-#!/bin/sh
-case "$1" in
-  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
-  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
-esac
-EOF
+  ask=$(sync_askpass)
   set +e
   token=$(sync_token)
   rc=$?
@@ -356,7 +410,6 @@ EOF
   rc=$?
   set -e
   token=""
-  rm -f "$ask"
   return "$rc"
 }
 

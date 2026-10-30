@@ -59,8 +59,7 @@ sync_prepare_ff() {
   local blocked=0
   incoming=$(sync_mktemp)
   dirty=$(sync_mktemp)
-  save=$(mktemp -d)
-  chmod 700 "$save"
+  save=$(sync_keep_dir)
   git -C "$repo" diff --name-only HEAD origin/main > "$incoming" || true
   sync_changed_names "$repo" > "$dirty" || true
   while IFS= read -r path; do
@@ -328,7 +327,8 @@ sync_pull_fail() {
     "no origin/main") plain="the host has no main branch. Ask the admin." ;;
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
-    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }. Ask the admin." ;;
+    "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }." ;;
+    "v0 catch-up: "*) plain="${reason#v0 catch-up: }." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
     "reclone: left "*) plain="a temporary copy was left at ${reason#reclone: left }. Check it, then delete it." ;;
     reclone*)
@@ -461,18 +461,41 @@ sync_pull_leave_own_branch() {
 sync_pull_fetched() {
   local repo=$1
   local id=$2
-  local rc=0 n err
+  local rc=0 n err written beside kept
   SYNC_V0_SAVE=""
   sync_pull_ff "$repo" "$id" || rc=$?
   if [ -n "$SYNC_V0_SAVE" ]; then
     err=$(sync_mktemp)
     if n=$(v0logs_put_back "$repo" "$SYNC_V0_SAVE" 2>"$err"); then
-      sync_log "pull v0-logs ${id} worktree removed, ${n} files kept as local changes"
+      read -r written beside kept <<< "$n"
+      if [ "$beside" -gt 0 ]; then
+        printf 'logs: %s files in the old logs folder were changed here and on the old logs branch in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "$beside" "$id"
+      fi
+      if [ "$kept" -gt 0 ]; then
+        printf 'logs: %s files in memory/logs-archive/ have a change here that is not committed in %s, so the copy from the old logs folder is beside each one as <name>.old-branch.md. Nothing was written over.\n' "$kept" "$id"
+      fi
+      sync_log "pull v0-logs ${id} worktree removed, ${written} files kept as local changes, ${beside} beside, ${kept} beside a change not committed"
     else
       sync_pull_fail "$id" "v0 logs: $(head -n 1 "$err")"
       rc=1
     fi
     SYNC_V0_SAVE=""
+  fi
+  # Logs pushed to the old logs branch after the upgrade come in as local changes.
+  if [ "$rc" -eq 0 ]; then
+    err=$(sync_mktemp)
+    if n=$(v0logs_catch_up "$repo" 2>"$err"); then
+      if [ "${n% *}" -gt 0 ]; then
+        printf 'logs: %s files written to the old logs branch after the upgrade are now in memory/logs-archive/ in %s. The next push sends them.\n' "${n% *}" "$id"
+      fi
+      if [ "${n#* }" -gt 0 ]; then
+        printf 'logs: %s files from the old logs branch had a different copy here in %s, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.\n' "${n#* }" "$id"
+      fi
+      [ "$n" = "0 0" ] || sync_log "pull logs-catch-up ${id} ${n% *} files ${n#* } beside"
+    else
+      sync_pull_fail "$id" "v0 catch-up: $(head -n 1 "$err")"
+      rc=1
+    fi
   fi
   return "$rc"
 }
@@ -903,16 +926,7 @@ sync_pull_is_copyonly() {
 
 sync_pull_token_begin() {
   local rc
-  SYNC_PULL_ASK=$(mktemp) || return 1
-  chmod 700 "$SYNC_PULL_ASK" || return 1
-  SYNC_TMP_FILES="${SYNC_TMP_FILES} ${SYNC_PULL_ASK}"
-  cat > "$SYNC_PULL_ASK" << 'EOF'
-#!/bin/sh
-case "$1" in
-  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
-  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
-esac
-EOF
+  SYNC_PULL_ASK=$(sync_askpass) || return 1
   set +e
   SYNC_PULL_TOKEN=$(sync_token)
   rc=$?

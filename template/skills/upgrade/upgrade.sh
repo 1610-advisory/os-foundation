@@ -242,6 +242,25 @@ fi
 [ "$V0_LEVEL" -eq 1 ] && printf '%s\n' "v0: no-level"
 [ "$V0_FOLDER" -eq 1 ] && printf '%s\n' "v0: logs-folder"
 
+# Teammates with an old logs branch: the company or an area has one, and a host.
+TEAM_LOGS=0
+if git -C "$ROOT" remote get-url origin >/dev/null 2>&1; then
+  if [ "$V0_LOGS" -eq 1 ]; then
+    TEAM_LOGS=1
+  else
+    for area in "$ROOT"/areas/*; do
+      [ -e "$area/.git" ] || continue
+      if git -C "$area" show-ref --quiet --verify refs/heads/logs \
+        || git -C "$area" show-ref --quiet --verify refs/remotes/origin/logs; then
+        TEAM_LOGS=1
+      fi
+    done
+  fi
+fi
+if [ "$TEAM_LOGS" -eq 1 ]; then
+  printf '%s\n' 'log-freeze: before the real run, every teammate saves their logs in each folder that has memory/logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push. Nobody writes a log until the upgrade pull requests merge.'
+fi
+
 HASHES="$DIR/v0-hashes.txt"
 [ -f "$HASHES" ] || os_die 3 "v0-hashes.txt is missing"
 
@@ -954,7 +973,12 @@ reprotect() {
 UNPROTECTED=""
 upgrade_on_exit() {
   local rc=$? repo=$UNPROTECTED
-  [ -n "$repo" ] || return "$rc"
+  # This trap replaces the one add-teammate/lib.sh set. The temp folder goes last: protect
+  # below still needs it.
+  if [ -z "$repo" ]; then
+    os_cleanup
+    return "$rc"
+  fi
   UNPROTECTED=""
   if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
     printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
@@ -962,6 +986,7 @@ upgrade_on_exit() {
     printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
   fi
   [ "$rc" -ne 0 ] || rc=3
+  os_cleanup
   exit "$rc"
 }
 trap upgrade_on_exit EXIT
@@ -1029,7 +1054,11 @@ fi
 if [ "$V0_LOGS" -eq 1 ]; then
   tmp=$(mktemp -d)
   git clone --quiet --branch logs --single-branch "$ROOT" "$tmp/logs"
-  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs --force
+  # memory/logs-archive/, outside memory/logs/: a teammate's old clone has its logs
+  # worktree at memory/logs/, which its main ignores. Its first plain git pull writes over
+  # any ignored file in the way, so main puts nothing under memory/logs/ (sync push holds
+  # logs there until the host's logs branch is deleted).
+  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs-archive --force
   git -C "$ROOT" remote remove logs-prefixed 2>/dev/null || true
   git -C "$ROOT" remote add logs-prefixed "$tmp/logs"
   git -C "$ROOT" fetch --quiet logs-prefixed
@@ -1123,7 +1152,7 @@ area_logs_park() {
   fi
 }
 
-# Then merge the logs under memory/logs/ with their history, on the area branch.
+# Then merge the logs under memory/logs-archive/ with their history, on the area branch.
 area_logs_merge() {
   local area=$1 name tmp
   name=$(basename "$area")
@@ -1133,7 +1162,7 @@ area_logs_merge() {
   fi
   tmp=$(mktemp -d)
   git clone --quiet --branch logs --single-branch "$area" "$tmp/logs"
-  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs --force
+  git -C "$tmp/logs" filter-repo --to-subdirectory-filter memory/logs-archive --force
   git -C "$area" fetch --quiet "$tmp/logs" "logs:refs/os-upgrade/logs"
   rm -rf "$tmp"
   if git -C "$area" merge-base --is-ancestor refs/os-upgrade/logs HEAD 2>/dev/null; then
@@ -1236,6 +1265,7 @@ push_area_scripts() {
     if ! os_with_git_token git -C "$area" push origin "HEAD:${branch}"; then
       os_die 3 "could not push ${branch} for ${repo}"
     fi
+    push_logs_tags "$area" "$repo"
     area_body=$(mktemp)
     rules_pr_body "$area" origin/main "$area_body"
     pr=$(os_host open-pr "$repo" --head "$branch" --base main --title "Upgrade: check scripts" --body-file "$area_body")
@@ -1293,9 +1323,22 @@ GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
   git -C "$ROOT" merge --no-ff --no-edit upgrade/work -m "Upgrade to v1"
 git -C "$ROOT" branch -D upgrade/work >/dev/null
 
+# Every clone needs the snapshot tag: sync pull brings in logs pushed to the old logs
+# branch after it (v0logs_catch_up). Not fatal: this computer still has the tag.
+push_logs_tags() {
+  local dir=$1 repo=$2 tags
+  tags=$(git -C "$dir" for-each-ref --format='%(refname)' 'refs/tags/logs-archive-*')
+  [ -n "$tags" ] || return 0
+  # shellcheck disable=SC2086
+  if ! os_with_git_token git -C "$dir" push -q origin $tags >/dev/null 2>&1; then
+    printf 'logs-tag: could not push the logs-archive tag to %s. Logs written to the old logs branch after this run reach main only from this computer: run skills/sync/sync.sh pull --full here after the merge.\n' "$repo"
+  fi
+}
+
 if [ "$HOST_ON" -eq 1 ]; then
   push_area_scripts
   os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
+  push_logs_tags "$ROOT" "$(os_company_repo "$SLUG")"
   pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   if [ -z "$number" ]; then
@@ -1321,6 +1364,14 @@ elif [ -d "$ROOT/areas" ]; then
   done
 fi
 rm -f "$pr_body"
+
+if [ "$TEAM_LOGS" -eq 1 ]; then
+  printf '%s\n' "teammates: in an old (v0) copy of this folder, do not run git pull. It can write over logs there. Each teammate does this instead:"
+  printf '%s\n' 'teammates: 1. In the old folder, save the logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push.'
+  printf '%s\n' "teammates: 2. After the upgrade pull requests merge and the admin runs add-teammate Part A again: rename the old folder, then join as a new teammate (add-teammate Part B; on Windows join.sh runs in Git Bash). The old logs are in memory/logs-archive/. Logs pushed after this run come in by the next full sync pull."
+  printf '%s\n' "teammates: 3. When the new folder has their logs, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3. Full steps: skills/upgrade/SKILL.md section 11."
+  printf '%s\n' "admin: until the old logs branch is gone, sync push keeps logs in each folder (held), so a plain pull on an old copy can write over nothing. When every teammate has moved, delete it: git push origin --delete logs, in the company folder and in each area that had one."
+fi
 
 if [ -n "$HAND" ]; then
   if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then

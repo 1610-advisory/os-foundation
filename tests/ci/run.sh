@@ -57,6 +57,9 @@ repo="ci-checks-${stamp}"
 area_repo=""
 EXTRA_REPOS=""
 work=$(mktemp -d)
+# Every later temp file lands in the work folder, which cleanup removes.
+mkdir "$work/tmp"
+export TMPDIR="$work/tmp"
 log="$work/run.log"
 : > "$log"
 runner_saved="$work/runner-config.yml"
@@ -136,6 +139,8 @@ printf '%s\n' 'A note.' > "$src/note.txt"
 # Product owners. A hand-written root CODEOWNERS hid the Forgejo gap.
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'cleanup; os_cleanup' EXIT
 os_codeowners "$src" "$(os_at_users acme-admin acme-admin)"
 cat > "$src/people/Ada.md" << 'EOF'
 ---
@@ -1175,6 +1180,8 @@ printf '%s\n' 'A note.' > "$src/note.txt"
 printf '%s\n' '# Sample' > "$src/skills/sample/SKILL.md"
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'cleanup; os_cleanup' EXIT
 os_codeowners "$src" "$(os_at_users acme-admin acme-director)" "$(os_forgejo_owner acme-admin acme-director)"
 if [ -f "$src/CODEOWNERS" ] || [ ! -f "$src/.gitea/CODEOWNERS" ] \
   || ! grep -F -x -q '^skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \

@@ -582,7 +582,7 @@ nr_write_digests() {
 
 nr_lock
 NR_PLAN=$(mktemp -d)
-trap 'nr_unlock; rm -rf "$NR_PLAN"' EXIT
+trap 'nr_unlock; rm -rf "$NR_PLAN"; nr_tmp_cleanup' EXIT
 NR_FAILED_REPOS=$(mktemp)
 : > "$NR_FAILED_REPOS"
 if [ ! -f "$DIR/review-prompt.md" ] || ! nr_load_engine; then

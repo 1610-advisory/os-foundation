@@ -18,6 +18,8 @@ export GIT_COMMITTER_NAME="Ada Admin" GIT_COMMITTER_EMAIL="ada.admin@acme.test"
 # os_git_commit: only the named path goes in. Untracked files stay untracked.
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'rm -rf "$work"; os_cleanup' EXIT
 repo="$work/unit"
 mkdir -p "$repo/people"
 git -C "$repo" init -q -b main
@@ -121,7 +123,7 @@ if [ -n "\${FAKE_REFUSE_FETCH:-}" ]; then
 fi
 if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
   case " \$* " in
-    *" push --set-upstream origin sync/"*)
+    *" push -q origin HEAD:refs/heads/sync/"*)
       printf '%s\n' "error: failed to push some refs" >&2
       exit 1 ;;
   esac
@@ -202,10 +204,12 @@ grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
 git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q '^terms_accepted: ' \
   || team_fail "terms date is not on sync/sam"
+# logsfix (54): the dated page is also a local change on main, so the next push keeps it.
+grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the local page is not dated"
+git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync/sam (55: temp worktree only)"
 
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" branch -q -D sync/sam
 git -C "$co" update-ref -d refs/remotes/origin/sync/sam
 FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
 grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
@@ -213,10 +217,11 @@ grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.
 
 # Round 3 (37): the checkout back to main is refused after the terms push. The run still
 # opens the pull request. A retry (terms on origin/sync/sam, not on main, and the clone
-# still on sync/sam) opens it again and goes back to main.
+# still on sync/sam) opens it again and goes back to main. Since logsfix (55) join never
+# leaves main itself; a clone an older join left on sync/sam is the case here.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" branch -q -D sync/sam
 git -C "$co" update-ref -d refs/remotes/origin/sync/sam
+git -C "$co" checkout -q -b sync/sam
 : > "$work/host.log"
 PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=1 join_run > "$work/join4.out"
 grep -qx 'terms: proposed' "$work/join4.out" || team_fail "refused checkout: no terms"
@@ -260,9 +265,8 @@ if FAKE_NO_OPENPR=1 join_try > "$work/join8.out"; then
   team_fail "join with a failed open-pr exited 0"
 fi
 grep -q '^pr: ' "$work/join8.out" && team_fail "a failed open-pr printed a pull request"
-# Round 5 (50): offline, with a dated page in the folder (left on sync/sam). join must not
-# guess "already": it stops with exit 3 and one line, and opens nothing.
-git -C "$co" checkout -q sync/sam
+# Round 5 (50): offline, with a dated page in the folder (since logsfix 54, on main too).
+# join must not guess "already": it stops with exit 3 and one line, and opens nothing.
 grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the folder page is not dated"
 : > "$work/host.log"
 rc=0
@@ -273,7 +277,6 @@ grep -qx 'could not reach the host: run join again when online; the terms pull r
 grep -q 'terms: already' "$work/join-off.out" && team_fail "offline join said terms: already"
 grep -q 'join: ok' "$work/join-off.out" && team_fail "offline join said ok"
 grep -q '^open-pr ' "$work/host.log" && team_fail "offline join called open-pr"
-git -C "$co" checkout -q main
 : > "$work/host.log"
 join_try > "$work/join9.out" || { cat "$work/join.err" >&2; team_fail "retry after a failed open-pr failed"; }
 grep -qx 'terms: already' "$work/join9.out" || team_fail "retry after open-pr did not see the pushed terms"
@@ -305,7 +308,7 @@ fi
 grep -q 'could not remove the logs worktree, and some files may be gone from memory/logs. A full copy is in ' "$work/join.err" \
   || { cat "$work/join.err" >&2; team_fail "join did not name the copy"; }
 grep -q 'Nothing was removed' "$work/join.err" && team_fail "join said nothing was removed after a partial remove"
-wt_save=$(sed -n 's/.*A full copy is in \([^ ]*\)\. Ask the admin\..*/\1/p' "$work/join.err" | head -n 1)
+wt_save=$(sed -n 's/.*A full copy is in \([^ ]*\)\. Keep that folder.*/\1/p' "$work/join.err" | head -n 1)
 [ -f "$wt_save/2026-10-04-sam.md" ] || team_fail "the named copy has no day-four log"
 rm -rf "$wt_save"
 join_run > "$work/join3.out"
@@ -313,5 +316,72 @@ grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join3.out" || te
 [ ! -e "$co/memory/logs/.git" ] || team_fail "the logs worktree is still there"
 [ "$(cat "$co/memory/logs/2026-10-04-sam.md")" = "day four, not committed" ] || team_fail "join lost an untracked log"
 git -C "$co" diff --quiet -- memory/logs/2026-10-01-sam.md || team_fail "the tracked log changed"
+
+# logsfix (66): a v0 clone behind the upgrade's snapshot, with one edit that overlaps a
+# change made on branch logs. join keeps that file as the person's copy with the other
+# text beside it. Every other log keeps the newer text.
+rm -f "$co/memory/logs/2026-10-04-sam.md"
+git -C "$co" worktree add -q "$work/lw2" logs
+printf '%s\n' "ada first" > "$work/lw2/2026-10-05-ada.md"
+git -C "$work/lw2" add 2026-10-05-ada.md
+git -C "$work/lw2" commit -q -m "Logs: ada"
+git -C "$co" worktree remove "$work/lw2"
+git -C "$co" push -q origin logs
+git -C "$co" worktree add -q --detach "$work/lw3" logs
+printf '%s\n' "day one" "noa line" > "$work/lw3/2026-10-01-sam.md"
+printf '%s\n' "ada first" "ada later" > "$work/lw3/2026-10-05-ada.md"
+git -C "$work/lw3" commit -q -am "Logs: noa"
+git -C "$work/lw3" push -q origin HEAD:logs
+git -C "$co" worktree remove "$work/lw3"
+git -C "$co" fetch -q origin
+git -C "$co" rm -rq memory/logs
+mkdir -p "$co/memory/logs-archive"
+git -C "$co" show origin/logs:2026-10-01-sam.md > "$co/memory/logs-archive/2026-10-01-sam.md"
+git -C "$co" show origin/logs:2026-10-05-ada.md > "$co/memory/logs-archive/2026-10-05-ada.md"
+git -C "$co" add memory/logs-archive
+git -C "$co" commit -q -m "Upgrade to v1: logs archive"
+git -C "$co" push -q origin main
+git -C "$co" tag -a logs-archive-2026-10-29 origin/logs -m snapshot
+git -C "$co" push -q origin logs-archive-2026-10-29
+rm -rf "$co/memory/logs"
+git -C "$co" worktree add -q "$co/memory/logs" logs
+printf '%s\n' "day one" "sam line" > "$co/memory/logs/2026-10-01-sam.md"
+# logsfix (70): after the reset, one kept file cannot be copied back (a log open in an
+# editor). join fails, and memory/logs is back as it was, so the next join starts over.
+mkdir -p "$work/cpshim"
+cat > "$work/cpshim/cp" << EOF
+#!/bin/bash
+if [ -n "\${FAKE_CP_FAIL:-}" ] && [ "\$1" = -p ]; then
+  case "\$2" in *os-logs-keep.*/"\$FAKE_CP_FAIL") exit 1 ;; esac
+fi
+exec $(command -v cp) "\$@"
+EOF
+chmod 700 "$work/cpshim/cp"
+old_logs=$(git -C "$co/memory/logs" rev-parse HEAD)
+if PATH="$work/cpshim:$PATH" FAKE_CP_FAIL=2026-10-01-sam.md join_try > "$work/join-cp.out"; then
+  team_fail "join (70) with a failed restore exited 0"
+fi
+grep -q 'could not put the files changed here back into memory/logs, so memory/logs is back as it was' "$work/join.err" \
+  || { cat "$work/join.err" >&2; team_fail "join (70) did not say memory/logs is back"; }
+[ -f "$co/memory/logs/.git" ] || team_fail "join (70) removed the logs worktree"
+[ "$(git -C "$co/memory/logs" rev-parse HEAD)" = "$old_logs" ] || team_fail "join (70) left the logs folder at the host's tip"
+[ "$(cat "$co/memory/logs/2026-10-01-sam.md")" = "$(printf '%s\n' "day one" "sam line")" ] || team_fail "join (70) lost the edit"
+[ ! -e "$co/memory/logs/2026-10-01-sam.old-branch.md" ] || team_fail "join (70) left a file beside"
+cp_keep=$(sed -n 's/.*A copy of them is also in \([^ ]*\)\. Close.*/\1/p' "$work/join.err" | head -n 1)
+[ -f "$cp_keep/files/2026-10-01-sam.md" ] || team_fail "join (70) did not name the kept copy"
+rm -rf "$cp_keep"
+join_run > "$work/join10.out"
+grep -qx 'v0-logs: moved, 1 files kept as local changes' "$work/join10.out" \
+  || { cat "$work/join10.out" >&2; team_fail "join (66) did not move the v0 logs worktree"; }
+grep -qx 'v0-logs: 1 files were changed here and on the old logs branch, so the old text is beside each one as <name>.old-branch.md. Nothing was written over.' "$work/join10.out" \
+  || team_fail "join (66) did not say what went beside"
+[ ! -e "$co/memory/logs/.git" ] || team_fail "join (66) left the logs worktree"
+[ "$(cat "$co/memory/logs-archive/2026-10-05-ada.md")" = "$(printf '%s\n' "ada first" "ada later")" ] \
+  || team_fail "join (66) wrote an older log over the archive"
+git -C "$co" diff --quiet -- memory/logs-archive/2026-10-05-ada.md || team_fail "join (66) changed a log the person did not touch"
+[ "$(cat "$co/memory/logs-archive/2026-10-01-sam.md")" = "$(printf '%s\n' "day one" "sam line")" ] \
+  || team_fail "join (66) lost the person's edit"
+[ "$(cat "$co/memory/logs-archive/2026-10-01-sam.old-branch.md")" = "$(printf '%s\n' "day one" "noa line")" ] \
+  || team_fail "join (66) did not put the other text beside the edited log"
 
 printf '%s\n' "PASS stage"

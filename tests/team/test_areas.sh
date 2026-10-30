@@ -68,7 +68,7 @@ cleanup() {
   done
   rm -rf "$work"
 }
-trap cleanup EXIT
+trap 'cleanup; os_cleanup' EXIT
 
 company="$work/company"
 mkdir -p "$company"

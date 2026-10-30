@@ -39,13 +39,16 @@ git -C "$fresh" show-ref --verify --quiet refs/heads/logs && team_fail "fresh cl
   || { cat "$work/dry.out" >&2; team_fail "dry run failed"; }
 grep -qx 'v0: logs-branch' "$work/dry.out" || team_fail "dry run missed origin/logs"
 grep -qx 'change: remove-logs-folder' "$work/dry.out" || team_fail "dry run did not plan the logs-folder removal"
+# logsfix (51): the dry run asks for the log freeze before the real run.
+grep -q '^log-freeze: before the real run, every teammate saves their logs' "$work/dry.out" || team_fail "no log-freeze step"
 git -C "$fresh" show-ref --verify --quiet refs/heads/logs && team_fail "dry run made a local logs branch"
 "$upgrade" --root "$fresh" --template "$root/template" --level solo > "$work/fresh.out" 2>&1 \
   || { cat "$work/fresh.out" >&2; team_fail "fresh clone upgrade failed"; }
-git -C "$fresh" cat-file -e upgrade/v1:memory/logs/2026-10-01-ada.md 2>/dev/null || team_fail "fresh clone skipped the logs move"
-git -C "$fresh" log --format=%s upgrade/v1 -- memory/logs/2026-10-01-ada.md | grep -qx 'Logs: day one' \
+git -C "$fresh" cat-file -e upgrade/v1:memory/logs-archive/2026-10-01-ada.md 2>/dev/null || team_fail "fresh clone skipped the logs move"
+git -C "$fresh" log --format=%s upgrade/v1 -- memory/logs-archive/2026-10-01-ada.md | grep -qx 'Logs: day one' \
   || team_fail "logs history missing"
-git -C "$fresh" ls-tree -r --name-only upgrade/v1 | grep -q '^skills/logs-folder/' && team_fail "logs-folder was kept after the move"
+# No grep -q after git in a pipe: under pipefail an early match is a SIGPIPE failure.
+[ -z "$(git -C "$fresh" ls-tree --name-only upgrade/v1 skills/logs-folder/)" ] || team_fail "logs-folder was kept after the move"
 
 # A local logs that is not the same as origin/logs: stop with one line, change nothing.
 stale="$work/stale"
@@ -83,8 +86,42 @@ git -C "$nologs" commit -q -m "v0 no logs"
 "$upgrade" --root "$nologs" --template "$root/template" --level solo > "$work/nologs.out" 2>&1 \
   || { cat "$work/nologs.out" >&2; team_fail "no-logs upgrade failed"; }
 grep -q '^keep: skills/logs-folder' "$work/nologs.out" || team_fail "no keep line for the logs skill"
-git -C "$nologs" ls-tree -r --name-only upgrade/v1 | grep -q '^skills/logs-folder/' || team_fail "no-logs run deleted the logs skill"
+[ -n "$(git -C "$nologs" ls-tree --name-only upgrade/v1 skills/logs-folder/)" ] || team_fail "no-logs run deleted the logs skill"
 # Round 3 (35): no host answer and no host in the v0 profile writes host: none.
 git -C "$nologs" show upgrade/v1:company-profile.md | grep -qx 'host: none' || team_fail "no host: none in the profile"
+
+# logsfix (51): a v0 teammate runs a plain git pull after the upgrade merges. The old
+# logs are on main under memory/logs-archive/, so nothing in the old worktree is written over.
+grep -q '^teammates: in an old (v0) copy of this folder, do not run git pull' "$work/fresh.out" || team_fail "no teammates steps"
+[ "$(tail -n 1 "$work/fresh.out")" = "upgrade: ok" ] || team_fail "upgrade: ok is not the last line"
+mate="$work/mate"
+git clone -q "$work/origin.git" "$mate"
+git -C "$mate" fetch -q origin logs:refs/remotes/origin/logs
+git -C "$mate" worktree add -q "$mate/memory/logs" -b logs origin/logs
+printf '%s\n' "worked on the shop" "and a line not committed" > "$mate/memory/logs/2026-10-01-ada.md"
+printf '%s\n' "a log committed after the snapshot" > "$mate/memory/logs/2026-10-03-ada.md"
+git -C "$mate/memory/logs" add 2026-10-03-ada.md
+git -C "$mate/memory/logs" commit -q -m "Logs: day three"
+# logsfix (58): names a layout under memory/logs/ would hit: the archived log's own name
+# (2026-10-01-ada.md, edited above), a file named archive, and a log for the same person
+# and day as one a v1 teammate writes (sync push holds that one off main).
+printf '%s\n' "my own archive file" > "$mate/memory/logs/archive"
+printf '%s\n' "today, written in the old folder" > "$mate/memory/logs/2026-10-04-ada.md"
+mkdir -p "$work/side"
+snap() { (cd "$mate/memory/logs" && find . -type f -o -type d | LC_ALL=C sort | while IFS= read -r f; do
+  if [ -f "$f" ]; then printf '%s %s\n' "$f" "$(git hash-object "$f")"; else printf '%s dir\n' "$f"; fi
+done); }
+snap > "$work/side/before"
+git -C "$fresh" push -q origin upgrade/v1:main
+# Main carries nothing under memory/logs/: sync push holds logs there while branch logs exists.
+[ -z "$(git -C "$fresh" ls-tree -r --name-only upgrade/v1 memory/logs/)" ] || team_fail "main has files under memory/logs/"
+git -C "$mate" pull -q --no-rebase origin main > "$work/mate-pull.out" 2>&1 || { cat "$work/mate-pull.out" >&2; team_fail "plain pull failed"; }
+snap > "$work/side/after"
+cmp -s "$work/side/before" "$work/side/after" || { diff "$work/side/before" "$work/side/after" >&2; team_fail "a plain pull wrote inside the old logs folder"; }
+git -C "$mate" cat-file -e HEAD:memory/logs-archive/2026-10-01-ada.md || team_fail "the pull did not bring the archive"
+[ "$(cat "$mate/memory/logs/2026-10-01-ada.md")" = "$(printf '%s\n' "worked on the shop" "and a line not committed")" ] \
+  || team_fail "a plain pull wrote over an uncommitted log"
+[ "$(cat "$mate/memory/logs/2026-10-03-ada.md")" = "a log committed after the snapshot" ] || team_fail "a plain pull lost a later log"
+[ -f "$mate/memory/logs/.git" ] || team_fail "the old worktree link is gone"
 
 printf '%s\n' "PASS logs-source"

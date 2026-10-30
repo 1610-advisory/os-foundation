@@ -799,7 +799,9 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
   $beforeStart = Snapshot-Logs $logPaths
   try {
     Start-ScheduledTask -TaskName 'osfoundation-acme-pull' -ErrorAction Stop
-    if (Wait-PullOk $beforeStart 60) {
+    # This checks that the task runs. A full pull alone takes up to 60s on a runner
+    # (steady-pull checks that budget), so the wait adds room for the task to start.
+    if (Wait-PullOk $beforeStart 120) {
       $started = $true
     } else {
       $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-pull' -ErrorAction SilentlyContinue
@@ -827,7 +829,7 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
         Register-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -Action $probeAction -Trigger $pullNow.Triggers -Settings $pullNow.Settings -Principal $pullNow.Principal -Force | Out-Null
         $beforeProbe = Snapshot-Logs $logPaths
         Start-ScheduledTask -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction Stop
-        if (Wait-PullOk $beforeProbe 60) { $probeOk = $true }
+        if (Wait-PullOk $beforeProbe 120) { $probeOk = $true }
         else {
           $info = Get-ScheduledTaskInfo -TaskName 'osfoundation-acme-conhost-probe' -ErrorAction SilentlyContinue
           if ($info) { $probeReason = "last result $($info.LastTaskResult)" }

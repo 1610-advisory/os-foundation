@@ -1,5 +1,7 @@
 #!/bin/bash
 # Shared helpers for the check scripts. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -18,6 +20,29 @@ ci_die() {
 }
 
 ci_tmp_files=""
+# ci_mktemp runs in $( ), so the list above never reaches this shell. Every temp file goes
+# in one folder made here instead, and ci_cleanup (the entry script's EXIT trap) removes it.
+# A runner that is not thrown away after each job keeps a clean temp folder.
+# A second source in the same shell keeps the first folder.
+if [ -z "${ci_run_tmp:-}" ] || [ ! -d "$ci_run_tmp" ]; then
+  ci_run_tmp=$(command mktemp -d "${TMPDIR:-/tmp}/os-check.XXXXXX") || ci_die 1 "could not make a temp folder"
+  chmod 700 "$ci_run_tmp"
+  export TMPDIR="$ci_run_tmp"
+fi
+# A stopped job exits through the entry script's EXIT trap, so the folder goes too.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
 
 ci_mktemp() {
   local f
@@ -34,6 +59,7 @@ ci_cleanup() {
     rm -f "$f"
   done
   ci_tmp_files=""
+  rm -rf "$ci_run_tmp"
 }
 
 ci_scrub_file() {

@@ -73,6 +73,7 @@ bots_pass "github dry-run token path"
 # Sign and verify in this process. The JWT is not passed as an argument.
 # shellcheck disable=SC1091
 . "$host_dir/lib.sh"
+trap 'rm -rf "$tmp"; host_cleanup' EXIT
 jwt=$(host_github_app_jwt 100 "$key")
 rest=${jwt#*.}
 payload=${rest%%.*}

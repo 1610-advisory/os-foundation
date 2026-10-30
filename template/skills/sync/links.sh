@@ -454,8 +454,7 @@ sync_refresh_after_pull() {
 sync_stash_link_dirs() {
   local repo=$1
   local save rel path f relpath mode
-  save=$(mktemp -d)
-  chmod 700 "$save"
+  save=$(sync_keep_dir)
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     mode=$(git -C "$repo" ls-tree origin/main -- "$rel" 2>/dev/null | awk '{ print $1; exit }')

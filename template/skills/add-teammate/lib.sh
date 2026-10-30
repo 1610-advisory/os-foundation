@@ -1,5 +1,7 @@
 #!/bin/bash
 # Shared helpers for the team scripts. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
 # Bash 3.2. No token, key, or secret is passed in a child's arguments.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -13,6 +15,35 @@ os_die() {
   printf '%s\n' "$*" >&2
   exit "$code"
 }
+
+# One temp folder per run: every mktemp in these scripts, and in the scripts they start,
+# lands in it, and the EXIT trap removes it. A folder that must outlive a failure (the
+# old logs copy) uses OS_KEEP_TMP, outside it.
+OS_KEEP_TMP=${OS_KEEP_TMP:-${TMPDIR:-/tmp}}
+export OS_KEEP_TMP
+# A second source in the same shell keeps the first folder.
+if [ -z "${OS_RUN_TMP:-}" ] || [ ! -d "$OS_RUN_TMP" ]; then
+  OS_RUN_TMP=$(command mktemp -d "${OS_KEEP_TMP%/}/os-team.XXXXXX") || os_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$OS_RUN_TMP"
+  export TMPDIR="$OS_RUN_TMP"
+fi
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+os_cleanup() {
+  rm -rf "$OS_RUN_TMP"
+}
+trap os_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 os_have() {
   command -v "$1" >/dev/null 2>&1
@@ -350,11 +381,10 @@ os_clone_url() {
 os_with_git_token() {
   local token_file ask user_json user rc was_e
   token_file=$(mktemp)
-  ask=$(mktemp)
+  ask="$OS_RUN_TMP/askpass"
   chmod 600 "$token_file"
-  chmod 700 "$ask"
   if ! os_host get-token > "$token_file"; then
-    rm -f "$token_file" "$ask"
+    rm -f "$token_file"
     os_die 4 "could not read the git token"
   fi
   # Drop a trailing newline. The value stays in the file.
@@ -365,14 +395,16 @@ os_with_git_token() {
   if [ -z "${user:-}" ]; then
     user=${OS_ORG:-git}
   fi
-  cat > "$ask" << 'EOF'
+  if [ ! -s "$ask" ]; then
+    cat > "$ask" << 'EOF'
 #!/bin/sh
 case "$1" in
   *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
   *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
 esac
 EOF
-  chmod 700 "$ask"
+    chmod 700 "$ask"
+  fi
   if [ "${1:-}" = "git" ]; then
     shift
     set -- git -c credential.helper= "$@"
@@ -392,7 +424,7 @@ EOF
   if [ "$was_e" -eq 1 ]; then
     set -e
   fi
-  rm -f "$token_file" "$ask"
+  rm -f "$token_file"
   return "$rc"
 }
 

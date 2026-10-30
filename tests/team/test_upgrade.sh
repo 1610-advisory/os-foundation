@@ -62,7 +62,7 @@ grep -q 'upgrade: ok' "$work/apply.out" || team_fail "upgrade did not finish"
 git -C "$company" rev-parse --abbrev-ref HEAD | grep -qx 'upgrade/v1' || team_fail "not on upgrade/v1"
 parents=$(git -C "$company" rev-list --parents -n 1 HEAD | awk '{print NF}')
 [ "$parents" -ge 3 ] || team_fail "upgrade commit is not a merge"
-git -C "$company" log --format='%s' -- memory/logs/2026-10-01-ada.md | grep -q 'Logs: day one' || team_fail "logs history missing"
+git -C "$company" log --format='%s' -- memory/logs-archive/2026-10-01-ada.md | grep -q 'Logs: day one' || team_fail "logs history missing"
 git -C "$company" tag --list 'logs-archive-*' | grep -q . || team_fail "logs archive tag missing"
 grep -q '^level: team$' "$company/company-profile.md" || team_fail "level not set"
 [ -L "$company/.agents/skills" ] || team_fail "link missing"
@@ -81,7 +81,7 @@ grep -q 'Approval tiers' "$company/AGENTS.md" || team_fail "tier table missing"
 old=$(git -C "$company" rev-parse HEAD^1)
 git -C "$company" revert -m 1 --no-edit HEAD >/dev/null
 [ "$(git -C "$company" rev-parse HEAD:notes/ours.md)" = "$(git -C "$company" rev-parse "$old:notes/ours.md")" ] || team_fail "revert lost the note"
-git -C "$company" cat-file -e HEAD:memory/logs/2026-10-01-ada.md 2>/dev/null && team_fail "revert kept logs files"
+git -C "$company" cat-file -e HEAD:memory/logs-archive/2026-10-01-ada.md 2>/dev/null && team_fail "revert kept logs files"
 git -C "$company" show HEAD:.gitignore | grep -q '/memory/logs/' || team_fail "revert did not restore gitignore"
 git -C "$company" show HEAD:company-profile.md | grep -q '^level:' && team_fail "revert kept level"
 

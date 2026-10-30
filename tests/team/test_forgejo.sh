@@ -253,6 +253,8 @@ access "$token_dir/acme-member-a" team-os || die "member-a cannot read the compa
 # Protected main rejects a direct push. Use the helper so git does not wait on the keychain.
 # shellcheck disable=SC1091
 . "$root/template/skills/add-teammate/lib.sh"
+# The lib sets its own EXIT trap. Run both.
+trap 'rm -rf "$work"; os_cleanup' EXIT
 export OS_HOST_BIN="$HOST"
 printf '%s\n' "x" >> "$company/README.md"
 git_id git -C "$company" add README.md

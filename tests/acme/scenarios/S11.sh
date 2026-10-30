@@ -140,7 +140,7 @@ after=$(cksum "$dest/notes/keep.md" | awk '{print $1}')
 if [ "$before" != "$after" ]; then
   osf_result "S11 FAIL company content changed"
 fi
-if ! git -C "$dest" cat-file -e "HEAD:memory/logs/${day}-ada.md" 2>/dev/null; then
+if ! git -C "$dest" cat-file -e "HEAD:memory/logs-archive/${day}-ada.md" 2>/dev/null; then
   osf_result "S11 FAIL logs were not moved onto the branch"
 fi
 if ! git -C "$dest" tag --list 'logs-archive-*' | grep -q 'logs-archive-'; then
@@ -197,7 +197,7 @@ for rules in "$dest/AGENTS.md" "$dest/CLAUDE.md" "$area/AGENTS.md"; do
 done
 merge=$(git -C "$dest" rev-parse HEAD)
 git -C "$dest" revert -m 1 "$merge" --no-edit || osf_result "S11 FAIL revert"
-if git -C "$dest" cat-file -e "HEAD:memory/logs/${day}-ada.md" 2>/dev/null; then
+if git -C "$dest" cat-file -e "HEAD:memory/logs-archive/${day}-ada.md" 2>/dev/null; then
   osf_result "S11 FAIL revert did not restore the old state"
 fi
 if ! git -C "$dest" show HEAD:AGENTS.md | grep -q 'Acme ships sample goods on Tuesdays.'; then
