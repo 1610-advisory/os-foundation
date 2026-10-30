@@ -536,10 +536,12 @@ nr_write_digests() {
     }' > "$json"
   chmod 600 "$json"
   # One markdown digest per audience.
-  local audiences
+  local audiences admin inbox_old
   audiences=$(jq -r '.items[].audience // empty' "$json" | sort -u)
-  if [ "$NR_FAILED" = "1" ]; then
-    audiences=$(printf '%s\n%s\n' "$audiences" "$(nr_admin_slug)" | sort -u)
+  admin=$(nr_admin_slug)
+  inbox_old=$(nr_inbox_old)
+  if [ "$NR_FAILED" = "1" ] || [ "$inbox_old" -gt 0 ]; then
+    audiences=$(printf '%s\n%s\n' "$audiences" "$admin" | sort -u)
   fi
   local person
   for person in $audiences; do
@@ -549,6 +551,9 @@ nr_write_digests() {
       printf '# Digest %s\n\n' "$NR_DATE"
       if [ "$NR_FAILED" = "1" ]; then
         printf '%s\n\n' "The review did not run."
+      fi
+      if [ "$person" = "$admin" ] && [ "$inbox_old" -gt 0 ]; then
+        printf 'inbox: %s files older than 7 days — say "ingest"\n\n' "$inbox_old"
       fi
       jq -r --arg p "$person" '
         [.items[] | select(.audience == $p)]
