@@ -38,7 +38,12 @@ cat > "$work/bin/host.sh" << 'EOF'
 printf '%s %s host=%s org=%s\n' "$1" "${2:-}" "${OS_HOST:-unset}" "${OS_ORG:-unset}" >> "$FAKE_HOST_LOG"
 case "$1" in
   get-token)
-    [ "${FAKE_TOKEN:-ok}" = "ok" ] || exit 4
+    # after-unprotect: the token fails only at the push to main (round 2, B34-HIDE).
+    if [ "${FAKE_TOKEN:-ok}" = "after-unprotect" ]; then
+      ! grep -q '^unprotect ' "$FAKE_HOST_LOG" || exit 4
+    elif [ "${FAKE_TOKEN:-ok}" != "ok" ]; then
+      exit 4
+    fi
     printf '%s\n' local-token ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}' ;;
   plan-check)
@@ -483,5 +488,17 @@ rc=$?
 set -e
 [ "$rc" -eq 4 ] || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure exit $rc, want 4"; }
 grep -qx 'could not read the git token' "$work/b34-3.out" || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure printed no line"; }
+# Round 2 (B34-HIDE): the token fails at the push of the check tools to main. Its line
+# shows, the protection line too, and the exit is 4.
+co8="$work/company8"
+make_v0 "$co8" acme8-os
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_TOKEN=after-unprotect "$upgrade" --root "$co8" --template "$root/template" --answers "$work/answers" > "$work/b34-4.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 4 ] || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: exit $rc, want 4"; }
+grep -qx 'could not read the git token' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no token line"; }
+grep -qx 'upgrade stopped. Protection on acme8-os is back on.' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no protection line"; }
 
 printf '%s\n' "PASS host-upgrade"

@@ -117,6 +117,13 @@ up_git_quiet() {
   git -c credential.helper= "$@" >/dev/null 2>&1
 }
 
+# Git with its errors in a file. os_with_git_token still prints why it stops.
+up_git_err() {
+  local err=$1
+  shift
+  git -c credential.helper= "$@" 2>"$err"
+}
+
 HOST_ON=0
 case "$UP_HOST" in
   github|forgejo)
@@ -1090,7 +1097,7 @@ checks_on_main() {
   UNPROTECTED=$repo
   os_host unprotect "$repo" >/dev/null
   err=$(mktemp)
-  if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
+  if ! os_with_git_token up_git_err "$err" -C "$tmp/main" push origin HEAD:refs/heads/main; then
     cat "$err" >&2
     git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
     rm -rf "$tmp"
