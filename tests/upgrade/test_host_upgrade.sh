@@ -235,7 +235,7 @@ grep -qx 'replaced: acme2-marketing upgrade/scripts (an earlier upgrade run made
 grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse main)" = "$before" ] || team_fail "second run wrote main again"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse upgrade/v1)" != "$old_v1" ] || team_fail "upgrade/v1 was not rebuilt"
-git --git-dir "$work/git/acme2-os.git" cat-file -e "upgrade/v1:memory/logs/2026-10-01-ada.md" || team_fail "rebuilt upgrade/v1 lost the logs"
+git --git-dir "$work/git/acme2-os.git" cat-file -e "upgrade/v1:memory/logs-archive/2026-10-01-ada.md" || team_fail "rebuilt upgrade/v1 lost the logs"
 
 # B27: run, stop after the push (the host refuses the pull request), run again: success.
 : > "$FAKE_HOST_LOG"
