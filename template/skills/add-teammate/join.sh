@@ -216,17 +216,26 @@ if [ "$word" = "claude" ]; then
   # shellcheck disable=SC2086
   printf '%s\n' "Print the word ok and nothing else." | $engine > "$check_out" 2>/dev/null &
   check_pid=$!
+  limit=${OS_ENGINE_TIMEOUT:-60}
   waited=0
+  # Ask it to stop at the limit. Some programs ignore that, so force it 5 seconds later.
   while kill -0 "$check_pid" 2>/dev/null; do
-    if [ "$waited" -ge "${OS_ENGINE_TIMEOUT:-60}" ]; then
+    if [ "$waited" -eq "$limit" ]; then
       kill "$check_pid" 2>/dev/null || true
+    elif [ "$waited" -ge $((limit + 5)) ]; then
+      kill -9 "$check_pid" 2>/dev/null || true
       break
     fi
     sleep 1
     waited=$((waited + 1))
   done
-  wait "$check_pid" 2>/dev/null || true
-  if ! grep -qiw ok "$check_out"; then
+  # Never wait on a program that is still running: it could block forever.
+  if ! kill -0 "$check_pid" 2>/dev/null; then
+    wait "$check_pid" 2>/dev/null || true
+  fi
+  # Only the word ok counts, so a program that repeats the question does not pass.
+  answer=$(tr -d ' \t\r\n' < "$check_out" | tr '[:upper:]' '[:lower:]')
+  if [ "$answer" != "ok" ] && [ "$answer" != "ok." ]; then
     rm -f "$check_out"
     printf '%s\n' "sign in once: run claude, sign in, then /exit" >&2
     exit 3

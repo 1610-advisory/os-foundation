@@ -245,8 +245,12 @@ rm -rf "$work/home/.local"
 # Item 11 (b): claude is on PATH but not signed in: one line, exit 3, no jobs. Signed in: on.
 mkdir -p "$work/claude-bin"
 # shellcheck disable=SC2016
-printf '%s\n' '#!/bin/sh' 'cat > /dev/null' \
-  'if [ "${FAKE_CLAUDE:-}" = "ok" ]; then echo ok; exit 0; fi' \
+printf '%s\n' '#!/bin/sh' \
+  'case "${FAKE_CLAUDE:-}" in' \
+  '  ok) cat > /dev/null; echo ok; exit 0 ;;' \
+  '  echo) cat; exit 0 ;;' \
+  "  hang) trap '' TERM; while :; do sleep 1; done ;;" \
+  'esac' 'cat > /dev/null' \
   'echo "Invalid API key. Please run /login"' 'exit 1' > "$work/claude-bin/claude"
 chmod 755 "$work/claude-bin/claude"
 set +e
@@ -263,6 +267,38 @@ HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p
   "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign2.out" 2> "$work/sign2.err" \
   || { cat "$work/sign2.out" "$work/sign2.err" >&2; team_fail "item 11b: signed in, join failed"; }
 grep -q 'sign in once' "$work/sign2.err" && team_fail "item 11b: signed in, still asked to sign in"
+# Round 2: an engine that repeats the question is not signed in.
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=echo \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign3.out" 2> "$work/sign3.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || team_fail "item 11b: an echo engine passed the sign-in check (exit $rc)"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign3.err" || team_fail "item 11b: echo engine, no sign-in line"
+# Round 2: an engine that ignores TERM and never ends. Join still stops: limit + 5 s, then kill -9.
+start=$(date +%s)
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=hang \
+  OS_ENGINE_TIMEOUT=2 PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign4.out" 2> "$work/sign4.err" &
+jpid=$!
+n=0
+while kill -0 "$jpid" 2>/dev/null && [ "$n" -lt 40 ]; do
+  sleep 1
+  n=$((n + 1))
+done
+if kill -0 "$jpid" 2>/dev/null; then
+  kill -9 "$jpid" 2>/dev/null || true
+  team_fail "item 11b: join hung on an engine that ignores TERM"
+fi
+set +e
+wait "$jpid"
+rc=$?
+set -e
+took=$(( $(date +%s) - start ))
+[ "$rc" -eq 3 ] || team_fail "item 11b: hung engine, exit $rc, want 3"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign4.err" || team_fail "item 11b: hung engine, no sign-in line"
+[ "$took" -le 12 ] || team_fail "item 11b: hung engine took ${took}s, want at most 12"
 
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam
