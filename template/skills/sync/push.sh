@@ -499,7 +499,9 @@ sync_push_one() {
   sync_changed_names "$repo" > "$changed" || true
   sync_rename_pairs "$repo" > "$SYNC_RENAMES" || true
   if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-    git -C "$repo" diff --name-only origin/main HEAD >> "$changed" || true
+    # Three dots: only what local commits changed. When a local edit blocked the pull,
+    # HEAD is behind, and a file only the host changed must not go up as a stale copy.
+    git -C "$repo" diff --name-only origin/main...HEAD >> "$changed" || true
   fi
   sort -u "$changed" -o "$changed"
   sync_drop_link_copies "$repo" "$changed"

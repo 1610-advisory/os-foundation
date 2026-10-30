@@ -643,6 +643,33 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("staged.md", show.stdout)
         self.assertNotIn("local.md", show.stdout)
 
+    def test_blocked_pull_never_pushes_a_stale_copy(self):
+        # D86 (c): a local edit blocks the pull, so HEAD is behind origin/main. A file
+        # that only the host changed must keep the host's copy on sync/<me>.
+        bare = self.seed_origin()
+        (self.company / "shared.md").write_text("shared v1\n")
+        (self.company / "other.md").write_text("other v1\n")
+        run(["git", "-C", str(self.company), "add", "shared.md", "other.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "v1"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        dana = self.tmp / "dana"
+        run(["git", "clone", "-q", str(bare), str(dana)], env=self.env, check=True)
+        (dana / "shared.md").write_text("shared v2 from dana\n")
+        (dana / "other.md").write_text("other v2 from dana\n")
+        run(["git", "-C", str(dana), "commit", "-q", "-am", "v2"], env=self.env, check=True)
+        run(["git", "-C", str(dana), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "shared.md").write_text("shared v1 with a local edit\n")
+        self.sync("pull", "--full")
+        behind = self.git("rev-list", "--count", "HEAD..origin/main").stdout.strip()
+        self.assertEqual(behind, "1", "the local edit should block the pull")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        show = lambda path: run(
+            ["git", "--git-dir", str(bare), "show", "refs/heads/sync/mia:" + path], env=self.env
+        ).stdout
+        self.assertEqual(show("other.md"), "other v2 from dana\n")
+        self.assertEqual(show("shared.md"), "shared v1 with a local edit\n")
+
     def test_auto_merge_failure_is_held(self):
         self.seed_origin()
         host = self.host / "host.sh"
