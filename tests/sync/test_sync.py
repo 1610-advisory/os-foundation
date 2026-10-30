@@ -1273,7 +1273,8 @@ class SyncFixTests(unittest.TestCase):
 
     def cp_shim(self):
         # FAKE_CP_FAIL=<name>: the copy of a kept file back into the logs folder fails
-        # (a log open in an editor). Every other copy works.
+        # (a log open in an editor). FAKE_CP_ASIDE_FAIL=<name>: the copy aside fails.
+        # Every other copy works.
         real_cp = shutil.which("cp")
         bindir = self.tmp / "cpbin"
         bindir.mkdir()
@@ -1282,6 +1283,9 @@ class SyncFixTests(unittest.TestCase):
             "#!/bin/bash\n"
             "if [ -n \"${FAKE_CP_FAIL:-}\" ] && [ \"$1\" = -p ]; then\n"
             "  case \"$2\" in *os-logs-keep.*/\"$FAKE_CP_FAIL\") exit 1 ;; esac\n"
+            "fi\n"
+            "if [ -n \"${FAKE_CP_ASIDE_FAIL:-}\" ] && [ \"$1\" = -p ]; then\n"
+            "  case \"$3\" in *os-logs-keep.*/files/\"$FAKE_CP_ASIDE_FAIL\") exit 1 ;; esac\n"
             "fi\n"
             f"exec '{real_cp}' \"$@\"\n"
         )
@@ -1323,6 +1327,44 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual((arc / "2026-10-01-mia.old-branch.md").read_text(), "day one\nnoa's line\n")
         self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
         self.assertEqual((arc / "2026-10-07-mia.md").read_text(), "added here\n")
+
+    def test_failed_copy_aside_leaves_the_logs_folder_as_it_is(self):
+        # logsfix (73): the second file cannot be kept aside. Nothing in the folder moves,
+        # so both edits stay, byte for byte.
+        bare, logs, noa = self.v0_behind_snapshot()
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        (logs / "2026-10-04-ada.md").write_text("ada first\nmia on ada\n")
+        before = self.logs_state(logs)
+        env = self.cp_shim()
+        del env["FAKE_CP_FAIL"]
+        env["FAKE_CP_ASIDE_FAIL"] = "2026-10-04-ada.md"
+        result = self.sync("pull", "--full", env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not keep aside the files changed here", result.stderr)
+        self.assertIn("memory/logs was not changed.", result.stderr)
+        self.assertEqual(self.logs_state(logs), before)
+
+    def test_failed_restore_keeps_a_file_the_old_commit_tracks(self):
+        # logsfix (74): the beside name is a file the old commit tracks and the host's
+        # branch removed. Putting the folder back keeps that file.
+        bare, logs, noa = self.v0_behind_snapshot()
+        (noa / "2026-10-01-mia.old-branch.md").write_text("tracked at the old commit\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: a tracked beside name"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "fetch", "-q", "origin"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "merge", "-q", "--ff-only", "origin/logs"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "rm", "-q", "2026-10-01-mia.old-branch.md"], env=self.env, check=True)
+        (noa / "2026-10-01-mia.md").write_text("day one\nnoa's line\nnoa again\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa again"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        before = self.logs_state(logs)
+        result = self.sync("pull", "--full", env=self.cp_shim())
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("so memory/logs is back as it was", result.stderr)
+        self.assertEqual(self.logs_state(logs), before)
+        self.assertEqual((logs / "2026-10-01-mia.old-branch.md").read_text(), "tracked at the old commit\n")
 
     def test_blocked_fast_forward_keeps_an_added_file_the_host_has(self):
         # logsfix (72): a log added here, not committed, that the host's logs branch has
