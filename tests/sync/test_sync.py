@@ -1927,7 +1927,18 @@ class SyncFixTests(unittest.TestCase):
         found = [p for p in self.tmp.rglob("ab12.jpg") if p.read_bytes() == b"only copy"]
         self.assertTrue(found, "library media was deleted")
         log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
-        self.assertIn("left", log)
+        self.assertIn("reclone: library at", log)
+        # The person is told where the only copy is and where it goes, never "delete it".
+        status = self.sync("status")
+        kept = found[0].parents[2]
+        self.assertEqual(kept.name, "library")
+        line = [l for l in status.stdout.splitlines() if "the library at" in l]
+        self.assertTrue(line, status.stdout)
+        # Compare path tails: macOS temp paths may resolve through /private.
+        self.assertIn(f"/{kept.parent.name}/library is the only copy: move it back to ", line[0])
+        self.assertIn(f"/{self.company.name}/library. Then check the rest of ", line[0])
+        self.assertNotIn("Check it, then delete it", status.stdout)
+        self.assertFalse((self.company / "library").exists())
 
     def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
         self.seed_origin()

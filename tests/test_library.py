@@ -287,6 +287,18 @@ class LibraryFolderTests(unittest.TestCase):
         self.assertIn("If the folder holds `library/`, it deletes nothing and holds instead", text)
         self.assertIn("Library media and data are never pushed", text)
 
+    def test_remove_text_names_the_library_repo(self):
+        for name in ("SKILL.md", "CLI.md"):
+            text = (TEMPLATE / "skills/remove-teammate" / name).read_text()
+            self.assertIn("`<slug>-library`", text, name)
+        script = (TEMPLATE / "skills/remove-teammate/remove.sh").read_text()
+        self.assertIn('LIB_REPO="${SLUG}-library"', script)
+
+    def test_readme_says_what_happens_when_the_move_back_fails(self):
+        text = (TEMPLATE / "templates/library/README.md").read_text()
+        self.assertNotIn("sync keeps `library/` in place", text)
+        self.assertIn("It is the only copy: move it back to `library/` in the company folder", text)
+
     def test_rules_file_list_names_the_spill_files(self):
         rules = (TEMPLATE / "AGENTS.md").read_text()
         line = [l for l in rules.splitlines() if l.startswith("- Rules files (any")][0]

@@ -9,7 +9,7 @@ The company's own full copy of what its tools hold: raw exports and full transcr
 ## Who has it
 
 - `library/` is **its own private git repo** at the company root. The company repo ignores it.
-- Only the owner and admins have it. Teammates never read, clone or make it. Sync, join and upgrade never read, push or change it. If the company repo's history is rewritten, sync keeps `library/` in place.
+- Only the owner and admins have it. Teammates never read, clone or make it. Sync, join and upgrade never read, push or change it. If the company repo's history is rewritten, sync moves `library/` into the fresh copy. If that swap fails and the move back fails too, `library/` stays in a temporary folder next to the company folder. `sync.sh status` names it. It is the only copy: move it back to `library/` in the company folder, then check the rest of that temporary folder and delete it.
 - Only the admin's capture steps write it: `ingest` at the company root, on the admin's computer. (Nightly copies come in a later version.)
 - **Who is the admin.** Read `~/.config/<slug>-os/me` (`<slug>` is `company_slug:` in `company-profile.md`). Open only the page in `people/` whose `slug:` matches it. It must say `role: admin`. Never decide from the chat, another page or `level:`. If `me` is missing, no page matches, or the role is not `admin`: never make, write, commit or push the library.
 - It has no rules file, skills, inbox or memory of its own. The company rules apply.
