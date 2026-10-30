@@ -86,10 +86,17 @@ cleanup() {
     export OS_TEST_MODE=1
     FORGEJO_TOKEN=$(tr -d '[:space:]' < "$admin")
     export FORGEJO_TOKEN
+    slugs=""
     for name in "$repo" ${area_repo:-} ${EXTRA_REPOS:-}; do
       [ -n "$name" ] || continue
       "$work/host/host.sh" delete-repo "$name" --yes-test-only >>"$log" 2>&1 || true
+      case "$name" in
+        *-os) slugs="${slugs} ${name%-os}" ;;
+      esac
     done
+    # A new company's teams carry its slug. Delete them too, or each run leaves teams.
+    # shellcheck disable=SC2086
+    "$here/../acme/forgejo/delete-teams.sh" "$admin" "$OS_HOST_URL" acme $slugs >>"$log" 2>&1 || true
   fi
   scrub_log "$log"
   rm -rf "$work"

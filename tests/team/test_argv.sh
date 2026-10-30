@@ -164,6 +164,11 @@ out=$(PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --a
 rc=$?
 set -e
 printf '%s\n' "$out" | grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' || team_fail "missing review command"
+# B24: a new company's teams carry its slug.
+printf '%s\n' "$out" | grep -qx 'teams: team-company, team-area-marketing' || team_fail "team-on did not make slug teams"
+grep -qx 'team-company' "$OS_ARGV_LOG" || team_fail "team-on did not create team-company"
+awk 'prev == "team-create" && $0 == "arg 2" { getline; if ($0 == "company") bad = 1 } { prev = $0 } END { exit bad }' "$OS_ARGV_LOG" \
+  || team_fail "team-on created the plain team company"
 printf '%s\n' "$out" | grep -q 'no review key: every pull request fails the model review until you add one' || team_fail "missing no-key sentence"
 if grep -F -q -f "$work/token" "$OS_ARGV_LOG"; then
   team_fail "token appeared in team-on argv"

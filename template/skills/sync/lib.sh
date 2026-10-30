@@ -337,6 +337,41 @@ sync_held_replace() {
   chmod 600 "$SYNC_HELD"
 }
 
+# Drop held files that are gone, so a session never tells the person about a file that is
+# not there. Ids: root, area:<name>, workspace. An unknown id stays.
+sync_held_prune() {
+  local tmp keep id path dir me line
+  [ -f "$SYNC_HELD" ] || return 0
+  me=$(sync_me 2>/dev/null || true)
+  keep=$(sync_mktemp)
+  printf '%s\n' '[]' > "$keep"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    id=$(printf '%s' "$line" | jq -r '.repo // ""')
+    path=$(printf '%s' "$line" | jq -r '.path // ""')
+    case "$id" in
+      root) dir=$SYNC_ROOT ;;
+      area:*) dir="$SYNC_ROOT/areas/${id#area:}" ;;
+      workspace) dir="$SYNC_ROOT/users/${me}" ;;
+      *) dir="" ;;
+    esac
+    if [ -n "$dir" ] && [ -n "$path" ] && [ ! -e "$dir/$path" ] && [ ! -L "$dir/$path" ]; then
+      sync_log "held gone ${id} ${path}"
+      continue
+    fi
+    tmp=$(sync_mktemp)
+    jq --argjson f "$line" '. + [$f]' "$keep" > "$tmp"
+    mv "$tmp" "$keep"
+  done << EOF
+$(jq -c '.files[]?' "$SYNC_HELD")
+EOF
+  tmp=$(sync_mktemp)
+  jq --slurpfile k "$keep" '.files = $k[0]' "$SYNC_HELD" > "$tmp"
+  mv "$tmp" "$SYNC_HELD"
+  chmod 600 "$SYNC_HELD"
+  rm -f "$keep"
+}
+
 sync_hold_line() {
   local repo=$1 path=$2 reason=$3
   jq -nc --arg repo "$repo" --arg path "$path" --arg reason "$reason" \

@@ -49,6 +49,7 @@ EOF
 cmd_status() {
   local err
   sync_bind
+  sync_held_prune
   err=$(jq -r '.last_error // ""' "$SYNC_HELD")
   if [ -n "$err" ]; then
     printf 'last error: %s\n' "$err"

@@ -348,8 +348,41 @@ os_user_repo() {
   printf '%s-user-%s' "$1" "$2"
 }
 
+# Team names. A new company gets <slug>-company and <slug>-area-<a>, so two companies in
+# one org never share a team. A v1 company whose plain team "company" already grants its
+# repo keeps the plain names. Call os_team_names <slug> once, before the names are used.
+OS_TEAM_PREFIX=""
+os_team_names() {
+  local slug=$1 out
+  if ! out=$(os_host team-repos company); then
+    os_die 3 "could not read the teams on the host"
+  fi
+  if printf '%s' "$out" | jq -e --arg r "$(os_company_repo "$slug")" '(.repos // []) | index($r) != null' >/dev/null; then
+    OS_TEAM_PREFIX=""
+  else
+    OS_TEAM_PREFIX="${slug}-"
+  fi
+}
+
+os_team_company() {
+  printf '%scompany' "$OS_TEAM_PREFIX"
+}
+
 os_team_area() {
-  printf 'area-%s' "$1"
+  printf '%sarea-%s' "$OS_TEAM_PREFIX" "$1"
+}
+
+# Refuse a team that already grants a repo it should not: <team> may grant only <repo>.
+# Another company's repo there means people of both reach both.
+os_team_guard() {
+  local team=$1 repo=$2 out other
+  if ! out=$(os_host team-repos "$team"); then
+    os_die 3 "could not read team ${team} on the host"
+  fi
+  other=$(printf '%s' "$out" | jq -r --arg r "$repo" '[(.repos // [])[] | select(. != $r)] | join(", ")')
+  if [ -n "$other" ]; then
+    os_die 2 "team ${team} already grants ${other}. It may grant only ${repo}. Two companies must not share a team: their people would reach each other's repos. Use one org per company, or take those repos off team ${team} on the host. Then run this again."
+  fi
 }
 
 os_clone_url() {

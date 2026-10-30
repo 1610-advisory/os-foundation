@@ -106,6 +106,18 @@ if [ "$HOST_KIND" = "github" ]; then
   [ "$rc" -eq 0 ] || exit "$rc"
 fi
 
+# Teams. A new company gets team names with its slug. A team that already grants another
+# company's repo is never reused: stop before any write.
+os_team_names "$SLUG"
+os_team_guard "$(os_team_company)" "$(os_company_repo "$SLUG")"
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  os_team_guard "$(os_team_area "$area")" "$(os_area_repo "$SLUG" "$area")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
 ADMIN=$(os_answer_or admin_slug "$ANSWERS" "")
 if [ -z "$ADMIN" ]; then
   ADMIN=$(os_person_slugs "$ANSWERS" | while IFS= read -r s; do
@@ -520,24 +532,27 @@ $(os_areas_on_disk "$ROOT")
 EOF
 
 # Teams and grants.
-os_host team-create company >/dev/null
-os_host grant "$COMPANY_REPO" "team:company" write >/dev/null
+os_host team-create "$(os_team_company)" >/dev/null
+os_host grant "$COMPANY_REPO" "team:$(os_team_company)" write >/dev/null
+teams=$(os_team_company)
 
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
   os_host team-create "$(os_team_area "$area")" >/dev/null
   os_host grant "$(os_area_repo "$SLUG" "$area")" "team:$(os_team_area "$area")" write >/dev/null
+  teams="${teams}, $(os_team_area "$area")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
+printf 'teams: %s\n' "$teams"
 
 slug=""
 while IFS= read -r slug; do
   [ -n "$slug" ] || continue
   gh=$(os_answer_or "person.${slug}.github" "$ANSWERS" "")
   areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
-  os_host team-add company "$gh" >/dev/null
+  os_host team-add "$(os_team_company)" "$gh" >/dev/null
   a=""
   while IFS= read -r a || [ -n "$a" ]; do
     [ -n "$a" ] || continue

@@ -172,11 +172,68 @@ if git -C "$ROOT" cat-file -e main:company-profile.md 2>/dev/null \
   exit 0
 fi
 
-if git -C "$ROOT" show-ref --verify --quiet refs/heads/upgrade/v1; then
+# An earlier run's branches: upgrade/v1 in the company folder, upgrade/scripts in each area.
+# This script made a branch when its last commit is one it makes. A run rebuilds its own
+# branches from main and replaces them on the host. Anything else on them stops the run.
+upgrade_made() {
+  git -C "$1" log -1 --format=%s "$2" 2>/dev/null | grep -qE '^Upgrade( to v1$|: )'
+}
+
+# One plain line with the exact commands for a branch that holds someone else's commits.
+# $4: local, host, or both.
+FOREIGN=0
+foreign_branch() {
+  local where=$1 label=$2 branch=$3 side=$4 cmds=""
+  case "$side" in
+    local|both) cmds="git checkout main && git branch -D ${branch}" ;;
+  esac
+  case "$side" in
+    host|both) cmds="${cmds:+${cmds} && }git push origin --delete ${branch}" ;;
+  esac
+  printf 'upgrade: stopped: %s has commits on %s that the upgrade did not make. To keep them, merge or close its pull request first. To start over, in %s run: %s (that also closes its pull request). Then run upgrade again.\n' \
+    "$label" "$branch" "$where" "$cmds"
+  FOREIGN=1
+}
+
+# The folder is on its own upgrade branch from an earlier run: go back to main.
+upgrade_branch_local() {
+  local dir=$1 where=$2 label=$3 branch=$4
+  git -C "$dir" show-ref --verify --quiet "refs/heads/${branch}" || return 0
+  if ! upgrade_made "$dir" "refs/heads/${branch}"; then
+    return 1
+  fi
+  if [ "$(git -C "$dir" symbolic-ref -q --short HEAD || true)" = "$branch" ] \
+    && [ -z "$(git -C "$dir" status --porcelain)" ]; then
+    git -C "$dir" checkout -q main || os_die 3 "could not switch ${where} to main"
+    printf 'switched %s to main from %s (an earlier upgrade run)\n' "$where" "$branch"
+  fi
+  return 0
+}
+
+# No host: the person merges upgrade/v1 by hand, so a second run leaves it as it is.
+if [ "$HOST_ON" -eq 0 ] && git -C "$ROOT" show-ref --verify --quiet refs/heads/upgrade/v1; then
+  over="in the company folder: git checkout main && git branch -D upgrade/v1"
+  for area in "$ROOT"/areas/*; do
+    [ -e "$area/.git" ] || continue
+    if git -C "$area" show-ref --verify --quiet refs/heads/upgrade/scripts; then
+      over="${over}; in areas/$(basename "$area"): git checkout main && git branch -D upgrade/scripts"
+    fi
+  done
   printf '%s\n' "upgrade: pending upgrade/v1"
-  printf '%s\n' "To start over: git checkout main, then delete the upgrade/v1 branch and any area upgrade/scripts branch."
+  printf 'To start over, run %s. Then run upgrade again.\n' "$over"
   exit 0
 fi
+
+LOCAL_FOREIGN=""
+if ! upgrade_branch_local "$ROOT" "the company folder" "the company folder" upgrade/v1; then
+  LOCAL_FOREIGN=" root "
+fi
+for area in "$ROOT"/areas/*; do
+  [ -e "$area/.git" ] || continue
+  if ! upgrade_branch_local "$area" "areas/$(basename "$area")" "areas/$(basename "$area")" upgrade/scripts; then
+    LOCAL_FOREIGN="${LOCAL_FOREIGN} areas/$(basename "$area") "
+  fi
+done
 
 # The v0 logs branch: the local one, else origin/logs. A fresh clone has only origin/logs.
 # A local logs that is not the same as origin/logs stops a real run: one of them has
@@ -849,15 +906,63 @@ plan_host_steps() {
 }
 plan_host_steps
 
+# Each upgrade branch, in the folder and on the host. An earlier run's own branch is
+# replaced. Someone else's commits stop a real run, before any change.
+upgrade_branch_check() {
+  local dir=$1 where=$2 repo=$3 branch=$4 key=$5 side="" ok
+  case "$LOCAL_FOREIGN" in
+    *" ${key} "*) side=local ;;
+  esac
+  if [ "$HOST_ON" -eq 1 ] && [ -n "$SLUG" ] && git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+    if [ "$DRY" -eq 1 ]; then
+      ok=0
+      (os_with_git_token git -C "$dir" fetch -q --prune origin) || ok=1
+    else
+      ok=0
+      os_with_git_token git -C "$dir" fetch -q --prune origin || ok=1
+    fi
+    if [ "$ok" -ne 0 ]; then
+      printf 'could not fetch %s\n' "$repo" >&2
+      [ "$DRY" -eq 1 ] || exit 3
+    elif git -C "$dir" rev-parse -q --verify "refs/remotes/origin/${branch}" >/dev/null; then
+      if upgrade_made "$dir" "refs/remotes/origin/${branch}"; then
+        printf 'change: replace %s %s (an earlier upgrade run made it; its pull request is reused)\n' "$repo" "$branch"
+      else
+        side=${side:+both}
+        side=${side:-host}
+      fi
+    fi
+  fi
+  [ -z "$side" ] || foreign_branch "$where" "$repo" "$branch" "$side"
+}
+
+preflight_upgrade_branches() {
+  local area name repo=root
+  [ "$HOST_ON" -eq 1 ] && [ -n "$SLUG" ] && repo=$(os_company_repo "$SLUG")
+  upgrade_branch_check "$ROOT" "the company folder" "$repo" upgrade/v1 root
+  for area in "$ROOT"/areas/*; do
+    [ -e "$area/.git" ] || continue
+    name=$(basename "$area")
+    repo="areas/${name}"
+    [ "$HOST_ON" -eq 1 ] && [ -n "$SLUG" ] && repo=$(os_area_repo "$SLUG" "$name")
+    upgrade_branch_check "$area" "areas/${name}" "$repo" upgrade/scripts "areas/${name}"
+  done
+  if [ "$FOREIGN" -eq 1 ] && [ "$DRY" -eq 0 ]; then
+    exit 2
+  fi
+}
+
 preflight_spills 0
 preflight_areas 0
 
 if [ "$DRY" -eq 1 ]; then
+  preflight_upgrade_branches
   exit 0
 fi
 
 preflight_spills 1
 preflight_areas 1
+preflight_upgrade_branches
 
 if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
   os_die 2 "the company folder has uncommitted changes. Commit or stash them, then run upgrade again."
@@ -884,19 +989,51 @@ author_env() {
 # A v0 main has none, so an upgrade pull request could never pass its checks.
 # Like team-on: lift protection, push one commit with only the check files to main,
 # then protect with the v1 rules (this also replaces a v0 classic rule and turns on auto-merge).
+# The release of a set of check tools: digits in .github/scripts/tools-release.
+# Tools from before the marker are release 0.
+tools_release() {
+  local rel
+  rel=$(tr -cd '0-9' < "$1" 2>/dev/null || true)
+  printf '%s\n' "${rel:-0}"
+}
+
 checks_on_main() {
-  local dir=$1 repo=$2 tmp err owners first f
+  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel
   if ! os_with_git_token git -C "$dir" fetch origin; then
     os_die 3 "could not fetch ${repo}"
   fi
-  if git -C "$dir" cat-file -e origin/main:.github/workflows/checks.yml 2>/dev/null \
-    && git -C "$dir" cat-file -e origin/main:.github/scripts/checkout.sh 2>/dev/null \
-    && git -C "$dir" cat-file -e origin/main:.github/scripts/tools/secret-scan.sh 2>/dev/null \
-    && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null; then
-    printf 'checks-on-main: %s already\n' "$repo"
+  tmp=$(mktemp -d)
+  git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
+  if [ -f "$tmp/main/.github/workflows/checks.yml" ] \
+    && [ -f "$tmp/main/.github/scripts/checkout.sh" ] \
+    && [ -f "$tmp/main/.github/scripts/tools/secret-scan.sh" ] \
+    && [ -f "$tmp/main/.github/review.conf" ]; then
+    # main has check tools. The checks run them from main, so a fix in a newer release
+    # reaches the company only here. Never put older tools over newer ones.
+    main_rel=$(tools_release "$tmp/main/.github/scripts/tools-release")
+    new_rel=$(tools_release "$TEMPLATE/.github/scripts/tools-release")
+    cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
+    rm -rf "$tmp/main/.github/scripts"
+    cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
+    git -C "$tmp/main" add -A -- .github/workflows/checks.yml .github/scripts
+    if git -C "$tmp/main" diff --cached --quiet; then
+      done_line="checks-on-main: ${repo} already"
+    elif [ "$main_rel" -ge "$new_rel" ]; then
+      done_line="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
+    else
+      author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
+      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})"
+    fi
+    if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
+      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+      rm -rf "$tmp"
+      printf '%s\n' "$done_line"
+      reprotect "$repo"
+      printf 'protected: %s\n' "$repo"
+      return 0
+    fi
   else
-    tmp=$(mktemp -d)
-    git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
+    done_line="checks-on-main: ${repo}"
     mkdir -p "$tmp/main/.github/workflows"
     cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
     rm -rf "$tmp/main/.github/scripts"
@@ -931,30 +1068,30 @@ checks_on_main() {
     fi
     git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
     author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
-    # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
-    # refuse this push. From here until protect, every way out puts protection back
-    # (upgrade_on_exit covers a stop this function does not catch).
-    UNPROTECTED=$repo
-    os_host unprotect "$repo" >/dev/null
-    err=$(mktemp)
-    if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
-      cat "$err" >&2
-      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-      rm -rf "$tmp"
-      reprotect "$repo"
-      if grep -qi 'workflow' "$err"; then
-        rm -f "$err"
-        os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
-      fi
-      rm -f "$err"
-      os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
-    fi
-    rm -f "$err"
+  fi
+  # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
+  # refuse this push. From here until protect, every way out puts protection back
+  # (upgrade_on_exit covers a stop this function does not catch).
+  UNPROTECTED=$repo
+  os_host unprotect "$repo" >/dev/null
+  err=$(mktemp)
+  if ! os_with_git_token git -C "$tmp/main" push origin HEAD:refs/heads/main 2>"$err"; then
+    cat "$err" >&2
     git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
     rm -rf "$tmp"
-    os_with_git_token git -C "$dir" fetch origin >/dev/null 2>&1 || true
-    printf 'checks-on-main: %s\n' "$repo"
+    reprotect "$repo"
+    if grep -qi 'workflow' "$err"; then
+      rm -f "$err"
+      os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
+    fi
+    rm -f "$err"
+    os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
   fi
+  rm -f "$err"
+  git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  os_with_git_token git -C "$dir" fetch origin >/dev/null 2>&1 || true
+  printf '%s\n' "$done_line"
   reprotect "$repo"
   printf 'protected: %s\n' "$repo"
 }
@@ -1195,13 +1332,38 @@ pr_merge_path() {
     # code-owner approval. The admin bypass on rules-review is a click on the merge box.
     # Auto-merge stays off: with it on, GitHub shows "Disable auto-merge" in place of
     # that box.
-    printf 'merge-by-hand: %s %s\n' "$repo" "$number"
+    printf 'merge-by-hand: %s %s: it will not merge by itself. When its checks are green, the admin opens it, ticks "Merge without waiting for requirements to be met (bypass rules)" and clicks "Bypass rules and merge".\n' \
+      "$repo" "$number"
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
   fi
   if ! os_host_try auto-merge "$repo" "$number" >/dev/null; then
     printf 'auto-merge is off on %s: pull request %s stays open until the admin merges it.\n' "$repo" "$number"
     HAND="${HAND:+${HAND}, }${repo} ${number}"
+  fi
+}
+
+# Push an upgrade branch. Replace the host's copy only when an earlier upgrade run made
+# it, and only if it has not moved since this run looked (force-with-lease).
+push_upgrade_branch() {
+  local dir=$1 where=$2 repo=$3 branch=$4 expect=""
+  shift 4
+  if ! os_with_git_token git -C "$dir" fetch -q --prune origin; then
+    os_die 3 "could not fetch ${repo}"
+  fi
+  if git -C "$dir" rev-parse -q --verify "refs/remotes/origin/${branch}" >/dev/null; then
+    if ! upgrade_made "$dir" "refs/remotes/origin/${branch}"; then
+      foreign_branch "$where" "$repo" "$branch" host
+      exit 2
+    fi
+    expect=$(git -C "$dir" rev-parse "refs/remotes/origin/${branch}")
+  fi
+  if ! os_with_git_token git -C "$dir" push "$@" --force-with-lease="refs/heads/${branch}:${expect}" \
+    origin "HEAD:refs/heads/${branch}"; then
+    os_die 3 "could not push ${branch} for ${repo}. The host branch changed while the upgrade ran. Run upgrade again."
+  fi
+  if [ -n "$expect" ]; then
+    printf 'replaced: %s %s (an earlier upgrade run made it)\n' "$repo" "$branch"
   fi
 }
 
@@ -1262,9 +1424,7 @@ push_area_scripts() {
       printf 'pr-plan: %s nothing to commit\n' "$repo"
       continue
     fi
-    if ! os_with_git_token git -C "$area" push origin "HEAD:${branch}"; then
-      os_die 3 "could not push ${branch} for ${repo}"
-    fi
+    push_upgrade_branch "$area" "areas/${name}" "$repo" "$branch"
     push_logs_tags "$area" "$repo"
     area_body=$(mktemp)
     rules_pr_body "$area" origin/main "$area_body"
@@ -1337,7 +1497,7 @@ push_logs_tags() {
 
 if [ "$HOST_ON" -eq 1 ]; then
   push_area_scripts
-  os_with_git_token git -C "$ROOT" push --set-upstream origin upgrade/v1
+  push_upgrade_branch "$ROOT" "the company folder" "$(os_company_repo "$SLUG")" upgrade/v1 --set-upstream
   push_logs_tags "$ROOT" "$(os_company_repo "$SLUG")"
   pr=$(os_host open-pr "$(os_company_repo "$SLUG")" --head upgrade/v1 --base main --title "Upgrade to v1" --body-file "$pr_body")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')

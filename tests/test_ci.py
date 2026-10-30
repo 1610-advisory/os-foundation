@@ -500,6 +500,78 @@ class ToolCopyTests(unittest.TestCase):
         self.assertEqual(scanned.returncode, 0, scanned.stdout + scanned.stderr)
 
 
+class BundledScanTests(unittest.TestCase):
+    """B21: the scanner CI runs (bundled: the runner has no gitleaks)."""
+
+    SCAN = ROOT / "template" / "skills" / "sync" / "secret-scan.sh"
+
+    def scan(self, *paths):
+        return run(["bash", str(self.SCAN), "--files", "--", *map(str, paths)], env={"OS_SECRET_SCAN": "bundled"})
+
+    def test_every_stock_file_is_clean(self):
+        # An upgrade pull request adds stock files, so each must pass the scan on its own.
+        files = subprocess.run(
+            ["git", "ls-files", "-z", "template"], cwd=ROOT, capture_output=True, check=True
+        ).stdout.decode().split("\0")
+        paths = [ROOT / f for f in files if f and (ROOT / f).is_file() and not (ROOT / f).is_symlink()]
+        self.assertGreater(len(paths), 50)
+        proc = self.scan(*paths)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_references_are_clean_and_literals_are_caught(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            refs = Path(tmp) / "refs.sh"
+            refs.write_text(
+                'token=$(host_forgejo_token)\n'
+                '  token=$(sync_bot_take_token "$bot")\n'
+                'api_key="${OS_REVIEW_KEY_FILE_PATH}"\n'
+                "secret=`read_the_secret_from_keychain`\n",
+                encoding="utf-8",
+            )
+            proc = self.scan(refs)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            for line in (
+                "token = " + "d" * 20,
+                'api_key: "' + "Zx81kqPLmn23wqTT" + '"',
+                "password='" + "q" * 18 + "'",
+            ):
+                lit = Path(tmp) / "lit.txt"
+                lit.write_text(line + "\n", encoding="utf-8")
+                proc = self.scan(lit)
+                self.assertEqual(proc.returncode, 1, line[:8])
+                self.assertIn("generic-api-key", proc.stdout)
+                self.assertNotIn(line.split()[-1].strip("\"'"), proc.stdout + proc.stderr)
+
+
+class ToolsReleaseTests(unittest.TestCase):
+    """B28: upgrade puts newer check tools on main by .github/scripts/tools-release.
+
+    A change to the check tools needs a higher release, or a company that has the old
+    tools keeps them. Bump tools-release, then put the new release and hash below.
+    """
+
+    FIXTURE = ROOT / "tests" / "ci" / "fixtures" / "tools-release.txt"
+
+    def test_changed_tools_bump_the_release(self):
+        import hashlib
+
+        base = ROOT / "template" / ".github"
+        files = [base / "workflows" / "checks.yml"] + sorted(
+            p for p in (base / "scripts").rglob("*") if p.is_file() and p.name != "tools-release"
+        )
+        digest = hashlib.sha256()
+        for p in files:
+            digest.update(str(p.relative_to(base)).encode() + b"\0" + p.read_bytes() + b"\0")
+        release = (base / "scripts" / "tools-release").read_text().strip()
+        self.assertRegex(release, r"^[0-9]{10}$")
+        want_release, want_hash = self.FIXTURE.read_text().split()
+        self.assertEqual(
+            (release, digest.hexdigest()),
+            (want_release, want_hash),
+            "check tools changed: raise template/.github/scripts/tools-release, then update " + str(self.FIXTURE.name),
+        )
+
+
 class BaseRulesTests(unittest.TestCase):
     def test_review_rules_come_from_base(self):
         text = (SCRIPTS / "run-checks.sh").read_text(encoding="utf-8")

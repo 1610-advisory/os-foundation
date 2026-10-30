@@ -83,6 +83,7 @@ cat > "$work/bin/host.sh" << 'EOF'
 #!/bin/bash
 case "$1" in
   user-access) printf '%s\n' '{"access":"none"}' ;;
+  org-membership) printf '%s\n' '{"state":"none"}' ;;
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}' ;;
   get-token) printf '%s\n' local-token ;;
   *) printf '%s\n' '{"ok":true}' ;;

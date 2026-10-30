@@ -47,6 +47,8 @@ Per computer, never in a repo: `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/`
 
 `repo` is `root`, `area:<name>`, or `workspace`.
 
+A held file that no longer exists leaves the list at the start and end of each `push` and at each `status`, so a session never reports a file that is gone. `sync.log` gets `held gone <repo> <path>`.
+
 ## Identity
 
 Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of the `people/*.md` page whose `slug:` is `me`. A mismatch pushes nothing. `status` says why.

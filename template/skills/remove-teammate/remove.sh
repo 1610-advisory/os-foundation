@@ -100,20 +100,67 @@ try_host() {
   set -e
 }
 
-area=""
-while IFS= read -r area; do
-  [ -n "$area" ] || continue
-  try_host team-remove "$(os_team_area "$area")" "$GH"
-  try_host revoke "$(os_area_repo "$SLUG" "$area")" "$GH"
-done << EOF
-$(os_areas_on_disk "$ROOT")
-EOF
-try_host team-remove company "$GH"
-try_host revoke "$COMPANY_REPO" "$GH"
-try_host revoke "$WS_REPO" "$GH"
-try_host org-remove "$GH"
+os_team_names "$SLUG"
 
 STILL=""
+
+# Every area the person may have: their page, plus the areas checked out here. An area
+# on the host that is not checked out here still counts.
+AREAS=$(
+  {
+    os_areas_on_disk "$ROOT"
+    os_split_areas "$(os_fm_get "$PAGE" areas 2>/dev/null | tr -d '[]"' || true)"
+  } | sort -u
+)
+
+# Every repo to clear: the company, each area, the workspace, and each repo the company
+# team and the area teams grant. A team that cannot be read is not checked, never gone.
+REPOS=""
+add_repo() {
+  case " ${REPOS} " in
+    *" $1 "*) ;;
+    *) REPOS="${REPOS} $1" ;;
+  esac
+}
+team_repos() {
+  local team=$1 out rc r
+  set +e
+  out=$(os_host team-repos "$team" 2>/dev/null)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} team ${team} (not checked)"
+    return 1
+  fi
+  for r in $(printf '%s' "$out" | jq -r '(.repos // [])[]'); do
+    add_repo "$r"
+  done
+}
+
+failed=0
+add_repo "$COMPANY_REPO"
+team_repos "$(os_team_company)" || failed=1
+area=""
+for area in $AREAS; do
+  add_repo "$(os_area_repo "$SLUG" "$area")"
+  team_repos "$(os_team_area "$area")" || failed=1
+done
+add_repo "$WS_REPO"
+
+# A person who never accepted has pending invites, not membership. Cancel those too,
+# or they get access the moment they accept.
+for area in $AREAS; do
+  try_host team-remove "$(os_team_area "$area")" "$GH"
+done
+try_host team-remove "$(os_team_company)" "$GH"
+repo=""
+for repo in $REPOS; do
+  try_host revoke "$repo" "$GH"
+  try_host cancel-invites "$GH" "$repo"
+done
+try_host cancel-invites "$GH"
+try_host org-remove "$GH"
+
 check_gone() {
   local repo=$1 out access rc
   set +e
@@ -121,27 +168,60 @@ check_gone() {
   rc=$?
   set -e
   if [ "$rc" -ne 0 ]; then
-    STILL="${STILL} ${repo}"
+    STILL="${STILL} ${repo} (not checked)"
     return 1
   fi
   access=$(printf '%s' "$out" | jq -r '.access // "none"')
   if [ "$access" != "none" ]; then
-    STILL="${STILL} ${repo}"
+    STILL="${STILL} ${repo} (${access})"
     return 1
   fi
   return 0
 }
 
-failed=0
-check_gone "$COMPANY_REPO" || failed=1
-area=""
-while IFS= read -r area; do
-  [ -n "$area" ] || continue
-  check_gone "$(os_area_repo "$SLUG" "$area")" || failed=1
-done << EOF
-$(os_areas_on_disk "$ROOT")
-EOF
-check_gone "$WS_REPO" || failed=1
+# The org invite is checked after the fact too.
+check_org_invite() {
+  local out rc n
+  set +e
+  out=$(os_host invites "$GH")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} org (not checked)"
+    return 1
+  fi
+  n=$(printf '%s' "$out" | jq '.invites | length')
+  if [ "$n" != "0" ]; then
+    STILL="${STILL} org (invited)"
+    return 1
+  fi
+  return 0
+}
+
+# Org membership is read again after the fact. Only none counts as gone.
+check_org_member() {
+  local out rc state
+  set +e
+  out=$(os_host org-membership "$GH")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} org (not checked)"
+    return 1
+  fi
+  state=$(printf '%s' "$out" | jq -r '.state // empty')
+  if [ "$state" != "none" ]; then
+    STILL="${STILL} org (${state:-not checked})"
+    return 1
+  fi
+  return 0
+}
+
+check_org_invite || failed=1
+check_org_member || failed=1
+for repo in $REPOS; do
+  check_gone "$repo" || failed=1
+done
 if [ "$failed" -ne 0 ]; then
   printf 'revoke failed. Still has access:%s\n' "$STILL" >&2
   exit 3
@@ -195,6 +275,18 @@ else
 fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
+  if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
+    # A BOT.md is a rules file. On GitHub its code-owner review is the admin, the author
+    # here. Auto-merge would hide the bypass box, so it stays off.
+    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
+      "$COMPANY_REPO" "$number"
+  elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
+    # Like propose: the pull request merges by itself when its checks pass.
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
+  fi
 fi
 printf '%s\n' "phi: app-level-not-in-v1"
 
