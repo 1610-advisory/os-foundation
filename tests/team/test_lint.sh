@@ -37,6 +37,10 @@ host: none
 EOF
 printf '%s\n' "# Profile" > "$pass/users/mia/profile/PROFILE.md"
 printf '%s\n' "# Bot" > "$pass/bots/helper/BOT.md"
+# B33: the stock v0 logs README, moved by the upgrade. History: lint skips it.
+mkdir -p "$pass/memory/logs-archive" "$pass/areas/marketing/memory/logs-archive"
+printf '# Session logs\n\nOne file per person per day: YYYY-MM-DD-{{PERSON_SLUG}}.md\n' > "$pass/memory/logs-archive/README.md"
+cp "$pass/memory/logs-archive/README.md" "$pass/areas/marketing/memory/logs-archive/README.md"
 export HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config"
 mkdir -p "$HOME"
 if ! out=$("$lint" --ci --root "$pass"); then
