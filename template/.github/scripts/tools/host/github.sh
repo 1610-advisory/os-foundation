@@ -998,7 +998,12 @@ cmd_open_pr() {
   number=$(printf '%s' "$list" | jq -r --arg head "$HEAD" \
     '.[] | select(.head.ref==$head) | .number' | head -n 1)
   if [ -n "$number" ]; then
-    patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    # No --body-file: keep the body it has (B40). A person may have written one.
+    if [ -n "$BODY_FILE" ]; then
+      patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    else
+      patch=$(jq -nc --arg title "$TITLE" '{title:$title}')
+    fi
     existing=$(host_gh_ok PATCH "$(host_repo "$name")/pulls/${number}" "$patch")
   else
     existing=$(host_gh_ok POST "$(host_repo "$name")/pulls" "$body")
@@ -1103,6 +1108,23 @@ cmd_auto_merge() {
         rm -f "$err"
         jq -nc --arg name "$name" --argjson number "$number" \
           '{ok:true, name:$name, number:$number, auto_merge:"already"}'
+        return 0
+        ;;
+      *"clean status"*)
+        # The checks are already green, so GitHub will not wait for them (B45). Merge now.
+        set +e
+        if [ -n "$GH_HOSTNAME" ]; then
+          gh pr merge "$number" --repo "${OS_ORG}/${name}" --merge --hostname "$GH_HOSTNAME" >"$err" 2>&1
+        else
+          gh pr merge "$number" --repo "${OS_ORG}/${name}" --merge >"$err" 2>&1
+        fi
+        code=$?
+        set -e
+        rm -f "$err"
+        if [ "$code" -ne 0 ]; then
+          host_die 3 "pull request ${number} is green: merge it"
+        fi
+        jq -nc --arg name "$name" --argjson number "$number" '{ok:true, name:$name, number:$number, merge:"merged"}'
         return 0
         ;;
     esac

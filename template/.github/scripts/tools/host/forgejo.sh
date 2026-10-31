@@ -778,7 +778,12 @@ cmd_open_pr() {
     page=$((page + 1))
   done
   if [ -n "$number" ]; then
-    body=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    # No --body-file: keep the body it has (B40). A person may have written one.
+    if [ -n "$BODY_FILE" ]; then
+      body=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    else
+      body=$(jq -nc --arg title "$TITLE" '{title:$title}')
+    fi
     if ! fj_call PATCH "$(host_repo "$name")/pulls/${number}" "$body"; then
       fj_offline
     fi
