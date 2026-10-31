@@ -1011,7 +1011,7 @@ cmd_open_pr() {
   printf '%s' "$existing" | jq -c '{number:.number, url:.html_url}'
 }
 
-# Open pull requests: number and head branch.
+# Open pull requests: number, head branch and body.
 cmd_open_prs() {
   local all
   host_need_name
@@ -1020,7 +1020,7 @@ cmd_open_prs() {
     return 0
   fi
   all=$(host_gh_all "$(host_repo "$POS1")/pulls?state=open") || exit $?
-  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref}]}'
+  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref, body:(.body // "")}]}'
 }
 
 cmd_close_pr() {
