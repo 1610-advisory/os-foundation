@@ -166,6 +166,8 @@ org_repos() {
     STILL="${STILL} org repos (not checked)"
     return 1
   fi
+  # Each repo gets a revoke and a check. That can take minutes, so say so first (B44).
+  printf 'checking %s repos in the org...\n' "$(printf '%s' "$out" | jq -r '(.repos // []) | length')"
   for r in $(printf '%s' "$out" | jq -r '(.repos // [])[]'); do
     add_repo "$r"
   done

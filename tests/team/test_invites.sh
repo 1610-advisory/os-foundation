@@ -297,6 +297,9 @@ grep -q 'invitations/82' "$FAKE_GH_LOG" && team_fail "another person's invite wa
 grep -qx 'PATCH /repos/acme/acme-os/pulls/7' "$FAKE_GH_LOG" || team_fail "B37: add pull request not closed"
 grep -q 'pulls/8' "$FAKE_GH_LOG" && team_fail "B37: another pull request was closed"
 grep -qx 'closed: acme-os 7 (it added mia)' "$work/rm.out" || team_fail "B37: no closed: line"
+# B44: the long org read is announced first.
+n_repos=$(find "$work/state/repo" -name '*.json' | wc -l | tr -d ' ')
+grep -qx "checking ${n_repos} repos in the org..." "$work/rm.out" || team_fail "B44: no checking line: $(head -3 "$work/rm.out")"
 # B39: a person who is not an org member is normal. No raw 404 lines.
 grep -q 'HTTP 404\|not found or no access' "$work/rm.err" && team_fail "B39: raw 404 lines: $(cat "$work/rm.err")"
 [ "$(jq -c '[.[].id]' "$work/state/org.json")" = "[82]" ] || team_fail "org invites left: $(cat "$work/state/org.json")"
