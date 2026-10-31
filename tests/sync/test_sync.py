@@ -555,8 +555,10 @@ case "$1" in
     done
     printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
   open-prs)
-    # B40 b: the open pull request's body, when a test wrote one.
-    [ -f "HOSTDIR/open-body.txt" ] || exit 1
+    # B40 b: the open pull request's body, when a test wrote one. B40-READ: a read
+    # that fails.
+    [ ! -f "HOSTDIR/open-prs-fails" ] || exit 3
+    [ -f "HOSTDIR/open-body.txt" ] || { printf '%s\n' '{"prs":[]}'; exit 0; }
     jq -nc --rawfile b "HOSTDIR/open-body.txt" '{prs:[{number:1, head:"sync/mia", body:$b}]}' ;;
   auto-merge) printf '%s\n' '{"ok":true}' ;;
   repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
@@ -731,7 +733,66 @@ class SyncFixTests(unittest.TestCase):
             old + "\n\n<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n<!-- /sync:files -->",
         )
 
+    def test_push_keeps_the_body_when_it_cannot_read_it(self):
+        # B40-READ: open-prs fails. Push gives open-pr no body, so the host keeps its own.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-prs-fails").write_text("")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        self.assertIn("push body root could not read the open pull request: its body stays", self.sync_log())
+
+    def test_a_failed_commit_is_the_last_error(self):
+        # Push-fail status: a commit that fails shows in status, not "last error: none".
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        hook = self.company / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("push fail root commit", self.sync_log())
+        self.assertIn("last error: push failed for root: commit", self.sync("status").stdout)
+
+    def test_a_merged_delete_does_not_wedge_the_folder(self):
+        # B48: a note deleted through sync. Its pull request merges. Pull must go on.
+        bare = self.seed_origin()
+        (self.company / "old.md").write_text("an old note\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "old.md").unlink()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The host merges sync/mia (a fast-forward: push builds it on origin/main).
+        run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", "refs/heads/sync/mia"],
+            env=self.env, check=True)
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        status = run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout
+        self.assertEqual(status, "")
+        self.assertFalse((self.company / "old.md").exists())
+        # And the next push has nothing to do.
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("push fail", self.sync_log())
+
+    def test_a_file_merged_after_the_last_fetch_is_no_change(self):
+        # B46-STALE: the host merged the page after this folder's last fetch. Push fetches
+        # first, so the page is still no change.
+        self.page_equal_to_origin(fetch=False)
+
     def test_a_file_equal_to_origin_is_no_change(self):
+        self.page_equal_to_origin(fetch=True)
+
+    def page_equal_to_origin(self, fetch):
         # B46: after join, the page is modified on main but equals origin/main once join's
         # pull request merges. Push skips it: no commit, no hold, no failure line.
         bare = self.seed_origin()
@@ -747,7 +808,8 @@ class SyncFixTests(unittest.TestCase):
              "commit", "-q", "-am", "join"], env=self.env, check=True)
         run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
         (self.company / page).write_text(text)
-        run(["git", "-C", str(self.company), "fetch", "-q", "origin"], env=self.env, check=True)
+        if fetch:
+            run(["git", "-C", str(self.company), "fetch", "-q", "origin"], env=self.env, check=True)
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         log_file = self.home / ".config" / "acme-os" / "state" / "sync.log"

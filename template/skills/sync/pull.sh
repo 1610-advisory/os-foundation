@@ -55,10 +55,11 @@ sync_rename_pairs() {
 
 sync_prepare_ff() {
   local repo=$1
-  local incoming dirty path incfile save
+  local incoming dirty path incfile save gone
   local blocked=0
   incoming=$(sync_mktemp)
   dirty=$(sync_mktemp)
+  gone=$(sync_mktemp)
   save=$(sync_keep_dir)
   git -C "$repo" diff --name-only HEAD origin/main > "$incoming" || true
   sync_changed_names "$repo" > "$dirty" || true
@@ -69,6 +70,11 @@ sync_prepare_ff() {
     fi
     incfile=$(sync_mktemp)
     if ! git -C "$repo" show "origin/main:$path" > "$incfile" 2>/dev/null; then
+      # Gone here and gone on origin/main: the same delete, like the cmp case (B48).
+      if [ ! -e "$repo/$path" ] && [ ! -L "$repo/$path" ]; then
+        printf '%s\n' "$path" >> "$gone"
+        continue
+      fi
       blocked=1
       break
     fi
@@ -84,6 +90,11 @@ sync_prepare_ff() {
     rm -rf "$save"
     return 1
   fi
+  # Put each same delete back, so the fast-forward deletes it.
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    git -C "$repo" checkout HEAD -- "$path" 2>/dev/null || true
+  done < "$gone"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     [ -f "$save/$path" ] || continue
