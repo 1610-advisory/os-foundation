@@ -381,6 +381,7 @@
 7b00ed77448037a79be829918d389910be02f360 skills/undo-run/undo-run.sh
 7b25c8383d812a1c0b792c724a2dc41c80ac219e skills/add-teammate/CLI.md
 7b2dbde4dfadeb30ba3ad0ae3f29757f0a1bc76a skills/add-bot/SKILL.md
+7b4d16bf4ef2f76ce92bbf7fd48cfdda73527a60 skills/add-bot/run.sh
 7b6606b0b4dd5d1b216d171edc5be4bde3e52d80 skills/sync/pull.sh
 7b862064662352d31cd4a159616b790e412199bf skills/add-area/templates/apps/AGENTS.md
 7bc4c26c5cecf0e1c7db98d66306a9b127c0c182 skills/suggest/SKILL.md
@@ -411,6 +412,7 @@
 84ca4906e14420ec871d59c45b38b2250672ab80 skills/add-teammate/CLI.md
 851b7fa7789767c6971d6ec86114b6e851583412 skills/add-teammate/add-person.sh
 85f5130f5fb784155f0097639c302ce443df2a31 skills/lint/SKILL.md
+869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
 86e952582ec4688465c13862a67072f455d07d0e skills/add-area/templates/marketing/goals.md
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/add-area/templates/_area/AGENTS.md
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/upgrade/v0/areas/_area/AGENTS.md
