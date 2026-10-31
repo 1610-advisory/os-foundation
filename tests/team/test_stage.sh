@@ -334,6 +334,33 @@ took=$(( $(date +%s) - start ))
 [ "$rc" -eq 3 ] || team_fail "item 11b: hung engine, exit $rc, want 3"
 grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign4.err" || team_fail "item 11b: hung engine, no sign-in line"
 [ "$took" -le 12 ] || team_fail "item 11b: hung engine took ${took}s, want at most 12"
+# JOIN-WIN: on Git Bash the forced stop also runs taskkill on the Windows process id.
+# Stubs: uname says MINGW, taskkill logs its call. This machine has no /proc/<pid>/winpid,
+# so this checks the Windows branch still stops in time and skips taskkill without an id.
+# The taskkill call itself runs only on Windows.
+mkdir -p "$work/win-bin"
+printf '%s\n' '#!/bin/sh' 'echo MINGW64_NT-10.0' > "$work/win-bin/uname"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/bin/sh' 'echo "$*" >> "$TASKKILL_LOG"' > "$work/win-bin/taskkill"
+chmod 755 "$work/win-bin/uname" "$work/win-bin/taskkill"
+: > "$work/taskkill.log"
+start=$(date +%s)
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=hang \
+  OS_ENGINE_TIMEOUT=2 TASKKILL_LOG="$work/taskkill.log" PATH="$work/win-bin:$work/claude-bin:$path_nocl" \
+  OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign5.out" 2> "$work/sign5.err"
+rc=$?
+set -e
+took=$(( $(date +%s) - start ))
+[ "$rc" -eq 3 ] || { cat "$work/sign5.err" >&2; team_fail "JOIN-WIN: exit $rc, want 3"; }
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign5.err" || team_fail "JOIN-WIN: no sign-in line"
+[ "$took" -le 12 ] || team_fail "JOIN-WIN: took ${took}s, want at most 12"
+if [ -r /proc/self/winpid ]; then
+  grep -q '^//F //T //PID [0-9]' "$work/taskkill.log" || team_fail "JOIN-WIN: no taskkill call"
+else
+  [ -s "$work/taskkill.log" ] && team_fail "JOIN-WIN: taskkill ran with no Windows process id"
+fi
 
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam

@@ -227,7 +227,15 @@ if [ "$word" = "claude" ]; then
     if [ "$waited" -eq "$limit" ]; then
       kill "$check_pid" 2>/dev/null || true
     elif [ "$waited" -ge $((limit + 5)) ]; then
+      # On Git Bash, kill -9 can miss a native program (claude.exe). Ask Windows too.
+      winpid=""
+      if sync_is_windows && [ -r "/proc/$check_pid/winpid" ]; then
+        winpid=$(cat "/proc/$check_pid/winpid" 2>/dev/null || true)
+      fi
       kill -9 "$check_pid" 2>/dev/null || true
+      if [ -n "$winpid" ]; then
+        taskkill //F //T //PID "$winpid" >/dev/null 2>&1 || true
+      fi
       break
     fi
     sleep 1
