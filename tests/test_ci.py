@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -710,6 +711,135 @@ class BaseRulesTests(unittest.TestCase):
         )
         self.assertIn("BASE_RULES", shown)
         self.assertNotIn("HEAD_RULES", shown)
+
+
+class OverrideCheckoutTests(unittest.TestCase):
+    """B49: an /override comment has no commits in its event. checkout.sh reads the pull
+    request from the host API, and fetches once, with full history."""
+
+    def git(self, *args, env, cwd=None):
+        return subprocess.run(["git", *args], check=True, env=env, cwd=cwd, text=True,
+                              capture_output=True).stdout.strip()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-override-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        self.env = os.environ.copy()
+        self.env.update({
+            "GIT_AUTHOR_NAME": "Ada Admin", "GIT_AUTHOR_EMAIL": "ada.admin@acme.test",
+            "GIT_COMMITTER_NAME": "Ada Admin", "GIT_COMMITTER_EMAIL": "ada.admin@acme.test",
+        })
+        env = self.env
+        bare = self.tmp / "srv" / "acme" / "acme-os.git"
+        bare.parent.mkdir(parents=True)
+        self.git("init", "-q", "--bare", "-b", "main", str(bare), env=env)
+        src = self.tmp / "src"
+        self.git("init", "-q", "-b", "main", str(src), env=env)
+        (src / ".github" / "scripts").mkdir(parents=True)
+        for name in ("checkout.sh", "lib.sh"):
+            (src / ".github" / "scripts" / name).write_text((SCRIPTS / name).read_text())
+        (src / "review-rules.md").write_text("rules\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "one", env=env)
+        (src / "a.md").write_text("a\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "two", env=env)
+        self.git("-C", str(src), "checkout", "-q", "-b", "upgrade/v1", env=env)
+        (src / "b.md").write_text("b\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "upgrade", env=env)
+        self.head = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "checkout", "-q", "main", env=env)
+        (src / "c.md").write_text("c\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "main moves on", env=env)
+        self.base = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "push", "-q", str(bare), "main", "upgrade/v1",
+                 f"{self.head}:refs/pull/1/head", env=env)
+        event = self.tmp / "event.json"
+        event.write_text(json.dumps({
+            "issue": {"number": 1, "pull_request": {"url": "x"}},
+            "comment": {"body": "/override v1 upgrade: stock skills, too large for the model review"},
+        }))
+        (self.tmp / "pr.json").write_text(json.dumps({
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": self.head},
+            "base": {"ref": "main", "sha": self.base},
+        }))
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        curl = bin_dir / "curl"
+        curl.write_text(textwrap.dedent("""\
+            #!/bin/bash
+            # The token is in the --config file, never an argument.
+            printf '%s\\n' "$*" >> "$FAKE_DIR/curl-argv"
+            cfg=$2
+            url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p' "$cfg")
+            out=$(sed -n 's/^output = "\\(.*\\)"$/\\1/p' "$cfg")
+            printf '%s\\n' "$url" >> "$FAKE_DIR/curl-url"
+            if [ -n "${FAKE_API_404:-}" ]; then
+              printf '%s\\n' '{"message":"Not Found"}' > "$out"
+              printf '404'
+              exit 0
+            fi
+            cp "$FAKE_DIR/pr.json" "$out"
+            printf '200'
+            """))
+        curl.chmod(0o755)
+        work = self.tmp / "work"
+        work.mkdir()
+        (self.tmp / "runner").mkdir()
+        self.run_env = {
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(self.tmp),
+            "FAKE_DIR": str(self.tmp),
+            "JOB_TOKEN": "job-token-test-value",
+            "GITHUB_WORKSPACE": str(work),
+            "GITHUB_SERVER_URL": f"file://{self.tmp}/srv",
+            "GITHUB_API_URL": "https://api.github.com",
+            "GITHUB_REPOSITORY": "acme/acme-os",
+            "GITHUB_EVENT_NAME": "issue_comment",
+            "GITHUB_EVENT_PATH": str(event),
+            "RUNNER_TEMP": str(self.tmp / "runner"),
+        }
+
+    def step(self, extra=None):
+        # The workflow's own checkout step: a depth-1 fetch of main, then checkout.sh.
+        lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+        start = lines.index("      - name: checkout")
+        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+        body = []
+        for line in lines[run_at + 1:]:
+            if line.startswith("      - name:"):
+                break
+            body.append(line[10:] if line.startswith(" " * 10) else line.strip())
+        script = self.tmp / "checkout-step.sh"
+        script.write_text("\n".join(body) + "\n")
+        env = dict(self.run_env, **(extra or {}))
+        return run(["bash", str(script)], env=env)
+
+    def state(self, key):
+        return (self.tmp / "runner" / "os-ci" / key).read_text().strip()
+
+    def test_override_takes_its_commits_from_the_pull_request(self):
+        proc = self.step()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.state("head-sha"), self.head)
+        # The pull request's base, not the merge base (main moved on after the branch).
+        self.assertEqual(self.state("base-sha"), self.base)
+        self.assertEqual(self.state("head-ref"), "upgrade/v1")
+        self.assertEqual((self.tmp / "curl-url").read_text().strip(),
+                         "https://api.github.com/repos/acme/acme-os/pulls/1")
+        self.assertNotIn("job-token-test-value", (self.tmp / "curl-argv").read_text())
+        work = self.tmp / "work"
+        self.assertEqual(self.git("-C", str(work), "rev-parse", "--is-shallow-repository", env=self.env), "false")
+        self.assertEqual(self.git("-C", str(work), "rev-parse", "HEAD", env=self.env), self.head)
+
+    def test_override_stops_when_the_pull_request_cannot_be_read(self):
+        proc = self.step({"FAKE_API_404": "1"})
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("checkout failed: could not read pull request 1 from the host", proc.stderr)
+        self.assertNotIn("job-token-test-value", proc.stdout + proc.stderr)
 
 
 class GitAuthHeaderTests(unittest.TestCase):

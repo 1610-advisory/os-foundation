@@ -236,6 +236,33 @@ ci_auth_header() {
   fi
 }
 
+# GET one host API path (/repos/...) into out, with the job token. The token goes in a
+# mode-600 curl config, never in an argument, and the config is removed at once.
+ci_api_get() {
+  local path=$1 out=$2 cfg err http rc
+  cfg=$(ci_mktemp)
+  err=$(ci_mktemp)
+  {
+    printf '%s\n' "header = \"$(ci_auth_header "$JOB_TOKEN")\""
+    printf '%s\n' 'header = "Accept: application/json"'
+    printf '%s\n' "url = \"$(ci_api_base)${path}\""
+    printf '%s\n' "output = \"${out}\""
+    printf '%s\n' 'silent' 'show-error' 'connect-timeout = 10' 'max-time = 60'
+    printf '%s\n' 'write-out = "%{http_code}"'
+  } > "$cfg"
+  set +e
+  http=$(curl --config "$cfg" 2>"$err")
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  if [ "$rc" -ne 0 ] || [ "$http" != "200" ]; then
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+}
+
 ci_summary_add() {
   local text=$1
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
