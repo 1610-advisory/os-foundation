@@ -537,6 +537,7 @@ bae5183d653a9eaa982c5aa6011c3549116c9245 .github/scripts/tools/host/lib.sh
 bae5183d653a9eaa982c5aa6011c3549116c9245 skills/_host/lib.sh
 bba66bfc63210e190732b4efa86712f13bdbd932 skills/add-teammate/CLI.md
 bbeeda3d9052720bcf890d451203682fcac447cb skills/remove-teammate/SKILL.md
+bc36e56d18fbc66a0fd78da0e258f50ff9f0e80c .github/scripts/tools-release
 bc392916906a2379db7db8787e8e23c5efbeef77 skills/add-teammate/SKILL.md
 bc3983dd60e25b88ae1d6b5d2045001b9f8ac20b skills/remove-teammate/remove.sh
 bc569c8164617342578b108c731656cdb02c25c9 skills/sync/secret-scan.sh
@@ -655,6 +656,7 @@ e50b197b5c1d39f5f71f155bd50486fe86a1e6c1 skills/upgrade/rules.sh
 e521bcd842dc7ecd63b84852b3bb03c2c666a4ed skills/logs-folder/SKILL.md
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py
 e5a936f9065a42864a5a2c4b18121fed5e34aa9c .github/scripts/review-rules.default.md
+e68801d84c1b94ee47bb961ca44673c93dc93dd6 .github/scripts/checkout.sh
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/inbox/.gitkeep
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/meetings/.gitkeep
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/memory/logs/.gitkeep

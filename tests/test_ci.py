@@ -846,6 +846,61 @@ class OverrideCheckoutTests(unittest.TestCase):
         tools = Path(self.state("tools-dir"))
         self.assertEqual((tools / ".github" / "scripts" / "run-checks.sh").read_text(), "BASE_RUN_CHECKS\n")
 
+    def refused(self, proc, line):
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn(line, proc.stderr)
+        # Nothing from the head ran: no tools were copied, and the folder is not on the head.
+        self.assertFalse((self.tmp / "runner" / "os-checks").exists())
+        self.assertFalse((self.tmp / "runner" / "os-ci" / "tools-dir").exists())
+        self.assertNotIn("job-token-test-value", proc.stdout + proc.stderr)
+
+    def pr_into(self, base_ref, base_sha=None, head_sha=None):
+        (self.tmp / "pr.json").write_text(json.dumps({
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": head_sha or self.head},
+            "base": {"ref": base_ref, "sha": base_sha or self.head} if base_ref is not None
+            else {"sha": base_sha or self.head},
+        }))
+
+    def test_override_on_a_pull_request_into_another_branch_runs_nothing(self):
+        # A writer pushes branch upgrade/v1 with its own run-checks.sh, opens a pull request
+        # into it and comments /override: the job must not run that branch's tools.
+        self.pr_into("upgrade/v1")
+        self.action_checkout(self.fork)
+        proc = self.step("base tools")
+        self.refused(proc, "checkout failed: checks run only for a pull request into main, and this one is into upgrade/v1")
+        self.assertEqual(self.git("-C", str(self.tmp / "work"), "rev-parse", "HEAD", env=self.env), self.fork)
+
+    def test_override_with_no_base_branch_is_refused(self):
+        self.pr_into(None)
+        self.action_checkout(self.fork)
+        self.refused(self.step("base tools"),
+                     "checkout failed: checks run only for a pull request into main, and this one is into no branch")
+
+    def test_pull_request_event_into_another_branch_is_refused(self):
+        event = self.tmp / "pr-other.json"
+        event.write_text(json.dumps({"pull_request": {
+            "number": 1,
+            "head": {"ref": "x", "sha": self.head},
+            "base": {"ref": "upgrade/v1", "sha": self.head},
+        }}))
+        self.action_checkout(self.fork)
+        proc = self.step("base tools", {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+        self.refused(proc, "checkout failed: checks run only for a pull request into main, and this one is into upgrade/v1")
+
+    def test_override_needs_full_commit_ids(self):
+        self.pr_into("main", base_sha=self.base[:12])
+        self.action_checkout(self.head)
+        self.refused(self.step("base tools"),
+                     "checkout failed: pull request 1 has no full head and base commit")
+
+    def test_override_with_a_base_commit_not_on_main_is_refused(self):
+        # base.ref says main, but the base commit is on another branch.
+        self.pr_into("main", base_sha=self.head)
+        self.action_checkout(self.head)
+        self.refused(self.step("base tools"),
+                     f"checkout failed: the pull request's base commit {self.head} is not on main")
+
     def test_override_stops_when_the_pull_request_cannot_be_read(self):
         self.action_checkout(self.head)
         proc = self.step("base tools", {"FAKE_API_404": "1"})
