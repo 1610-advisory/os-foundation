@@ -171,7 +171,9 @@ cat > "$work/bin/host.sh" << EOF
 printf '%s\n' "\$*" >> "\$FAKE_HOST_LOG"
 case "\$1" in
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}'; exit 0 ;;
-  auto-merge-off) printf '%s\n' '{"ok":true}'; exit 0 ;;
+  auto-merge-off)
+    [ "\${FAKE_AMOFF:-ok}" = ok ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}'; exit 0 ;;
   get-token) printf '%s\n' local-token; exit 0 ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}'; exit 0 ;;
 esac
@@ -339,5 +341,22 @@ grep -q '^auto-merge-off acme-os 4' "$FAKE_HOST_LOG" || team_fail "item 4: auto-
 grep -q 'When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick' "$work/bot.out" || team_fail "B38: merge-by-hand text"
 grep -q '^auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a bots/ change"
+grep -q 'so it will not merge by itself' "$work/bot.out" || team_fail "B38-LINE: no will-not-merge text"
+
+# B38-LINE: auto-merge-off fails. The line must not say it will not merge by itself.
+mkdir -p "$co/bots/alerts"
+printf '%s\n' "---" "owner: mia" "---" "# Alerts" > "$co/bots/alerts/BOT.md"
+git -C "$co" add bots/alerts
+git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m bot2
+git -C "$co" push -q origin main
+set +e
+FAKE_AMOFF=fail "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/amoff.out" 2> "$work/amoff.err"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/amoff.out" "$work/amoff.err" >&2; team_fail "amoff remove exit $rc"; }
+grep -q '^merge-by-hand: acme-os 4: it changes bots/, but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.' "$work/amoff.out" \
+  || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
+grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 
 printf '%s\n' "PASS invites"

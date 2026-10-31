@@ -356,11 +356,14 @@ if [ -n "$number" ]; then
   if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
     # A BOT.md is a rules file, and the admin is the author. The admin merges it by hand.
     # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
-    if ! os_host_try auto-merge-off "$COMPANY_REPO" "$number" >/dev/null 2>&1; then
-      printf 'auto-merge may be on for %s %s: open it and click "Disable auto-merge"\n' "$COMPANY_REPO" "$number"
+    # Say "will not merge by itself" only when that is true.
+    if os_host_try auto-merge-off "$COMPANY_REPO" "$number" >/dev/null 2>&1; then
+      will='so it will not merge by itself.'
+    else
+      will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
     fi
-    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
-      "$COMPANY_REPO" "$number" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+    printf 'merge-by-hand: %s %s: it changes bots/, %s Wait for the green checks. Open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$COMPANY_REPO" "$number" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
   elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
     # Like propose: the pull request merges by itself when its checks pass.
     printf '%s\n' "auto-merge: on"

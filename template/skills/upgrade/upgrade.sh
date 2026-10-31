@@ -1357,11 +1357,14 @@ pr_merge_path() {
     # The admin wrote it and it changes rules files. The admin merges it by hand. A reused
     # pull request may still have auto-merge on from an earlier run, and it would merge by
     # itself (B38). Turn that off.
-    if ! os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
-      printf 'auto-merge may be on for %s %s: open it and click "Disable auto-merge"\n' "$repo" "$number"
+    # Say "will not merge by itself" only when that is true.
+    if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+      will='it will not merge by itself.'
+    else
+      will='auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
     fi
-    printf 'merge-by-hand: %s %s: it will not merge by itself. When its checks are green, the admin opens it and merges it. When the admin is the only code owner, a plain merge works. %s\n' \
-      "$repo" "$number" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+    printf 'merge-by-hand: %s %s: %s When its checks are green, the admin opens it and merges it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$repo" "$number" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
   fi

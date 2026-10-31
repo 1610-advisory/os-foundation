@@ -57,7 +57,9 @@ case "$1" in
   open-pr)
     [ "${FAKE_OPENPR:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
     printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
-  auto-merge-off) printf '%s\n' '{"ok":true}' ;;
+  auto-merge-off)
+    [ "${FAKE_AMOFF:-ok}" = "ok" ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}' ;;
   auto-merge)
     [ "${FAKE_AUTOMERGE:-fail}" = "ok" ] && { printf '%s\n' '{"ok":true}'; exit 0; }
     printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
@@ -334,6 +336,14 @@ grep -q '^auto-merge-off acme5-os ' "$FAKE_HOST_LOG" || team_fail "B38: auto-mer
 grep -q '^auto-merge-off acme5-marketing ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the area pull request"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
+# B38-LINE: when auto-merge cannot be turned off, the line must not say it will not merge by itself.
+co9="$work/amoff-fails"
+make_v0 "$co9" acme9-os
+FAKE_AUTOMERGE=ok FAKE_AMOFF=fail "$upgrade" --root "$co9" --template "$root/template" --answers "$work/answers" > "$work/amoff.out" 2>&1 \
+  || { cat "$work/amoff.out" >&2; team_fail "auto-merge-off failure run failed"; }
+grep -q '^merge-by-hand: acme9-os 5: auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first. When its checks are green' "$work/amoff.out" \
+  || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
+grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 
 # Forgejo: the pull requests get auto-merge. A refusal (B7c, item 23) is one line, the run
 # goes on, and the last line names the open pull requests.
