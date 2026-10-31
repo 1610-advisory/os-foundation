@@ -290,6 +290,18 @@ HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p
   "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign2.out" 2> "$work/sign2.err" \
   || { cat "$work/sign2.out" "$work/sign2.err" >&2; team_fail "item 11b: signed in, join failed"; }
 grep -q 'sign in once' "$work/sign2.err" && team_fail "item 11b: signed in, still asked to sign in"
+# B43: with no OS_SYNC_ENGINE, the engine comes from <config>/engine, as sync reads it.
+mkdir -p "$work/home/.config/acme-os"
+printf '%s\n' "claude -p" > "$work/home/.config/acme-os/engine"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/eng.out" 2> "$work/eng.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || team_fail "B43: exit $rc, want 3"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/eng.err" || team_fail "B43: the config engine was not checked: $(cat "$work/eng.err")"
+rm -f "$work/home/.config/acme-os/engine"
 # Round 2: an engine that repeats the question is not signed in.
 set +e
 HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=echo \

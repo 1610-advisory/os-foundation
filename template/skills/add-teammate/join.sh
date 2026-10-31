@@ -173,7 +173,11 @@ mkdir -p "$cfg"
 printf '%s\n' "$ME" > "$cfg/me"
 chmod 600 "$cfg/me"
 
+# The same order as sync (B43): OS_SYNC_ENGINE, then <config>/engine, then the profile.
 engine=${OS_SYNC_ENGINE:-}
+if [ -z "$engine" ] && [ -f "$cfg/engine" ]; then
+  engine=$(tr -d '\r' < "$cfg/engine" | head -n 1)
+fi
 if [ -z "$engine" ]; then
   engine=$(os_fm_get "$ROOT/company-profile.md" sync_engine 2>/dev/null || true)
 fi
