@@ -176,6 +176,13 @@ case "\$1" in
     printf '%s\n' '{"ok":true}'; exit 0 ;;
   get-token) printf '%s\n' local-token; exit 0 ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}'; exit 0 ;;
+  revoke|org-remove|team-remove)
+    # B39-FJ: answer as the Forgejo host layer does (fj_fail).
+    case "\${FAKE_FJ_REVOKE:-}" in
+      notfound) printf '%s\n' "not found or no access" >&2; exit 2 ;;
+      other) printf '%s\n' "not found or no access: team acme-sales" >&2; exit 2 ;;
+      500) printf '%s\n' "host error: HTTP 500" >&2; exit 3 ;;
+    esac ;;
 esac
 exec "$root/template/skills/_host/host.sh" "\$@"
 EOF
@@ -253,6 +260,22 @@ rc=$?
 set -e
 must_stop "org-remove 500" 'org (active)'
 grep -q 'HTTP 500' "$work/f.err" || team_fail "B39: a real org-remove error was hidden"
+# B39-FJ: Forgejo says only "not found or no access" (exit 2). Hide that exact line.
+# Every other error still shows.
+for kind in notfound other 500; do
+  reset_state
+  : > "$FAKE_HOST_LOG"
+  set +e
+  FAKE_FJ_REVOKE=$kind "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+    --date 2026-10-29 > "$work/f.out" 2> "$work/f.err"
+  set -e
+  grep -q '^org-remove ' "$FAKE_HOST_LOG" || team_fail "B39-FJ $kind: org-remove was not called"
+  case "$kind" in
+    notfound) grep -q 'not found or no access' "$work/f.err" && team_fail "B39-FJ: Forgejo not-found shown: $(cat "$work/f.err")" ;;
+    other) grep -qx 'not found or no access: team acme-sales' "$work/f.err" || team_fail "B39-FJ: another exit-2 error was hidden" ;;
+    500) grep -qx 'host error: HTTP 500' "$work/f.err" || team_fail "B39-FJ: a Forgejo 500 was hidden" ;;
+  esac
+done
 # The membership cannot be read: not checked.
 reset_state
 set +e

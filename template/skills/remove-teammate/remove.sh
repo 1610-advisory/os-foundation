@@ -95,6 +95,7 @@ COMPANY_REPO=$(os_company_repo "$SLUG")
 WS_REPO=$(os_user_repo "$SLUG" "$PERSON")
 
 # A revoke step. Not found (404) is normal: already removed, or never accepted (B39).
+# GitHub's text has "HTTP 404"; Forgejo's is only the line "not found or no access".
 # Any other error shows. The checks after the revokes decide what is still there.
 try_host() {
   local err rc
@@ -103,7 +104,8 @@ try_host() {
   os_host "$@" >/dev/null 2>"$err"
   rc=$?
   set -e
-  if [ "$rc" -ne 0 ] && ! { [ "$rc" -eq 2 ] && grep -q 'HTTP 404' "$err"; }; then
+  if [ "$rc" -ne 0 ] && ! { [ "$rc" -eq 2 ] && { grep -q 'HTTP 404' "$err" \
+      || [ "$(cat "$err")" = "not found or no access" ]; }; }; then
     cat "$err" >&2
   fi
   rm -f "$err"
