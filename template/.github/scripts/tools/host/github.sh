@@ -1006,6 +1006,49 @@ cmd_open_pr() {
   printf '%s' "$existing" | jq -c '{number:.number, url:.html_url}'
 }
 
+# Open pull requests: number and head branch.
+cmd_open_prs() {
+  local all
+  host_need_name
+  if host_dry; then
+    host_emit GET "$(host_repo "$POS1")/pulls?state=open"
+    return 0
+  fi
+  all=$(host_gh_all "$(host_repo "$POS1")/pulls?state=open") || exit $?
+  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref}]}'
+}
+
+cmd_close_pr() {
+  local body
+  host_need_number
+  body=$(jq -nc '{state:"closed"}')
+  if host_dry; then
+    host_emit PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body"
+    return 0
+  fi
+  host_gh_ok PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body" >/dev/null
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, closed:true}'
+}
+
+# Turn auto-merge off. A pull request with none is already off.
+cmd_auto_merge_off() {
+  local pr id q
+  host_need_number
+  if host_dry; then
+    host_emit GET "$(host_repo "$POS1")/pulls/${POS2}"
+    return 0
+  fi
+  pr=$(host_gh_ok GET "$(host_repo "$POS1")/pulls/${POS2}")
+  if [ "$(printf '%s' "$pr" | jq -r '.auto_merge == null')" = "false" ]; then
+    id=$(printf '%s' "$pr" | jq -r '.node_id // empty')
+    [ -n "$id" ] || host_die 3 "pull request has no id"
+    q=$(jq -nc --arg id "$id" \
+      '{query:"mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}", variables:{id:$id}}')
+    host_gh_ok POST "graphql" "$q" >/dev/null
+  fi
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
+}
+
 host_require_branch() {
   local val=$1
   case "$val" in
@@ -1281,6 +1324,9 @@ case "$VERB" in
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;
+  auto-merge-off) cmd_auto_merge_off ;;
+  open-prs) cmd_open_prs ;;
+  close-pr) cmd_close_pr ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

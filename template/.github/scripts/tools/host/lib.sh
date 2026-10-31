@@ -722,6 +722,9 @@ Verbs:
   archive-repo <name>
   open-pr <name> --head <branch> --base main --title <text> [--body-file <file>]
   auto-merge <name> <number>
+  auto-merge-off <name> <number>
+  open-prs <name>
+  close-pr <name> <number>
   pr-status <name> <number>
   pr-comment <name> <number> --body-file <file>
   set-secret <name>              (value on stdin)
