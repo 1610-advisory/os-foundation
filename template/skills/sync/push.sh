@@ -323,15 +323,21 @@ sync_push_ref() {
   fi
 }
 
+# A body file is optional. Without one, the host keeps the pull request's body.
 sync_open_pr() {
   local name=$1
   local head=$2
   local title=$3
+  local body=${4:-}
   local tries=5 rc out err
   err=$(sync_mktemp)
   while [ "$tries" -gt 0 ]; do
     set +e
-    out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    if [ -n "$body" ]; then
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" --body-file "$body" 2>"$err")
+    else
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    fi
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
@@ -383,7 +389,7 @@ sync_apply_commit() {
   local kind=$3
   local files=$4
   local message=$5
-  local me ref tmp author name email path n rc sha from to name_on_host number
+  local me ref tmp author name email path n rc sha from to name_on_host number pr_body
   me=$(sync_me)
   n=$(wc -l < "$files" | tr -d ' ')
   [ "$n" -gt 0 ] || return 0
@@ -460,13 +466,20 @@ sync_apply_commit() {
     sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
     return 1
   fi
+  # The body says whose notes these are and lists each file, so the review can match
+  # the change to it (B40). The branch is one commit on origin/main.
+  pr_body=$(sync_mktemp)
+  {
+    printf "These are %s's notes from sync.\n\n" "$me"
+    git -C "$tmp" diff --name-only HEAD~1 HEAD | sed 's/^/- /'
+  } > "$pr_body"
   git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
   tmp=""
   name_on_host=$(sync_remote_name "$repo") || {
     sync_log "push fail ${id} could not open a pull request"
     return 1
   }
-  number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" | jq -r '.number // empty')
+  number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" "$pr_body" | jq -r '.number // empty')
   if [ -z "$number" ]; then
     sync_log "push fail ${id} could not open a pull request"
     return 1

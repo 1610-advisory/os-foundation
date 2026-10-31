@@ -12,7 +12,7 @@ merge=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --method) method=$2; shift 2 ;;
-    --input) cat > /dev/null; shift 2 ;;
+    --input) cat > "$dir/last-input"; shift 2 ;;
     --hostname|--repo|-H) shift 2 ;;
     -i) include=1; shift ;;
     pr) shift ;;
@@ -92,6 +92,12 @@ case "$method $path" in
       exit 0
     fi
     refuse 404 "Branch not protected"
+    ;;
+  "GET /repos/acme/acme-os/pulls?state=open&head="*)
+    printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"}}]'
+    ;;
+  "PATCH /repos/acme/acme-os/pulls/4")
+    printf '%s\n' '{"number":4,"html_url":"https://github.com/acme/acme-os/pull/4"}'
     ;;
   "GET /repos/acme/acme-os/pulls/4")
     printf '%s\n' '{"state":"open","merged":false,"head":{"sha":"abc123"}}'

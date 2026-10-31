@@ -998,7 +998,12 @@ cmd_open_pr() {
   number=$(printf '%s' "$list" | jq -r --arg head "$HEAD" \
     '.[] | select(.head.ref==$head) | .number' | head -n 1)
   if [ -n "$number" ]; then
-    patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    # No --body-file: keep the body it has (B40). A person may have written one.
+    if [ -n "$BODY_FILE" ]; then
+      patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    else
+      patch=$(jq -nc --arg title "$TITLE" '{title:$title}')
+    fi
     existing=$(host_gh_ok PATCH "$(host_repo "$name")/pulls/${number}" "$patch")
   else
     existing=$(host_gh_ok POST "$(host_repo "$name")/pulls" "$body")

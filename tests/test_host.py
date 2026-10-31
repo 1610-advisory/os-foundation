@@ -439,6 +439,18 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
         self.assertNotIn("rulesets", " ".join(self.calls()))
 
+    def test_open_pr_keeps_the_body_without_a_body_file(self):
+        # B40: a later push gives no body. The one on the pull request stays. A new one replaces it.
+        args = ["open-pr", "acme-os", "--head", "sync/ada", "--base", "main", "--title", "sync: ada"]
+        proc = run(args, self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["number"], 4)
+        self.assertEqual(json.loads((self.dir / "last-input").read_text()), {"title": "sync: ada"})
+        proc = run(args + ["--body-file", str(BODY)], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        got = json.loads((self.dir / "last-input").read_text())
+        self.assertEqual(got["body"], BODY.read_text().rstrip("\n"))
+
     def test_admin_rules_pr_path_is_the_bypass_on_a_pull_request(self):
         # Item 24: the admin's own rules PR. The admin cannot approve it (GitHub never counts
         # the author). OrganizationAdmin may bypass rules-review on a pull request only: no

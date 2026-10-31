@@ -547,13 +547,19 @@ def fake_host(dir_path, login="acme-member-a"):
 case "$1" in
   whoami) printf '%s\n' '{"login":"LOGIN"}' ;;
   get-token) printf '%s\n' local-token ;;
-  open-pr) printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
+  open-pr)
+    # Keep the body, so a test can read what the pull request says.
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--body-file" ] && cp "$2" "HOSTDIR/pr-body.txt"
+      shift
+    done
+    printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
   auto-merge) printf '%s\n' '{"ok":true}' ;;
   repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
   *) exit 1 ;;
 esac
 """
-    (dir_path / "host.sh").write_text(script.replace("LOGIN", login))
+    (dir_path / "host.sh").write_text(script.replace("LOGIN", login).replace("HOSTDIR", str(dir_path)))
     (dir_path / "host.sh").chmod(0o755)
     (dir_path / "profile.sh").write_text("#!/bin/bash\nprintf '%s\n' acme\n")
     (dir_path / "profile.sh").chmod(0o755)
@@ -669,6 +675,23 @@ class SyncFixTests(unittest.TestCase):
         ).stdout
         self.assertEqual(show("other.md"), "other v2 from dana\n")
         self.assertEqual(show("shared.md"), "shared v1 with a local edit\n")
+
+    def test_sync_pull_request_says_whose_notes_and_lists_each_file(self):
+        # B40: the review reads the body. It names the person and each file, no model call.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "meetings").mkdir()
+        (self.company / "meetings" / "2026-10-31 Kickoff.md").write_text("kickoff notes\n")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = (self.host / "pr-body.txt").read_text()
+        self.assertEqual(
+            body,
+            "These are mia's notes from sync.\n\n- drafts.md\n- meetings/2026-10-31 Kickoff.md\n",
+        )
 
     def test_auto_merge_failure_is_held(self):
         self.seed_origin()

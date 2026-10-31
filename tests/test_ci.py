@@ -417,6 +417,9 @@ class ToolCopyTests(unittest.TestCase):
         source = ROOT / "template" / "review-rules.md"
         self.assertTrue(default.is_file())
         self.assertEqual(source.read_bytes(), default.read_bytes())
+        # B40: check 6 knows a sync pull request is one person's batch of notes.
+        self.assertIn("A `sync:` pull request is one person's batch of notes", source.read_text())
+        self.assertIn("A rules file mixed into it is still scope creep.", source.read_text())
 
     def test_no_placeholder_line_outside_skills(self):
         # Setup fills these on purpose. They are the tracked template files
