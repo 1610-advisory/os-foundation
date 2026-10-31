@@ -81,7 +81,13 @@ printf '%s\n' "kickoff notes" > "$co/meetings/2026-10-28 Kickoff.md"
 printf '%s\n' "held by sync: a private note" > "$co/inbox/held.md"
 cat > "$work/bin/host.sh" << 'EOF'
 #!/bin/bash
+[ -z "${FAKE_LOG:-}" ] || printf '%s\n' "$*" >> "$FAKE_LOG"
 case "$1" in
+  auto-merge)
+    # B45: FAKE_MERGED, the checks were green and it merged; FAKE_GREEN, that merge failed.
+    if [ -n "${FAKE_MERGED:-}" ]; then printf '%s\n' '{"ok":true,"merge":"merged"}'; exit 0; fi
+    if [ -n "${FAKE_GREEN:-}" ]; then printf '%s\n' "pull request 4 is green: merge it" >&2; exit 3; fi
+    printf '%s\n' '{"ok":true}' ;;
   user-access) printf '%s\n' '{"access":"none"}' ;;
   org-membership) printf '%s\n' '{"state":"none"}' ;;
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}' ;;
@@ -174,6 +180,21 @@ done
 grep -q '^main: could not go back to main' "$work/add1.err" || team_fail "add-person did not say it stayed off main"
 # B37: the people-page pull request merges by itself, like join's.
 grep -qx 'auto-merge: on' "$work/add2.out" || team_fail "B37: add-person did not turn on auto-merge"
+# B45: auto-merge is asked for before the workspace. A green pull request merges at once,
+# and a merge that fails says so, never "protection".
+: > "$work/b45.log"
+FAKE_LOG="$work/b45.log" FAKE_MERGED=1 OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" > "$work/add3.out" 2> "$work/add3.err" \
+  || { cat "$work/add3.out" "$work/add3.err" >&2; team_fail "B45: add-person exit"; }
+first_am=$(grep -n '^auto-merge ' "$work/b45.log" | head -n 1 | cut -d: -f1)
+first_ws=$(grep -n '^create-repo ' "$work/b45.log" | head -n 1 | cut -d: -f1)
+[ -n "$first_am" ] && [ -n "$first_ws" ] && [ "$first_am" -lt "$first_ws" ] || team_fail "B45: auto-merge came after the workspace"
+grep -qx 'merged: acme-os 4 (its checks were already green)' "$work/add3.out" || team_fail "B45: no merged line: $(cat "$work/add3.out")"
+FAKE_GREEN=1 OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" > "$work/add4.out" 2> "$work/add4.err" \
+  || { cat "$work/add4.out" "$work/add4.err" >&2; team_fail "B45: add-person exit"; }
+grep -qx 'pull request 4 is green: merge it' "$work/add4.out" || team_fail "B45: no green line: $(cat "$work/add4.out")"
+grep -q 'protect' "$work/add4.out" && team_fail "B45: blamed protection for a green pull request"
 git --git-dir "$work/origin.git" show "rules/ada/add-bo:people/Bo Baker.md" >/dev/null 2>&1 \
   || team_fail "add-person branch has no page"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "add-person retry left the folder off main"

@@ -101,6 +101,12 @@ os_back_to_main "$ROOT"
 os_show_branch_files "$ROOT" "$branch" "$page"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "People: add ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
+# Like join: the page is not a rules file, so it merges by itself when the checks pass.
+# Ask now, before the workspace, while the checks still run (B37, B45).
+merge_line=""
+if [ -n "$number" ]; then
+  merge_line=$(os_auto_merge_line "$COMPANY_REPO" "$number")
+fi
 
 WS_TEMPLATE="$DIR/workspace"
 ws_dir="$ROOT/users/$PERSON"
@@ -156,12 +162,6 @@ printf 'person: %s\n' "$PERSON"
 printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$PERSON")"
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
-  # Like join: the page is not a rules file, so it merges by itself when the checks pass (B37).
-  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
-    printf '%s\n' "auto-merge: on"
-  else
-    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
-      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
-  fi
+  printf '%s\n' "$merge_line"
 fi
 os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")" "$HOST_KIND" "$HOST_URL"

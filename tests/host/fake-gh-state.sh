@@ -9,6 +9,7 @@ method=GET
 path=""
 include=0
 merge=0
+auto=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --method) method=$2; shift 2 ;;
@@ -17,6 +18,7 @@ while [ $# -gt 0 ]; do
     -i) include=1; shift ;;
     pr) shift ;;
     merge) merge=1; shift ;;
+    --auto) auto=1; shift ;;
     api) shift ;;
     /*|graphql) path=$1; shift ;;
     *) shift ;;
@@ -29,6 +31,15 @@ refuse() {
 }
 
 if [ "$merge" -eq 1 ]; then
+  # B45: the checks are already green. --auto is refused; a plain merge works.
+  if [ -f "$dir/clean" ] && [ "$auto" -eq 1 ]; then
+    printf '%s\n' "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)" >&2
+    exit 1
+  fi
+  if [ -f "$dir/clean" ] && [ -f "$dir/merge-fails" ]; then
+    printf '%s\n' "GraphQL: Base branch was modified (mergePullRequest)" >&2
+    exit 1
+  fi
   if [ -f "$dir/auto-merge-off" ] && [ ! -f "$dir/allowed" ]; then
     printf '%s\n' "GraphQL: Auto merge is not allowed for this repository (enablePullRequestAutoMerge)" >&2
     exit 1

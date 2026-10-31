@@ -439,6 +439,18 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
         self.assertNotIn("rulesets", " ".join(self.calls()))
 
+    def test_auto_merge_on_a_green_pull_request_merges_it(self):
+        # B45: GitHub refuses auto-merge when the checks are already green. Merge it now.
+        self.flag("clean")
+        proc = run(["auto-merge", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["merge"], "merged")
+        self.assertTrue(any("pr merge 4" in c and "--auto" not in c for c in self.calls()))
+        self.flag("merge-fails")
+        proc = run(["auto-merge", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout)
+        self.assertEqual(proc.stderr.strip(), "pull request 4 is green: merge it")
+
     def test_open_pr_keeps_the_body_without_a_body_file(self):
         # B40: a later push gives no body. The one on the pull request stays. A new one replaces it.
         args = ["open-pr", "acme-os", "--head", "sync/ada", "--base", "main", "--title", "sync: ada"]

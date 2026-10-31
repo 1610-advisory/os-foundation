@@ -288,12 +288,7 @@ join_terms_pr() {
   [ -n "$number" ] || return 0
   printf 'pr: %s\n' "$number"
   # Like push and propose: the terms pull request merges by itself when the checks pass.
-  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
-    printf '%s\n' "auto-merge: on"
-  else
-    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
-      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
-  fi
+  os_auto_merge_line "$COMPANY_REPO" "$number"
 }
 
 # Where the terms stand comes from the host: on origin/main (merged), on
