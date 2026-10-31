@@ -206,6 +206,8 @@ git --git-dir "$work/git/acme2-marketing.git" rev-parse -q --verify "refs/tags/l
 grep -q '^log-freeze: ' "$work/dry.out" || team_fail "no log-freeze line in the dry run"
 grep -q '^teammates: 1\. In the old folder, save the logs' "$work/run.out" || team_fail "no teammates steps"
 grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each folder (held)" "$work/run.out" || team_fail "no admin line for the old logs branch"
+# B52: the run says how the folder gets back to main after the merge.
+grep -q "^admin: this folder stays on upgrade/v1 (each area on upgrade/scripts) until its pull request merges. When every upgrade pull request has merged, run skills/sync/sync.sh pull in this folder" "$work/run.out" || team_fail "no admin line for going back to main"
 
 # B21: the upgrade pull request passes its own secret scan, run the way CI runs it: main's
 # bundled scanner (the runner has no gitleaks) over the pull request range, at its head.

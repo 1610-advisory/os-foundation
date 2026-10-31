@@ -496,6 +496,7 @@ sync_pull_fail() {
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
     "not fast-forward") plain="this copy could not take the host's changes. Nothing was changed here. Ask the admin before you change anything." ;;
     "not on main") plain="this folder is not on its main branch. Nothing was changed. Ask the admin." ;;
+    "upgrade not merged: "*) plain="this folder is on ${reason#upgrade not merged: } until the upgrade pull request merges. Nothing was changed. When it has merged, run skills/sync/sync.sh pull again: it puts the folder back on main." ;;
     "foreign commit") plain="this folder has a change that sync did not make. Nothing was pushed or changed. Ask the admin." ;;
     "squash") plain="your last changes reached main by a squash merge. Main has your text, so this copy now has main, and your other changes are kept. Sync needs merge commits: ask the admin never to squash a sync pull request." ;;
     "squash: could not take main") plain="your last changes reached main by a squash merge, but this copy could not take main. Nothing was changed or pushed. Ask the admin." ;;
@@ -593,21 +594,33 @@ sync_pull_one() {
 # or v0 left on sync/<me> goes back to main. Only HEAD moves: the files stay as they are,
 # so what the branch held is now a local change, which the pass below drops when main
 # already has it, and the next push sends when it does not.
+#
+# The admin's folder after an upgrade on a host is the same case (B52): the upgrade leaves
+# the company folder on upgrade/v1 and each area on upgrade/scripts. Once that branch is
+# on the host's main (its pull request merged), the folder goes back to main the same way.
+# Files team-on wrote meanwhile that main now has drop in the pass below.
 sync_pull_leave_own_branch() {
   local repo=$1 id=$2 me cur base
   me=$(sync_me)
   cur=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)
-  [ -n "$me" ] && [ "$cur" = "sync/${me}" ] || return 0
+  case "$cur" in
+    upgrade/*)
+      git -C "$repo" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
+      ;;
+    *)
+      [ -n "$me" ] && [ "$cur" = "sync/${me}" ] || return 0
+      ;;
+  esac
   if git -C "$repo" rev-parse --verify --quiet refs/heads/main >/dev/null \
     && ! git -C "$repo" merge-base --is-ancestor refs/heads/main origin/main; then
-    sync_log "pull hold ${id} on sync/${me}: main has commits the host lacks"
+    sync_log "pull hold ${id} on ${cur}: main has commits the host lacks"
     return 0
   fi
   base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 0
   git -C "$repo" update-ref refs/heads/main "$base" || return 0
   git -C "$repo" symbolic-ref HEAD refs/heads/main || return 0
   git -C "$repo" reset -q
-  sync_log "pull ok ${id} back on main from sync/${me}"
+  sync_log "pull ok ${id} back on main from ${cur}"
 }
 
 # A v0 clone keeps memory/logs as a worktree of branch logs after the upgrade lands
@@ -698,7 +711,7 @@ sync_abort_open_merge() {
 sync_pull_ff() {
   local repo=$1
   local id=$2
-  local tag old link_save err n
+  local tag old link_save err n branch
   if ! sync_abort_open_merge "$repo" "$id"; then
     sync_pull_stop "$id"
     sync_pull_fail "$id" "merge left open"
@@ -721,10 +734,18 @@ sync_pull_ff() {
     fi
   fi
   sync_pull_leave_own_branch "$repo" "$id"
-  if [ "$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" != "main" ]; then
-    sync_pull_fail "$id" "not on main"
-    return 1
-  fi
+  branch=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)
+  case "$branch" in
+    main) ;;
+    upgrade/*)
+      sync_pull_fail "$id" "upgrade not merged: ${branch}"
+      return 1
+      ;;
+    *)
+      sync_pull_fail "$id" "not on main"
+      return 1
+      ;;
+  esac
   # The host rewrote its history (remove-leak): a fresh copy, unless work is not pushed.
   if ! git -C "$repo" merge-base --is-ancestor HEAD origin/main \
     && ! git -C "$repo" merge-base --is-ancestor origin/main HEAD; then

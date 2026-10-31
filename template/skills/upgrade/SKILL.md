@@ -155,7 +155,7 @@ Then delete the temporary folder.
 
 A v0 team only. Do these in order. The run printed the same steps as `teammates:` lines.
 
-1. **Admin.** Wait until every upgrade pull request has merged. Then run `add-teammate` Part A again with the same people. It adds what v0 did not have: people pages, workspaces, teams and the OS jobs. It sends each person a hand-off message.
+1. **Admin.** Wait until every upgrade pull request has merged. Run `skills/sync/sync.sh pull` in the company folder: the upgrade left it on `upgrade/v1` and each area on `upgrade/scripts`, and the pull puts each one back on `main` once its pull request merged (a file there that `main` now has, the same text, goes). Before the merge it says `this folder is on upgrade/v1 until the upgrade pull request merges`. Then run `add-teammate` Part A again with the same people. It adds what v0 did not have: people pages, workspaces, teams and the OS jobs. It sends each person a hand-off message.
 2. **Each teammate, in the old folder.** Never run `git pull` there. In v0 `memory/logs/` is a separate git folder that `main` ignored, and a plain pull can write over it. If the old folder has `memory/logs/`, save the logs once more: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. On Windows, run these in Git Bash.
 3. **Rename the old folder**, for example `~/{{COMPANY_SLUG}}-os` to `~/{{COMPANY_SLUG}}-os-old`. That keeps the usual folder name free.
 4. **Join as a new teammate:** `add-teammate` Part B, B1 to B5, with the hand-off message. It clones into the usual folder, shows the joining terms and runs `join.sh`. On Windows `join.sh` runs in Git Bash, as B4 shows.

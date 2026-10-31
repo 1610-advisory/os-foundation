@@ -60,6 +60,7 @@
 0ffeda1d11b80b07125511e59b5bc4a3ada2e420 .github/scripts/tools/host/github.sh
 0ffeda1d11b80b07125511e59b5bc4a3ada2e420 skills/_host/github.sh
 10054f9a0cc14b8f027eab4e9829697a94068e29 skills/add-bot/CLI.md
+10074cb274f38ca0751f4b55c69c5a044abc513d skills/sync/push.sh
 10a3623e3623a139b9687dd577d8d3635a3d1722 skills/_host/forgejo.sh
 10c9627956a3f011bb4012a0aeaebdf245eb32e2 skills/sync/pull.sh
 10ec355e35179b1b12c13e536b56bdddd7a87046 skills/sync/pull.sh
@@ -281,6 +282,7 @@
 58cb75661fef1938b65dfe639f8504f62270132d skills/_host/forgejo.sh
 590a1776704a3d0ab540da9c6a5a2714397bfe16 skills/sync/SKILL.md
 5a124d09c4046aefb6cc6b56efa1ddf24f01b60c skills/privacy/privacy.sh
+5a6bbfe55753bc12a19874500d9854089355cabc skills/sync/CLI.md
 5a7113e72aa64f34bc3ce43b26b853897867a2e4 skills/add-teammate/CLI.md
 5b6949534da0ce5f8324b626bfc268ee95ef052b skills/reports/CLI.md
 5b83db65c529a794c1cd2b5f86f23e54a8d7297e skills/_host/README.md
@@ -297,6 +299,7 @@
 5f8bb47c7f059b77b68d99a6035dd316cc33add9 skills/sync/push.sh
 5f8c57db40451134ffe1423ced24bcf9985b8f20 skills/connect-tool/SKILL.md
 5ff3aec277b3796c1061014171403cbf86bb69b4 skills/sync/CLI.md
+5ff468754e3ceb6db53c5d5504fe8b824bf2d256 skills/upgrade/upgrade.sh
 60085863996c344f53624b0e46816ff000f4cab5 skills/sync/lib.sh
 6052e05b5dc92bb4c131eed197d6bd876d9541a6 .github/scripts/tools/host/forgejo.sh
 6052e05b5dc92bb4c131eed197d6bd876d9541a6 skills/_host/forgejo.sh
@@ -521,6 +524,7 @@ ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitign
 aed5d758b043de0b8c97d13ff154363cfdffdf54 skills/sync/CLI.md
 af07e22974cf9ebc68c64f45a6db9922c2df3c70 skills/nightly-review/CLI.md
 b03ada3a2084314997c07ba95519349a6fa75551 skills/add-area/templates/finance/AGENTS.md
+b08daf74b14f27b2b19dad8f213d8d12f0c5f38f skills/sync/pull.sh
 b185b55f0957e203a102a4a20fde6f04468c1fd1 skills/sync/jobs/macos-admin.plist
 b1d37c4e8af0ddd9902c0665607a008ade460e6a skills/add-bot/CLI.md
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
@@ -536,6 +540,7 @@ b6d2088c4f80dbc8b99b2526950cf66ee10f3393 skills/add-bot/SKILL.md
 b6eeaa2d4a34c1653069585c6c5603da39a5bdbe skills/skill-creator/references/schemas.md
 b73813f57dbca23c891be75d11a09e59a0674309 skills/sync/v0logs.sh
 b7b05e2d8d5f538ab1894205715a366a2000696c skills/add-teammate/team-on.sh
+b7b442bb29dd486a52a5bd39b3f8df4fb4d4ed3a skills/upgrade/SKILL.md
 b80dd603ea11c887bda1995717d498921478559a skills/add-teammate/CLI.md
 b871f150afd6bb9cb54b8a99ea80f872b35aa5ef skills/reports/SKILL.md
 b88d6b7686ae7f9763973fe7a52678df5b1739fe skills/add-area/templates/marketing/AGENTS.md

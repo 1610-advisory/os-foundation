@@ -583,10 +583,17 @@ sync_push_one() {
     sync_log "push stop ${id} the pull did not finish"
     return 1
   fi
-  if [ "$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" != "main" ]; then
-    sync_apply_fail "$id" "this folder is not on its main branch; ask the admin"
-    return 1
-  fi
+  case "$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" in
+    main) ;;
+    upgrade/*)
+      sync_log "push stop ${id} on an upgrade branch"
+      return 1
+      ;;
+    *)
+      sync_apply_fail "$id" "this folder is not on its main branch; ask the admin"
+      return 1
+      ;;
+  esac
   if [ "$kind" != "workspace" ] && [ "$(sync_foreign_commits "$repo")" != "0" ]; then
     sync_apply_fail "$id" "this folder has a change that sync did not make; nothing was pushed. Ask the admin"
     return 1

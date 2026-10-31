@@ -1592,6 +1592,12 @@ if [ "$TEAM_LOGS" -eq 1 ]; then
   printf '%s\n' "admin: until the old logs branch is gone, sync push keeps logs in each folder (held), so a plain pull on an old copy can write over nothing. When every teammate has moved, delete it: git push origin --delete logs, in the company folder and in each area that had one."
 fi
 
+# B52: the folder stays on its upgrade branch until the pull request merges. Sync's pull
+# moves it back to main once the branch is on the host's main.
+if [ "$HOST_ON" -eq 1 ]; then
+  printf '%s\n' "admin: this folder stays on upgrade/v1 (each area on upgrade/scripts) until its pull request merges. When every upgrade pull request has merged, run skills/sync/sync.sh pull in this folder: it puts the folder and each area back on main. Then run add-teammate Part A again (skills/upgrade/SKILL.md section 11)."
+fi
+
 if [ -n "$HAND" ]; then
   if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
     printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request and merge it. When you are the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'

@@ -1351,6 +1351,49 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("both.md", tree)
         self.assertIn("both.md: conflict lines", self.sync("status").stdout)
 
+    def upgraded_on_branch(self):
+        # The admin's folder after an upgrade on a host: on upgrade/v1, pushed, its pull
+        # request open (B52).
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "upgrade/v1")
+        (self.company / "v1.md").write_text("v1 rules\n")
+        self.git("add", "v1.md")
+        self.git("commit", "-q", "-m", "Upgrade to v1")
+        self.git("push", "-q", "origin", "upgrade/v1")
+        return bare
+
+    def test_pull_waits_on_an_upgrade_branch_until_it_merges(self):
+        self.upgraded_on_branch()
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("this folder is on upgrade/v1 until the upgrade pull request merges", result.stderr)
+        self.assertNotIn("Ask the admin", result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "upgrade/v1")
+
+    def test_pull_puts_the_folder_back_on_main_once_the_upgrade_merged(self):
+        bare = self.upgraded_on_branch()
+        # The upgrade put the check tools on main first; then the admin merged the PR.
+        host = self.tmp / "host-merge"
+        run(["git", "clone", "-q", str(bare), str(host)], env=self.env, check=True)
+        (host / ".github").mkdir()
+        (host / ".github" / "review.conf").write_text("engine=fake\n")
+        run(["git", "-C", str(host), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(host), "commit", "-q", "-m", "checks on main"], env=self.env, check=True)
+        run(["git", "-C", str(host), "merge", "-q", "--no-ff", "--no-edit", "origin/upgrade/v1"], env=self.env, check=True)
+        run(["git", "-C", str(host), "push", "-q", "origin", "main"], env=self.env, check=True)
+        # team-on wrote the same file here meanwhile.
+        (self.company / ".github").mkdir()
+        (self.company / ".github" / "review.conf").write_text("engine=fake\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        self.assertIn("pull ok root back on main from upgrade/v1", self.sync_log())
+
     def test_pull_prunes_a_branch_the_host_deleted(self):
         # Round 4 (47): pull fetches with --prune, so a stale origin/rules/* ref goes.
         self.seed_origin()
