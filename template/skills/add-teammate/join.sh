@@ -294,8 +294,11 @@ fi
 
 # Open (or reuse) the terms pull request from sync/<me>, then turn on auto-merge.
 join_terms_pr() {
-  local pr number
-  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}")
+  local pr number body
+  # One plain line, so the review can match the change to it.
+  body=$(mktemp)
+  printf '%s joined and accepted the terms on %s.\n' "$ME" "${PAGE#"$ROOT"/}" > "$body"
+  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}" --body-file "$body")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   [ -n "$number" ] || return 0
   printf 'pr: %s\n' "$number"

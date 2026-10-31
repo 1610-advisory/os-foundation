@@ -235,7 +235,13 @@ cat > "$work/bin/host.sh" << EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$work/host.log"
 case "\$1" in
-  open-pr) [ -z "\${FAKE_NO_OPENPR:-}" ] || exit 5; printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
+  open-pr)
+    [ -z "\${FAKE_NO_OPENPR:-}" ] || exit 5
+    while [ \$# -gt 0 ]; do
+      [ "\$1" = "--body-file" ] && cp "\$2" "$work/join-body.txt"
+      shift
+    done
+    printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
   auto-merge) [ -z "\${FAKE_NO_AUTOMERGE:-}" ] || exit 1; printf '%s\n' '{"ok":true}' ;;
   get-token) printf '%s\n' local-token ;;
   *) printf '%s\n' '{"ok":true}' ;;
@@ -250,6 +256,9 @@ printf '%s\n' "root=$co" "me=sam" >> "$work/join-answers"
 : > "$work/host.log"
 join_run > "$work/join.out"
 grep -qx 'terms: proposed' "$work/join.out" || team_fail "join did not propose terms"
+# Round 5: the join pull request has a body: who joined, which page.
+[ "$(cat "$work/join-body.txt" 2>/dev/null)" = "sam joined and accepted the terms on people/Sam Member.md." ] \
+  || team_fail "join PR body: $(cat "$work/join-body.txt" 2>/dev/null)"
 grep -qx 'auto-merge: on' "$work/join.out" || team_fail "join did not report auto-merge"
 grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call auto-merge: $(cat "$work/host.log")"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
