@@ -70,6 +70,8 @@ terms_accepted: ""
 ---
 # Sam Member
 EOF
+# As the template's: each person's workspace and each area is its own repo.
+printf '%s\n' "/areas/" "/users/" > "$co/.gitignore"
 git -C "$co" init -q -b main
 git -C "$co" add -A
 git -C "$co" commit -q -m seed
@@ -108,9 +110,11 @@ files=$(git --git-dir "$work/origin.git" diff --name-only main rules/ada/offboar
 [ -f "$co/meetings/2026-10-28 Kickoff.md" ] || team_fail "untracked meeting note is gone"
 [ -f "$co/inbox/held.md" ] || team_fail "held file is gone"
 [ -z "$(git -C "$co" ls-files meetings inbox)" ] || team_fail "untracked files were committed"
-# Round 3 (42): the person running remove sees the page marked left, as a local change on
-# main. main itself gets it only by the offboard pull request.
-grep -qx 'left: 2026-10-28' "$co/people/Sam Member.md" || team_fail "remove: the local page is not marked left"
+# The folder stays as main has it: the page is marked left only on the offboard branch,
+# so the admin's next sync push cannot carry it past its own review.
+git --git-dir "$work/origin.git" show "rules/ada/offboard-sam:people/Sam Member.md" | grep -qx 'left: 2026-10-28' \
+  || team_fail "remove: the offboard branch does not mark the page left"
+grep -qx 'left: 2026-10-28' "$co/people/Sam Member.md" && team_fail "remove: the folder page changed before the pull request merged"
 git -C "$co" show "main:people/Sam Member.md" | grep -q '^left: 2026' && team_fail "remove committed to main"
 
 # A git that refuses the checkout back to main, like a local change in the way would.
@@ -130,7 +134,7 @@ if [ -n "\${FAKE_REFUSE_FETCH:-}" ]; then
 fi
 if [ -n "\${FAKE_REFUSE_PUSH:-}" ]; then
   case " \$* " in
-    *" push -q origin HEAD:refs/heads/sync/"*)
+    *" push -q origin HEAD:refs/heads/sync/"*|*" push origin HEAD:refs/heads/sync/"*)
       printf '%s\n' "error: failed to push some refs" >&2
       exit 1 ;;
   esac
@@ -227,7 +231,8 @@ rm -rf "$co/users/bo" "$co/meetings" "$work/b47"
 git --git-dir "$work/origin.git" update-ref refs/heads/main "$main_was"
 git -C "$co" fetch -q origin
 
-# join.sh: the terms pull request gets auto-merge, and the folder is back on main.
+# join.sh: the terms are a commit on main with this computer's Sync-Seat line, and sync push
+# sends them to sync/<me>/<seat> with a pull request that gets auto-merge.
 mkdir -p "$co/users/sam" "$work/home/.claude"
 git -C "$co/users/sam" init -q -b main
 printf '%s\n' "areas=" > "$work/join-answers"
@@ -244,11 +249,13 @@ case "\$1" in
     printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
   auto-merge) [ -z "\${FAKE_NO_AUTOMERGE:-}" ] || exit 1; printf '%s\n' '{"ok":true}' ;;
   get-token) printf '%s\n' local-token ;;
+  whoami) printf '%s\n' '{"login":"acme-member-d"}' ;;
+  open-prs) printf '%s\n' '[]' ;;
   *) printf '%s\n' '{"ok":true}' ;;
 esac
 EOF
 join_run() {
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE=true OS_HOST_SH="$work/bin/host.sh" \
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="$root/tests/fakes/engine.sh" OS_HOST_SH="$work/bin/host.sh" \
     "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>"$work/join.err" \
     || { cat "$work/join.err" >&2; team_fail "join exit $?"; }
 }
@@ -256,17 +263,19 @@ printf '%s\n' "root=$co" "me=sam" >> "$work/join-answers"
 : > "$work/host.log"
 join_run > "$work/join.out"
 grep -qx 'terms: proposed' "$work/join.out" || team_fail "join did not propose terms"
-# Round 5: the join pull request has a body: who joined, which page.
-[ "$(cat "$work/join-body.txt" 2>/dev/null)" = "sam joined and accepted the terms on people/Sam Member.md." ] \
-  || team_fail "join PR body: $(cat "$work/join-body.txt" 2>/dev/null)"
-grep -qx 'auto-merge: on' "$work/join.out" || team_fail "join did not report auto-merge"
-grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call auto-merge: $(cat "$work/host.log")"
+seat=$(tr -d '[:space:]' < "$work/home/.config/acme-os/seat")
+[ -n "$seat" ] || team_fail "join made no seat id"
+grep -q "^open-pr origin --head sync/sam/$seat --base main " "$work/host.log" \
+  || team_fail "join did not open the seat pull request: $(cat "$work/host.log")"
+grep -qx 'auto-merge origin 7' "$work/host.log" || team_fail "join did not call auto-merge: $(cat "$work/host.log")"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
-git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q '^terms_accepted: ' \
-  || team_fail "terms date is not on sync/sam"
-# logsfix (54): the dated page is also a local change on main, so the next push keeps it.
-grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the local page is not dated"
-git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync/sam (55: temp worktree only)"
+git --git-dir "$work/origin.git" show "sync/sam/$seat:people/Sam Member.md" | grep -q '^terms_accepted: ' \
+  || team_fail "terms date is not on sync/sam/$seat"
+git --git-dir "$work/origin.git" log -1 --format=%B "sync/sam/$seat" | grep -qx "Sync-Seat: $seat" \
+  || team_fail "the terms commit has no Sync-Seat line"
+[ "$(git -C "$co" rev-parse HEAD)" = "$(git --git-dir "$work/origin.git" rev-parse "sync/sam/$seat")" ] \
+  || team_fail "the folder's main is not what went up"
+git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync branch"
 
 # Item 11 (a): claude is in ~/.local/bin but not on PATH. Join says so, gives the step,
 # and stops before the jobs. A PATH with no claude on it, even when this computer has one.
@@ -398,65 +407,68 @@ else
   [ -s "$work/taskkill.log" ] && team_fail "JOIN-WIN: taskkill ran with no Windows process id"
 fi
 
-# A refused auto-merge is one plain line, not a failure.
-git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" update-ref -d refs/remotes/origin/sync/sam
-FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
-grep -q '^auto-merge is off on acme-os: pull request 7 stays open' "$work/join2.out" \
-  || team_fail "join did not say auto-merge is off"
-
-# Round 3 (37): the checkout back to main is refused after the terms push. The run still
-# opens the pull request. A retry (terms on origin/sync/sam, not on main, and the clone
-# still on sync/sam) opens it again and goes back to main. Since logsfix (55) join never
-# leaves main itself; a clone an older join left on sync/sam is the case here.
-git --git-dir "$work/origin.git" branch -q -D sync/sam
-git -C "$co" update-ref -d refs/remotes/origin/sync/sam
-git -C "$co" checkout -q -b sync/sam
-: > "$work/host.log"
-PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=1 join_run > "$work/join4.out"
-grep -qx 'terms: proposed' "$work/join4.out" || team_fail "refused checkout: no terms"
-grep -qx 'pr: 7' "$work/join4.out" || team_fail "refused checkout: no pull request"
-grep -q '^main: could not go back to main' "$work/join.err" || team_fail "join did not say it stayed off main"
-[ "$(git -C "$co" symbolic-ref --short HEAD)" = "sync/sam" ] || team_fail "the shim did not refuse"
-: > "$work/host.log"
-join_run > "$work/join5.out"
-grep -qx 'terms: already' "$work/join5.out" || team_fail "retry did not see the pending terms"
-grep -q '^open-pr acme-os --head sync/sam ' "$work/host.log" || team_fail "retry did not open the pull request"
-grep -qx 'pr: 7' "$work/join5.out" || team_fail "retry printed no pull request"
-[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "retry left the folder off main"
-
-# Round 4 (43): a join that stopped after the terms commit, or after the push, opens the
-# pull request on the next run.
-reset_sync_sam() {
-  git --git-dir "$work/origin.git" branch -q -D sync/sam
-  git -C "$co" checkout -q main 2>/dev/null || true
-  git -C "$co" branch -q -D sync/sam 2>/dev/null || true
-  git -C "$co" update-ref -d refs/remotes/origin/sync/sam
-}
 join_try() {
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE=true OS_HOST_SH="$work/bin/host.sh" \
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="$root/tests/fakes/engine.sh" OS_HOST_SH="$work/bin/host.sh" \
     "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>"$work/join.err"
 }
-# The terms push fails: nothing is on the host. The retry proposes again and opens it.
-reset_sync_sam
+# Take the terms back off the host and out of the folder's main. The page goes back to
+# undated; every other file stays in the folder.
+reset_terms() {
+  git --git-dir "$work/origin.git" update-ref -d "refs/heads/sync/sam/$seat"
+  git -C "$co" update-ref -d "refs/remotes/origin/sync/sam/$seat"
+  git -C "$co" checkout -q main 2>/dev/null || true
+  git -C "$co" branch -q -D sync/sam 2>/dev/null || true
+  git -C "$co" reset -q origin/main
+  git -C "$co" checkout -q origin/main -- "people/Sam Member.md"
+}
+
+# A refused auto-merge is one plain line, not a failure: the pull request is open.
+reset_terms
+FAKE_NO_AUTOMERGE=1 join_run > "$work/join2.out"
+grep -q '^auto-merge is off on origin: pull request 7 ' "$work/join2.out" \
+  || team_fail "join did not say auto-merge is off"
+
+# A clone an older join left on sync/sam goes back to main, then commits and pushes there.
+reset_terms
+git -C "$co" checkout -q -b sync/sam
+: > "$work/host.log"
+join_run > "$work/join4.out"
+grep -qx 'terms: proposed' "$work/join4.out" || team_fail "old branch: no terms"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "old branch: the folder is off main"
+grep -q "^open-pr origin --head sync/sam/$seat " "$work/host.log" || team_fail "old branch: no pull request"
+# The checkout back to main is refused: join stops before it commits anything.
+reset_terms
+git -C "$co" checkout -q -b sync/sam
+before=$(git -C "$co" rev-parse HEAD)
+rc=0
+PATH="$work/shim:$PATH" FAKE_REFUSE_MAIN=1 join_try > "$work/join5.out" || rc=$?
+[ "$rc" -eq 3 ] || team_fail "refused checkout: exit $rc, not 3"
+grep -q 'could not go back to main' "$work/join.err" || team_fail "refused checkout: no plain line"
+[ "$(git -C "$co" rev-parse HEAD)" = "$before" ] || team_fail "refused checkout: join committed off main"
+
+# The terms push fails: the commit stays in the folder. The retry sees the dated page and
+# pushes it.
+reset_terms
 if PATH="$work/shim:$PATH" FAKE_REFUSE_PUSH=1 join_try > "$work/join6.out"; then
   team_fail "join with a refused terms push exited 0"
 fi
-git --git-dir "$work/origin.git" rev-parse --verify --quiet refs/heads/sync/sam >/dev/null && team_fail "the shim did not refuse the push"
+git --git-dir "$work/origin.git" rev-parse --verify --quiet "refs/heads/sync/sam/$seat" >/dev/null \
+  && team_fail "the shim did not refuse the push"
+grep -q 'sync push stopped' "$work/join.err" || team_fail "a refused push gave no reason"
+grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the folder page is not dated"
 : > "$work/host.log"
 join_try > "$work/join7.out" || { cat "$work/join.err" >&2; team_fail "retry after a refused push failed"; }
-grep -qx 'terms: proposed' "$work/join7.out" || team_fail "retry after a refused push did not propose"
-grep -qx 'pr: 7' "$work/join7.out" || team_fail "retry after a refused push opened no pull request"
-git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -Eq '^terms_accepted: [0-9]{4}-' \
+grep -qx 'terms: already' "$work/join7.out" || team_fail "retry after a refused push proposed again"
+git --git-dir "$work/origin.git" show "sync/sam/$seat:people/Sam Member.md" | grep -Eq '^terms_accepted: [0-9]{4}-' \
   || team_fail "retry did not push the terms"
-# open-pr fails after the push: the terms are on origin/sync/sam only. The retry opens it.
-reset_sync_sam
+grep -q "^open-pr origin --head sync/sam/$seat " "$work/host.log" || team_fail "retry after a refused push opened no pull request"
+# open-pr fails after the push: the terms are on the seat branch only. The retry opens it.
+reset_terms
 if FAKE_NO_OPENPR=1 join_try > "$work/join8.out"; then
   team_fail "join with a failed open-pr exited 0"
 fi
-grep -q '^pr: ' "$work/join8.out" && team_fail "a failed open-pr printed a pull request"
-# Round 5 (50): offline, with a dated page in the folder (since logsfix 54, on main too).
-# join must not guess "already": it stops with exit 3 and one line, and opens nothing.
+# Round 5 (50): offline, with a dated page in the folder. join must not guess "already":
+# it stops with exit 3 and one line, and opens nothing.
 grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the folder page is not dated"
 : > "$work/host.log"
 rc=0
@@ -470,8 +482,8 @@ grep -q '^open-pr ' "$work/host.log" && team_fail "offline join called open-pr"
 : > "$work/host.log"
 join_try > "$work/join9.out" || { cat "$work/join.err" >&2; team_fail "retry after a failed open-pr failed"; }
 grep -qx 'terms: already' "$work/join9.out" || team_fail "retry after open-pr did not see the pushed terms"
-grep -q '^open-pr acme-os --head sync/sam ' "$work/host.log" || team_fail "retry after a failed open-pr did not open it"
-grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "retry after a failed open-pr did not turn on auto-merge"
+grep -q "^open-pr origin --head sync/sam/$seat " "$work/host.log" || team_fail "retry after a failed open-pr did not open it"
+grep -qx 'auto-merge origin 7' "$work/host.log" || team_fail "retry after a failed open-pr did not turn on auto-merge"
 
 # Round 3 (30): a v0 clone that pulled the upgrade. main tracks memory/logs/ while
 # memory/logs is still a worktree of branch logs. join moves it out and keeps every log.

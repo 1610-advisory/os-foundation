@@ -5,7 +5,7 @@ job_title: ""
 company: ""
 related: []
 # Teammates only. Leave these empty for customer contacts and partners.
-slug: ""          # short lowercase id, used in log names and branches (sync/<slug>)
+slug: ""          # short lowercase id, used in log names and branches (sync/<slug>/...)
 github: ""        # git host username (team level)
 email: ""         # work email
 role: ""          # admin | director | writer

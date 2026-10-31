@@ -71,6 +71,7 @@ trap cleanup EXIT
 mkdir -p "$XDG_CONFIG_HOME/acme-os"
 chmod 700 "$XDG_CONFIG_HOME/acme-os"
 printf '%s\n' mia > "$XDG_CONFIG_HOME/acme-os/me"
+printf '%s\n' laptop-0a1b > "$XDG_CONFIG_HOME/acme-os/seat"
 cat > "$sandbox/cleanup-profile.md" << EOF
 ---
 company_slug: acme
@@ -215,19 +216,19 @@ case "$status" in
 esac
 after=$(cksum "$company/notes/held.md")
 [ "$before" = "$after" ] || fail "held file changed"
-git_as member -C "$company" fetch -q origin "refs/heads/sync/mia:refs/remotes/origin/sync/mia"
-git -C "$company" cat-file -e origin/sync/mia:notes/ok.md || fail "ok note was not pushed"
-if git -C "$company" cat-file -e origin/sync/mia:notes/held.md 2>/dev/null; then
+git_as member -C "$company" fetch -q origin "refs/heads/sync/mia/laptop-0a1b:refs/remotes/origin/sync/mia/laptop-0a1b"
+git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/ok.md || fail "ok note was not pushed"
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/held.md 2>/dev/null; then
   fail "held file was pushed"
 fi
-if git -C "$company" cat-file -e origin/sync/mia:notes/secret.md 2>/dev/null; then
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/secret.md 2>/dev/null; then
   fail "secret was pushed"
 fi
-if git -C "$company" cat-file -e origin/sync/mia:notes/life.md 2>/dev/null; then
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/life.md 2>/dev/null; then
   fail "personal fact was pushed"
 fi
 # Pull request may still be open. Fast-forward main so the pull property can be checked.
-git_as member -C "$company" push -q origin refs/remotes/origin/sync/mia:refs/heads/main
+git_as member -C "$company" push -q origin refs/remotes/origin/sync/mia/laptop-0a1b:refs/heads/main
 bash "$SYNC" pull
 git -C "$company" diff --quiet HEAD -- notes/ok.md || fail "ok note is not clean after pull"
 [ -f "$company/notes/held.md" ] || fail "held file missing after pull"
@@ -280,7 +281,11 @@ set -e
 [ "$nrc" -ne 0 ] || fail "network failure should not succeed"
 lines_after=$(grep -vc ' held gone ' "$XDG_CONFIG_HOME/acme-os/state/sync.log" || true)
 added=$((lines_after - lines_before))
-[ "$added" -eq 1 ] || fail "network failure wrote $added log lines"
+# Push takes the host's changes first: one line for that pull, one for the push.
+[ "$added" -eq 2 ] || fail "network failure wrote $added log lines"
+# The note is committed here and waits: status counts it.
+net_status=$(bash "$SYNC" status)
+printf '%s\n' "$net_status" | grep -qx 'root: 1 changes here are not on the host yet' || fail "status does not count the change"
 printf '%s\n' "PASS network"
 
 # --- identity mismatch ---
@@ -323,9 +328,9 @@ bash "$SYNC" push
 rstatus=$(bash "$SYNC" status)
 printf '%s\n' "$rstatus" | grep -q "rules file: propose it with sync.sh propose" || fail "rules reason mismatch"
 git_as member -C "$rdir" fetch -q origin || true
-if git -C "$rdir" cat-file -e origin/sync/mia:AGENTS.md 2>/dev/null; then
+if git -C "$rdir" cat-file -e origin/sync/mia/laptop-0a1b:AGENTS.md 2>/dev/null; then
   # The seed AGENTS.md is on main. The sync branch must not contain the new text.
-  if git -C "$rdir" show origin/sync/mia:AGENTS.md 2>/dev/null | grep -q "changed rules"; then
+  if git -C "$rdir" show origin/sync/mia/laptop-0a1b:AGENTS.md 2>/dev/null | grep -q "changed rules"; then
     fail "rules change was pushed on the standing branch"
   fi
 fi

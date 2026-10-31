@@ -87,14 +87,12 @@ branch="rules/${ADMIN}/add-${PERSON}"
 git -C "$ROOT" fetch origin >/dev/null 2>&1 || true
 wt=$(os_branch_start "$ROOT") || exit 3
 tpage=$(os_write_person_page "$wt" "$PERSON" "$name" "$gh" "$email" "$role" "$areas" "$manager")
-page="$ROOT/${tpage#"$wt"/}"
 
 # Director updates CODEOWNERS on the area repo, by its own PR, after the page.
 os_git_commit "$wt" "People: add ${PERSON}" "$tpage"
 os_branch_push "$ROOT" "$wt" "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
-os_show_branch_files "$ROOT" "origin/${branch}" "$page"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "People: add ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 # Like join: the page is not a rules file, so it merges by itself when the checks pass.

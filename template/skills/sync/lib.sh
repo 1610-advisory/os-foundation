@@ -242,6 +242,27 @@ sync_me() {
   tr -d '[:space:]' < "$file"
 }
 
+# One id per computer, made once (at join, or at the first push on this code): the
+# host name, cut to a slug, and four random characters, so two computers with the same
+# name still differ. Push sends to sync/<me>/<seat>.
+sync_seat() {
+  local file="$SYNC_CONFIG/seat" seat
+  if [ -f "$file" ]; then
+    seat=$(tr -d '[:space:]' < "$file")
+    if sync_safe_slug "$seat"; then
+      printf '%s\n' "$seat"
+      return 0
+    fi
+  fi
+  seat=$( (hostname 2>/dev/null || uname -n) | cut -d. -f1 | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9\n' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c 1-24 | sed 's/-$//')
+  sync_safe_slug "$seat" || seat=seat
+  seat="${seat}-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+  printf '%s\n' "$seat" > "$file"
+  chmod 600 "$file"
+  printf '%s\n' "$seat"
+}
+
 sync_profile() {
   local key=$1
   "$PROFILE_SH" "$key" 2>/dev/null || true
@@ -322,17 +343,30 @@ sync_held_error() {
   chmod 600 "$SYNC_HELD"
 }
 
+# Push holds for one repo are worked out again each push. A re-apply hold stays until
+# the agent is done with it (re-apply.sh done).
 sync_held_replace() {
   local repo=$1
   local added=$2
   local tmp
   tmp=$(sync_mktemp)
   if [ -s "$added" ]; then
-    jq -s --arg repo "$repo" '.[0].files = ([.[0].files[] | select(.repo != $repo)] + .[1:]) | .[0]' \
+    jq -s --arg repo "$repo" '.[0].files = ([.[0].files[] | select(.repo != $repo or .kind == "re-apply")] + .[1:]) | .[0]' \
       "$SYNC_HELD" "$added" > "$tmp"
   else
-    jq --arg repo "$repo" '.files = [.files[] | select(.repo != $repo)]' "$SYNC_HELD" > "$tmp"
+    jq --arg repo "$repo" '.files = [.files[] | select(.repo != $repo or .kind == "re-apply")]' "$SYNC_HELD" > "$tmp"
   fi
+  mv "$tmp" "$SYNC_HELD"
+  chmod 600 "$SYNC_HELD"
+}
+
+# A push hold on a file main now has (a rules file whose pull request merged) is over.
+sync_held_drop() {
+  local tmp
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  tmp=$(sync_mktemp)
+  jq --arg repo "$1" --arg path "$2" \
+    '.files = [.files[] | select(.repo != $repo or .path != $path or .kind == "re-apply")]' "$SYNC_HELD" > "$tmp"
   mv "$tmp" "$SYNC_HELD"
   chmod 600 "$SYNC_HELD"
 }
@@ -340,7 +374,7 @@ sync_held_replace() {
 # Drop held files that are gone, so a session never tells the person about a file that is
 # not there. Ids: root, area:<name>, workspace. An unknown id stays.
 sync_held_prune() {
-  local tmp keep id path dir me line
+  local tmp keep id path dir me line mine
   [ -f "$SYNC_HELD" ] || return 0
   me=$(sync_me 2>/dev/null || true)
   keep=$(sync_mktemp)
@@ -355,7 +389,14 @@ sync_held_prune() {
       workspace) dir="$SYNC_ROOT/users/${me}" ;;
       *) dir="" ;;
     esac
-    if [ -n "$dir" ] && [ -n "$path" ] && [ ! -e "$dir/$path" ] && [ ! -L "$dir/$path" ]; then
+    # A re-apply hold names a file the host may have deleted. It goes with its set-aside copy.
+    if [ "$(printf '%s' "$line" | jq -r '.kind // ""')" = "re-apply" ]; then
+      mine=$(printf '%s' "$line" | jq -r '.mine // ""')
+      if [ "$mine" != "deleted" ] && [ ! -f "$mine" ]; then
+        sync_log "held gone ${id} ${path} re-apply"
+        continue
+      fi
+    elif [ -n "$dir" ] && [ -n "$path" ] && [ ! -e "$dir/$path" ] && [ ! -L "$dir/$path" ]; then
       sync_log "held gone ${id} ${path}"
       continue
     fi

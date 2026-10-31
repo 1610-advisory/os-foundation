@@ -168,7 +168,12 @@ while IFS= read -r line; do
   if ! bot_is_git "$path"; then
     continue
   fi
-  if git -C "$path" show-ref --verify --quiet "refs/remotes/origin/main"; then
+  # Push never forces the bot's branch: a run builds on the last run's work while its
+  # pull request has not merged yet.
+  if git -C "$path" show-ref --verify --quiet "refs/remotes/origin/sync/${bot}" \
+    && ! git -C "$path" merge-base --is-ancestor "origin/sync/${bot}" "origin/main" 2>/dev/null; then
+    git -C "$path" checkout -B "sync/${bot}" "origin/sync/${bot}"
+  elif git -C "$path" show-ref --verify --quiet "refs/remotes/origin/main"; then
     git -C "$path" checkout -B "sync/${bot}" "origin/main"
   elif git -C "$path" show-ref --verify --quiet refs/heads/main; then
     git -C "$path" checkout -B "sync/${bot}" main

@@ -14,6 +14,8 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$DIR/push.sh"
 # shellcheck disable=SC1091
+. "$DIR/reapply.sh"
+# shellcheck disable=SC1091
 . "$DIR/jobs.sh"
 # shellcheck disable=SC1091
 . "$DIR/helper.sh"
@@ -36,6 +38,8 @@ Commands:
   push
   propose <topic> <file>...
   status
+  seat
+  re-apply [list | done <repo> <path> | ask <repo> <path> <question>]
   install-jobs [--admin] [--bot]
   uninstall-jobs
   helper
@@ -62,7 +66,17 @@ cmd_status() {
   else
     printf '%s\n' "nothing held"
   fi
+  sync_each sync_status_unpushed || true
   sync_pull_status_line
+}
+
+# Commits here that no branch on the host has: they go up with the next push.
+sync_status_unpushed() {
+  local repo=$1 id=$2 n
+  n=$(git -C "$repo" rev-list --count --no-merges HEAD --not --remotes=origin 2>/dev/null || printf '0')
+  if [ "$n" != "0" ]; then
+    printf '%s\n' "${id}: ${n} changes here are not on the host yet"
+  fi
 }
 
 main() {
@@ -78,6 +92,15 @@ main() {
   case "$cmd" in
     status)
       cmd_status
+      ;;
+    re-apply)
+      sync_bind
+      cmd_reapply "$@"
+      ;;
+    seat)
+      [ $# -eq 0 ] || { usage >&2; exit 1; }
+      sync_bind
+      sync_seat
       ;;
     pull|push|propose|install-jobs|uninstall-jobs|helper|collect|admin-run)
       sync_bind

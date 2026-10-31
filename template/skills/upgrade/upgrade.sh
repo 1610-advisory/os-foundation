@@ -7,18 +7,23 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 . "$DIR/../add-teammate/lib.sh"
 # shellcheck disable=SC1091
 . "$DIR/rules.sh"
+# shellcheck disable=SC1091
+. "$DIR/refresh.sh"
 
 usage() {
   cat << 'EOF'
-usage: upgrade.sh [--dry-run] [--root <dir>] [--template <dir>] [--level solo|team|app] [--answers <file>]
+usage: upgrade.sh [--dry-run] [--refresh] [--root <dir>] [--template <dir>] [--level solo|team|app] [--answers <file>]
 
 Dry-run prints changes and conflicts and changes nothing.
 A real run makes one merge commit on upgrade/v1 and opens one pull request.
 Company content is not rewritten. Keep the logs-archive tag for 90 days.
+--refresh (a v1 company): one rules pull request per repo that brings stock skills and
+checks the company did not change to this template. Changed ones are listed and kept.
 EOF
 }
 
 DRY=0
+REFRESH=0
 ROOT=""
 TEMPLATE=""
 LEVEL=""
@@ -31,6 +36,10 @@ while [ $# -gt 0 ]; do
       ;;
     --dry-run)
       DRY=1
+      shift
+      ;;
+    --refresh)
+      REFRESH=1
       shift
       ;;
     --root)
@@ -190,9 +199,14 @@ if git -C "$ROOT" cat-file -e main:company-profile.md 2>/dev/null \
   && git -C "$ROOT" show main:company-profile.md | grep -q '^level:' \
   && [ "$(main_link_mode .agents/skills)" = "120000" ] \
   && [ "$(main_link_mode .claude/skills)" = "120000" ]; then
-  printf '%s\n' "upgrade: already v1"
+  if [ "$REFRESH" -eq 1 ]; then
+    upgrade_refresh
+    exit $?
+  fi
+  printf '%s\n' "upgrade: already v1. To bring stock skills and checks to this template, run it with --refresh."
   exit 0
 fi
+[ "$REFRESH" -eq 0 ] || os_die 2 "refresh is for a v1 company: run upgrade without --refresh first"
 
 # An earlier run's branches: upgrade/v1 in the company folder, upgrade/scripts in each area.
 # This script made a branch when its last commit is one it makes. A run rebuilds its own

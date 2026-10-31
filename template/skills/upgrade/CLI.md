@@ -2,16 +2,18 @@
 
 ```
 upgrade.sh [--dry-run] [--root <dir>] [--template <dir>] [--level solo|team|app] [--answers <file>]
+upgrade.sh --refresh [--dry-run] [--root <dir>] [--template <dir>]
 upgrade.sh --help
 ```
 
-Moves a v0 company folder to v1. Dry-run first. Then one branch and one pull request. Company content is not rewritten. One `git revert -m 1 <merge>` restores the old state.
+Moves a v0 company folder to v1. Dry-run first. Then one branch and one pull request. Company content is not rewritten. One `git revert -m 1 <merge>` restores the old state. `--refresh` brings a v1 company's stock skills and checks to a newer template (see "Refresh").
 
 ## Flags
 
 | Flag | Meaning |
 |---|---|
 | `--dry-run` | Print what would change and what conflicts. Change nothing. Exit 0. |
+| `--refresh` | A v1 company: refresh stock skills and checks. A v0 company: refused (exit 2); run the upgrade first. |
 | `--root <dir>` | Company folder. Default: the current directory. |
 | `--template <dir>` | v1 template folder. Default: the `template/` next to this skill when that folder is still the os-foundation template. |
 | `--level solo\|team\|app` | Level to write. Default: `solo`, or the `level` key in the answers file. |
@@ -47,7 +49,7 @@ Any of these means v0:
 The script stops early in these cases. Each one changes nothing.
 
 - **Windows.** Under Git Bash on Windows it prints `run the upgrade from a Mac or Linux clone of the company repo` and exits 2. Windows teammates get the result by their normal pull.
-- **Already v1.** `main` has `level:` in `company-profile.md` and both skill links committed as links. It prints `upgrade: already v1` and exits 0.
+- **Already v1.** `main` has `level:` in `company-profile.md` and both skill links committed as links. Without `--refresh` it prints `upgrade: already v1. To bring stock skills and checks to this template, run it with --refresh.` and exits 0.
 - **Pending, no host.** A branch `upgrade/v1` exists and there is no host: the person merges it by hand. It prints `upgrade: pending upgrade/v1` and `To start over, run in the company folder: git checkout main && git branch -D upgrade/v1` (plus the same for each area `upgrade/scripts`). It exits 0 and changes nothing.
 - **An earlier run's branches (host on).** The upgrade owns `upgrade/v1` (company) and `upgrade/scripts` (each area), in the folder and on the host. A branch is its own when its last commit is one the upgrade makes (`Upgrade to v1`, or a subject that starts `Upgrade: `). A folder left on its own upgrade branch goes back to `main`: `switched <folder> to main from <branch> (an earlier upgrade run)`. With a host, the dry run prints `change: replace <repo> <branch> (an earlier upgrade run made it; its pull request is reused)`. A real run rebuilds the branch from `main` and pushes it with `--force-with-lease` (only if the host branch has not moved since the run looked). It prints `replaced: <repo> <branch> (an earlier upgrade run made it)`. `open-pr` updates the open pull request from that branch, or opens a new one when the old one was closed. So a stopped or superseded run needs no start-over: run it again.
 - **Someone else's commits on an upgrade branch.** It prints one line per branch: `upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make. To keep them, merge or close its pull request first. To start over, in <folder> run: <commands> (that also closes its pull request). Then run upgrade again.` The commands are exact: `git checkout main && git branch -D <branch>` for the folder, `git push origin --delete <branch>` for the host, only the parts that hold such commits. A real run exits 2 before any change. The dry run prints the same line and goes on.
@@ -117,20 +119,32 @@ At `team` or `app` it prints `review-command: skills/_host/host.sh set-secret OS
 
 Each area repo gets its own pull request for the check scripts, on `upgrade/scripts`. That pull request also adds `review-rules.md` when the area main lacks it, and carries the area rules merge as its own commit. It does not replace an existing file. A dry-run prints `pr-plan:` for that pull request and does not open it.
 
+## Refresh
+
+`--refresh`, on a v1 company, from the company folder, with `--template` the newer os-foundation `template/`:
+
+- **Stock files** are the files the template has under `skills/` and `.github/`. The company repo gets both. Each area repo gets `.github/` (its checks).
+- **Unchanged or not.** `template/skills/upgrade/stock-hashes.txt` lists the git blob id and path of every stock file any release has shipped. A company copy on `main` that matches one is as shipped: it is replaced. A copy that matches none was changed by the company: it is kept, and the run prints `kept: <folder> <path> (changed by the company; compare it with the template by hand)`. A stock file this template no longer ships is removed when it is as shipped. A company skill of its own is never in the list, so it is never touched. Scripts keep their mode.
+- **With a host:** one rules pull request per repo that has something to change, on `rules/<me>/refresh-<release>` (`<release>` from `.github/scripts/tools-release`), built in a temporary worktree on `origin/main`, never over the folder. Title `Refresh stock skills and checks (<release>)`. Auto-merge on, like `propose`: code owners approve it. It prints `opened: <repo> <n>` and the auto-merge line. Teammates get the files with their next pull once it merges. A second run replaces the branch and reuses the open pull request.
+- **Solo (no host):** one commit on `main` per repo, of those paths only (`committed: <folder>`). A path with a change not committed stops that repo with one line.
+- Per repo it prints `refresh: <folder>: <n> new, <n> replaced, <n> removed, <n> kept`, or `refresh: <folder> is current (<n> kept)`. Then `refresh: ok. ...`, or with `--dry-run` `refresh: dry run, nothing changed`. A repo it could not fetch prints one line, the others go on, and it exits 3.
+
+Before a release, a maintainer runs `tests/static/stock-hashes.sh --write` in os-foundation; `--check` fails when a stock file is missing from the list.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | ok, including a dry-run that found conflicts or `upgrade: stopped:` lines, `upgrade: already v1` and `upgrade: pending upgrade/v1` (no host) |
+| 0 | ok, including a dry-run that found conflicts or `upgrade: stopped:` lines, `upgrade: already v1`, `upgrade: pending upgrade/v1` (no host) and a refresh |
 | 1 | usage |
-| 2 | refused (not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on, someone else's commits on an upgrade branch) |
+| 2 | refused (`--refresh` on a v0 folder, not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on, someone else's commits on an upgrade branch) |
 | 3 | tool error (`git filter-repo` missing) or host error (an area fetch failed, the check tools could not reach `main`, a Free GitHub org at team level) |
 | 4 | auth failed |
 
 ## What it prints
 
 ```
-upgrade: already v1
+upgrade: already v1. To bring stock skills and checks to this template, run it with --refresh.
 upgrade: pending upgrade/v1
 To start over, run in the company folder: git checkout main && git branch -D upgrade/v1. Then run upgrade again.
 switched <folder> to main from <branch> (an earlier upgrade run)

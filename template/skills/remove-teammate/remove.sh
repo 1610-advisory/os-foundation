@@ -311,6 +311,27 @@ for repo in "$COMPANY_REPO" $(for area in $AREAS; do os_area_repo "$SLUG" "$area
   done
 done
 
+# The person's sync branches: one per computer (sync/<person>/<seat>), and sync/<person>
+# from older code. Deleting a branch closes its pull request. Work not merged by now
+# stays in the person's archived workspace and on their computer, not in the company.
+for dir in "$ROOT" $(for area in $AREAS; do printf '%s\n' "$ROOT/areas/${area}"; done); do
+  [ -e "$dir/.git" ] || continue
+  rel=${dir#"$ROOT"}
+  rel=${rel#/}
+  if ! refs=$(os_with_git_token git -C "$dir" ls-remote --heads origin 2>/dev/null); then
+    printf 'could not list branches in %s: delete sync/%s/* by hand\n' "${rel:-company}" "$PERSON"
+    continue
+  fi
+  printf '%s\n' "$refs" | awk -v p="refs/heads/sync/${PERSON}" '$2 == p || index($2, p "/") == 1 { print $2 }' \
+    | while IFS= read -r ref; do
+      if os_with_git_token git -C "$dir" push -q origin ":${ref}" 2>/dev/null; then
+        printf 'deleted: %s %s\n' "${rel:-company}" "${ref#refs/heads/}"
+      else
+        printf 'could not delete %s in %s: delete it by hand\n' "${ref#refs/heads/}" "${rel:-company}"
+      fi
+    done
+done
+
 ADMIN=$(os_admin_slug_from_pages "$ROOT" || true)
 if [ "$ADMIN" = "$PERSON" ]; then
   ADMIN=$NEW_OWNER
@@ -342,11 +363,6 @@ os_git_commit "$wt" "Offboard: ${PERSON}" "${paths[@]}"
 os_branch_push "$ROOT" "$wt" "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
-shown=()
-for p in "${paths[@]}"; do
-  shown+=("$ROOT/${p#"$wt"/}")
-done
-os_show_branch_files "$ROOT" "origin/${branch}" "${shown[@]}"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 

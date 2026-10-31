@@ -116,8 +116,6 @@ if [ -z "$AREAS" ]; then
 fi
 AREAS=$(printf '%s' "$AREAS" | tr -d '[]' | tr ',' ' ')
 
-COMPANY_REPO=$(os_company_repo "$SLUG")
-
 clone_one() {
   local name=$1 dest=$2 rc
   if [ -e "$dest/.git" ]; then
@@ -292,92 +290,50 @@ if [ -f "$HOME/.cursor/User/rules.md" ]; then
   os_pointer "$HOME/.cursor/User/rules.md" "Read ${PROFILE}"
 fi
 
-# Open (or reuse) the terms pull request from sync/<me>, then turn on auto-merge.
-join_terms_pr() {
-  local pr number body
-  # One plain line, so the review can match the change to it.
-  body=$(mktemp)
-  printf '%s joined and accepted the terms on %s.\n' "$ME" "${PAGE#"$ROOT"/}" > "$body"
-  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}" --body-file "$body")
-  number=$(printf '%s' "$pr" | jq -r '.number // empty')
-  [ -n "$number" ] || return 0
-  printf 'pr: %s\n' "$number"
-  # Like push and propose: the terms pull request merges by itself when the checks pass.
-  os_auto_merge_line "$COMPANY_REPO" "$number"
-}
-
-# Where the terms stand comes from the host: on origin/main (merged), on
-# origin/sync/<me> (pushed; a run that stopped before open-pr left no pull request), or
-# not yet. The page template has an empty terms_accepted: key: only a date counts. The
-# clone may still be on sync/<me> (a refused checkout), so its own page proves nothing.
+# The terms are a sync commit like any other: commit the dated page here, then push. Push
+# sends it to sync/<me>/<seat> and opens that computer's pull request, which merges by
+# itself when the checks pass. A run that stopped after the commit pushes it again.
+# The page template has an empty terms_accepted: key: only a date counts.
 terms_dated() {
   git -C "$ROOT" show "$1:${PAGE#"$ROOT"/}" 2>/dev/null | grep -Eq '^terms_accepted: *"?[0-9]{4}-'
 }
-# Offline, stop: a dated page here may be from a run that stopped before open-pr.
 os_with_git_token git -C "$ROOT" fetch -q origin 2>/dev/null \
   || os_die 3 "could not reach the host: run join again when online; the terms pull request may not be open yet"
 if terms_dated origin/main; then
-  terms=merged
-elif terms_dated "origin/sync/${ME}"; then
-  terms=pushed
+  printf '%s\n' "terms: already"
 else
-  terms=none
+  sync_sh="$DIR/../sync/sync.sh"
+  [ -f "$sync_sh" ] || os_die 2 "skills/sync/sync.sh is not here yet: ask the admin"
+  export OS_PROFILE_SH="${OS_PROFILE_SH:-$DIR/../_host/profile.sh}"
+  # A clone made by older join code may sit on sync/<me>. Sync works on main.
+  if [ "$(git -C "$ROOT" symbolic-ref --short -q HEAD 2>/dev/null || true)" != "main" ]; then
+    os_back_to_main "$ROOT" 2>/dev/null
+    [ "$(git -C "$ROOT" symbolic-ref --short -q HEAD 2>/dev/null || true)" = "main" ] \
+      || os_die 3 "could not go back to main (a local change is in the way): run git checkout main, then run join again"
+  fi
+  if terms_dated HEAD; then
+    printf '%s\n' "terms: already"
+  else
+    [ -f "$PAGE" ] || os_die 2 "no people page for $ME on the host: ask the admin"
+    seat=$(OS_COMPANY_ROOT="$ROOT" bash "$sync_sh" seat) \
+      || os_die 3 "could not make this computer's seat id: run join again"
+    os_fm_set "$PAGE" terms_accepted "$(os_today)"
+    os_git_commit "$ROOT" "Join: accept terms
+
+${ME} joined and accepted the terms on ${PAGE#"$ROOT"/}.
+
+Sync-Seat: ${seat}" "$PAGE" >/dev/null \
+      || os_die 3 "could not commit the terms: run join again"
+    printf '%s\n' "terms: proposed"
+  fi
+  if ! OS_COMPANY_ROOT="$ROOT" bash "$sync_sh" push; then
+    why=$(OS_COMPANY_ROOT="$ROOT" bash "$sync_sh" status 2>/dev/null | sed -n 's/^last error: //p' | head -n 1)
+    case "$why" in
+      # The terms are on the host with a pull request; only the merge waits for the admin.
+      "auto-merge is off on "*) printf '%s\n' "$why" ;;
+      *) os_die 3 "sync push stopped (${why:-no reason given}). The terms are committed in this folder: fix that, then run join again" ;;
+    esac
+  fi
 fi
-# Push rebuilds sync/<me> from origin/main plus the local changes, each time. So the
-# dated page must also be a local change here until the pull request merges: then every
-# push carries it (B25).
-terms_keep_local() {
-  [ -n "$1" ] || return 0
-  os_fm_set "$PAGE" terms_accepted "$1"
-}
-case "$terms" in
-  merged)
-    printf '%s\n' "terms: already"
-    ;;
-  pushed)
-    # open-pr reuses a pull request that is open, or opens one.
-    printf '%s\n' "terms: already"
-    os_back_to_main "$ROOT"
-    terms_keep_local "$(git -C "$ROOT" show "origin/sync/${ME}:${PAGE#"$ROOT"/}" 2>/dev/null \
-      | sed -n 's/^terms_accepted: *"\{0,1\}\([0-9][0-9-]*\).*/\1/p' | head -n 1)"
-    join_terms_pr
-    ;;
-  *)
-    branch="sync/${ME}"
-    # Build on the host's sync/<me> when it has one, so the push is a fast-forward. Build
-    # in a temporary worktree: never check out sync/<me> over this folder, where the same
-    # files may sit untracked (B29).
-    base=origin/main
-    if git -C "$ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
-      base="origin/${branch}"
-    fi
-    day=$(os_today)
-    tw=$(mktemp -d)
-    git -C "$ROOT" worktree add -q --detach "$tw/terms" "$base" >/dev/null 2>&1 \
-      || { rm -rf "$tw"; os_die 3 "could not prepare the terms change: run join again"; }
-    tpage="$tw/terms/${PAGE#"$ROOT"/}"
-    if [ ! -f "$tpage" ]; then
-      git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
-      rm -rf "$tw"
-      os_die 2 "no people page for $ME on the host: ask the admin"
-    fi
-    os_fm_set "$tpage" terms_accepted "$day"
-    os_git_commit "$tw/terms" "Join: accept terms" "$tpage"
-    if ! os_with_git_token git -C "$tw/terms" push -q origin "HEAD:refs/heads/${branch}"; then
-      git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
-      rm -rf "$tw"
-      os_die 3 "could not push the terms to ${branch}: check the sign-in, then run join again"
-    fi
-    git -C "$ROOT" worktree remove --force "$tw/terms" >/dev/null 2>&1 || true
-    rm -rf "$tw"
-    os_with_git_token git -C "$ROOT" fetch -q origin "+refs/heads/${branch}:refs/remotes/origin/${branch}" 2>/dev/null || true
-    # Stay on main: push rebuilds sync/<me> on the host each night, so a clone left on
-    # it never fast-forwards again.
-    os_back_to_main "$ROOT"
-    terms_keep_local "$day"
-    printf 'terms: proposed\n'
-    join_terms_pr
-    ;;
-esac
 
 printf '%s\n' "join: ok"

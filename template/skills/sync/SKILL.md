@@ -9,20 +9,22 @@ description: Keeps this computer and the company host in step. Pulls every 15 mi
 
 ## What sync does
 
-- **Pull.** At session start and every 15 minutes: fast-forward the company folder, each area and the person's workspace. It asks the host first and pulls only the repos that changed. Once a day it pulls every repo (see "Pull" below). If a pull cannot finish cleanly, it changes nothing and logs one line.
+- **Pull.** At session start and every 15 minutes: bring the host's changes into the company folder, each area and the person's workspace. It asks the host first and pulls only the repos that changed. Once a day it pulls every repo. A copy here that the host already has is dropped. A file changed here and on the host is set aside for the agent to re-apply (below). If a pull cannot finish cleanly, it changes nothing and logs one line.
 - **Nightly push.** At 2 am, or the first wake after. Steps:
   1. **Identity check.** The signed-in git account must match `github:` on the person's page in `people/`. If not, nothing goes up from any repo.
-  2. **Secret scan.** A script, no AI. A hit holds that file. The reason names the rule, never the value.
-  3. **Binary files and symlinks.** Images under `assets/` that end in `png`, `jpg`, `jpeg`, `gif` or `webp` go to the check like notes. Every other binary file is held: `binary file: add it by hand with a pull request`. A symlink or a folder in the change list stops the whole repo: nothing goes up from it.
-  4. **Rules files** (`AGENTS.md` section 7) are held: `rules file: propose it with sync.sh propose`. Not in the workspace.
-  5. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
-  6. **Push** only the files that passed, to `sync/<person>`, rebuilt on `main` each night.
-  7. **Standing PR** `sync: <person>`, auto-merge on. Notes merge by themselves when the checks pass.
-  8. **Pull** again.
+  2. **Pull first.** Take the host's changes, so a file merged meanwhile is no change.
+  3. **Secret scan.** A script, no AI. A hit holds that file. The reason names the rule, never the value.
+  4. **Binary files and symlinks.** Images under `assets/` that end in `png`, `jpg`, `jpeg`, `gif` or `webp` go to the check like notes. Every other binary file is held: `binary file: add it by hand with a pull request`. A symlink or a folder in the change list stops the whole repo: nothing goes up from it.
+  5. **Rules files** (`AGENTS.md` section 7) are held: `rules file: propose it with sync.sh propose`. Not in the workspace.
+  6. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
+  7. **Commit here** only the files that passed, on `main` in the folder. Each commit says which computer made it (`Sync-Seat:`).
+  8. **Push** those commits to `sync/<person>/<computer>`. Never forced.
+  9. **Standing PR** `sync: <person> (<computer>)`, one per computer, auto-merge on. Notes merge by themselves when the checks pass, with a merge commit.
+  10. **Pull** again.
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
-- **Nobody writes to `main`** in the company or an area repo. The admin is included.
-- **Bot run.** When `OS_BOT` is set, `push` does not use the steps above. It scans the commits already on `sync/<bot>`, then sends that branch and opens `sync: <bot>` as the bot. A secret or a rules file pushes nothing. It does not commit that work as the person, and it does not touch `sync/<person>`. The bot key is the boundary.
+- **Nobody pushes to `main`** in the company or an area repo. The admin is included. Sync makes every commit in the folder. A commit made by hand stops that repo: nothing goes up (`a change that sync did not make`).
+- **Bot run.** When `OS_BOT` is set, `push` does not use the steps above. It checks the commits already on `sync/<bot>` the same way as a person's (rules files, secret scan), then sends that branch and opens `sync: <bot>` as the bot. A secret or a rules file pushes nothing. It does not commit that work as the person, and it does not touch `sync/<person>/*`. The bot key is the boundary.
 
 ## Session start (Claude Code, Codex, Cursor, Pi)
 
@@ -30,7 +32,7 @@ Before other work, from the company root:
 
 1. Run `skills/sync/sync.sh pull`.
 2. Run `skills/sync/sync.sh status`.
-3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`, then `last full pull: <UTC time>` or `last full pull: never`. For each held file, tell the person one line: the file and the reason in plain words (table below).
+3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`, then one line per repo with work not sent yet (`<repo>: <n> changes here are not on the host yet`), then `last full pull: <UTC time>` or `last full pull: never`. For each held file, tell the person one line: the file and the reason in plain words (table below). A `re-apply:` hold: follow `re-apply.md` before other work on that file.
 4. If the last error is not `none`, tell the person that line as printed (see "Last errors"). Then go on with the work.
 
 If the pull fails, say so and go on. If it prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
@@ -49,6 +51,7 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
 | `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
 | `symlink: add it by hand with a pull request` | The whole repo is stopped. Leave the other files alone. Replace the symlink or folder with the real file or a note, or delete it. |
+| `re-apply: changed on the host while you worked` | Someone changed the file before this one merged. Follow `skills/sync/re-apply.md`: make the person's change again on the new text, or ask them when the two changes disagree. Never copy the old version back. |
 | `secret scan error` or `engine check failed` | The whole repo is held. Tell the person the line. Do not edit the files. Run `push` at most once more, then stop. The next night tries again. Three nights in a row: tell the admin. |
 
 After a fix, the next nightly push sends it.
@@ -60,6 +63,9 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
+- `pull failed for <repo>: this folder has a change that sync did not make` (or `push failed ... a change that sync did not make`): someone ran git by hand. Nothing went up from that repo. Tell the person to send the line to the admin. Never undo the commit yourself.
+- `pull failed for <repo>: your last changes reached main by a squash merge`: nothing was lost; the folder now matches main. Tell the person to send the line to the admin.
+- `pull failed for <repo>: this folder is not on its main branch`: send the line to the admin. Never switch branches yourself.
 - `auto-merge is off on <repo>: pull request <n> is open but will not merge by itself. ...`: the work went up, but that pull request waits. Tell the person to send the line to the admin. The admin runs the command in it once. The next push merges as usual.
 
 ## Propose a rules change

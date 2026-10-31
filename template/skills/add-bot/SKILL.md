@@ -64,7 +64,7 @@ After setup, no person step is needed. The bot's credential helper gets a fresh 
 - The OS job runs `skills/add-bot/run.sh <bot> <routine>`.
 - Each run gets a `Run-Id`. Every commit of the run carries `Run-Id: <id>` and `Bot-Owner: <owner>`.
 - A run starts only when every repo it writes is clean. A file left over from an earlier run stops the next run: find out why before you remove it.
-- The bot works on its own `sync/<bot>` branch, taken fresh from `main`. It may push only to `sync/<bot>` and `undo/*`. It never merges, pulls or rebases on `main`.
+- The bot works on its own `sync/<bot>` branch, taken from `main`, or from its last run while that run's pull request has not merged. It may push only to `sync/<bot>` and `undo/*`. It never merges, pulls or rebases on `main`.
 - `sync.sh push` sends its work up on the bot's standing PR, like a person's notes.
 - The bot follows the same tiers as a person (`AGENTS.md` section 6). Its rules changes go by `propose`.
 - To undo a whole run in one step: the `undo-run` skill.

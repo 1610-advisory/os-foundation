@@ -57,12 +57,14 @@ bash "$dest/skills/sync/sync.sh" push >"$work/push.log" 2>&1
 rc=$?
 set -e
 status=$(bash "$dest/skills/sync/sync.sh" status)
+# Each computer pushes to its own branch: sync/<person>/<computer>.
+seat=$(bash "$dest/skills/sync/sync.sh" seat)
 for name in leak.md life.md dm.md; do
   if ! printf '%s\n' "$status" | grep -q "$name"; then
     osf_result "S3 FAIL status does not name $name"
   fi
 done
-osf_host S3 file "$org" "${slug}-marketing" notes/widget.md --ref "sync/mia"
+osf_host S3 file "$org" "${slug}-marketing" notes/widget.md --ref "sync/mia/$seat"
 widget=$(cat "$OSF_HOST_JSON")
 found=0
 if [ "$OSF_HOST_RC" -eq 0 ]; then
@@ -74,7 +76,7 @@ if [ "$found" -ne 1 ]; then
   osf_result "S3 FAIL widget note is not on the host"
 fi
 for held in leak.md life.md dm.md; do
-  osf_host S3 file "$org" "${slug}-marketing" "notes/$held" --ref "sync/mia"
+  osf_host S3 file "$org" "${slug}-marketing" "notes/$held" --ref "sync/mia/$seat"
   miss=$(cat "$OSF_HOST_JSON")
   if [ "$OSF_HOST_RC" -ne 2 ] || ! printf '%s\n' "$miss" | grep -q '"found": false'; then
     osf_result "S3 FAIL $held was not a clean miss on the host"

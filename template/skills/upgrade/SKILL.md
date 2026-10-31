@@ -1,6 +1,6 @@
 ---
 name: upgrade
-description: Move this company OS to a newer os-foundation version. Shows a dry-run report first, then makes one pull request (or one commit at solo) that adds the new parts. Never rewrites company content. One commit reverts it. Use when lint says a newer version exists, or someone says "upgrade the OS", "update os-foundation", or "get the new version".
+description: Move this company OS to a newer os-foundation version. Shows a dry-run report first, then makes one pull request (or one commit at solo) that adds the new parts. A v1 company refreshes its stock skills and checks with --refresh. Never rewrites company content. One commit reverts it. Use when lint says a newer version exists, or someone says "upgrade the OS", "update os-foundation", or "get the new version".
 ---
 
 # Upgrade
@@ -38,7 +38,7 @@ A real run refuses a folder with uncommitted changes. The same goes for each are
 1. Run `<upgrade> --dry-run --root <company folder> --template <template>`.
 2. It changes nothing. It prints `v0:` lines (the old shape it found), `change:` lines, `todo:` lines and `conflict:` lines.
 3. Read the report to the person in plain words, one line each.
-   - `upgrade: already v1`: `main` already has the v1 parts. Say so and stop.
+   - `upgrade: already v1. ...`: `main` already has the v1 parts. To get a newer release's skills and checks, run `<upgrade> --refresh --dry-run --root <company folder> --template <template>`, read its lines to the person (`kept:` files are ones the company changed: they stay as they are), then with their OK run it without `--dry-run`. It opens one rules pull request per repo (one commit per repo at solo). See `CLI.md` "Refresh".
    - `upgrade: pending upgrade/v1` (no host): the upgrade branch waits for the person to merge it (step 6, solo). If they want a fresh run instead, run the `To start over` commands with their OK.
    - `change: replace <repo> upgrade/v1` (or `upgrade/scripts`): an earlier upgrade run made that branch. Its pull request may still be open, or the run stopped. A real run rebuilds the branch from `main`, replaces it on the host and reuses the open pull request (or opens a new one). Say so. Go on only with the person's OK.
    - `upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make`: someone added work to an upgrade branch. A real run stops before any change. Ask the person which they want. To keep that work, merge or close its pull request first. To start over, run the exact commands the line gives, in the folder it names. Then run the dry run again.
