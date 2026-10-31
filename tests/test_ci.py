@@ -919,6 +919,7 @@ class ReviewParseTests(unittest.TestCase):
         self.assertIn("the review reported a finding", out)
         # B36: the comment keeps what the review found.
         self.assertIn("FINDING: 1 a.md:1 Bad.", out)
+        self.assertIn("FINDING: 1 a.md:1 Bad.", result.stderr)
         self.assertIn("VERDICT: PASS", out)
 
 

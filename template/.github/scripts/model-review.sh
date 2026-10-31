@@ -383,7 +383,7 @@ fi
 if printf '%s\n' "$text" | grep -q '^FINDING:'; then
   write_out "$text"
   printf '\n%s\n' "model review failed: the review reported a finding" >> "$out_file"
-  printf '%s\n' "model review failed: the review reported a finding" >&2
+  printf '%s\n\n%s\n' "$text" "model review failed: the review reported a finding" >&2
   exit 1
 fi
 verdict=$(last_verdict "$text")
