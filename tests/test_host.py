@@ -453,6 +453,20 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 3, proc.stdout)
         self.assertEqual(proc.stderr.strip(), "auto-merge is still on for pull request 4")
 
+    def test_open_prs_gives_each_body(self):
+        # B40 b: sync reads the open pull request's body, to keep a person's lines.
+        proc = run(["open-prs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            json.loads(proc.stdout),
+            {
+                "prs": [
+                    {"number": 4, "head": "sync/ada", "body": "Ada: keep this.\r\n<!-- sync:files -->"},
+                    {"number": 5, "head": "rules/ada/x", "body": ""},
+                ]
+            },
+        )
+
     def test_auto_merge_on_a_green_pull_request_merges_it(self):
         # B45: GitHub refuses auto-merge when the checks are already green. Merge it now.
         self.flag("clean")

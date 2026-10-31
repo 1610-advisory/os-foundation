@@ -353,6 +353,51 @@ sync_open_pr() {
   return 2
 }
 
+# Push owns only the lines between these markers in a sync pull request's body (B40 b).
+SYNC_BODY_START='<!-- sync:files -->'
+SYNC_BODY_END='<!-- /sync:files -->'
+
+# Write the body for head's pull request to out. On an open pull request, replace only
+# the block between the markers and keep every other line. An old body with no markers
+# stays as it is, with the block after it.
+sync_pr_body() {
+  local name=$1 head=$2 block=$3 out=$4 old
+  old=$(sync_mktemp)
+  # GitHub keeps a body written on the web with CR LF line ends.
+  "$HOST_SH" open-prs "$name" 2>/dev/null \
+    | jq -r --arg head "$head" '[(.prs // [])[] | select(.head == $head) | .body // ""][0] // ""' 2>/dev/null \
+    | tr -d '\r' > "$old" || : > "$old"
+  if grep -qxF "$SYNC_BODY_START" "$old" && grep -qxF "$SYNC_BODY_END" "$old"; then
+    awk -v start="$SYNC_BODY_START" -v end="$SYNC_BODY_END" -v block="$block" '
+      $0 == start { while ((getline line < block) > 0) print line; skip = 1; next }
+      $0 == end { skip = 0; next }
+      !skip { print }' "$old" > "$out"
+  elif grep -q '[^[:space:]]' "$old"; then
+    { cat "$old"; printf '\n'; cat "$block"; } > "$out"
+  else
+    cat "$block" > "$out"
+  fi
+}
+
+# A file equal to origin/main is no change (B46). After join, the person's page is
+# modified on main, but equals origin/main once join's pull request merges.
+sync_drop_same_as_origin() {
+  local repo=$1 list=$2 keep path want have
+  git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 0
+  keep=$(sync_mktemp)
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ] \
+      && want=$(git -C "$repo" rev-parse --verify --quiet "origin/main:${path}" 2>/dev/null) \
+      && have=$(git -C "$repo" hash-object -- "$path" 2>/dev/null) \
+      && [ "$want" = "$have" ]; then
+      continue
+    fi
+    printf '%s\n' "$path" >> "$keep"
+  done < "$list"
+  cat "$keep" > "$list"
+}
+
 sync_commit_author() {
   local me name email
   me=$(sync_me)
@@ -389,7 +434,7 @@ sync_apply_commit() {
   local kind=$3
   local files=$4
   local message=$5
-  local me ref tmp author name email path n rc sha from to name_on_host number pr_body
+  local me ref tmp author name email path n rc sha from to name_on_host number pr_body block
   me=$(sync_me)
   n=$(wc -l < "$files" | tr -d ' ')
   [ "$n" -gt 0 ] || return 0
@@ -468,17 +513,21 @@ sync_apply_commit() {
   fi
   # The body says whose notes these are and lists each file, so the review can match
   # the change to it (B40). The branch is one commit on origin/main.
-  pr_body=$(sync_mktemp)
+  block=$(sync_mktemp)
   {
+    printf '%s\n' "$SYNC_BODY_START"
     printf "These are %s's notes from sync.\n\n" "$me"
     git -C "$tmp" diff --name-only HEAD~1 HEAD | sed 's/^/- /'
-  } > "$pr_body"
+    printf '%s\n' "$SYNC_BODY_END"
+  } > "$block"
   git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
   tmp=""
   name_on_host=$(sync_remote_name "$repo") || {
     sync_log "push fail ${id} could not open a pull request"
     return 1
   }
+  pr_body=$(sync_mktemp)
+  sync_pr_body "$name_on_host" "sync/${me}" "$block" "$pr_body"
   number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" "$pr_body" | jq -r '.number // empty')
   if [ -z "$number" ]; then
     sync_log "push fail ${id} could not open a pull request"
@@ -518,6 +567,7 @@ sync_push_one() {
   fi
   sort -u "$changed" -o "$changed"
   sync_drop_link_copies "$repo" "$changed"
+  sync_drop_same_as_origin "$repo" "$changed"
   if [ ! -s "$changed" ]; then
     return 0
   fi

@@ -104,6 +104,10 @@ case "$method $path" in
     fi
     refuse 404 "Branch not protected"
     ;;
+  "GET /repos/acme/acme-os/pulls?state=open&per_page=100&page=1")
+    # B40 b: open-prs gives each body. A web edit has CR LF; no body is null.
+    printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"},"body":"Ada: keep this.\r\n<!-- sync:files -->"},{"number":5,"head":{"ref":"rules/ada/x"},"body":null}]'
+    ;;
   "GET /repos/acme/acme-os/pulls?state=open&head="*)
     printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"}}]'
     ;;

@@ -847,7 +847,7 @@ cmd_open_prs() {
       fj_offline
     fi
     fj_ok
-    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref}]')
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref, body:(.body // "")}]')
     n=$(printf '%s' "$FJ_BODY" | jq 'length')
     if [ "$n" -lt 50 ]; then
       break

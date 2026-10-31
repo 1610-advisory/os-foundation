@@ -554,6 +554,10 @@ case "$1" in
       shift
     done
     printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
+  open-prs)
+    # B40 b: the open pull request's body, when a test wrote one.
+    [ -f "HOSTDIR/open-body.txt" ] || exit 1
+    jq -nc --rawfile b "HOSTDIR/open-body.txt" '{prs:[{number:1, head:"sync/mia", body:$b}]}' ;;
   auto-merge) printf '%s\n' '{"ok":true}' ;;
   repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
   *) exit 1 ;;
@@ -690,8 +694,70 @@ class SyncFixTests(unittest.TestCase):
         body = (self.host / "pr-body.txt").read_text()
         self.assertEqual(
             body,
-            "These are mia's notes from sync.\n\n- drafts.md\n- meetings/2026-10-31 Kickoff.md\n",
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n"
+            "- drafts.md\n- meetings/2026-10-31 Kickoff.md\n<!-- /sync:files -->\n",
         )
+
+    def push_with_open_body(self, old):
+        # B40 b: the sync pull request is open, and its body is old.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-body.txt").write_bytes(old.encode())
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return (self.host / "pr-body.txt").read_text().rstrip("\n")
+
+    def test_push_keeps_lines_a_person_added_to_the_body(self):
+        # Written on the web: CR LF line ends. Only the block between the markers changes.
+        old = (
+            "Ada: the pricing note is for the January planning meeting.\r\n\r\n"
+            "<!-- sync:files -->\r\nThese are mia's notes from sync.\r\n\r\n- old.md\r\n"
+            "<!-- /sync:files -->\r\nA line after the list.\r\n"
+        )
+        self.assertEqual(
+            self.push_with_open_body(old),
+            "Ada: the pricing note is for the January planning meeting.\n\n"
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n"
+            "<!-- /sync:files -->\nA line after the list.",
+        )
+
+    def test_push_keeps_an_old_body_with_no_markers(self):
+        old = "These are mia's notes from sync.\n\n- old.md\nAda: keep this line."
+        self.assertEqual(
+            self.push_with_open_body(old),
+            old + "\n\n<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n<!-- /sync:files -->",
+        )
+
+    def test_a_file_equal_to_origin_is_no_change(self):
+        # B46: after join, the page is modified on main but equals origin/main once join's
+        # pull request merges. Push skips it: no commit, no hold, no failure line.
+        bare = self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        page = "people/Mia.md"
+        text = (self.company / page).read_text().replace("---\n\n", "terms_accepted: 2026-10-31\n---\n\n", 1)
+        (other / page).write_text(text)
+        run(["git", "-C", str(other), "-c", "user.name=t", "-c", "user.email=t@example.test",
+             "commit", "-q", "-am", "join"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / page).write_text(text)
+        run(["git", "-C", str(self.company), "fetch", "-q", "origin"], env=self.env, check=True)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log_file = self.home / ".config" / "acme-os" / "state" / "sync.log"
+        log = log_file.read_text() if log_file.exists() else ""
+        self.assertNotIn("push fail", log)
+        self.assertNotIn("push hold", log)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        heads = run(["git", "--git-dir", str(bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+        self.assertNotIn("held:", self.sync("status").stdout)
 
     def test_auto_merge_failure_is_held(self):
         self.seed_origin()

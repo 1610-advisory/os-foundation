@@ -48,7 +48,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `open-pr <name> --head <branch> --base main --title <text> [--body-file <file>]` | Open a pull request, or update the open one from the same head. `{"number":N,"url":...}`. With no `--body-file`, an open one keeps its body. |
 | `auto-merge <name> <number>` | Merge when required checks pass. Merge commit, not squash. A second call is success: `{"auto_merge":"already"}`. GitHub: when the checks are already green (`clean status`), it merges at once: `{"merge":"merged"}`. If that merge fails, it exits 3 with `pull request <n> is green: merge it`. |
 | `auto-merge-off <name> <number>` | Turn auto-merge off. A pull request with none is already off: `{"auto_merge":"off"}`. GitHub reads the pull request, then turns it off by GraphQL. Forgejo cancels the scheduled merge. |
-| `open-prs <name>` | Open pull requests: `{"prs":[{"number":n,"head":"<branch>"}]}`. |
+| `open-prs <name>` | Open pull requests: `{"prs":[{"number":n,"head":"<branch>","body":"<text>"}]}`. |
 | `close-pr <name> <number>` | Close a pull request without merging it. |
 | `pr-status <name> <number>` | `{"state","merged","checks":[{"name","state"}],"approved"}`. GitHub reads the checks through the GraphQL `statusCheckRollup`, which a fine-grained token can read (Commit statuses and Actions read). REST check-runs is the fallback. States are lower case. |
 | `pr-comment <name> <number> --body-file <file>` | Comment on the pull request |
