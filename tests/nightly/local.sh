@@ -561,6 +561,49 @@ EOF
   rm -rf "$box"
 }
 
+# Item 10: one digest line for inbox files older than 7 days. No line when there are none.
+inbox_case() {
+  local box company area md
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  mkdir -p "$company/inbox" "$area/inbox"
+  printf '%s\n' "# Inbox" > "$company/inbox/README.md"
+  printf '%s\n' "An old email." > "$company/inbox/old-email.md"
+  git -C "$company" init -q -b main
+  git -C "$company" add company-profile.md people inbox
+  GIT_COMMITTER_DATE="2026-10-10T12:00:00" git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" \
+    commit -q --date="2026-10-10T12:00:00" -m "Old inbox"
+  printf '%s\n' "A new email." > "$company/inbox/new-email.md"
+  git -C "$company" add inbox
+  GIT_COMMITTER_DATE="2026-10-22T12:00:00" git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" \
+    commit -q --date="2026-10-22T12:00:00" -m "New inbox"
+  printf '%s\n' "plain note" > "$area/notes/plain.md"
+  git_identity
+  init_git "$area"
+  # Not committed yet: its file time counts.
+  printf '%s\n' "old scan" > "$area/inbox/scan.txt"
+  touch -t 202610010000 "$area/inbox/scan.txt"
+  printf '%s\n' "new scan" > "$area/inbox/new-scan.txt"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  md="$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24-ada.md"
+  grep -qxF 'inbox: 2 files older than 7 days — say "ingest"' "$md" || fail "no inbox line: $(cat "$md" 2>/dev/null)"
+  [ -f "$company/inbox/old-email.md" ] && [ -f "$area/inbox/scan.txt" ] || fail "the review moved an inbox file"
+  # None older than 7 days: no line.
+  rm -f "$company/inbox/old-email.md" "$area/inbox/scan.txt"
+  git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" rm -q --cached inbox/old-email.md
+  git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Filed"
+  rm -rf "$XDG_CONFIG_HOME/acme-os/state"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  if grep -F 'inbox:' "$XDG_CONFIG_HOME"/acme-os/state/digests/*.md 2>/dev/null; then
+    fail "inbox line with no old file"
+  fi
+  pass "inbox age line"
+  rm -rf "$box"
+}
+
 main_case
 engine_down_case
 leak_case
@@ -573,4 +616,5 @@ solo_case
 bots_case
 mdx_case
 ( argv_case )
+inbox_case
 printf 'PASS: %s local checks\n' "$PASS"

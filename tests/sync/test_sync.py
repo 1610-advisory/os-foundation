@@ -547,13 +547,25 @@ def fake_host(dir_path, login="acme-member-a"):
 case "$1" in
   whoami) printf '%s\n' '{"login":"LOGIN"}' ;;
   get-token) printf '%s\n' local-token ;;
-  open-pr) printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
+  open-pr)
+    # Keep the body, so a test can read what the pull request says.
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--body-file" ] && cp "$2" "HOSTDIR/pr-body.txt"
+      shift
+    done
+    printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
+  open-prs)
+    # B40 b: the open pull request's body, when a test wrote one. B40-READ: a read
+    # that fails.
+    [ ! -f "HOSTDIR/open-prs-fails" ] || exit 3
+    [ -f "HOSTDIR/open-body.txt" ] || { printf '%s\n' '{"prs":[]}'; exit 0; }
+    jq -nc --rawfile b "HOSTDIR/open-body.txt" '{prs:[{number:1, head:"sync/mia", body:$b}]}' ;;
   auto-merge) printf '%s\n' '{"ok":true}' ;;
   repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
   *) exit 1 ;;
 esac
 """
-    (dir_path / "host.sh").write_text(script.replace("LOGIN", login))
+    (dir_path / "host.sh").write_text(script.replace("LOGIN", login).replace("HOSTDIR", str(dir_path)))
     (dir_path / "host.sh").chmod(0o755)
     (dir_path / "profile.sh").write_text("#!/bin/bash\nprintf '%s\n' acme\n")
     (dir_path / "profile.sh").chmod(0o755)
@@ -642,6 +654,172 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("ok.md", show.stdout)
         self.assertNotIn("staged.md", show.stdout)
         self.assertNotIn("local.md", show.stdout)
+
+    def test_blocked_pull_never_pushes_a_stale_copy(self):
+        # D86 (c): a local edit blocks the pull, so HEAD is behind origin/main. A file
+        # that only the host changed must keep the host's copy on sync/<me>.
+        bare = self.seed_origin()
+        (self.company / "shared.md").write_text("shared v1\n")
+        (self.company / "other.md").write_text("other v1\n")
+        run(["git", "-C", str(self.company), "add", "shared.md", "other.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "v1"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        dana = self.tmp / "dana"
+        run(["git", "clone", "-q", str(bare), str(dana)], env=self.env, check=True)
+        (dana / "shared.md").write_text("shared v2 from dana\n")
+        (dana / "other.md").write_text("other v2 from dana\n")
+        run(["git", "-C", str(dana), "commit", "-q", "-am", "v2"], env=self.env, check=True)
+        run(["git", "-C", str(dana), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "shared.md").write_text("shared v1 with a local edit\n")
+        self.sync("pull", "--full")
+        behind = self.git("rev-list", "--count", "HEAD..origin/main").stdout.strip()
+        self.assertEqual(behind, "1", "the local edit should block the pull")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        show = lambda path: run(
+            ["git", "--git-dir", str(bare), "show", "refs/heads/sync/mia:" + path], env=self.env
+        ).stdout
+        self.assertEqual(show("other.md"), "other v2 from dana\n")
+        self.assertEqual(show("shared.md"), "shared v1 with a local edit\n")
+
+    def test_sync_pull_request_says_whose_notes_and_lists_each_file(self):
+        # B40: the review reads the body. It names the person and each file, no model call.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "meetings").mkdir()
+        (self.company / "meetings" / "2026-10-31 Kickoff.md").write_text("kickoff notes\n")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = (self.host / "pr-body.txt").read_text()
+        self.assertEqual(
+            body,
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n"
+            "- drafts.md\n- meetings/2026-10-31 Kickoff.md\n<!-- /sync:files -->\n",
+        )
+
+    def push_with_open_body(self, old):
+        # B40 b: the sync pull request is open, and its body is old.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-body.txt").write_bytes(old.encode())
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return (self.host / "pr-body.txt").read_text().rstrip("\n")
+
+    def test_push_keeps_lines_a_person_added_to_the_body(self):
+        # Written on the web: CR LF line ends. Only the block between the markers changes.
+        old = (
+            "Ada: the pricing note is for the January planning meeting.\r\n\r\n"
+            "<!-- sync:files -->\r\nThese are mia's notes from sync.\r\n\r\n- old.md\r\n"
+            "<!-- /sync:files -->\r\nA line after the list.\r\n"
+        )
+        self.assertEqual(
+            self.push_with_open_body(old),
+            "Ada: the pricing note is for the January planning meeting.\n\n"
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n"
+            "<!-- /sync:files -->\nA line after the list.",
+        )
+
+    def test_push_keeps_an_old_body_with_no_markers(self):
+        old = "These are mia's notes from sync.\n\n- old.md\nAda: keep this line."
+        self.assertEqual(
+            self.push_with_open_body(old),
+            old + "\n\n<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n<!-- /sync:files -->",
+        )
+
+    def test_push_keeps_the_body_when_it_cannot_read_it(self):
+        # B40-READ: open-prs fails. Push gives open-pr no body, so the host keeps its own.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-prs-fails").write_text("")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        self.assertIn("push body root could not read the open pull request: its body stays", self.sync_log())
+
+    def test_a_failed_commit_is_the_last_error(self):
+        # Push-fail status: a commit that fails shows in status, not "last error: none".
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        hook = self.company / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("push fail root commit", self.sync_log())
+        self.assertIn("last error: push failed for root: commit", self.sync("status").stdout)
+
+    def test_a_merged_delete_does_not_wedge_the_folder(self):
+        # B48: a note deleted through sync. Its pull request merges. Pull must go on.
+        bare = self.seed_origin()
+        (self.company / "old.md").write_text("an old note\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "old.md").unlink()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The host merges sync/mia (a fast-forward: push builds it on origin/main).
+        run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", "refs/heads/sync/mia"],
+            env=self.env, check=True)
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        status = run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout
+        self.assertEqual(status, "")
+        self.assertFalse((self.company / "old.md").exists())
+        # And the next push has nothing to do.
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("push fail", self.sync_log())
+
+    def test_a_file_merged_after_the_last_fetch_is_no_change(self):
+        # B46-STALE: the host merged the page after this folder's last fetch. Push fetches
+        # first, so the page is still no change.
+        self.page_equal_to_origin(fetch=False)
+
+    def test_a_file_equal_to_origin_is_no_change(self):
+        self.page_equal_to_origin(fetch=True)
+
+    def page_equal_to_origin(self, fetch):
+        # B46: after join, the page is modified on main but equals origin/main once join's
+        # pull request merges. Push skips it: no commit, no hold, no failure line.
+        bare = self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        page = "people/Mia.md"
+        text = (self.company / page).read_text().replace("---\n\n", "terms_accepted: 2026-10-31\n---\n\n", 1)
+        (other / page).write_text(text)
+        run(["git", "-C", str(other), "-c", "user.name=t", "-c", "user.email=t@example.test",
+             "commit", "-q", "-am", "join"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / page).write_text(text)
+        if fetch:
+            run(["git", "-C", str(self.company), "fetch", "-q", "origin"], env=self.env, check=True)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log_file = self.home / ".config" / "acme-os" / "state" / "sync.log"
+        log = log_file.read_text() if log_file.exists() else ""
+        self.assertNotIn("push fail", log)
+        self.assertNotIn("push hold", log)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        heads = run(["git", "--git-dir", str(bare), "ls-remote", "--heads"], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+        self.assertNotIn("held:", self.sync("status").stdout)
 
     def test_auto_merge_failure_is_held(self):
         self.seed_origin()

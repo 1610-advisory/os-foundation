@@ -18,7 +18,7 @@ Check only the lines the diff adds or changes. Each check below is a finding whe
 3. **Private-source quotes.** A quote or close paraphrase of a DM, a private channel, a personal mailbox, a 1:1 meeting, calendar details, HR or pay. Also "X said in a DM" or "from an email to Y". A plain company fact with no source detail is fine.
 4. **Rules that loosen a tier.** A change to an `AGENTS.md`, `CLAUDE.md`, skill, `bots/*/BOT.md` or `.github/` file that lets an agent do more with less approval: a row moved to a lower tier, an approver removed, a check skipped, an area rule looser than the company table, or a rule that lets anyone write to `main`.
 5. **Broken links.** A `[[wiki-link]]` or a relative path that the diff adds and that points at a file the diff deletes or renames, or at a name that is plainly wrong.
-6. **Scope creep.** Changes that the pull request title and body do not explain, or a rules change mixed into a notes change.
+6. **Scope creep.** Changes that the pull request title and body do not explain, or a rules change mixed into a notes change. A `sync:` pull request is one person's batch of notes: its files need no other explanation. A rules file mixed into it is still scope creep.
 
 Anything else you notice (style, wording, a better way) is a note. A note never fails the review.
 

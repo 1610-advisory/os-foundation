@@ -29,6 +29,7 @@ VERBS = [
     "team-add",
     "team-remove",
     "team-repos",
+    "org-repos",
     "grant",
     "revoke",
     "org-remove",
@@ -38,6 +39,9 @@ VERBS = [
     "archive-repo",
     "open-pr",
     "auto-merge",
+    "auto-merge-off",
+    "open-prs",
+    "close-pr",
     "pr-status",
     "pr-comment",
     "set-secret",
@@ -216,6 +220,7 @@ class GithubDryRunTests(unittest.TestCase):
             ("team-add.jsonl", ["team-add", "writers", "ada"], None),
             ("team-remove.jsonl", ["team-remove", "writers", "ada"], None),
             ("team-repos.jsonl", ["team-repos", "acme-company"], None),
+            ("org-repos.jsonl", ["org-repos"], None),
             ("grant-user.jsonl", ["grant", "acme-os", "ada", "write"], None),
             ("grant-team.jsonl", ["grant", "acme-os", "team:writers", "read"], None),
             ("revoke-user.jsonl", ["revoke", "acme-os", "ada"], None),
@@ -231,6 +236,9 @@ class GithubDryRunTests(unittest.TestCase):
                 None,
             ),
             ("auto-merge.jsonl", ["auto-merge", "acme-os", "12"], None),
+            ("auto-merge-off.jsonl", ["auto-merge-off", "acme-os", "12"], None),
+            ("open-prs.jsonl", ["open-prs", "acme-os"], None),
+            ("close-pr.jsonl", ["close-pr", "acme-os", "12"], None),
             ("pr-status.jsonl", ["pr-status", "acme-os", "12"], None),
             ("pr-comment.jsonl", ["pr-comment", "acme-os", "12", "--body-file", str(BODY)], None),
             ("set-secret.jsonl", ["set-secret", "OS_REVIEW_KEY"], secret),
@@ -431,6 +439,58 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
         self.assertNotIn("rulesets", " ".join(self.calls()))
 
+    def test_auto_merge_off_checks_the_outcome(self):
+        # Round 4 (B38-GQL): off only when a second read shows no auto-merge.
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.flag("auto-on")
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.dir / "auto-on").exists())
+        self.flag("auto-on")
+        self.flag("disable-ignored")
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout)
+        self.assertEqual(proc.stderr.strip(), "auto-merge is still on for pull request 4")
+
+    def test_open_prs_gives_each_body(self):
+        # B40 b: sync reads the open pull request's body, to keep a person's lines.
+        proc = run(["open-prs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            json.loads(proc.stdout),
+            {
+                "prs": [
+                    {"number": 4, "head": "sync/ada", "body": "Ada: keep this.\r\n<!-- sync:files -->"},
+                    {"number": 5, "head": "rules/ada/x", "body": ""},
+                ]
+            },
+        )
+
+    def test_auto_merge_on_a_green_pull_request_merges_it(self):
+        # B45: GitHub refuses auto-merge when the checks are already green. Merge it now.
+        self.flag("clean")
+        proc = run(["auto-merge", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["merge"], "merged")
+        self.assertTrue(any("pr merge 4" in c and "--auto" not in c for c in self.calls()))
+        self.flag("merge-fails")
+        proc = run(["auto-merge", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout)
+        self.assertEqual(proc.stderr.strip(), "pull request 4 is green: merge it")
+
+    def test_open_pr_keeps_the_body_without_a_body_file(self):
+        # B40: a later push gives no body. The one on the pull request stays. A new one replaces it.
+        args = ["open-pr", "acme-os", "--head", "sync/ada", "--base", "main", "--title", "sync: ada"]
+        proc = run(args, self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["number"], 4)
+        self.assertEqual(json.loads((self.dir / "last-input").read_text()), {"title": "sync: ada"})
+        proc = run(args + ["--body-file", str(BODY)], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        got = json.loads((self.dir / "last-input").read_text())
+        self.assertEqual(got["body"], BODY.read_text().rstrip("\n"))
+
     def test_admin_rules_pr_path_is_the_bypass_on_a_pull_request(self):
         # Item 24: the admin's own rules PR. The admin cannot approve it (GitHub never counts
         # the author). OrganizationAdmin may bypass rules-review on a pull request only: no
@@ -443,10 +503,10 @@ class GithubSecondRunTests(unittest.TestCase):
             {"actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}
         ])
         self.assertNotIn("bypass_actors", bodies["main"])
-        click = 'Tick "Merge without waiting for requirements to be met (bypass rules)"'
+        click = 'tick "merge without waiting for requirements to be met (bypass rules)"'
         for doc in ("template/skills/upgrade/SKILL.md", "template/skills/sync/SKILL.md", "template/skills/_host/README.md"):
-            self.assertIn(click, (ROOT / doc).read_text(), doc)
-        self.assertIn(click, (ROOT / "template/skills/upgrade/upgrade.sh").read_text())
+            self.assertIn(click, (ROOT / doc).read_text().lower(), doc)
+        self.assertIn(click, (ROOT / "template/skills/upgrade/upgrade.sh").read_text().lower())
 
     def test_protect_on_paid_org_works(self):
         self.set_plan("team")

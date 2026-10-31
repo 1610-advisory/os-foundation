@@ -47,6 +47,16 @@ Walk them through the sign-in. They click; you wait.
 
 Make one **read-only** call and show the result: the three newest email subjects, today's calendar, the last five invoices. If it fails, read the error and fix the one thing it names.
 
+## Connectors your advisor runs
+
+Some apps have an API but no official connector. A company's advisor may build and maintain a connector for such an app.
+
+- Add it like any other connector (sections 1 to 4), from the company or area folder where it belongs.
+- Each person signs in with their own login. Never share one login.
+- Read-only first. Write access can come later.
+- Record it in `architecture.md` → "Connections" (section 5). Name the advisor as the maintainer.
+- Do not edit it. Ask the advisor for changes.
+
 ## 5. Record it
 
 In `architecture.md` at the company root (create it if missing, with `type: architecture` frontmatter and a "Connections" table), add a row: tool, connector, agent, folder, read-only or read-write, date. No secrets, no account numbers. Commit.

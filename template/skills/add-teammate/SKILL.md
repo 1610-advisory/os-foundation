@@ -76,7 +76,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
+Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message.
 
 If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 
@@ -95,7 +95,7 @@ A new area later: run `add-area`.
    irm https://claude.ai/install.ps1 | iex
    ```
    - Git for Windows gives Git Bash. The sync jobs run through it.
-   - Say plainly: the Claude desktop app alone is not enough. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
+   - Say plainly: the Claude desktop app alone is not enough. Its own Claude Code is not on `PATH` and is not signed in outside the app. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The installer puts it in `%USERPROFILE%\.local\bin` and may not add that folder to `PATH`. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
    - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
    - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
 3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites.
@@ -127,12 +127,14 @@ Only after a yes in B3.
      ```
      & "$env:ProgramFiles\Git\bin\bash.exe" skills/add-teammate/join.sh --answers <file>
      ```
-   - `join.sh` checks that the engine command (`sync_engine:`, for example `claude`) is on `PATH`. On Windows it also checks `jq` and `gh` first. Then it copies the skill links (Windows) and installs the OS jobs (Windows: registers them in Task Scheduler).
+   - `join.sh` checks that the engine command (`sync_engine:`, for example `claude`) is on `PATH`. For `claude` it then makes one short call to check the sign-in. On Windows it also checks `jq` and `gh` first. Then it copies the skill links (Windows) and installs the OS jobs (Windows: registers them in Task Scheduler).
 4. These lines stop it with exit 3. Install the tool, open a new terminal, and run `join.sh` again:
    - `Claude Code CLI: irm https://claude.ai/install.ps1 | iex` (Windows) or `Claude Code CLI: curl -fsSL https://claude.ai/install.sh | bash` (Mac, Linux).
    - `install jq: winget install --id jqlang.jq -e`
    - `install GitHub CLI: winget install --id GitHub.cli -e`
    - `install <tool> and put it on PATH`: the company engine is another tool. Install it.
+   - `Claude Code is in ~/.local/bin, but that folder is not on PATH` (Windows: `%USERPROFILE%\.local\bin`): it is installed, but the terminal cannot find it. Help them do the step the message gives. Do not change `PATH` for them. Then they open a new terminal and run `join.sh` again.
+   - `sign in once: run claude, sign in, then /exit`: the CLI is not signed in. The teammate runs `claude`, signs in, types `/exit`, then runs `join.sh` again.
 5. On any other error, tell them the exact message. `your workspace <repo> is not reachable: ask the admin`: stop; the join is not done; the admin checks that repo and its grant. Any other error: fix the cause it names and run it once more. If it stops again, stop and send the message to the admin.
 
 ### B5. Explain the result

@@ -331,6 +331,28 @@ os_host_try() {
   return "$rc"
 }
 
+# Turn on auto-merge and print one line. A green pull request is merged at once (B45).
+os_auto_merge_line() {
+  local repo=$1 number=$2 out err
+  err=$(mktemp)
+  if out=$(os_host_try auto-merge "$repo" "$number" 2>"$err"); then
+    rm -f "$err"
+    if [ "$(printf '%s' "$out" | jq -r '.merge // empty' 2>/dev/null)" = "merged" ]; then
+      printf 'merged: %s %s (its checks were already green)\n' "$repo" "$number"
+    else
+      printf '%s\n' "auto-merge: on"
+    fi
+    return 0
+  fi
+  if grep -q 'is green: merge it' "$err"; then
+    printf 'pull request %s is green: merge it\n' "$number"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$repo" "$number" "$repo"
+  fi
+  rm -f "$err"
+}
+
 os_config_dir() {
   local slug=$1
   printf '%s/%s-os' "${XDG_CONFIG_HOME:-$HOME/.config}" "$slug"
@@ -472,6 +494,30 @@ os_back_to_main() {
   return 0
 }
 
+# Build a rules/* branch in a temporary worktree on origin/main, never over the folder:
+# after a sync push, the person's notes sit untracked there while origin/main has them,
+# so a checkout would stop (B47). Prints the worktree. Call os_branch_push when done.
+os_branch_start() {
+  local dir=$1 tw
+  tw=$(mktemp -d)
+  if ! git -C "$dir" worktree add -q --detach "$tw/b" origin/main >/dev/null 2>&1; then
+    rm -rf "$tw"
+    os_die 3 "could not prepare the change in ${dir}: run this again"
+  fi
+  printf '%s\n' "$tw/b"
+}
+
+# Push the worktree's commit to the branch (the script's own: a retry replaces it), set
+# origin/<branch> to it, and remove the worktree.
+os_branch_push() {
+  local dir=$1 wt=$2 branch=$3 rc=0
+  os_with_git_token git -C "$wt" push -q --force origin "HEAD:refs/heads/${branch}" || rc=$?
+  [ "$rc" -ne 0 ] || git -C "$wt" update-ref "refs/remotes/origin/${branch}" HEAD
+  git -C "$dir" worktree remove --force "$wt" >/dev/null 2>&1 || true
+  rm -rf "$(dirname "$wt")"
+  [ "$rc" -eq 0 ] || os_die 3 "could not push ${branch}: check the sign-in, then run this again"
+}
+
 # Back on main, put the branch's copy of each path in the folder as a local change, so
 # the person sees it now. It still reaches main only by the branch's pull request: sync
 # push holds a file whose content waits on a rules/* branch on the host.
@@ -589,35 +635,33 @@ os_codeowners() {
   mkdir -p "$root/.github" "$root/.gitea"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
-    printf '%s\n' "/AGENTS.md $github_users"
-    printf '%s\n' "/CLAUDE.md $github_users"
-    printf '%s\n' "/company-rules.md $github_users"
-    printf '%s\n' "/area-rules.md $github_users"
-    printf '%s\n' "/review-rules.md $github_users"
-    printf '%s\n' "/skills/ $github_users"
+    printf '%s\n' "**/AGENTS.md $github_users"
+    printf '%s\n' "**/CLAUDE.md $github_users"
+    printf '%s\n' "**/company-rules.md $github_users"
+    printf '%s\n' "**/area-rules.md $github_users"
+    printf '%s\n' "**/review-rules.md $github_users"
+    printf '%s\n' "**/skills/ $github_users"
     printf '%s\n' "/bots/*/BOT.md $github_users"
-    printf '%s\n' "/CODEOWNERS $github_users"
-    printf '%s\n' "/docs/CODEOWNERS $github_users"
-    printf '%s\n' "/.github/ $github_users"
-    printf '%s\n' "/.gitea/ $github_users"
-    printf '%s\n' "/.forgejo/ $github_users"
-    printf '%s\n' "/.claude/ $github_users"
+    printf '%s\n' "**/CODEOWNERS $github_users"
+    printf '%s\n' "**/.github/ $github_users"
+    printf '%s\n' "**/.gitea/ $github_users"
+    printf '%s\n' "**/.forgejo/ $github_users"
+    printf '%s\n' "**/.claude/ $github_users"
   } > "$root/.github/CODEOWNERS"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
-    printf '%s %s\n' '^AGENTS\.md$' "$forgejo_users"
-    printf '%s %s\n' '^CLAUDE\.md$' "$forgejo_users"
-    printf '%s %s\n' '^company-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^area-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^review-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^skills/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?AGENTS\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CLAUDE\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?company-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?area-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?review-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?skills/.*' "$forgejo_users"
     printf '%s %s\n' '^bots/[^/]+/BOT\.md$' "$forgejo_users"
-    printf '%s %s\n' '^CODEOWNERS$' "$forgejo_users"
-    printf '%s %s\n' '^docs/CODEOWNERS$' "$forgejo_users"
-    printf '%s %s\n' '^\.github/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.gitea/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.forgejo/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.claude/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CODEOWNERS$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.github/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.gitea/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.forgejo/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.claude/.*' "$forgejo_users"
   } > "$root/.gitea/CODEOWNERS"
 }
 
@@ -641,10 +685,11 @@ os_forgejo_owner() {
 }
 
 os_fill_placeholders() {
-  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb today
   # Split the braces. A line that holds both pairs looks like a placeholder.
   ob='{{'
   cb='}}'
+  today=$(date +%Y-%m-%d)
   # Text files only. Do not print file contents.
   find "$dest" -type f | while IFS= read -r f; do
     case "$f" in
@@ -653,12 +698,16 @@ os_fill_placeholders() {
     sed -i '' \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f" 2>/dev/null || \
     sed -i \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f"

@@ -301,6 +301,7 @@ esac
 resp=$(ci_mktemp)
 err=$(ci_mktemp)
 cfg=$(ci_mktemp)
+hdr=$(ci_mktemp)
 url=$(vendor_url "$vendor")
 {
   if [ "$vendor" = "anthropic" ]; then
@@ -314,6 +315,7 @@ url=$(vendor_url "$vendor")
   printf '%s\n' 'request = "POST"'
   printf '%s\n' "data-binary = \"@${json}\""
   printf '%s\n' "output = \"${resp}\""
+  printf '%s\n' "dump-header = \"${hdr}\""
   printf '%s\n' 'silent'
   printf '%s\n' 'show-error'
   printf '%s\n' 'connect-timeout = 10'
@@ -321,10 +323,37 @@ url=$(vendor_url "$vendor")
   printf '%s\n' 'write-out = "%{http_code}"'
 } > "$cfg"
 
-set +e
-http=$(curl --config "$cfg" 2>"$err")
-curl_rc=$?
-set -e
+# Seconds before the next try: the vendor's Retry-After (at most 60), else 20, then 40.
+retry_wait() {
+  local after
+  after=$(tr -d '\r' < "$hdr" | awk -F': *' 'tolower($1) == "retry-after" { v = $2 } END { print v }')
+  case "$after" in
+    ""|*[!0-9]*) after=$(($1 * 20)) ;;
+  esac
+  [ "$after" -le 60 ] || after=60
+  printf '%s\n' "$after"
+}
+
+# A busy vendor (HTTP 429 or 5xx) gets at most 3 tries, about 2 minutes in all.
+try=1
+while :; do
+  : > "$hdr"
+  set +e
+  http=$(curl --config "$cfg" 2>"$err")
+  curl_rc=$?
+  set -e
+  case "$curl_rc:$http" in
+    0:429|0:5[0-9][0-9]) ;;
+    *) break ;;
+  esac
+  if [ "$try" -ge 3 ]; then
+    fail "the review service is busy: re-run the checks later"
+  fi
+  wait=$(retry_wait "$try")
+  printf 'model review: the review service is busy (HTTP %s). Trying again in %s seconds.\n' "$http" "$wait" >&2
+  sleep "$wait"
+  try=$((try + 1))
+done
 if [ "$curl_rc" -eq 28 ]; then
   fail "model review failed: the review API timed out"
 fi
@@ -349,8 +378,13 @@ esac
 if [ -z "$text" ]; then
   fail "model review failed: no verdict"
 fi
+# A finding fails the review. Keep the review's own text in the comment and the job log,
+# so people can see what it found (B36).
 if printf '%s\n' "$text" | grep -q '^FINDING:'; then
-  fail "model review failed: the review reported a finding"
+  write_out "$text"
+  printf '\n%s\n' "model review failed: the review reported a finding" >> "$out_file"
+  printf '%s\n\n%s\n' "$text" "model review failed: the review reported a finding" >&2
+  exit 1
 fi
 verdict=$(last_verdict "$text")
 case "$verdict" in

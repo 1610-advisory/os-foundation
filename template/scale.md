@@ -66,7 +66,7 @@ The same design works for a company of 5,000. The argument:
 - **Most staff are connector readers.** They use the connector in their chat app: no GitHub seat, no clone. Only people who write or approve need a seat. The connector is the app level (the 1610 OS app); it is not in this public release.
 - **GitHub Enterprise Cloud switches.** SSO, SCIM for joiners and leavers, org-wide rulesets, audit log streaming (see the table above). Forgejo is the lower-cost choice. A company that picks it gives up built-in audit, SSO and a multi-node design, and must add proxy logs, an approver allowlist and a multi-node plan.
 - **One company App.** Bots get one-hour tokens cut to their repos. No long-lived bot keys on computers.
-- **A spread nightly push window.** Each computer pushes at a random offset over some hours, so the host never gets 5,000 pushes at once. Each person has their own branch, so pushes do not conflict.
+- **A nightly push at 02:00.** Each computer pushes at 02:00, or when it first wakes after 02:00. On Linux the push waits a random 0 to 30 minutes more. Computers that sleep push when they wake, which spreads the load further. The admin's nightly review runs at 03:30, after the push. The device helper runs at 04:00. Each person has their own branch, so pushes do not conflict.
 - **One digest per approver.** The nightly review fixes clear errors itself and sends each approver team one daily digest of flags, grouped and capped. People gate only rules files, which change rarely.
 - **Log volume.** One short log file per person per day per area: about 1.25 million small files a year across all area repos. The nightly review folds logs older than 30 days into one monthly summary per area. Raw files stay in history.
 - **First limits: API and push rates, not storage.** Host limits seen so far (check again before you rely on them): about 5,000 API requests an hour per user, 15,000 for Enterprise Cloud apps; about 100,000 repos per org; 10 GB per repo; 100 MB per file; 5,000 members per team.
@@ -76,7 +76,7 @@ The same design works for a company of 5,000. The argument:
 
 Full numbers: see `tests/scale/RESULTS.md` in the os-foundation repo (https://github.com/1610-advisory/os-foundation).
 
-The check runs on a local Forgejo: 5,000 users, 200 area repos, team grants by area. It proves read denial per repo for a sample of users, and simulates a spread nightly push window (rate, conflicts, time). It is not a live run with 5,000 people.
+The check runs on a local Forgejo: 5,000 users, 200 area repos, team grants by area. It proves read denial per repo for a sample of users, and simulates a spread nightly push (rate, conflicts, time). The check spread the pushes over 180 minutes. The shipped jobs push from 02:00, with up to 30 minutes of spread on Linux, so the real push is more bunched than the check. It is not a live run with 5,000 people.
 
 Results from one run (2026-10-24):
 
@@ -93,7 +93,7 @@ Results from one run (2026-10-24):
 | Read denial | 400 user and repo pairs (200 allowed, 200 denied): 0 wrong. Clone and API read both checked. |
 | Pushes | 6,247 worked, 1 failed |
 | Push time | p50 0.28 seconds, p95 0.38 seconds |
-| Pushes a minute | 285 at 4 pushes at a time. Spread over the real 180-minute window: about 35. |
+| Pushes a minute | 285 at 4 pushes at a time. Spread over the check's 180 minutes: about 35. The same pushes in 30 minutes: about 210, under the 285 this host took. |
 | Push conflicts | 0 (each person pushes only their own branch) |
 | Standing pull requests merged | 50 of 50, no API errors |
 

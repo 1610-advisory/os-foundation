@@ -66,12 +66,11 @@ sync_v0_logs_open() {
 # request closed or merged) stops holding files. Writes "<sha> <ref>" for each ref the
 # prune dropped to SYNC_GONE_RULES. Offline: the refs stay as they are and still hold.
 sync_rules_refresh() {
-  local repo=$1 before
+  local repo=$1 id=$2 before
   SYNC_GONE_RULES=$(sync_mktemp)
-  [ -n "$(git -C "$repo" for-each-ref --count=1 refs/remotes/origin/rules/)" ] || return 0
   before=$(sync_mktemp)
   git -C "$repo" for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/rules/ > "$before"
-  sync_git "$repo" fetch --prune origin >/dev/null 2>&1 || return 0
+  sync_fetch_first "$repo" "$id" || return 0
   while IFS=' ' read -r sha ref; do
     [ -n "$ref" ] || continue
     git -C "$repo" show-ref --verify --quiet "$ref" || printf '%s %s\n' "$sha" "$ref" >> "$SYNC_GONE_RULES"
@@ -80,6 +79,17 @@ sync_rules_refresh() {
 
 # The rules/* branch the host deleted that held this file's content, if any. Not when
 # origin/main has that content: then the pull request merged.
+# Push fetches before it lists what changed, so a file a merged pull request already put
+# on main is no change (B46). Offline, it says so and compares with the last fetch.
+sync_fetch_first() {
+  local repo=$1 id=$2
+  git -C "$repo" remote get-url origin >/dev/null 2>&1 || return 1
+  if ! sync_git "$repo" fetch --prune origin >/dev/null 2>&1; then
+    printf '%s\n' "push: could not reach origin for ${id}: comparing with the last fetch" >&2
+    return 1
+  fi
+}
+
 sync_gone_branch() {
   local repo=$1 path=$2 sha ref want
   [ -s "${SYNC_GONE_RULES:-}" ] && [ -f "$repo/$path" ] || return 1
@@ -323,15 +333,21 @@ sync_push_ref() {
   fi
 }
 
+# A body file is optional. Without one, the host keeps the pull request's body.
 sync_open_pr() {
   local name=$1
   local head=$2
   local title=$3
+  local body=${4:-}
   local tries=5 rc out err
   err=$(sync_mktemp)
   while [ "$tries" -gt 0 ]; do
     set +e
-    out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    if [ -n "$body" ]; then
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" --body-file "$body" 2>"$err")
+    else
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    fi
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
@@ -345,6 +361,62 @@ sync_open_pr() {
     sleep 1
   done
   return 2
+}
+
+# Push owns only the lines between these markers in a sync pull request's body (B40 b).
+SYNC_BODY_START='<!-- sync:files -->'
+SYNC_BODY_END='<!-- /sync:files -->'
+
+# Write the body for head's pull request to out. On an open pull request, replace only
+# the block between the markers and keep every other line. An old body with no markers
+# stays as it is, with the block after it. Exit 1 when the open pull requests cannot be
+# read: the caller then gives open-pr no body, so the host keeps the one it has.
+sync_pr_body() {
+  local name=$1 head=$2 block=$3 out=$4 old listing
+  old=$(sync_mktemp)
+  listing=$(sync_mktemp)
+  # Check open-prs itself, not a pipe's last command (B40-READ).
+  if ! "$HOST_SH" open-prs "$name" > "$listing" 2>/dev/null \
+    || ! jq -e '.prs | type == "array"' "$listing" >/dev/null 2>&1; then
+    return 1
+  fi
+  # GitHub keeps a body written on the web with CR LF line ends.
+  jq -r --arg head "$head" '[.prs[] | select(.head == $head) | .body // ""][0] // ""' "$listing" \
+    | tr -d '\r' > "$old"
+  if grep -qxF "$SYNC_BODY_START" "$old" && grep -qxF "$SYNC_BODY_END" "$old"; then
+    awk -v start="$SYNC_BODY_START" -v end="$SYNC_BODY_END" -v block="$block" '
+      $0 == start { while ((getline line < block) > 0) print line; skip = 1; next }
+      $0 == end { skip = 0; next }
+      !skip { print }' "$old" > "$out"
+  elif grep -q '[^[:space:]]' "$old"; then
+    { cat "$old"; printf '\n'; cat "$block"; } > "$out"
+  else
+    cat "$block" > "$out"
+  fi
+}
+
+# A file equal to origin/main is no change (B46). After join, the person's page is
+# modified on main, but equals origin/main once join's pull request merges. A file
+# deleted here that origin/main also lacks is no change either: the delete merged (B48).
+sync_drop_same_as_origin() {
+  local repo=$1 list=$2 keep path want have
+  git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 0
+  keep=$(sync_mktemp)
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if [ ! -e "$repo/$path" ] && [ ! -L "$repo/$path" ] \
+      && ! git -C "$repo" cat-file -e "origin/main:${path}" 2>/dev/null; then
+      continue
+    fi
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ] \
+      && want=$(git -C "$repo" rev-parse --verify --quiet "origin/main:${path}" 2>/dev/null) \
+      && have=$(git -C "$repo" hash-object -- "$path" 2>/dev/null) \
+      && [ "$want" = "$have" ]; then
+      continue
+    fi
+    printf '%s\n' "$path" >> "$keep"
+  done < "$list"
+  cat "$keep" > "$list"
 }
 
 sync_commit_author() {
@@ -373,6 +445,8 @@ sync_apply_fail() {
     git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
   fi
   sync_log "push fail ${id} ${why}"
+  # status shows it as the last error, like every other failed push.
+  sync_held_error "push failed for ${id}: ${why}"
   return 1
 }
 
@@ -383,7 +457,7 @@ sync_apply_commit() {
   local kind=$3
   local files=$4
   local message=$5
-  local me ref tmp author name email path n rc sha from to name_on_host number
+  local me ref tmp author name email path n rc sha from to name_on_host number pr_body block
   me=$(sync_me)
   n=$(wc -l < "$files" | tr -d ' ')
   [ "$n" -gt 0 ] || return 0
@@ -460,15 +534,29 @@ sync_apply_commit() {
     sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
     return 1
   fi
+  # The body says whose notes these are and lists each file, so the review can match
+  # the change to it (B40). The branch is one commit on origin/main.
+  block=$(sync_mktemp)
+  {
+    printf '%s\n' "$SYNC_BODY_START"
+    printf "These are %s's notes from sync.\n\n" "$me"
+    git -C "$tmp" diff --name-only HEAD~1 HEAD | sed 's/^/- /'
+    printf '%s\n' "$SYNC_BODY_END"
+  } > "$block"
   git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
   tmp=""
   name_on_host=$(sync_remote_name "$repo") || {
-    sync_log "push fail ${id} could not open a pull request"
+    sync_apply_fail "$repo" "" "$id" "could not open a pull request"
     return 1
   }
-  number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" | jq -r '.number // empty')
+  pr_body=$(sync_mktemp)
+  if ! sync_pr_body "$name_on_host" "sync/${me}" "$block" "$pr_body"; then
+    pr_body=""
+    sync_log "push body ${id} could not read the open pull request: its body stays"
+  fi
+  number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" "$pr_body" | jq -r '.number // empty')
   if [ -z "$number" ]; then
-    sync_log "push fail ${id} could not open a pull request"
+    sync_apply_fail "$repo" "" "$id" "could not open a pull request"
     return 1
   fi
   "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
@@ -494,19 +582,28 @@ sync_push_one() {
     *) kind=root ;;
   esac
   sync_materialize_repo "$repo"
+  # Fetch first. For the company and areas this also notes each rules/* branch the host
+  # deleted (one fetch).
+  if [ "$kind" = "workspace" ]; then
+    sync_fetch_first "$repo" "$id" || true
+  else
+    sync_rules_refresh "$repo" "$id"
+  fi
   changed=$(sync_mktemp)
   SYNC_RENAMES=$(sync_mktemp)
   sync_changed_names "$repo" > "$changed" || true
   sync_rename_pairs "$repo" > "$SYNC_RENAMES" || true
   if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-    git -C "$repo" diff --name-only origin/main HEAD >> "$changed" || true
+    # Three dots: only what local commits changed. When a local edit blocked the pull,
+    # HEAD is behind, and a file only the host changed must not go up as a stale copy.
+    git -C "$repo" diff --name-only origin/main...HEAD >> "$changed" || true
   fi
   sort -u "$changed" -o "$changed"
   sync_drop_link_copies "$repo" "$changed"
+  sync_drop_same_as_origin "$repo" "$changed"
   if [ ! -s "$changed" ]; then
     return 0
   fi
-  [ "$kind" = "workspace" ] || sync_rules_refresh "$repo"
   added=$(sync_mktemp)
   while IFS= read -r path; do
     [ -n "$path" ] || continue

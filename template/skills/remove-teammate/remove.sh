@@ -94,10 +94,21 @@ export OS_PROFILE="$ROOT/company-profile.md"
 COMPANY_REPO=$(os_company_repo "$SLUG")
 WS_REPO=$(os_user_repo "$SLUG" "$PERSON")
 
+# A revoke step. Not found (404) is normal: already removed, or never accepted (B39).
+# GitHub's text has "HTTP 404"; Forgejo's is only the line "not found or no access".
+# Any other error shows. The checks after the revokes decide what is still there.
 try_host() {
+  local err rc
+  err=$(mktemp)
   set +e
-  os_host "$@" >/dev/null
+  os_host "$@" >/dev/null 2>"$err"
+  rc=$?
   set -e
+  if [ "$rc" -ne 0 ] && ! { [ "$rc" -eq 2 ] && { grep -q 'HTTP 404' "$err" \
+      || [ "$(cat "$err")" = "not found or no access" ]; }; }; then
+    cat "$err" >&2
+  fi
+  rm -f "$err"
 }
 
 os_team_names "$SLUG"
@@ -146,6 +157,24 @@ for area in $AREAS; do
   team_repos "$(os_team_area "$area")" || failed=1
 done
 add_repo "$WS_REPO"
+# A direct invite on any org repo counts too, such as an area no longer on the page.
+org_repos() {
+  local out rc r
+  set +e
+  out=$(os_host org-repos 2>/dev/null)
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    STILL="${STILL} org repos (not checked)"
+    return 1
+  fi
+  # Each repo gets a revoke and a check. That can take minutes, so say so first (B44).
+  printf 'checking %s repos in the org...\n' "$(printf '%s' "$out" | jq -r '(.repos // []) | length')"
+  for r in $(printf '%s' "$out" | jq -r '(.repos // [])[]'); do
+    add_repo "$r"
+  done
+}
+org_repos || failed=1
 
 # The admin's private library repo has direct grants, not a team. When it exists, clear
 # it like the others. An answer the host cannot give is not checked, never gone.
@@ -233,10 +262,25 @@ check_org_member() {
   return 0
 }
 
-check_org_invite || failed=1
-check_org_member || failed=1
-for repo in $REPOS; do
-  check_gone "$repo" || failed=1
+# The host removes access a little after it says yes (B35: GitHub org membership read
+# active for some seconds). Read again, up to 6 times 5 seconds apart. Only a read with
+# no access left counts. A list that could not be read before this stays a failure.
+before_failed=$failed
+before_still=$STILL
+tries=0
+while :; do
+  failed=$before_failed
+  STILL=$before_still
+  check_org_invite || failed=1
+  check_org_member || failed=1
+  for repo in $REPOS; do
+    check_gone "$repo" || failed=1
+  done
+  tries=$((tries + 1))
+  if [ "$failed" -eq "$before_failed" ] || [ "$tries" -ge 6 ]; then
+    break
+  fi
+  sleep "${OS_RECHECK_WAIT:-5}"
 done
 if [ "$failed" -ne 0 ]; then
   printf 'revoke failed. Still has access:%s\n' "$STILL" >&2
@@ -247,6 +291,26 @@ os_host archive-repo "$WS_REPO" >/dev/null
 printf 'revoked: %s\n' "$PERSON"
 printf 'archived: %s\n' "$WS_REPO"
 
+# A pull request that adds this person would stay open and conflict forever (B37).
+# Close it on the company repo and each area on the page.
+for repo in "$COMPANY_REPO" $(for area in $AREAS; do os_area_repo "$SLUG" "$area"; printf '\n'; done); do
+  if ! prs=$(os_host_try open-prs "$repo" 2>/dev/null); then
+    printf 'could not list pull requests on %s: close any rules/*/add-%s pull request by hand\n' "$repo" "$PERSON"
+    continue
+  fi
+  printf '%s' "$prs" | jq -r '(.prs // [])[] | "\(.number) \(.head)"' | while read -r n head; do
+    case "$head" in
+      rules/*/add-"$PERSON")
+        if os_host_try close-pr "$repo" "$n" >/dev/null 2>&1; then
+          printf 'closed: %s %s (it added %s)\n' "$repo" "$n" "$PERSON"
+        else
+          printf 'could not close %s %s: close it by hand\n' "$repo" "$n"
+        fi
+        ;;
+    esac
+  done
+done
+
 ADMIN=$(os_admin_slug_from_pages "$ROOT" || true)
 if [ "$ADMIN" = "$PERSON" ]; then
   ADMIN=$NEW_OWNER
@@ -255,15 +319,15 @@ fi
 branch="rules/${ADMIN}/offboard-${PERSON}"
 
 os_with_git_token git -C "$ROOT" fetch origin
-git -C "$ROOT" checkout -q -B "$branch" origin/main
-PAGE=$(os_person_file "$ROOT" "$PERSON")
+wt=$(os_branch_start "$ROOT") || exit 3
+PAGE=$(os_person_file "$wt" "$PERSON")
 os_fm_set "$PAGE" left "$WHEN"
 
 moved=0
 bot=""
 paths=("$PAGE")
-if [ -d "$ROOT/bots" ]; then
-  for bot in "$ROOT"/bots/*/BOT.md; do
+if [ -d "$wt/bots" ]; then
+  for bot in "$wt"/bots/*/BOT.md; do
     [ -f "$bot" ] || continue
     owner=$(os_fm_get "$bot" owner 2>/dev/null || true)
     if [ "$owner" = "$PERSON" ]; then
@@ -274,12 +338,15 @@ if [ -d "$ROOT/bots" ]; then
   done
 fi
 
-os_git_commit "$ROOT" "Offboard: ${PERSON}" "${paths[@]}"
-# The branch is this script's own, rebuilt from origin/main. A retry replaces it.
-os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
+os_git_commit "$wt" "Offboard: ${PERSON}" "${paths[@]}"
+os_branch_push "$ROOT" "$wt" "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
-os_show_branch_files "$ROOT" "$branch" "${paths[@]}"
+shown=()
+for p in "${paths[@]}"; do
+  shown+=("$ROOT/${p#"$wt"/}")
+done
+os_show_branch_files "$ROOT" "origin/${branch}" "${shown[@]}"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 
@@ -292,10 +359,16 @@ fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
   if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
-    # A BOT.md is a rules file. On GitHub its code-owner review is the admin, the author
-    # here. Auto-merge would hide the bypass box, so it stays off.
-    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
-      "$COMPANY_REPO" "$number"
+    # A BOT.md is a rules file, and the admin is the author. The admin merges it by hand.
+    # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
+    # Say "will not merge by itself" only when that is true.
+    if os_host_try auto-merge-off "$COMPANY_REPO" "$number" >/dev/null 2>&1; then
+      will='so it will not merge by itself.'
+    else
+      will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+    fi
+    printf 'merge-by-hand: %s %s: it changes bots/, %s Wait for the green checks. Open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$COMPANY_REPO" "$number" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
   elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
     # Like propose: the pull request merges by itself when its checks pass.
     printf '%s\n' "auto-merge: on"

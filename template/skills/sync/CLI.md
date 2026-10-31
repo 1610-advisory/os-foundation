@@ -55,6 +55,10 @@ Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of t
 
 ## Nightly push
 
+Push first fetches `origin` (`--prune`), before it lists what changed. Offline, it prints `push: could not reach origin for <repo>: comparing with the last fetch` and goes on. A file whose content equals `origin/main` is no change. Push skips it: no commit, no hold, no failure line. After join, the person's page is like this until the next pull. A file deleted here that `origin/main` also lacks is no change too: the delete merged.
+
+A failed push step (`push fail <repo> <step>` in the log) is also the last error: `status` prints `last error: push failed for <repo>: <step>`.
+
 For each repo that has changes:
 
 1. Secret scan. A hit holds that file. The reason names the rule, never the value. A scan error pushes nothing for that repo.
@@ -63,10 +67,10 @@ For each repo that has changes:
 3. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
    - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` (company repo or area) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
    - An area's `drafts/` folder is shared copy in progress. Its files go to the area on the standing pull request, and everyone who reads the area sees them. A private draft goes in the person's workspace `drafts/`.
-4. Committable files are committed on `sync/<me>`, rebuilt from `origin/main`. The script force-pushes only that branch. It then calls `host.sh open-pr` and `host.sh auto-merge`, then `pull`.
+4. Committable files are committed on `sync/<me>`, rebuilt from `origin/main`. The script force-pushes only that branch. It then calls `host.sh open-pr` with a body (`These are <me>'s notes from sync.`, then one line per file), between the lines `<!-- sync:files -->` and `<!-- /sync:files -->`. On an open pull request it reads the body (`host.sh open-prs`) and replaces only that block: every other line a person wrote stays. An old body with no markers stays, with the block after it. If the open pull requests cannot be read, it gives `open-pr` no body, so the host keeps the one it has. Then `host.sh auto-merge`, then `pull`.
 5. The workspace repo is pushed to its own `main`. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
 
-Held files stay in the working copy, unchanged. Nothing held is pushed. After the pull request merges, the next `pull` is clean apart from held files. If it has not merged, `pull` still works and keeps local changes.
+Held files stay in the working copy, unchanged. Nothing held is pushed. After the pull request merges, the next `pull` is clean apart from held files. If it has not merged, `pull` still works and keeps local changes. A local change that `origin/main` already has is not in the way of the fast-forward: the same content, or the same delete.
 
 Any failed step pushes nothing for that repo. A network failure writes one log line and pushes nothing.
 

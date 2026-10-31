@@ -81,7 +81,13 @@ printf '%s\n' "kickoff notes" > "$co/meetings/2026-10-28 Kickoff.md"
 printf '%s\n' "held by sync: a private note" > "$co/inbox/held.md"
 cat > "$work/bin/host.sh" << 'EOF'
 #!/bin/bash
+[ -z "${FAKE_LOG:-}" ] || printf '%s\n' "$*" >> "$FAKE_LOG"
 case "$1" in
+  auto-merge)
+    # B45: FAKE_MERGED, the checks were green and it merged; FAKE_GREEN, that merge failed.
+    if [ -n "${FAKE_MERGED:-}" ]; then printf '%s\n' '{"ok":true,"merge":"merged"}'; exit 0; fi
+    if [ -n "${FAKE_GREEN:-}" ]; then printf '%s\n' "pull request 4 is green: merge it" >&2; exit 3; fi
+    printf '%s\n' '{"ok":true}' ;;
   user-access) printf '%s\n' '{"access":"none"}' ;;
   org-membership) printf '%s\n' '{"state":"none"}' ;;
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}' ;;
@@ -172,10 +178,54 @@ for try in 1 2; do
   [ "$rc" -eq 0 ] || { cat "$work/add$try.out" "$work/add$try.err" >&2; team_fail "add-person try $try exit $rc"; }
 done
 grep -q '^main: could not go back to main' "$work/add1.err" || team_fail "add-person did not say it stayed off main"
+# B37: the people-page pull request merges by itself, like join's.
+grep -qx 'auto-merge: on' "$work/add2.out" || team_fail "B37: add-person did not turn on auto-merge"
+# B45: auto-merge is asked for before the workspace. A green pull request merges at once,
+# and a merge that fails says so, never "protection".
+: > "$work/b45.log"
+FAKE_LOG="$work/b45.log" FAKE_MERGED=1 OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" > "$work/add3.out" 2> "$work/add3.err" \
+  || { cat "$work/add3.out" "$work/add3.err" >&2; team_fail "B45: add-person exit"; }
+first_am=$(grep -n '^auto-merge ' "$work/b45.log" | head -n 1 | cut -d: -f1)
+first_ws=$(grep -n '^create-repo ' "$work/b45.log" | head -n 1 | cut -d: -f1)
+[ -n "$first_am" ] && [ -n "$first_ws" ] && [ "$first_am" -lt "$first_ws" ] || team_fail "B45: auto-merge came after the workspace"
+grep -qx 'merged: acme-os 4 (its checks were already green)' "$work/add3.out" || team_fail "B45: no merged line: $(cat "$work/add3.out")"
+FAKE_GREEN=1 OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" > "$work/add4.out" 2> "$work/add4.err" \
+  || { cat "$work/add4.out" "$work/add4.err" >&2; team_fail "B45: add-person exit"; }
+grep -qx 'pull request 4 is green: merge it' "$work/add4.out" || team_fail "B45: no green line: $(cat "$work/add4.out")"
+grep -q 'protect' "$work/add4.out" && team_fail "B45: blamed protection for a green pull request"
 git --git-dir "$work/origin.git" show "rules/ada/add-bo:people/Bo Baker.md" >/dev/null 2>&1 \
   || team_fail "add-person branch has no page"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "add-person retry left the folder off main"
 rm -rf "$co/users/bo"
+
+# B47: after a sync push, the admin's note sits untracked here while origin/main has it.
+# add-person and remove build their branch in a temporary worktree, so git never stops.
+note="meetings/2026-10-31 Kickoff.md"
+trees=$(git -C "$co" worktree list --porcelain | grep -c '^worktree ')
+main_was=$(git --git-dir "$work/origin.git" rev-parse main)
+git clone -q -b main "$work/origin.git" "$work/b47"
+mkdir -p "$work/b47/meetings" "$co/meetings"
+printf '%s\n' "a note from sync" > "$work/b47/$note"
+git -C "$work/b47" add -A
+git -C "$work/b47" -c user.name=t -c user.email=t@example.test commit -q -m note
+git -C "$work/b47" push -q origin HEAD:main
+printf '%s\n' "a note from sync" > "$co/$note"
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" \
+  > "$work/b47.out" 2> "$work/b47.err" || { cat "$work/b47.out" "$work/b47.err" >&2; team_fail "B47: add-person stopped on an untracked note"; }
+grep -q 'would be overwritten' "$work/b47.err" && team_fail "B47: raw git error"
+git --git-dir "$work/origin.git" show "rules/ada/add-bo:$note" >/dev/null 2>&1 || team_fail "B47: branch not built on origin/main"
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person sam \
+  --date 2026-10-28 > "$work/b47rm.out" 2> "$work/b47rm.err" \
+  || { cat "$work/b47rm.out" "$work/b47rm.err" >&2; team_fail "B47: remove stopped on an untracked note"; }
+[ "$(cat "$co/$note")" = "a note from sync" ] || team_fail "B47: the note changed"
+[ "$(git -C "$co" worktree list --porcelain | grep -c '^worktree ')" -eq "$trees" ] || team_fail "B47: a worktree was left"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "B47: the folder left main"
+rm -rf "$co/users/bo" "$co/meetings" "$work/b47"
+# Later steps push this folder's main: put the host's main back.
+git --git-dir "$work/origin.git" update-ref refs/heads/main "$main_was"
+git -C "$co" fetch -q origin
 
 # join.sh: the terms pull request gets auto-merge, and the folder is back on main.
 mkdir -p "$co/users/sam" "$work/home/.claude"
@@ -185,7 +235,13 @@ cat > "$work/bin/host.sh" << EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$work/host.log"
 case "\$1" in
-  open-pr) [ -z "\${FAKE_NO_OPENPR:-}" ] || exit 5; printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
+  open-pr)
+    [ -z "\${FAKE_NO_OPENPR:-}" ] || exit 5
+    while [ \$# -gt 0 ]; do
+      [ "\$1" = "--body-file" ] && cp "\$2" "$work/join-body.txt"
+      shift
+    done
+    printf '%s\n' '{"number":7,"url":"http://example.test/7"}' ;;
   auto-merge) [ -z "\${FAKE_NO_AUTOMERGE:-}" ] || exit 1; printf '%s\n' '{"ok":true}' ;;
   get-token) printf '%s\n' local-token ;;
   *) printf '%s\n' '{"ok":true}' ;;
@@ -200,6 +256,9 @@ printf '%s\n' "root=$co" "me=sam" >> "$work/join-answers"
 : > "$work/host.log"
 join_run > "$work/join.out"
 grep -qx 'terms: proposed' "$work/join.out" || team_fail "join did not propose terms"
+# Round 5: the join pull request has a body: who joined, which page.
+[ "$(cat "$work/join-body.txt" 2>/dev/null)" = "sam joined and accepted the terms on people/Sam Member.md." ] \
+  || team_fail "join PR body: $(cat "$work/join-body.txt" 2>/dev/null)"
 grep -qx 'auto-merge: on' "$work/join.out" || team_fail "join did not report auto-merge"
 grep -qx 'auto-merge acme-os 7' "$work/host.log" || team_fail "join did not call auto-merge: $(cat "$work/host.log")"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "join left the folder off main"
@@ -208,6 +267,136 @@ git --git-dir "$work/origin.git" show "sync/sam:people/Sam Member.md" | grep -q 
 # logsfix (54): the dated page is also a local change on main, so the next push keeps it.
 grep -Eq '^terms_accepted: [0-9]{4}-' "$co/people/Sam Member.md" || team_fail "the local page is not dated"
 git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync/sam (55: temp worktree only)"
+
+# Item 11 (a): claude is in ~/.local/bin but not on PATH. Join says so, gives the step,
+# and stops before the jobs. A PATH with no claude on it, even when this computer has one.
+nocl="$work/nocl"
+mkdir -p "$nocl" "$work/home/.local/bin"
+path_nocl="$nocl"
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+  if [ -e "$d/claude" ]; then
+    for f in "$d"/*; do
+      [ "$(basename "$f")" = "claude" ] || ln -sf "$f" "$nocl/" 2>/dev/null || true
+    done
+  else
+    path_nocl="$path_nocl:$d"
+  fi
+done
+IFS=$old_ifs
+printf '%s\n' '#!/bin/sh' 'echo ok' > "$work/home/.local/bin/claude"
+chmod 755 "$work/home/.local/bin/claude"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" SHELL=/bin/zsh \
+  PATH="$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/path.out" 2> "$work/path.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/path.out" "$work/path.err" >&2; team_fail "item 11a: exit $rc, want 3"; }
+grep -qx 'Claude Code is in ~/.local/bin, but that folder is not on PATH. Run this once, then open a new terminal and run join again:' "$work/path.err" \
+  || team_fail "item 11a: no PATH line: $(cat "$work/path.err")"
+grep -qxF "echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc" "$work/path.err" || team_fail "item 11a: no PATH step"
+grep -q 'install.sh' "$work/path.err" && team_fail "item 11a: printed the install line again"
+grep -q '^join: ok' "$work/path.out" && team_fail "item 11a: join went on"
+rm -rf "$work/home/.local"
+
+# Item 11 (b): claude is on PATH but not signed in: one line, exit 3, no jobs. Signed in: on.
+mkdir -p "$work/claude-bin"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/bin/sh' \
+  'case "${FAKE_CLAUDE:-}" in' \
+  '  ok) cat > /dev/null; echo ok; exit 0 ;;' \
+  '  echo) cat; exit 0 ;;' \
+  "  hang) trap '' TERM; while :; do sleep 1; done ;;" \
+  'esac' 'cat > /dev/null' \
+  'echo "Invalid API key. Please run /login"' 'exit 1' > "$work/claude-bin/claude"
+chmod 755 "$work/claude-bin/claude"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p --model haiku" \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign.out" 2> "$work/sign.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || { cat "$work/sign.out" "$work/sign.err" >&2; team_fail "item 11b: exit $rc, want 3"; }
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign.err" || team_fail "item 11b: no sign-in line: $(cat "$work/sign.err")"
+grep -q '^sync-jobs\|^join: ok' "$work/sign.out" && team_fail "item 11b: join went on to the jobs"
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p --model haiku" FAKE_CLAUDE=ok \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign2.out" 2> "$work/sign2.err" \
+  || { cat "$work/sign2.out" "$work/sign2.err" >&2; team_fail "item 11b: signed in, join failed"; }
+grep -q 'sign in once' "$work/sign2.err" && team_fail "item 11b: signed in, still asked to sign in"
+# B43: with no OS_SYNC_ENGINE, the engine comes from <config>/engine, as sync reads it.
+mkdir -p "$work/home/.config/acme-os"
+printf '%s\n' "claude -p" > "$work/home/.config/acme-os/engine"
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/eng.out" 2> "$work/eng.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || team_fail "B43: exit $rc, want 3"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/eng.err" || team_fail "B43: the config engine was not checked: $(cat "$work/eng.err")"
+rm -f "$work/home/.config/acme-os/engine"
+# Round 2: an engine that repeats the question is not signed in.
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=echo \
+  PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign3.out" 2> "$work/sign3.err"
+rc=$?
+set -e
+[ "$rc" -eq 3 ] || team_fail "item 11b: an echo engine passed the sign-in check (exit $rc)"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign3.err" || team_fail "item 11b: echo engine, no sign-in line"
+# Round 2: an engine that ignores TERM and never ends. Join still stops: limit + 5 s, then kill -9.
+start=$(date +%s)
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=hang \
+  OS_ENGINE_TIMEOUT=2 PATH="$work/claude-bin:$path_nocl" OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign4.out" 2> "$work/sign4.err" &
+jpid=$!
+n=0
+while kill -0 "$jpid" 2>/dev/null && [ "$n" -lt 40 ]; do
+  sleep 1
+  n=$((n + 1))
+done
+if kill -0 "$jpid" 2>/dev/null; then
+  kill -9 "$jpid" 2>/dev/null || true
+  team_fail "item 11b: join hung on an engine that ignores TERM"
+fi
+set +e
+wait "$jpid"
+rc=$?
+set -e
+took=$(( $(date +%s) - start ))
+[ "$rc" -eq 3 ] || team_fail "item 11b: hung engine, exit $rc, want 3"
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign4.err" || team_fail "item 11b: hung engine, no sign-in line"
+[ "$took" -le 12 ] || team_fail "item 11b: hung engine took ${took}s, want at most 12"
+# JOIN-WIN: on Git Bash the forced stop also runs taskkill on the Windows process id.
+# Stubs: uname says MINGW, taskkill logs its call. This machine has no /proc/<pid>/winpid,
+# so this checks the Windows branch still stops in time and skips taskkill without an id.
+# The taskkill call itself runs only on Windows.
+mkdir -p "$work/win-bin"
+printf '%s\n' '#!/bin/sh' 'echo MINGW64_NT-10.0' > "$work/win-bin/uname"
+# shellcheck disable=SC2016
+printf '%s\n' '#!/bin/sh' 'echo "$*" >> "$TASKKILL_LOG"' > "$work/win-bin/taskkill"
+chmod 755 "$work/win-bin/uname" "$work/win-bin/taskkill"
+: > "$work/taskkill.log"
+start=$(date +%s)
+set +e
+HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="claude -p" FAKE_CLAUDE=hang \
+  OS_ENGINE_TIMEOUT=2 TASKKILL_LOG="$work/taskkill.log" PATH="$work/win-bin:$work/claude-bin:$path_nocl" \
+  OS_HOST_SH="$work/bin/host.sh" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" > "$work/sign5.out" 2> "$work/sign5.err"
+rc=$?
+set -e
+took=$(( $(date +%s) - start ))
+[ "$rc" -eq 3 ] || { cat "$work/sign5.err" >&2; team_fail "JOIN-WIN: exit $rc, want 3"; }
+grep -qx 'sign in once: run claude, sign in, then /exit' "$work/sign5.err" || team_fail "JOIN-WIN: no sign-in line"
+[ "$took" -le 12 ] || team_fail "JOIN-WIN: took ${took}s, want at most 12"
+if [ -r /proc/self/winpid ]; then
+  grep -q '^//F //T //PID [0-9]' "$work/taskkill.log" || team_fail "JOIN-WIN: no taskkill call"
+else
+  [ -s "$work/taskkill.log" ] && team_fail "JOIN-WIN: taskkill ran with no Windows process id"
+fi
 
 # A refused auto-merge is one plain line, not a failure.
 git --git-dir "$work/origin.git" branch -q -D sync/sam

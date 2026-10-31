@@ -67,6 +67,9 @@ printf '%s\n' '[{"id":93,"invitee":{"login":"acme-member-m"},"permissions":"writ
 printf '%s\n' '[{"id":94,"invitee":{"login":"acme-member-m"},"permissions":"write"}]' \
   > "$work/state/repo/acme-ops.json"
 printf '%s\n' '[{"name":"acme-os"},{"name":"acme-ops"}]' > "$work/state/team/acme-company.json"
+# Item 3: a direct invite on an old area that is on no page, no team and not checked out here.
+printf '%s\n' '[{"id":95,"invitee":{"login":"acme-member-m"},"permissions":"write"}]' \
+  > "$work/state/repo/acme-legacy.json"
 cp -R "$work/state" "$work/state0"
 
 cat > "$work/bin/gh" << 'EOF'
@@ -99,6 +102,11 @@ fail500() {
   exit 1
 }
 case "$method $bare" in
+  "GET /orgs/acme/repos")
+    [ -n "${FAKE_REPOS_500:-}" ] && fail500
+    [ "$page" = "1" ] || { printf '%s\n' '[]'; exit 0; }
+    for f in "$FAKE_GH_STATE"/repo/*.json; do basename "$f" .json; done | jq -Rsc 'split("\n") | map(select(. != "")) | map({name: .})'
+    exit 0 ;;
   "GET /orgs/acme/invitations"|"GET /repos/acme/"*"/invitations")
     [ -n "${FAKE_INVITES_500:-}" ] && fail500
     f=$(list_file "$bare")
@@ -114,12 +122,23 @@ case "$method $bare" in
     fi
     jq -c --argjson id "$id" 'map(select(.id != $id))' "$f" > "$f.new" && mv "$f.new" "$f"
     exit 0 ;;
+  "GET /repos/acme/acme-os/pulls")
+    # B37: a stale add pull request for this person, and another person's sync one.
+    [ -n "${FAKE_ADD_PR:-}" ] && [ "$page" = "1" ] || { printf '%s\n' '[]'; exit 0; }
+    printf '%s\n' '[{"number":7,"head":{"ref":"rules/ada/add-mia"}},{"number":8,"head":{"ref":"sync/dana"}}]'
+    exit 0 ;;
   "GET /repos/acme/"*"/collaborators/"*"/permission")
     printf '%s\n' '{"permission":"none"}'
     exit 0 ;;
   "GET /orgs/acme/memberships/"*)
     [ -n "${FAKE_MEMBERSHIP_500:-}" ] && fail500
     if [ -n "${FAKE_ORG_REMOVE_500:-}" ]; then
+      printf '%s\n' '{"state":"active","role":"member"}'
+      exit 0
+    fi
+    # B35: the host still says active on the first read after the removal.
+    if [ -n "${FAKE_ACTIVE_ONCE:-}" ] && [ ! -f "$FAKE_GH_STATE/active-read" ]; then
+      : > "$FAKE_GH_STATE/active-read"
       printf '%s\n' '{"state":"active","role":"member"}'
       exit 0
     fi
@@ -152,15 +171,25 @@ cat > "$work/bin/host.sh" << EOF
 printf '%s\n' "\$*" >> "\$FAKE_HOST_LOG"
 case "\$1" in
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}'; exit 0 ;;
+  auto-merge-off)
+    [ "\${FAKE_AMOFF:-ok}" = ok ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}'; exit 0 ;;
   get-token) printf '%s\n' local-token; exit 0 ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}'; exit 0 ;;
+  revoke|org-remove|team-remove)
+    # B39-FJ: answer as the Forgejo host layer does (fj_fail).
+    case "\${FAKE_FJ_REVOKE:-}" in
+      notfound) printf '%s\n' "not found or no access" >&2; exit 2 ;;
+      other) printf '%s\n' "not found or no access: team acme-sales" >&2; exit 2 ;;
+      500) printf '%s\n' "host error: HTTP 500" >&2; exit 3 ;;
+    esac ;;
 esac
 exec "$root/template/skills/_host/host.sh" "\$@"
 EOF
 chmod 700 "$work/bin/host.sh"
 
 export FAKE_GH_STATE="$work/state" FAKE_GH_LOG="$work/gh.log" FAKE_HOST_LOG="$work/host.log"
-export PATH="$work/bin:$PATH" OS_HOST_SH="$work/bin/host.sh"
+export PATH="$work/bin:$PATH" OS_HOST_SH="$work/bin/host.sh" OS_RECHECK_WAIT=0
 : > "$FAKE_GH_LOG"
 
 # 1. Invites that will not cancel: no revoked:, no ok, and each one is named.
@@ -177,6 +206,7 @@ grep -q 'acme-marketing (invited)' "$work/keep.err" || team_fail "pending area i
 grep -q 'acme-user-mia (invited)' "$work/keep.err" || team_fail "pending workspace invite was not named"
 grep -q 'acme-sales (invited)' "$work/keep.err" || team_fail "area not checked out here was not checked"
 grep -q 'acme-ops (invited)' "$work/keep.err" || team_fail "repo granted by the company team was not checked"
+grep -q 'acme-legacy (invited)' "$work/keep.err" || team_fail "item 3: invite on another org repo was not checked"
 grep -q 'PATCH /repos/acme/acme-user-mia$' "$FAKE_GH_LOG" && team_fail "workspace archived before access was gone"
 
 # Each failure below must stop before revoked: and remove: ok, with exit 3.
@@ -212,6 +242,15 @@ set -e
 must_stop "invite list 500" 'acme-marketing (not checked)'
 grep -q 'org (not checked)' "$work/f.err" || team_fail "org invite list 500 was not named"
 
+# Item 3: the org repo list answers 500: not checked, never ok.
+reset_state
+set +e
+FAKE_REPOS_500=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/f.out" 2> "$work/f.err"
+rc=$?
+set -e
+must_stop "org repos 500" 'org repos (not checked)'
+
 # 64. org-remove answers 500 and the person is still a member.
 reset_state
 set +e
@@ -220,6 +259,23 @@ FAKE_ORG_REMOVE_500=1 "$root/template/skills/remove-teammate/remove.sh" --root "
 rc=$?
 set -e
 must_stop "org-remove 500" 'org (active)'
+grep -q 'HTTP 500' "$work/f.err" || team_fail "B39: a real org-remove error was hidden"
+# B39-FJ: Forgejo says only "not found or no access" (exit 2). Hide that exact line.
+# Every other error still shows.
+for kind in notfound other 500; do
+  reset_state
+  : > "$FAKE_HOST_LOG"
+  set +e
+  FAKE_FJ_REVOKE=$kind "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+    --date 2026-10-29 > "$work/f.out" 2> "$work/f.err"
+  set -e
+  grep -q '^org-remove ' "$FAKE_HOST_LOG" || team_fail "B39-FJ $kind: org-remove was not called"
+  case "$kind" in
+    notfound) grep -q 'not found or no access' "$work/f.err" && team_fail "B39-FJ: Forgejo not-found shown: $(cat "$work/f.err")" ;;
+    other) grep -qx 'not found or no access: team acme-sales' "$work/f.err" || team_fail "B39-FJ: another exit-2 error was hidden" ;;
+    500) grep -qx 'host error: HTTP 500' "$work/f.err" || team_fail "B39-FJ: a Forgejo 500 was hidden" ;;
+  esac
+done
 # The membership cannot be read: not checked.
 reset_state
 set +e
@@ -232,10 +288,22 @@ out=$("$root/template/skills/_host/host.sh" org-membership acme-member-m)
 [ "$(printf '%s' "$out" | jq -r '.state')" = "none" ] || team_fail "org-membership 404: $out"
 reset_state
 
+# B35: membership reads active once after org-remove, then gone. The re-check passes.
+: > "$FAKE_GH_LOG"
+set +e
+FAKE_ACTIVE_ONCE=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/b35.out" 2> "$work/b35.err"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/b35.out" "$work/b35.err" >&2; team_fail "B35: exit $rc after a late membership read"; }
+grep -qx 'remove: ok' "$work/b35.out" || team_fail "B35: no remove: ok"
+[ "$(grep -c '^GET /orgs/acme/memberships/' "$FAKE_GH_LOG")" -ge 2 ] || team_fail "B35: membership was not read again"
+reset_state
+
 # 2. The real run cancels every invite for the person, and only theirs.
 : > "$FAKE_GH_LOG"
 set +e
-"$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+FAKE_ADD_PR=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
   --date 2026-10-29 > "$work/rm.out" 2> "$work/rm.err"
 rc=$?
 set -e
@@ -246,15 +314,25 @@ grep -qx 'remove: ok' "$work/rm.out" || team_fail "missing remove: ok"
 grep -qx 'auto-merge: on' "$work/rm.out" || team_fail "offboard PR has no auto-merge: $(cat "$work/rm.out")"
 for want in "DELETE /orgs/acme/invitations/81" "DELETE /repos/acme/acme-marketing/invitations/91" \
   "DELETE /repos/acme/acme-user-mia/invitations/92" "DELETE /repos/acme/acme-sales/invitations/93" \
-  "DELETE /repos/acme/acme-ops/invitations/94"; do
+  "DELETE /repos/acme/acme-ops/invitations/94" "DELETE /repos/acme/acme-legacy/invitations/95"; do
   grep -qx "$want" "$FAKE_GH_LOG" || team_fail "not called: $want"
 done
 grep -q 'invitations/82' "$FAKE_GH_LOG" && team_fail "another person's invite was cancelled"
+# B37: the stale add pull request is closed, and only that one.
+grep -qx 'PATCH /repos/acme/acme-os/pulls/7' "$FAKE_GH_LOG" || team_fail "B37: add pull request not closed"
+grep -q 'pulls/8' "$FAKE_GH_LOG" && team_fail "B37: another pull request was closed"
+grep -qx 'closed: acme-os 7 (it added mia)' "$work/rm.out" || team_fail "B37: no closed: line"
+# B44: the long org read is announced first.
+n_repos=$(find "$work/state/repo" -name '*.json' | wc -l | tr -d ' ')
+grep -qx "checking ${n_repos} repos in the org..." "$work/rm.out" || team_fail "B44: no checking line: $(head -3 "$work/rm.out")"
+# B39: a person who is not an org member is normal. No raw 404 lines.
+grep -q 'HTTP 404\|not found or no access' "$work/rm.err" && team_fail "B39: raw 404 lines: $(cat "$work/rm.err")"
 [ "$(jq -c '[.[].id]' "$work/state/org.json")" = "[82]" ] || team_fail "org invites left: $(cat "$work/state/org.json")"
 [ "$(jq length "$work/state/repo/acme-marketing.json")" = "0" ] || team_fail "area invite still pending"
 [ "$(jq length "$work/state/repo/acme-user-mia.json")" = "0" ] || team_fail "workspace invite still pending"
 
 [ "$(jq length "$work/state/repo/acme-sales.json")" = "0" ] || team_fail "invite on an area not checked out here still pending"
+[ "$(jq length "$work/state/repo/acme-legacy.json")" = "0" ] || team_fail "item 3: invite on another org repo still pending"
 
 # 3. A second cancel is fine: nothing pending is success.
 out=$("$root/template/skills/_host/host.sh" cancel-invites acme-member-m acme-marketing)
@@ -280,7 +358,28 @@ set -e
 [ "$rc" -eq 0 ] || { cat "$work/bot.out" "$work/bot.err" >&2; team_fail "bot remove exit $rc"; }
 grep -qx 'bot-owner: ada' "$work/bot.out" || team_fail "bot owner not moved: $(cat "$work/bot.out")"
 grep -q '^merge-by-hand: acme-os 4: it changes bots/' "$work/bot.out" || team_fail "no merge-by-hand line"
-grep -q 'auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
+# Item 4 and B38: the first run (no bot) turned auto-merge on for this branch's pull
+# request. The second run turns it off, and says a plain merge works for the only owner.
+grep -q '^auto-merge-off acme-os 4' "$FAKE_HOST_LOG" || team_fail "item 4: auto-merge was not turned off"
+grep -q 'When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick' "$work/bot.out" || team_fail "B38: merge-by-hand text"
+grep -q '^auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a bots/ change"
+grep -q 'so it will not merge by itself' "$work/bot.out" || team_fail "B38-LINE: no will-not-merge text"
+
+# B38-LINE: auto-merge-off fails. The line must not say it will not merge by itself.
+mkdir -p "$co/bots/alerts"
+printf '%s\n' "---" "owner: mia" "---" "# Alerts" > "$co/bots/alerts/BOT.md"
+git -C "$co" add bots/alerts
+git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m bot2
+git -C "$co" push -q origin main
+set +e
+FAKE_AMOFF=fail "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+  --date 2026-10-29 > "$work/amoff.out" 2> "$work/amoff.err"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/amoff.out" "$work/amoff.err" >&2; team_fail "amoff remove exit $rc"; }
+grep -q '^merge-by-hand: acme-os 4: it changes bots/, but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.' "$work/amoff.out" \
+  || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
+grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 
 printf '%s\n' "PASS invites"

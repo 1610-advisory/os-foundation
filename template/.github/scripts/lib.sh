@@ -174,24 +174,32 @@ ci_path_match() {
         anchored = 1
         pat = substr(pat, 2)
       }
+      # A folder pattern (a trailing /) matches each file under a matching folder.
+      dir = 0
       if (pat != "" && substr(pat, length(pat), 1) == "/") {
         pat = substr(pat, 1, length(pat) - 1)
-        if (index(path, pat) == 1 && (length(path) == length(pat) || substr(path, length(pat) + 1, 1) == "/")) exit 0
-        exit 1
+        dir = 1
       }
-      if (anchored || index(pat, "/") > 0) {
-        if (gm(pat, path)) exit 0
-        exit 1
-      }
-      if (gm(pat, path)) exit 0
       n = split(path, segs, "/")
       acc = ""
-      for (i = n; i >= 1; i--) {
-        if (acc == "") acc = segs[i]
-        else acc = segs[i] "/" acc
-        if (gm(pat, acc)) exit 0
+      for (i = 1; i <= n; i++) {
+        acc = (i == 1) ? segs[1] : acc "/" segs[i]
+        if (dir && i == n) break
+        if (!dir && i < n) continue
+        if (fm(pat, acc)) exit 0
       }
       exit 1
+    }
+    # Anchored, or with a / inside: from the root. Else at any depth.
+    function fm(p, s,   k, m, parts, tail) {
+      if (anchored || index(p, "/") > 0) return gm(p, s)
+      m = split(s, parts, "/")
+      tail = ""
+      for (k = m; k >= 1; k--) {
+        tail = (tail == "") ? parts[k] : parts[k] "/" tail
+        if (gm(p, tail)) return 1
+      }
+      return 0
     }
   '
 }
@@ -226,6 +234,33 @@ ci_auth_header() {
   else
     printf '%s\n' "Authorization: token ${token}"
   fi
+}
+
+# GET one host API path (/repos/...) into out, with the job token. The token goes in a
+# mode-600 curl config, never in an argument, and the config is removed at once.
+ci_api_get() {
+  local path=$1 out=$2 cfg err http rc
+  cfg=$(ci_mktemp)
+  err=$(ci_mktemp)
+  {
+    printf '%s\n' "header = \"$(ci_auth_header "$JOB_TOKEN")\""
+    printf '%s\n' 'header = "Accept: application/json"'
+    printf '%s\n' "url = \"$(ci_api_base)${path}\""
+    printf '%s\n' "output = \"${out}\""
+    printf '%s\n' 'silent' 'show-error' 'connect-timeout = 10' 'max-time = 60'
+    printf '%s\n' 'write-out = "%{http_code}"'
+  } > "$cfg"
+  set +e
+  http=$(curl --config "$cfg" 2>"$err")
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  if [ "$rc" -ne 0 ] || [ "$http" != "200" ]; then
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
 }
 
 ci_summary_add() {

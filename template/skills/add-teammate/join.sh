@@ -173,7 +173,11 @@ mkdir -p "$cfg"
 printf '%s\n' "$ME" > "$cfg/me"
 chmod 600 "$cfg/me"
 
+# The same order as sync (B43): OS_SYNC_ENGINE, then <config>/engine, then the profile.
 engine=${OS_SYNC_ENGINE:-}
+if [ -z "$engine" ] && [ -f "$cfg/engine" ]; then
+  engine=$(tr -d '\r' < "$cfg/engine" | head -n 1)
+fi
 if [ -z "$engine" ]; then
   engine=$(os_fm_get "$ROOT/company-profile.md" sync_engine 2>/dev/null || true)
 fi
@@ -182,6 +186,24 @@ engine=$(os_trim "$engine")
 word=${engine%% *}
 word=$(os_trim "$word")
 if [ -z "$word" ] || ! command -v "$word" >/dev/null 2>&1; then
+  # The native installer puts claude in ~/.local/bin but does not put that folder on
+  # PATH. Say so, and the step. Do not edit PATH here.
+  if [ -z "$word" ] || [ "$word" = "claude" ]; then
+    if [ -f "$HOME/.local/bin/claude" ] || [ -f "$HOME/.local/bin/claude.exe" ]; then
+      if sync_is_windows; then
+        printf '%s\n' 'Claude Code is in %USERPROFILE%\.local\bin, but that folder is not on PATH. Add it to your user PATH: Start, type "environment variables for your account", open it, select Path, Edit, New, type %USERPROFILE%\.local\bin, OK. Then open a new terminal and run join again.' >&2
+      else
+        case "${SHELL:-}" in
+          */zsh) rc_file=.zshrc ;;
+          *) if [ "$(uname -s)" = "Darwin" ]; then rc_file=.bash_profile; else rc_file=.bashrc; fi ;;
+        esac
+        printf '%s\n' "Claude Code is in ~/.local/bin, but that folder is not on PATH. Run this once, then open a new terminal and run join again:" >&2
+        # shellcheck disable=SC2016
+        printf 'echo '"'"'export PATH="$HOME/.local/bin:$PATH"'"'"' >> ~/%s\n' "$rc_file" >&2
+      fi
+      exit 3
+    fi
+  fi
   if [ -n "$word" ] && [ "$word" != "claude" ]; then
     printf '%s\n' "install ${word} and put it on PATH" >&2
   elif sync_is_windows; then
@@ -190,6 +212,47 @@ if [ -z "$word" ] || ! command -v "$word" >/dev/null 2>&1; then
     printf '%s\n' "Claude Code CLI: curl -fsSL https://claude.ai/install.sh | bash" >&2
   fi
   exit 3
+fi
+# Claude Code outside the desktop app needs its own sign-in. One short call, at most
+# OS_ENGINE_TIMEOUT seconds (default 60), before any job is installed.
+if [ "$word" = "claude" ]; then
+  check_out=$(mktemp)
+  # shellcheck disable=SC2086
+  printf '%s\n' "Print the word ok and nothing else." | $engine > "$check_out" 2>/dev/null &
+  check_pid=$!
+  limit=${OS_ENGINE_TIMEOUT:-60}
+  waited=0
+  # Ask it to stop at the limit. Some programs ignore that, so force it 5 seconds later.
+  while kill -0 "$check_pid" 2>/dev/null; do
+    if [ "$waited" -eq "$limit" ]; then
+      kill "$check_pid" 2>/dev/null || true
+    elif [ "$waited" -ge $((limit + 5)) ]; then
+      # On Git Bash, kill -9 can miss a native program (claude.exe). Ask Windows too.
+      winpid=""
+      if sync_is_windows && [ -r "/proc/$check_pid/winpid" ]; then
+        winpid=$(cat "/proc/$check_pid/winpid" 2>/dev/null || true)
+      fi
+      kill -9 "$check_pid" 2>/dev/null || true
+      if [ -n "$winpid" ]; then
+        taskkill //F //T //PID "$winpid" >/dev/null 2>&1 || true
+      fi
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  # Never wait on a program that is still running: it could block forever.
+  if ! kill -0 "$check_pid" 2>/dev/null; then
+    wait "$check_pid" 2>/dev/null || true
+  fi
+  # Only the word ok counts, so a program that repeats the question does not pass.
+  answer=$(tr -d ' \t\r\n' < "$check_out" | tr '[:upper:]' '[:lower:]')
+  if [ "$answer" != "ok" ] && [ "$answer" != "ok." ]; then
+    rm -f "$check_out"
+    printf '%s\n' "sign in once: run claude, sign in, then /exit" >&2
+    exit 3
+  fi
+  rm -f "$check_out"
 fi
 sync_materialize_links "$ROOT" 1
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
@@ -231,18 +294,16 @@ fi
 
 # Open (or reuse) the terms pull request from sync/<me>, then turn on auto-merge.
 join_terms_pr() {
-  local pr number
-  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}")
+  local pr number body
+  # One plain line, so the review can match the change to it.
+  body=$(mktemp)
+  printf '%s joined and accepted the terms on %s.\n' "$ME" "${PAGE#"$ROOT"/}" > "$body"
+  pr=$(os_host open-pr "$COMPANY_REPO" --head "sync/${ME}" --base main --title "sync: ${ME}" --body-file "$body")
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   [ -n "$number" ] || return 0
   printf 'pr: %s\n' "$number"
   # Like push and propose: the terms pull request merges by itself when the checks pass.
-  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
-    printf '%s\n' "auto-merge: on"
-  else
-    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
-      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
-  fi
+  os_auto_merge_line "$COMPANY_REPO" "$number"
 }
 
 # Where the terms stand comes from the host: on origin/main (merged), on

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -286,6 +287,101 @@ class ReviewErrorTests(unittest.TestCase):
         self.assertNotIn("\r", cfg)
 
 
+class ReviewRetryTests(unittest.TestCase):
+    """B32: a busy vendor (429 or 5xx) gets 3 tries in about 2 minutes, honouring Retry-After."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, text in (("rules.md", "Review rules.\n"), ("title", "t\n"), ("body", "b\n"), ("diff", "ok\n")):
+            (self.root / name).write_text(text, encoding="utf-8")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        # Each call answers the next "<code>[:<retry-after>]" in FAKE_SEQ.
+        curl = self.bin / "curl"
+        curl.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import os, sys
+            from pathlib import Path
+            cfg = Path(sys.argv[sys.argv.index("--config") + 1]).read_text(encoding="utf-8")
+            def opt(name):
+                return [l.split("=", 1)[1].strip().strip('"') for l in cfg.splitlines() if l.startswith(name + " = ")][0]
+            count = Path(os.environ["FAKE_COUNT"])
+            n = int(count.read_text()) if count.exists() else 0
+            count.write_text(str(n + 1))
+            code, _, after = os.environ["FAKE_SEQ"].split(",")[n].partition(":")
+            head = "HTTP/2 " + code + "\\r\\n"
+            if after:
+                head += "retry-after: " + after + "\\r\\n"
+            Path(opt("dump-header")).write_text(head + "\\r\\n", encoding="utf-8")
+            if code == "200":
+                body = '{"choices":[{"message":{"content":"SUMMARY: ok\\\\nVERDICT: PASS"}}]}'
+            else:
+                body = '{"error":{"message":"The model is at capacity"}}'
+            Path(opt("output")).write_text(body, encoding="utf-8")
+            sys.stdout.write(code)
+            """), encoding="utf-8")
+        curl.chmod(0o755)
+        sleep = self.bin / "sleep"
+        sleep.write_text('#!/bin/sh\nprintf \'%s\\n\' "$1" >> "$FAKE_SLEEPS"\n', encoding="utf-8")
+        sleep.chmod(0o755)
+
+    def review(self, seq):
+        count = self.root / "count"
+        count.unlink(missing_ok=True)
+        sleeps = self.root / "sleeps"
+        sleeps.write_text("", encoding="utf-8")
+        result = run(
+            ["bash", str(SCRIPTS / "model-review.sh"), "--rules", str(self.root / "rules.md"),
+             "--title-file", str(self.root / "title"), "--body-file", str(self.root / "body"),
+             "--diff-file", str(self.root / "diff"), "--out", str(self.root / "out")],
+            env={
+                "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                "OS_REVIEW_KEY": KEY,
+                "OS_REVIEW_VENDOR": "xai",
+                "FAKE_SEQ": seq,
+                "FAKE_COUNT": str(count),
+                "FAKE_SLEEPS": str(sleeps),
+            },
+        )
+        return result, int(count.read_text()), sleeps.read_text().split()
+
+    def test_429_then_200_passes_after_retry_after(self):
+        result, calls, sleeps = self.review("429:7,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, 2)
+        self.assertEqual(sleeps, ["7"])
+        self.assertIn("VERDICT: PASS", (self.root / "out").read_text(encoding="utf-8"))
+
+    def test_5xx_backs_off_without_retry_after(self):
+        result, calls, sleeps = self.review("503,502,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+
+    def test_retry_after_is_capped(self):
+        result, calls, sleeps = self.review("429:600,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sleeps, ["60"])
+
+    def test_still_busy_after_three_tries_fails_plainly(self):
+        result, calls, sleeps = self.review("429,500,429:30,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+        self.assertIn("the review service is busy: re-run the checks later", result.stderr)
+        self.assertEqual(
+            (self.root / "out").read_text(encoding="utf-8"),
+            "the review service is busy: re-run the checks later\n",
+        )
+        self.assertNotIn(KEY, result.stdout + result.stderr)
+
+    def test_other_errors_are_not_retried(self):
+        result, calls, sleeps = self.review("401,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (1, []))
+        self.assertIn("the review API returned HTTP 401", result.stderr)
+
+
 class ToolCopyTests(unittest.TestCase):
     def test_every_tool_copy_matches_its_source(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"
@@ -322,6 +418,9 @@ class ToolCopyTests(unittest.TestCase):
         source = ROOT / "template" / "review-rules.md"
         self.assertTrue(default.is_file())
         self.assertEqual(source.read_bytes(), default.read_bytes())
+        # B40: check 6 knows a sync pull request is one person's batch of notes.
+        self.assertIn("A `sync:` pull request is one person's batch of notes", source.read_text())
+        self.assertIn("A rules file mixed into it is still scope creep.", source.read_text())
 
     def test_no_placeholder_line_outside_skills(self):
         # Setup fills these on purpose. They are the tracked template files
@@ -614,6 +713,135 @@ class BaseRulesTests(unittest.TestCase):
         self.assertNotIn("HEAD_RULES", shown)
 
 
+class OverrideCheckoutTests(unittest.TestCase):
+    """B49: an /override comment has no commits in its event. checkout.sh reads the pull
+    request from the host API, and fetches once, with full history."""
+
+    def git(self, *args, env, cwd=None):
+        return subprocess.run(["git", *args], check=True, env=env, cwd=cwd, text=True,
+                              capture_output=True).stdout.strip()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-override-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        self.env = os.environ.copy()
+        self.env.update({
+            "GIT_AUTHOR_NAME": "Ada Admin", "GIT_AUTHOR_EMAIL": "ada.admin@acme.test",
+            "GIT_COMMITTER_NAME": "Ada Admin", "GIT_COMMITTER_EMAIL": "ada.admin@acme.test",
+        })
+        env = self.env
+        bare = self.tmp / "srv" / "acme" / "acme-os.git"
+        bare.parent.mkdir(parents=True)
+        self.git("init", "-q", "--bare", "-b", "main", str(bare), env=env)
+        src = self.tmp / "src"
+        self.git("init", "-q", "-b", "main", str(src), env=env)
+        (src / ".github" / "scripts").mkdir(parents=True)
+        for name in ("checkout.sh", "lib.sh"):
+            (src / ".github" / "scripts" / name).write_text((SCRIPTS / name).read_text())
+        (src / "review-rules.md").write_text("rules\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "one", env=env)
+        (src / "a.md").write_text("a\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "two", env=env)
+        self.git("-C", str(src), "checkout", "-q", "-b", "upgrade/v1", env=env)
+        (src / "b.md").write_text("b\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "upgrade", env=env)
+        self.head = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "checkout", "-q", "main", env=env)
+        (src / "c.md").write_text("c\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "main moves on", env=env)
+        self.base = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "push", "-q", str(bare), "main", "upgrade/v1",
+                 f"{self.head}:refs/pull/1/head", env=env)
+        event = self.tmp / "event.json"
+        event.write_text(json.dumps({
+            "issue": {"number": 1, "pull_request": {"url": "x"}},
+            "comment": {"body": "/override v1 upgrade: stock skills, too large for the model review"},
+        }))
+        (self.tmp / "pr.json").write_text(json.dumps({
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": self.head},
+            "base": {"ref": "main", "sha": self.base},
+        }))
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        curl = bin_dir / "curl"
+        curl.write_text(textwrap.dedent("""\
+            #!/bin/bash
+            # The token is in the --config file, never an argument.
+            printf '%s\\n' "$*" >> "$FAKE_DIR/curl-argv"
+            cfg=$2
+            url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p' "$cfg")
+            out=$(sed -n 's/^output = "\\(.*\\)"$/\\1/p' "$cfg")
+            printf '%s\\n' "$url" >> "$FAKE_DIR/curl-url"
+            if [ -n "${FAKE_API_404:-}" ]; then
+              printf '%s\\n' '{"message":"Not Found"}' > "$out"
+              printf '404'
+              exit 0
+            fi
+            cp "$FAKE_DIR/pr.json" "$out"
+            printf '200'
+            """))
+        curl.chmod(0o755)
+        work = self.tmp / "work"
+        work.mkdir()
+        (self.tmp / "runner").mkdir()
+        self.run_env = {
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(self.tmp),
+            "FAKE_DIR": str(self.tmp),
+            "JOB_TOKEN": "job-token-test-value",
+            "GITHUB_WORKSPACE": str(work),
+            "GITHUB_SERVER_URL": f"file://{self.tmp}/srv",
+            "GITHUB_API_URL": "https://api.github.com",
+            "GITHUB_REPOSITORY": "acme/acme-os",
+            "GITHUB_EVENT_NAME": "issue_comment",
+            "GITHUB_EVENT_PATH": str(event),
+            "RUNNER_TEMP": str(self.tmp / "runner"),
+        }
+
+    def step(self, extra=None):
+        # The workflow's own checkout step: a depth-1 fetch of main, then checkout.sh.
+        lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+        start = lines.index("      - name: checkout")
+        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+        body = []
+        for line in lines[run_at + 1:]:
+            if line.startswith("      - name:"):
+                break
+            body.append(line[10:] if line.startswith(" " * 10) else line.strip())
+        script = self.tmp / "checkout-step.sh"
+        script.write_text("\n".join(body) + "\n")
+        env = dict(self.run_env, **(extra or {}))
+        return run(["bash", str(script)], env=env)
+
+    def state(self, key):
+        return (self.tmp / "runner" / "os-ci" / key).read_text().strip()
+
+    def test_override_takes_its_commits_from_the_pull_request(self):
+        proc = self.step()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.state("head-sha"), self.head)
+        # The pull request's base, not the merge base (main moved on after the branch).
+        self.assertEqual(self.state("base-sha"), self.base)
+        self.assertEqual(self.state("head-ref"), "upgrade/v1")
+        self.assertEqual((self.tmp / "curl-url").read_text().strip(),
+                         "https://api.github.com/repos/acme/acme-os/pulls/1")
+        self.assertNotIn("job-token-test-value", (self.tmp / "curl-argv").read_text())
+        work = self.tmp / "work"
+        self.assertEqual(self.git("-C", str(work), "rev-parse", "--is-shallow-repository", env=self.env), "false")
+        self.assertEqual(self.git("-C", str(work), "rev-parse", "HEAD", env=self.env), self.head)
+
+    def test_override_stops_when_the_pull_request_cannot_be_read(self):
+        proc = self.step({"FAKE_API_404": "1"})
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("checkout failed: could not read pull request 1 from the host", proc.stderr)
+        self.assertNotIn("job-token-test-value", proc.stdout + proc.stderr)
+
+
 class GitAuthHeaderTests(unittest.TestCase):
     """B12: git over HTTP on GitHub refuses "Authorization: token". Both hosts take basic auth."""
 
@@ -729,6 +957,19 @@ class PathMatchTests(unittest.TestCase):
         self.assertTrue(self.match("glob", "areas/x/AGENTS.md", "areas/x/AGENTS.md"))
         self.assertFalse(self.match("glob", "areas/x/AGENTS.md", "AGENTS.md"))
         self.assertFalse(self.match("regex", r".*AGENTS\.md", "AGENTS.md.extra"))
+        # Item 9: the owner lines match at any depth.
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "projects/launch/AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "skills/ingest/SKILL.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertFalse(self.match("glob", "**/skills/", "skills"))
+        self.assertFalse(self.match("glob", "**/skills/", "notes/skills.md"))
+        self.assertTrue(self.match("glob", "/skills/", "skills/ingest/SKILL.md"))
+        self.assertFalse(self.match("glob", "/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertTrue(self.match("glob", "docs/", "docs/a.md"))
+        self.assertTrue(self.match("glob", "docs/", "x/docs/a.md"))
+        self.assertTrue(self.match("regex", r"^(.*/)?AGENTS\.md$", "projects/launch/AGENTS.md"))
+        self.assertFalse(self.match("regex", r"^(.*/)?AGENTS\.md$", "AGENTS.md.bak"))
 
 
 class ReviewParseTests(unittest.TestCase):
@@ -807,7 +1048,12 @@ class ReviewParseTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the review reported a finding", result.stderr)
-        self.assertIn("the review reported a finding", self.out.read_text(encoding="utf-8"))
+        out = self.out.read_text(encoding="utf-8")
+        self.assertIn("the review reported a finding", out)
+        # B36: the comment keeps what the review found.
+        self.assertIn("FINDING: 1 a.md:1 Bad.", out)
+        self.assertIn("FINDING: 1 a.md:1 Bad.", result.stderr)
+        self.assertIn("VERDICT: PASS", out)
 
 
 class GithubStatusTests(unittest.TestCase):

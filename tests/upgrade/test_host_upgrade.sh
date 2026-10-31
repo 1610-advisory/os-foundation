@@ -37,7 +37,14 @@ cat > "$work/bin/host.sh" << 'EOF'
 #!/bin/bash
 printf '%s %s host=%s org=%s\n' "$1" "${2:-}" "${OS_HOST:-unset}" "${OS_ORG:-unset}" >> "$FAKE_HOST_LOG"
 case "$1" in
-  get-token) printf '%s\n' local-token ;;
+  get-token)
+    # after-unprotect: the token fails only at the push to main (round 2, B34-HIDE).
+    if [ "${FAKE_TOKEN:-ok}" = "after-unprotect" ]; then
+      ! grep -q '^unprotect ' "$FAKE_HOST_LOG" || exit 4
+    elif [ "${FAKE_TOKEN:-ok}" != "ok" ]; then
+      exit 4
+    fi
+    printf '%s\n' local-token ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}' ;;
   plan-check)
     if [ "${FAKE_PLAN:-team}" = "free" ]; then
@@ -50,6 +57,9 @@ case "$1" in
   open-pr)
     [ "${FAKE_OPENPR:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
     printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
+  auto-merge-off)
+    [ "${FAKE_AMOFF:-ok}" = "ok" ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
+    printf '%s\n' '{"ok":true}' ;;
   auto-merge)
     [ "${FAKE_AUTOMERGE:-fail}" = "ok" ] && { printf '%s\n' '{"ok":true}'; exit 0; }
     printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
@@ -144,13 +154,13 @@ for repo in acme2-os acme2-marketing; do
   git --git-dir "$bare" show main:.github/review.conf | grep -qx 'vendor=xai' || team_fail "$repo review.conf vendor"
   # v1 owners: rules files only, so notes merge on green checks.
   git --git-dir "$bare" show main:.github/CODEOWNERS | grep -q '^\* ' && team_fail "$repo kept the v0 '*' owner line"
-  git --git-dir "$bare" show main:.github/CODEOWNERS | grep -qx '/AGENTS.md @acme-admin' || team_fail "$repo v1 owners"
+  git --git-dir "$bare" show main:.github/CODEOWNERS | grep -qxF '**/AGENTS.md @acme-admin' || team_fail "$repo v1 owners"
   # Item 26: the company's own line stays, after the rules lines, so it still wins.
   if [ "$repo" = "acme2-os" ]; then
     owners_main=$(git --git-dir "$bare" show main:.github/CODEOWNERS)
     printf '%s\n' "$owners_main" | grep -qx '/docs/legal/ @acme-counsel' || team_fail "upgrade dropped a company CODEOWNERS line"
     [ "$(printf '%s\n' "$owners_main" | grep -n '^/docs/legal/' | cut -d: -f1)" -gt \
-      "$(printf '%s\n' "$owners_main" | grep -n '^/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
+      "$(printf '%s\n' "$owners_main" | grep -n -F '**/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
   fi
   # Only check files: no company content on main.
   changed=$(git --git-dir "$bare" diff --name-only main~1 main | grep -v '^\.github/' | grep -v '^\.gitea/' || true)
@@ -161,12 +171,17 @@ done
 grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-main line"
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
+# B41: the stock skills put the company pull request over the model review's limit. The
+# run measures it the same way and gives the exact /override line.
+grep -q '^override: acme2-os 5 is too large for the model review ([0-9]* bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review$' "$work/run.out" \
+  || team_fail "B41: no override line for a large upgrade pull request"
+grep -q '^override: acme2-marketing' "$work/run.out" && team_fail "B41: override line for the small area pull request"
 
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the company"
-grep -q '^merge-by-hand: acme2-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the area"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme2-marketing 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the area"
 grep -q 'pr-plan: [^ ]*marketing branch upgrade/scripts files .* merge-by-hand$' "$work/dry.out" \
   || team_fail "dry run did not plan merge-by-hand"
 git --git-dir "$work/git/acme2-os.git" rev-parse --verify --quiet refs/heads/upgrade/v1 >/dev/null \
@@ -232,7 +247,7 @@ grep -qx 'checks-on-main: acme2-os already' "$work/run2.out" || team_fail "secon
 grep -qx 'replaced: acme2-os upgrade/v1 (an earlier upgrade run made it)' "$work/run2.out" || team_fail "second run did not replace upgrade/v1"
 grep -qx 'replaced: acme2-marketing upgrade/scripts (an earlier upgrade run made it)' "$work/run2.out" \
   || team_fail "second run did not replace upgrade/scripts"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse main)" = "$before" ] || team_fail "second run wrote main again"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse upgrade/v1)" != "$old_v1" ] || team_fail "upgrade/v1 was not rebuilt"
 git --git-dir "$work/git/acme2-os.git" cat-file -e "upgrade/v1:memory/logs-archive/2026-10-01-ada.md" || team_fail "rebuilt upgrade/v1 lost the logs"
@@ -247,7 +262,7 @@ set -e
 "$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run3.out" 2>&1 \
   || { cat "$work/run3.out" >&2; team_fail "run after a stop failed"; }
 grep -q 'switched the company folder to main from upgrade/v1' "$work/run3.out" || team_fail "run after a stop: no switch to main"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run3.out" || team_fail "run after a stop: no company pull request"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run3.out" || team_fail "run after a stop: no company pull request"
 
 # B27: someone else's commit on the host branch stops the run before any change, with the commands.
 git clone -q -b main "$work/git/acme2-marketing.git" "$work/hand"
@@ -312,13 +327,23 @@ make_v0 "$co5" acme5-os
 : > "$FAKE_HOST_LOG"
 FAKE_AUTOMERGE=ok "$upgrade" --root "$co5" --template "$root/template" --answers "$work/answers" > "$work/am.out" 2>&1 \
   || { cat "$work/am.out" >&2; team_fail "auto-merge run failed"; }
-grep -q '^merge-by-hand: acme5-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the company"
-grep -q '^merge-by-hand: acme5-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the area"
-grep -q 'Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".' "$work/am.out" \
+grep -q '^merge-by-hand: acme5-os 5: it will not merge by itself. .*a plain merge works. .*click "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme5-marketing 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the area"
+grep -q 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".' "$work/am.out" \
   || team_fail "no bypass click path"
+# B38: a reused pull request may still have auto-merge on. The upgrade turns it off.
+grep -q '^auto-merge-off acme5-os ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the company pull request"
+grep -q '^auto-merge-off acme5-marketing ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the area pull request"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
-grep -q 'If it shows "Disable auto-merge", click that first.' "$work/am.out" || team_fail "no disable-auto-merge step"
+# B38-LINE: when auto-merge cannot be turned off, the line must not say it will not merge by itself.
+co9="$work/amoff-fails"
+make_v0 "$co9" acme9-os
+FAKE_AUTOMERGE=ok FAKE_AMOFF=fail "$upgrade" --root "$co9" --template "$root/template" --answers "$work/answers" > "$work/amoff.out" 2>&1 \
+  || { cat "$work/amoff.out" >&2; team_fail "auto-merge-off failure run failed"; }
+grep -q '^merge-by-hand: acme9-os 5: auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first. When its checks are green' "$work/amoff.out" \
+  || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
+grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 
 # Forgejo: the pull requests get auto-merge. A refusal (B7c, item 23) is one line, the run
 # goes on, and the last line names the open pull requests.
@@ -443,6 +468,56 @@ grep -q 'review-command' "$work/solo.out" && team_fail "solo upgrade printed the
 [ "$(git --git-dir "$work/git/acme3-os.git" rev-parse main)" = "$before" ] || team_fail "solo upgrade wrote main"
 git -C "$co3" show upgrade/v1:company-profile.md | grep -qx 'level: solo' || team_fail "solo upgrade level"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "solo upgrade asked for auto-merge"
+grep -q '^override:' "$work/solo.out" && team_fail "B41: solo has no model review, so no override line"
 grep -q '^upgrade: open pull requests: acme3-marketing 5, acme3-os 5\.' "$work/solo.out" || team_fail "solo last line"
+
+# B34: run the upgrade from a template copy, as a person does. The folder is left on
+# upgrade/v1, whose tree holds skills/_host/host.sh. The next run switches back to main,
+# where that file is gone. It must still find the host and finish, or print why it stops.
+tpl="$work/tpl"
+cp -R "$root/template" "$tpl"
+cp "$work/bin/host.sh" "$tpl/skills/_host/host.sh"
+co7="$work/company7"
+make_v0 "$co7" acme7-os
+: > "$FAKE_HOST_LOG"
+set +e
+env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-1.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/b34-1.out" >&2; team_fail "B34 first run exit $rc"; }
+git -C "$co7" checkout -q upgrade/v1
+git -C "$co7/areas/marketing" checkout -q upgrade/scripts
+git -C "$co7" cat-file -e upgrade/v1:skills/_host/host.sh || team_fail "B34: upgrade/v1 has no host layer"
+for mode in --dry-run ""; do
+  set +e
+  # shellcheck disable=SC2086
+  env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" $mode --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-2.out" 2>&1
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || { cat "$work/b34-2.out" >&2; team_fail "B34: run again from the upgrade branch ($mode) exit $rc"; }
+  grep -q 'switched the company folder to main from upgrade/v1' "$work/b34-2.out" || team_fail "B34: no switch to main"
+  git -C "$co7" checkout -q upgrade/v1
+  git -C "$co7/areas/marketing" checkout -q upgrade/scripts
+done
+grep -qx 'replaced: acme7-os upgrade/v1 (an earlier upgrade run made it)' "$work/b34-2.out" || team_fail "B34: run again did not replace upgrade/v1"
+# A sign-in that fails after the switch prints its line (it used to be thrown away).
+set +e
+FAKE_TOKEN=fail env -u OS_HOST_SH "$tpl/skills/upgrade/upgrade.sh" --dry-run --root "$co7" --template "$tpl" --answers "$work/answers" > "$work/b34-3.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 4 ] || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure exit $rc, want 4"; }
+grep -qx 'could not read the git token' "$work/b34-3.out" || { cat "$work/b34-3.out" >&2; team_fail "B34: token failure printed no line"; }
+# Round 2 (B34-HIDE): the token fails at the push of the check tools to main. Its line
+# shows, the protection line too, and the exit is 4.
+co8="$work/company8"
+make_v0 "$co8" acme8-os
+: > "$FAKE_HOST_LOG"
+set +e
+FAKE_TOKEN=after-unprotect "$upgrade" --root "$co8" --template "$root/template" --answers "$work/answers" > "$work/b34-4.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 4 ] || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: exit $rc, want 4"; }
+grep -qx 'could not read the git token' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no token line"; }
+grep -qx 'upgrade stopped. Protection on acme8-os is back on.' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no protection line"; }
 
 printf '%s\n' "PASS host-upgrade"

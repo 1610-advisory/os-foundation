@@ -111,29 +111,54 @@ if [ -n "$event_file" ] && [ -f "$event_file" ]; then
       if [ "$is_pr" != "yes" ]; then
         ci_die 1 "checkout failed: the comment is not on a pull request"
       fi
+      case "$pr_number" in
+        ''|*[!0-9]*) ci_die 1 "checkout failed: the comment has no pull request number" ;;
+      esac
+      # A comment event has no commits. Take them from the pull request itself, as the
+      # pull_request path takes them from its event (B49).
+      pr_json=$(ci_mktemp)
+      if ! ci_api_get "/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" "$pr_json"; then
+        ci_die 1 "checkout failed: could not read pull request ${pr_number} from the host"
+      fi
+      head_ref=$(jq -r '.head.ref // empty' "$pr_json")
+      base_ref=$(jq -r '.base.ref // "main"' "$pr_json")
+      head_sha=$(jq -r '.head.sha // empty' "$pr_json")
+      base_sha=$(jq -r '.base.sha // empty' "$pr_json")
       ;;
   esac
 fi
 
+# One fetch, with full history when the clone is shallow (the workflow fetches main at
+# depth 1). A failed fetch stops here, after git's own line (B49).
+fetch_opts=(--no-tags)
+if [ -f "$(git rev-parse --git-path shallow)" ]; then
+  fetch_opts+=(--unshallow)
+fi
 if [ -n "$pr_number" ]; then
-  ci_git fetch --no-tags origin \
+  ci_git fetch "${fetch_opts[@]}" origin \
     "+refs/pull/${pr_number}/head:refs/remotes/pull/${pr_number}/head" \
-    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}"
+    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}" \
+    || ci_die 1 "checkout failed: could not fetch pull request ${pr_number} and ${base_ref}"
   if [ -z "$head_sha" ]; then
     head_sha=$(git rev-parse "refs/remotes/pull/${pr_number}/head")
   fi
 else
-  ci_git fetch --no-tags origin \
-    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}"
+  ci_git fetch "${fetch_opts[@]}" origin \
+    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}" \
+    || ci_die 1 "checkout failed: could not fetch ${base_ref}"
   head_sha=${GITHUB_SHA:-}
 fi
 
 if [ -z "$head_sha" ]; then
   ci_die 1 "checkout failed: the pull request head is missing"
 fi
-if [ -f "$(git rev-parse --git-path shallow)" ]; then
-  ci_git fetch --unshallow origin || true
-fi
+# The host's commits may be newer than the refs just fetched (a push in between).
+for sha in "$head_sha" "$base_sha"; do
+  [ -n "$sha" ] || continue
+  if ! git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    ci_git fetch --no-tags origin "$sha" || ci_die 1 "checkout failed: commit ${sha} is not on the host"
+  fi
+done
 
 if [ -z "$head_ref" ] && [ -n "$pr_number" ]; then
   head_ref=$(ci_git ls-remote origin 'refs/heads/*' | awk -v sha="$head_sha" '
