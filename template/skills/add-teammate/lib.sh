@@ -494,6 +494,30 @@ os_back_to_main() {
   return 0
 }
 
+# Build a rules/* branch in a temporary worktree on origin/main, never over the folder:
+# after a sync push, the person's notes sit untracked there while origin/main has them,
+# so a checkout would stop (B47). Prints the worktree. Call os_branch_push when done.
+os_branch_start() {
+  local dir=$1 tw
+  tw=$(mktemp -d)
+  if ! git -C "$dir" worktree add -q --detach "$tw/b" origin/main >/dev/null 2>&1; then
+    rm -rf "$tw"
+    os_die 3 "could not prepare the change in ${dir}: run this again"
+  fi
+  printf '%s\n' "$tw/b"
+}
+
+# Push the worktree's commit to the branch (the script's own: a retry replaces it), set
+# origin/<branch> to it, and remove the worktree.
+os_branch_push() {
+  local dir=$1 wt=$2 branch=$3 rc=0
+  os_with_git_token git -C "$wt" push -q --force origin "HEAD:refs/heads/${branch}" || rc=$?
+  [ "$rc" -ne 0 ] || git -C "$wt" update-ref "refs/remotes/origin/${branch}" HEAD
+  git -C "$dir" worktree remove --force "$wt" >/dev/null 2>&1 || true
+  rm -rf "$(dirname "$wt")"
+  [ "$rc" -eq 0 ] || os_die 3 "could not push ${branch}: check the sign-in, then run this again"
+}
+
 # Back on main, put the branch's copy of each path in the folder as a local change, so
 # the person sees it now. It still reaches main only by the branch's pull request: sync
 # push holds a file whose content waits on a rules/* branch on the host.

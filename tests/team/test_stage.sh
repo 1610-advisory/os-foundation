@@ -200,6 +200,33 @@ git --git-dir "$work/origin.git" show "rules/ada/add-bo:people/Bo Baker.md" >/de
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "add-person retry left the folder off main"
 rm -rf "$co/users/bo"
 
+# B47: after a sync push, the admin's note sits untracked here while origin/main has it.
+# add-person and remove build their branch in a temporary worktree, so git never stops.
+note="meetings/2026-10-31 Kickoff.md"
+trees=$(git -C "$co" worktree list --porcelain | grep -c '^worktree ')
+main_was=$(git --git-dir "$work/origin.git" rev-parse main)
+git clone -q -b main "$work/origin.git" "$work/b47"
+mkdir -p "$work/b47/meetings" "$co/meetings"
+printf '%s\n' "a note from sync" > "$work/b47/$note"
+git -C "$work/b47" add -A
+git -C "$work/b47" -c user.name=t -c user.email=t@example.test commit -q -m note
+git -C "$work/b47" push -q origin HEAD:main
+printf '%s\n' "a note from sync" > "$co/$note"
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" \
+  > "$work/b47.out" 2> "$work/b47.err" || { cat "$work/b47.out" "$work/b47.err" >&2; team_fail "B47: add-person stopped on an untracked note"; }
+grep -q 'would be overwritten' "$work/b47.err" && team_fail "B47: raw git error"
+git --git-dir "$work/origin.git" show "rules/ada/add-bo:$note" >/dev/null 2>&1 || team_fail "B47: branch not built on origin/main"
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person sam \
+  --date 2026-10-28 > "$work/b47rm.out" 2> "$work/b47rm.err" \
+  || { cat "$work/b47rm.out" "$work/b47rm.err" >&2; team_fail "B47: remove stopped on an untracked note"; }
+[ "$(cat "$co/$note")" = "a note from sync" ] || team_fail "B47: the note changed"
+[ "$(git -C "$co" worktree list --porcelain | grep -c '^worktree ')" -eq "$trees" ] || team_fail "B47: a worktree was left"
+[ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "B47: the folder left main"
+rm -rf "$co/users/bo" "$co/meetings" "$work/b47"
+# Later steps push this folder's main: put the host's main back.
+git --git-dir "$work/origin.git" update-ref refs/heads/main "$main_was"
+git -C "$co" fetch -q origin
+
 # join.sh: the terms pull request gets auto-merge, and the folder is back on main.
 mkdir -p "$co/users/sam" "$work/home/.claude"
 git -C "$co/users/sam" init -q -b main
