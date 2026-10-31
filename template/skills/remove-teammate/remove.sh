@@ -94,10 +94,19 @@ export OS_PROFILE="$ROOT/company-profile.md"
 COMPANY_REPO=$(os_company_repo "$SLUG")
 WS_REPO=$(os_user_repo "$SLUG" "$PERSON")
 
+# A revoke step. Not found (404) is normal: already removed, or never accepted (B39).
+# Any other error shows. The checks after the revokes decide what is still there.
 try_host() {
+  local err rc
+  err=$(mktemp)
   set +e
-  os_host "$@" >/dev/null
+  os_host "$@" >/dev/null 2>"$err"
+  rc=$?
   set -e
+  if [ "$rc" -ne 0 ] && ! { [ "$rc" -eq 2 ] && grep -q 'HTTP 404' "$err"; }; then
+    cat "$err" >&2
+  fi
+  rm -f "$err"
 }
 
 os_team_names "$SLUG"
@@ -278,6 +287,26 @@ os_host archive-repo "$WS_REPO" >/dev/null
 printf 'revoked: %s\n' "$PERSON"
 printf 'archived: %s\n' "$WS_REPO"
 
+# A pull request that adds this person would stay open and conflict forever (B37).
+# Close it on the company repo and each area on the page.
+for repo in "$COMPANY_REPO" $(for area in $AREAS; do os_area_repo "$SLUG" "$area"; printf '\n'; done); do
+  if ! prs=$(os_host_try open-prs "$repo" 2>/dev/null); then
+    printf 'could not list pull requests on %s: close any rules/*/add-%s pull request by hand\n' "$repo" "$PERSON"
+    continue
+  fi
+  printf '%s' "$prs" | jq -r '(.prs // [])[] | "\(.number) \(.head)"' | while read -r n head; do
+    case "$head" in
+      rules/*/add-"$PERSON")
+        if os_host_try close-pr "$repo" "$n" >/dev/null 2>&1; then
+          printf 'closed: %s %s (it added %s)\n' "$repo" "$n" "$PERSON"
+        else
+          printf 'could not close %s %s: close it by hand\n' "$repo" "$n"
+        fi
+        ;;
+    esac
+  done
+done
+
 ADMIN=$(os_admin_slug_from_pages "$ROOT" || true)
 if [ "$ADMIN" = "$PERSON" ]; then
   ADMIN=$NEW_OWNER
@@ -323,11 +352,13 @@ fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
   if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
-    # A BOT.md is a rules file. On GitHub its code-owner review is the admin, the author
-    # here. Auto-merge would hide the bypass box, so it stays off. An earlier run on the
-    # same branch may have turned it on: the line says to turn it off first.
-    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request. If it shows "Disable auto-merge", click that first. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".\n' \
-      "$COMPANY_REPO" "$number"
+    # A BOT.md is a rules file, and the admin is the author. The admin merges it by hand.
+    # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
+    if ! os_host_try auto-merge-off "$COMPANY_REPO" "$number" >/dev/null 2>&1; then
+      printf 'auto-merge may be on for %s %s: open it and click "Disable auto-merge"\n' "$COMPANY_REPO" "$number"
+    fi
+    printf 'merge-by-hand: %s %s: it changes bots/, so it will not merge by itself. Wait for the green checks. Open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$COMPANY_REPO" "$number" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
   elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
     # Like propose: the pull request merges by itself when its checks pass.
     printf '%s\n' "auto-merge: on"

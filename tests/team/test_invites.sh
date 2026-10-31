@@ -122,6 +122,11 @@ case "$method $bare" in
     fi
     jq -c --argjson id "$id" 'map(select(.id != $id))' "$f" > "$f.new" && mv "$f.new" "$f"
     exit 0 ;;
+  "GET /repos/acme/acme-os/pulls")
+    # B37: a stale add pull request for this person, and another person's sync one.
+    [ -n "${FAKE_ADD_PR:-}" ] && [ "$page" = "1" ] || { printf '%s\n' '[]'; exit 0; }
+    printf '%s\n' '[{"number":7,"head":{"ref":"rules/ada/add-mia"}},{"number":8,"head":{"ref":"sync/dana"}}]'
+    exit 0 ;;
   "GET /repos/acme/"*"/collaborators/"*"/permission")
     printf '%s\n' '{"permission":"none"}'
     exit 0 ;;
@@ -166,6 +171,7 @@ cat > "$work/bin/host.sh" << EOF
 printf '%s\n' "\$*" >> "\$FAKE_HOST_LOG"
 case "\$1" in
   open-pr) printf '%s\n' '{"number":4,"url":"http://example.test/4"}'; exit 0 ;;
+  auto-merge-off) printf '%s\n' '{"ok":true}'; exit 0 ;;
   get-token) printf '%s\n' local-token; exit 0 ;;
   whoami) printf '%s\n' '{"login":"acme-admin"}'; exit 0 ;;
 esac
@@ -244,6 +250,7 @@ FAKE_ORG_REMOVE_500=1 "$root/template/skills/remove-teammate/remove.sh" --root "
 rc=$?
 set -e
 must_stop "org-remove 500" 'org (active)'
+grep -q 'HTTP 500' "$work/f.err" || team_fail "B39: a real org-remove error was hidden"
 # The membership cannot be read: not checked.
 reset_state
 set +e
@@ -271,7 +278,7 @@ reset_state
 # 2. The real run cancels every invite for the person, and only theirs.
 : > "$FAKE_GH_LOG"
 set +e
-"$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
+FAKE_ADD_PR=1 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
   --date 2026-10-29 > "$work/rm.out" 2> "$work/rm.err"
 rc=$?
 set -e
@@ -286,6 +293,12 @@ for want in "DELETE /orgs/acme/invitations/81" "DELETE /repos/acme/acme-marketin
   grep -qx "$want" "$FAKE_GH_LOG" || team_fail "not called: $want"
 done
 grep -q 'invitations/82' "$FAKE_GH_LOG" && team_fail "another person's invite was cancelled"
+# B37: the stale add pull request is closed, and only that one.
+grep -qx 'PATCH /repos/acme/acme-os/pulls/7' "$FAKE_GH_LOG" || team_fail "B37: add pull request not closed"
+grep -q 'pulls/8' "$FAKE_GH_LOG" && team_fail "B37: another pull request was closed"
+grep -qx 'closed: acme-os 7 (it added mia)' "$work/rm.out" || team_fail "B37: no closed: line"
+# B39: a person who is not an org member is normal. No raw 404 lines.
+grep -q 'HTTP 404\|not found or no access' "$work/rm.err" && team_fail "B39: raw 404 lines: $(cat "$work/rm.err")"
 [ "$(jq -c '[.[].id]' "$work/state/org.json")" = "[82]" ] || team_fail "org invites left: $(cat "$work/state/org.json")"
 [ "$(jq length "$work/state/repo/acme-marketing.json")" = "0" ] || team_fail "area invite still pending"
 [ "$(jq length "$work/state/repo/acme-user-mia.json")" = "0" ] || team_fail "workspace invite still pending"
@@ -317,9 +330,10 @@ set -e
 [ "$rc" -eq 0 ] || { cat "$work/bot.out" "$work/bot.err" >&2; team_fail "bot remove exit $rc"; }
 grep -qx 'bot-owner: ada' "$work/bot.out" || team_fail "bot owner not moved: $(cat "$work/bot.out")"
 grep -q '^merge-by-hand: acme-os 4: it changes bots/' "$work/bot.out" || team_fail "no merge-by-hand line"
-# Item 4: the first run (no bot) turned auto-merge on for this branch's pull request. The
-# second run says to turn it off first.
-grep -q 'If it shows "Disable auto-merge", click that first. Tick' "$work/bot.out" || team_fail "item 4: no step to turn auto-merge off"
+# Item 4 and B38: the first run (no bot) turned auto-merge on for this branch's pull
+# request. The second run turns it off, and says a plain merge works for the only owner.
+grep -q '^auto-merge-off acme-os 4' "$FAKE_HOST_LOG" || team_fail "item 4: auto-merge was not turned off"
+grep -q 'When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick' "$work/bot.out" || team_fail "B38: merge-by-hand text"
 grep -q '^auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a bots/ change"
 

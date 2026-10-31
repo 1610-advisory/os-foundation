@@ -172,6 +172,8 @@ for try in 1 2; do
   [ "$rc" -eq 0 ] || { cat "$work/add$try.out" "$work/add$try.err" >&2; team_fail "add-person try $try exit $rc"; }
 done
 grep -q '^main: could not go back to main' "$work/add1.err" || team_fail "add-person did not say it stayed off main"
+# B37: the people-page pull request merges by itself, like join's.
+grep -qx 'auto-merge: on' "$work/add2.out" || team_fail "B37: add-person did not turn on auto-merge"
 git --git-dir "$work/origin.git" show "rules/ada/add-bo:people/Bo Baker.md" >/dev/null 2>&1 \
   || team_fail "add-person branch has no page"
 [ "$(git -C "$co" symbolic-ref --short HEAD)" = "main" ] || team_fail "add-person retry left the folder off main"

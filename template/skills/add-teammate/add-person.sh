@@ -156,5 +156,12 @@ printf 'person: %s\n' "$PERSON"
 printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$PERSON")"
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
+  # Like join: the page is not a rules file, so it merges by itself when the checks pass (B37).
+  if os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
+  fi
 fi
 os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")" "$HOST_KIND" "$HOST_URL"

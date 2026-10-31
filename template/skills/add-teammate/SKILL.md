@@ -76,7 +76,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. Show the hand-off message.
+Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message.
 
 If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 

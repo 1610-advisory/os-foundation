@@ -57,6 +57,7 @@ case "$1" in
   open-pr)
     [ "${FAKE_OPENPR:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
     printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
+  auto-merge-off) printf '%s\n' '{"ok":true}' ;;
   auto-merge)
     [ "${FAKE_AUTOMERGE:-fail}" = "ok" ] && { printf '%s\n' '{"ok":true}'; exit 0; }
     printf '%s\n' "Auto merge is not allowed for this repository" >&2; exit 3 ;;
@@ -172,8 +173,8 @@ grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/r
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the company"
-grep -q '^merge-by-hand: acme2-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the area"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme2-marketing 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run.out" || team_fail "no merge-by-hand line for the area"
 grep -q 'pr-plan: [^ ]*marketing branch upgrade/scripts files .* merge-by-hand$' "$work/dry.out" \
   || team_fail "dry run did not plan merge-by-hand"
 git --git-dir "$work/git/acme2-os.git" rev-parse --verify --quiet refs/heads/upgrade/v1 >/dev/null \
@@ -239,7 +240,7 @@ grep -qx 'checks-on-main: acme2-os already' "$work/run2.out" || team_fail "secon
 grep -qx 'replaced: acme2-os upgrade/v1 (an earlier upgrade run made it)' "$work/run2.out" || team_fail "second run did not replace upgrade/v1"
 grep -qx 'replaced: acme2-marketing upgrade/scripts (an earlier upgrade run made it)' "$work/run2.out" \
   || team_fail "second run did not replace upgrade/scripts"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run2.out" || team_fail "second run: no company pull request"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse main)" = "$before" ] || team_fail "second run wrote main again"
 [ "$(git --git-dir "$work/git/acme2-os.git" rev-parse upgrade/v1)" != "$old_v1" ] || team_fail "upgrade/v1 was not rebuilt"
 git --git-dir "$work/git/acme2-os.git" cat-file -e "upgrade/v1:memory/logs-archive/2026-10-01-ada.md" || team_fail "rebuilt upgrade/v1 lost the logs"
@@ -254,7 +255,7 @@ set -e
 "$upgrade" --root "$co" --template "$root/template" --answers "$work/answers" > "$work/run3.out" 2>&1 \
   || { cat "$work/run3.out" >&2; team_fail "run after a stop failed"; }
 grep -q 'switched the company folder to main from upgrade/v1' "$work/run3.out" || team_fail "run after a stop: no switch to main"
-grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/run3.out" || team_fail "run after a stop: no company pull request"
+grep -q '^merge-by-hand: acme2-os 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/run3.out" || team_fail "run after a stop: no company pull request"
 
 # B27: someone else's commit on the host branch stops the run before any change, with the commands.
 git clone -q -b main "$work/git/acme2-marketing.git" "$work/hand"
@@ -319,13 +320,15 @@ make_v0 "$co5" acme5-os
 : > "$FAKE_HOST_LOG"
 FAKE_AUTOMERGE=ok "$upgrade" --root "$co5" --template "$root/template" --answers "$work/answers" > "$work/am.out" 2>&1 \
   || { cat "$work/am.out" >&2; team_fail "auto-merge run failed"; }
-grep -q '^merge-by-hand: acme5-os 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the company"
-grep -q '^merge-by-hand: acme5-marketing 5: it will not merge by itself. .*clicks "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the area"
-grep -q 'Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".' "$work/am.out" \
+grep -q '^merge-by-hand: acme5-os 5: it will not merge by itself. .*a plain merge works. .*click "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the company"
+grep -q '^merge-by-hand: acme5-marketing 5: it will not merge by itself. .*click "Bypass rules and merge".$' "$work/am.out" || team_fail "no merge-by-hand line for the area"
+grep -q 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".' "$work/am.out" \
   || team_fail "no bypass click path"
+# B38: a reused pull request may still have auto-merge on. The upgrade turns it off.
+grep -q '^auto-merge-off acme5-os ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the company pull request"
+grep -q '^auto-merge-off acme5-marketing ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the area pull request"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
-grep -q 'If it shows "Disable auto-merge", click that first.' "$work/am.out" || team_fail "no disable-auto-merge step"
 
 # Forgejo: the pull requests get auto-merge. A refusal (B7c, item 23) is one line, the run
 # goes on, and the last line names the open pull requests.

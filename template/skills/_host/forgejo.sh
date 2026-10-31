@@ -833,6 +833,46 @@ cmd_auto_merge() {
     '{ok:true, name:$name, number:$number, merge:"merge"}'
 }
 
+# Open pull requests: number and head branch.
+cmd_open_prs() {
+  local page=1 n all='[]'
+  host_need_name
+  while true; do
+    if ! fj_call GET "$(host_repo "$POS1")/pulls?state=open&limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref}]')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --argjson prs "$all" '{prs:$prs}'
+}
+
+cmd_close_pr() {
+  local body
+  host_need_number
+  body=$(jq -nc '{state:"closed"}')
+  if ! fj_call PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body"; then
+    fj_offline
+  fi
+  fj_ok
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, closed:true}'
+}
+
+# Cancel a scheduled merge. 404: none was scheduled, so it is already off.
+cmd_auto_merge_off() {
+  host_need_number
+  if ! fj_call DELETE "$(host_repo "$POS1")/pulls/${POS2}/merge"; then
+    fj_offline
+  fi
+  [ "$FJ_HTTP" = "404" ] || fj_ok
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
+}
+
 cmd_pr_status() {
   local name number pr sha reviews statuses page n
   host_need_number
@@ -1001,6 +1041,9 @@ case "$VERB" in
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;
+  auto-merge-off) cmd_auto_merge_off ;;
+  open-prs) cmd_open_prs ;;
+  close-pr) cmd_close_pr ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

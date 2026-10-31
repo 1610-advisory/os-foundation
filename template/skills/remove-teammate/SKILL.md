@@ -34,10 +34,10 @@ If it exits with an error, tell the admin the exact message and each repo it lis
 ## 3. What it does, in this order
 
 1. **Revoke first.** It removes the person from their teams, from each repo grant (the library repo too, which admins get by a direct grant) and from the org. It cancels every pending invite too, for a person who never accepted. Their sign-in no longer reaches any company repo.
-2. **Workspace.** It archives their workspace repo. Only the admin can read it. The company keeps it. The admin may turn on deletion.
+2. **Workspace.** It archives their workspace repo. Only the admin can read it. The company keeps it. The admin may turn on deletion. It also closes any open pull request that added this person (`rules/*/add-<person>`), so it does not stay open and conflict.
 3. **People page.** It sets `left:` to today on their page in `people/`. The page stays.
 4. **Bots.** Each bot they owned gets the new `owner:` in its `BOT.md`.
-5. **By pull request.** The changes to `people/` and `bots/` go on one branch and one pull request. It merges by itself when the checks pass. `bots/` holds rules files, so the model review runs. On GitHub, when `bots/` changed, the admin is the author, and GitHub never counts the author's own approval. The script leaves auto-merge off, so the bypass box shows, and prints `merge-by-hand:`. Then the admin waits for the green checks and opens the pull request. If an earlier run turned auto-merge on, it shows "Disable auto-merge": they click that first. They tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge". Nobody writes to `main`.
+5. **By pull request.** The changes to `people/` and `bots/` go on one branch and one pull request. It merges by itself when the checks pass. `bots/` holds rules files, so the model review runs. On GitHub, when `bots/` changed, the admin is the author and merges it by hand. The script turns auto-merge off (an earlier run may have turned it on) and prints `merge-by-hand:`. Then the admin waits for the green checks, opens the pull request and merges it. When the admin is the only code owner, a plain merge works. If GitHub asks for a review, they tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge". Nobody writes to `main`.
 6. **Vendor seats.** It prints one `seat:` line per AI vendor seat listed under Connections in `architecture.md`.
 
 Their notes and action logs stay in the areas. They are company knowledge.

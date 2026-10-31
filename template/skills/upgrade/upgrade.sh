@@ -1354,12 +1354,14 @@ pr_merge_path() {
     return 0
   fi
   if [ "$UP_HOST" = "github" ]; then
-    # The admin wrote it and it changes rules files. GitHub never counts the author's own
-    # code-owner approval. The admin bypass on rules-review is a click on the merge box.
-    # Auto-merge stays off: with it on, GitHub shows "Disable auto-merge" in place of
-    # that box.
-    printf 'merge-by-hand: %s %s: it will not merge by itself. When its checks are green, the admin opens it, ticks "Merge without waiting for requirements to be met (bypass rules)" and clicks "Bypass rules and merge".\n' \
-      "$repo" "$number"
+    # The admin wrote it and it changes rules files. The admin merges it by hand. A reused
+    # pull request may still have auto-merge on from an earlier run, and it would merge by
+    # itself (B38). Turn that off.
+    if ! os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+      printf 'auto-merge may be on for %s %s: open it and click "Disable auto-merge"\n' "$repo" "$number"
+    fi
+    printf 'merge-by-hand: %s %s: it will not merge by itself. When its checks are green, the admin opens it and merges it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$repo" "$number" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
   fi
@@ -1561,7 +1563,7 @@ fi
 
 if [ -n "$HAND" ]; then
   if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
-    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request. If it shows "Disable auto-merge", click that first. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".'
+    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request and merge it. When you are the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
   fi
   printf 'upgrade: open pull requests: %s. Merge each one when its checks pass.\n' "$HAND"
 else
