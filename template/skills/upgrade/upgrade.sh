@@ -1533,6 +1533,20 @@ if [ "$HOST_ON" -eq 1 ]; then
     os_die 3 "could not open a pull request for $(os_company_repo "$SLUG")"
   fi
   printf 'pr: %s\n' "$number"
+  # The model review reads at most 100000 bytes of diff, measured as model-review.sh does
+  # (B41). The stock skills make this one bigger. The way through is /override, which
+  # still runs lint and the secret scan.
+  if [ "$TEAM_ON" -eq 1 ]; then
+    review_base=$(git -C "$ROOT" merge-base refs/remotes/origin/main upgrade/v1 2>/dev/null || true)
+    review_size=0
+    if [ -n "$review_base" ]; then
+      review_size=$(git -C "$ROOT" diff --no-color "${review_base}..upgrade/v1" | wc -c | tr -d ' ')
+    fi
+    if [ "$review_size" -gt 100000 ]; then
+      printf 'override: %s %s is too large for the model review (%s bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review\n' \
+        "$(os_company_repo "$SLUG")" "$number" "$review_size"
+    fi
+  fi
   pr_merge_path "$(os_company_repo "$SLUG")" "$number"
 elif [ -d "$ROOT/areas" ]; then
   # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.

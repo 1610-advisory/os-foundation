@@ -169,6 +169,11 @@ done
 grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-main line"
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
+# B41: the stock skills put the company pull request over the model review's limit. The
+# run measures it the same way and gives the exact /override line.
+grep -q '^override: acme2-os 5 is too large for the model review ([0-9]* bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review$' "$work/run.out" \
+  || team_fail "B41: no override line for a large upgrade pull request"
+grep -q '^override: acme2-marketing' "$work/run.out" && team_fail "B41: override line for the small area pull request"
 
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
@@ -453,6 +458,7 @@ grep -q 'review-command' "$work/solo.out" && team_fail "solo upgrade printed the
 [ "$(git --git-dir "$work/git/acme3-os.git" rev-parse main)" = "$before" ] || team_fail "solo upgrade wrote main"
 git -C "$co3" show upgrade/v1:company-profile.md | grep -qx 'level: solo' || team_fail "solo upgrade level"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "solo upgrade asked for auto-merge"
+grep -q '^override:' "$work/solo.out" && team_fail "B41: solo has no model review, so no override line"
 grep -q '^upgrade: open pull requests: acme3-marketing 5, acme3-os 5\.' "$work/solo.out" || team_fail "solo last line"
 
 # B34: run the upgrade from a template copy, as a person does. The folder is left on
