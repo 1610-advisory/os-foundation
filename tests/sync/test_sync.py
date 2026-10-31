@@ -1218,6 +1218,139 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
                              env=self.env).stdout, "b.md\n")
 
+    def host_show(self, ref, path):
+        return run(["git", "--git-dir", str(self.tmp / "origin.git"), "show", f"{ref}:{path}"],
+                   env=self.env).stdout
+
+    def squashed_seat(self):
+        # A note pushed from this seat, squashed on the web, then a teammate's change to
+        # another file merged: main moved past the squash.
+        bare = self.shared_seed()
+        (self.company / "a.md").write_text("a note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"a.md": "a note\n"})
+        self.dana_changes(bare, {"other.md": "other by dana\n"})
+        (self.company / "mine.md").write_text("my next note\n")
+        return bare
+
+    def test_after_a_squash_a_teammates_note_survives_a_pull_then_a_push(self):
+        # Grok r1 P0: a mixed reset left other.md's old text here, and the push sent it back.
+        bare = self.squashed_seat()
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("squash merge", result.stderr)
+        self.assertIn("your other changes are kept", result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "?? mine.md\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+        self.assertEqual(self.host_show(SEAT_REF, "other.md"), "other by dana\n")
+
+    def test_a_squash_found_at_push_keeps_the_teammates_note(self):
+        bare = self.squashed_seat()
+        result = self.sync("push")
+        self.assertIn("squash merge", result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+
+    def test_a_failed_squash_heal_changes_and_sends_nothing(self):
+        bare = self.squashed_seat()
+        before = self.git("rev-parse", "HEAD").stdout
+        branch = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("push", env=dict(self.env, OS_SYNC_SQUASH_FAIL="1"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not take main. Nothing was changed or pushed", result.stderr)
+        self.assertNotIn("this copy now has main", result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, branch)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "?? mine.md\n")
+        self.assertIn("could not take main", self.sync("status").stdout)
+
+    def test_names_with_an_em_dash_or_an_emoji(self):
+        # Grok r1 P1: diff --name-only quoted these, so a both-sides change was missed.
+        dash, emoji = "Supplier call \u2014 notes.md", "Ideas \U0001F4A1.md"
+        bare = self.seed_origin()
+        for name in (dash, emoji):
+            (self.company / name).write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "v1")
+        self.git("push", "-q", "origin", "main")
+        self.dana_changes(bare, {dash: "v1\ndana\n", emoji: "v1\ndana\n"})
+        for name in (dash, emoji):
+            (self.company / name).write_text("v1\nmine\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("changed on the host while you worked"), 2)
+        self.assertNotIn("Ask the admin", result.stdout + result.stderr)
+        for name in (dash, emoji):
+            self.assertEqual((self.company / name).read_text(), "v1\ndana\n")
+        listing = self.reapply_list()
+        self.assertIn(dash, listing)
+        self.assertIn(emoji, listing)
+
+    def test_an_emoji_name_is_no_false_squash(self):
+        # Quoted, both sides read as missing and looked equal: a squash that was not one.
+        emoji = "Ideas \U0001F4A1.md"
+        bare = self.seed_origin()
+        (self.company / emoji).write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "v1")
+        self.git("push", "-q", "origin", "main")
+        (self.company / emoji).write_text("v1\nmine\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {emoji: "v1\ndana\n"})
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("squash", result.stderr)
+        self.assertEqual((self.company / emoji).read_text(), "v1\ndana\n")
+        mine = re.search(r"mine: (.+)", self.reapply_list()).group(1)
+        self.assertEqual(Path(mine).read_text(), "v1\nmine\n")
+
+    def open_merge(self):
+        # A run died inside its own merge: MERGE_HEAD and conflict lines are left.
+        bare = self.shared_seed()
+        (self.company / "shared.md").write_text("1\n2\n3\nmine\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\ndana\n"})
+        self.git("fetch", "-q", "origin")
+        self.git("merge", "-q", "--no-edit", "origin/main", check=False)
+        self.assertEqual(self.git("rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode, 0)
+        self.assertIn("<<<<<<< ", (self.company / "shared.md").read_text())
+        return bare
+
+    def test_a_merge_left_open_is_undone_before_anything(self):
+        bare = self.open_merge()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertIn("pull merge-abort root", self.sync_log())
+        self.assertNotIn("<<<<<<<", self.host_show(SEAT_REF, "shared.md"))
+        self.assertEqual(self.host_show(SEAT_REF, "shared.md"), "1\n2\n3\ndana\n")
+        mine = re.search(r"mine: (.+)", self.reapply_list()).group(1)
+        self.assertEqual(Path(mine).read_text(), "1\n2\n3\nmine\n")
+
+    def test_a_merge_that_cannot_be_undone_sends_nothing(self):
+        bare = self.open_merge()
+        branch = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("push", env=dict(self.env, OS_SYNC_ABORT_FAIL="1"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("a merge stopped halfway here and could not be undone", result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, branch)
+
+    def test_a_file_with_conflict_lines_is_never_committed(self):
+        self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        (self.company / "both.md").write_text("<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> origin/main\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree(SEAT_REF)
+        self.assertIn("ok.md", tree)
+        self.assertNotIn("both.md", tree)
+        self.assertIn("both.md: conflict lines", self.sync("status").stdout)
+
     def test_pull_prunes_a_branch_the_host_deleted(self):
         # Round 4 (47): pull fetches with --prune, so a stale origin/rules/* ref goes.
         self.seed_origin()

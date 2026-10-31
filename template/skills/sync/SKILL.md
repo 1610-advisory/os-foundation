@@ -52,6 +52,7 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
 | `symlink: add it by hand with a pull request` | The whole repo is stopped. Leave the other files alone. Replace the symlink or folder with the real file or a note, or delete it. |
 | `re-apply: changed on the host while you worked` | Someone changed the file before this one merged. Follow `skills/sync/re-apply.md`: make the person's change again on the new text, or ask them when the two changes disagree. Never copy the old version back. |
+| `conflict lines (<<<<<<< or >>>>>>>): ...` | The file still has a merge's conflict lines. Ask the person which text to keep. Keep that text, delete the marker lines, and push again. |
 | `secret scan error` or `engine check failed` | The whole repo is held. Tell the person the line. Do not edit the files. Run `push` at most once more, then stop. The next night tries again. Three nights in a row: tell the admin. |
 
 After a fix, the next nightly push sends it.
@@ -64,7 +65,8 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `sign in again`: the person signs in again through the host's own sign-in.
 - `offline`: nothing to do. The next run tries again.
 - `pull failed for <repo>: this folder has a change that sync did not make` (or `push failed ... a change that sync did not make`): someone ran git by hand. Nothing went up from that repo. Tell the person to send the line to the admin. Never undo the commit yourself.
-- `pull failed for <repo>: your last changes reached main by a squash merge`: nothing was lost; the folder now matches main. Tell the person to send the line to the admin.
+- `pull failed for <repo>: your last changes reached main by a squash merge`: nothing was lost; the folder now has main, and changes not sent yet stay. Tell the person to send the line to the admin. If it says `could not take main`, nothing was changed or pushed: send the line to the admin too.
+- `pull failed for <repo>: a merge stopped halfway here and could not be undone`: nothing went up from that repo. Send the line to the admin. Never run git yourself.
 - `pull failed for <repo>: this folder is not on its main branch`: send the line to the admin. Never switch branches yourself.
 - `auto-merge is off on <repo>: pull request <n> is open but will not merge by itself. ...`: the work went up, but that pull request waits. Tell the person to send the line to the admin. The admin runs the command in it once. The next push merges as usual.
 

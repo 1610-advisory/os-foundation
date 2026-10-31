@@ -58,6 +58,20 @@ sync_mktemp() {
   printf '%s\n' "$f"
 }
 
+# Paths from git diff, log or ls-files, one per line. -z and NUL reads: a path with an
+# accent, an em dash or an emoji is never quoted, so it matches the same path from
+# status -z. A path with a line break is left out, as sync_changed_names does.
+sync_names() {
+  local repo=$1 sub=$2 path
+  shift 2
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      ""|*$'\n'*) continue ;;
+    esac
+    printf '%s\n' "$path"
+  done < <(git -C "$repo" -c core.quotepath=false "$sub" -z "$@" 2>/dev/null)
+}
+
 # The caller removes it when the step is done.
 sync_keep_dir() {
   local d

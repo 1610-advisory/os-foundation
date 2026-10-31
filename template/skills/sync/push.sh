@@ -62,6 +62,13 @@ sync_v0_logs_open() {
   fi
 }
 
+# A file still holding a merge's conflict lines is never committed: it would replace both
+# sides' text on main.
+CONFLICT_REASON="conflict lines (<<<<<<< or >>>>>>>): keep the text you want, delete those lines, then push again"
+sync_has_conflict_lines() {
+  grep -Eq '^(<<<<<<<|>>>>>>>) ' "$1" 2>/dev/null
+}
+
 sync_hold_rules() {
   case "$(basename "$1")" in
     company-rules.md|area-rules.md) return 0 ;;
@@ -497,7 +504,7 @@ sync_push_commits() {
   {
     printf '%s\n' "$SYNC_BODY_START"
     printf "These are %s's notes from sync.\n\n" "$me"
-    git -C "$repo" diff --name-only origin/main...HEAD | sed 's/^/- /'
+    sync_names "$repo" diff --name-only origin/main...HEAD | sed 's/^/- /'
     sync_reapply_questions "$id"
     printf '%s\n' "$SYNC_BODY_END"
   } > "$block"
@@ -537,7 +544,7 @@ sync_old_branch_retire() {
     [ "$(sync_blob_of "$repo" "$old" "$path")" = "$(sync_blob_of "$repo" origin/main "$path")" ] && continue
     sync_apply_fail "$id" "the old branch sync/${me} has ${path}, which this folder lacks; ask the admin"
     return 1
-  done < <(git -C "$repo" diff --name-only --no-renames "origin/main...${old}" 2>/dev/null)
+  done < <(sync_names "$repo" diff --name-only --no-renames "origin/main...${old}")
   listing=$(sync_mktemp)
   if "$HOST_SH" open-prs "$name" > "$listing" 2>/dev/null; then
     number=$(jq -r --arg head "sync/${me}" '[.prs[]? | select(.head == $head) | .number][0] // empty' "$listing")
@@ -570,6 +577,12 @@ sync_push_one() {
   # changed here and on the host is set aside before it can reach a commit (memo 8.1).
   # A failed pull does not stop the push: its line is already out.
   sync_pull_fetched "$repo" "$id" || true
+  # A pull that could not leave the folder safe (an open merge, a squash heal that
+  # failed): its line is out, and nothing here is committed or sent.
+  if sync_pull_stopped "$id"; then
+    sync_log "push stop ${id} the pull did not finish"
+    return 1
+  fi
   if [ "$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" != "main" ]; then
     sync_apply_fail "$id" "this folder is not on its main branch; ask the admin"
     return 1
@@ -639,6 +652,11 @@ sync_push_one() {
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     if awk -F: -v p="$path" 'index($0, p ":") == 1 { found=1 } END { exit !found }' "$hits"; then
+      continue
+    fi
+    if [ -f "$repo/$path" ] && sync_has_conflict_lines "$repo/$path"; then
+      sync_hold_line "$id" "$path" "$CONFLICT_REASON" >> "$added"
+      sync_log "push hold ${id} ${path} conflict lines"
       continue
     fi
     if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then

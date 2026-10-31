@@ -27,13 +27,17 @@ refresh_stock_paths() {
 }
 
 # Paths in the repo's main that a refresh may remove: the same folders as above.
+# -z: a company skill named with an accent is never quoted.
 refresh_repo_paths() {
-  local dir=$1 kind=$2
+  local dir=$1 kind=$2 path
   if [ "$kind" = "root" ]; then
-    git -C "$dir" ls-tree -r --name-only "$REFRESH_BASE" -- skills .github
+    set -- skills .github
   else
-    git -C "$dir" ls-tree -r --name-only "$REFRESH_BASE" -- .github
+    set -- .github
   fi
+  while IFS= read -r -d '' path; do
+    printf '%s\n' "$path"
+  done < <(git -C "$dir" ls-tree -r -z --name-only "$REFRESH_BASE" -- "$@")
 }
 
 refresh_known() {

@@ -40,7 +40,7 @@ sync_changed_names() {
 sync_host_changed() {
   local repo=$1 base
   base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 1
-  git -C "$repo" diff --name-only --no-renames "$base" origin/main
+  sync_names "$repo" diff --name-only --no-renames "$base" origin/main
 }
 
 # Put one path back as HEAD has it. A copy HEAD does not track is removed.
@@ -183,17 +183,38 @@ sync_squashed() {
     [ -n "$path" ] || continue
     [ "$(sync_blob_of "$repo" HEAD "$path")" = "$(sync_blob_of "$repo" origin/main "$path")" ] || return 1
     n=$((n + 1))
-  done < <(git -C "$repo" diff --name-only --no-renames "$base" HEAD)
+  done < <(sync_names "$repo" diff --name-only --no-renames "$base" HEAD)
   [ "$n" -gt 0 ]
 }
 
 # After a squash, main has every file these commits changed, with the same text, so
-# nothing is lost by taking main as it is. The old commits are never pushed again: this
-# computer's branch on the host is deleted, so the next push starts from main.
+# nothing is lost by taking main as it is. The folder takes main's text for every file
+# main has and this commit lacks, a teammate's note merged since too: a reset that kept
+# the old text would make the next push put it back. A file changed here that main changed
+# too is set aside first (8.1); every other change here stays. The old commits are never
+# pushed again: this computer's branch on the host is deleted, so the next push starts
+# from main. Returns 1 when main could not be taken: then nothing moved and the branch stays.
 sync_after_squash() {
-  local repo=$1 id=$2 me seat ref old
+  local repo=$1 id=$2 me seat ref old dirty path
   old=$(git -C "$repo" rev-parse HEAD)
-  git -C "$repo" reset -q origin/main || return 0
+  dirty=$(sync_mktemp)
+  sync_changed_names "$repo" > "$dirty" || true
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    grep -Fxq -- "$path" "$dirty" || continue
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ] \
+      && [ "$(git -C "$repo" hash-object -- "$path" 2>/dev/null)" = "$(sync_blob_of "$repo" origin/main "$path")" ]; then
+      sync_drop_local "$repo" "$path"
+      continue
+    fi
+    sync_set_aside "$repo" "$id" "$path" "$(sync_blob_of "$repo" HEAD "$path")" worktree || return 1
+    sync_drop_local "$repo" "$path"
+  done < <(sync_names "$repo" diff --name-only --no-renames HEAD origin/main)
+  git -C "$repo" reset -q || return 1
+  if [ "${OS_SYNC_SQUASH_FAIL:-}" = "1" ] || ! git -C "$repo" reset -q --merge origin/main >/dev/null 2>&1; then
+    sync_log "pull squash ${id} could not take main"
+    return 1
+  fi
   sync_log "pull squash ${id} took main"
   [ "$id" != "workspace" ] || return 0
   me=$(sync_me)
@@ -217,7 +238,7 @@ sync_merge_host() {
     return 0
   fi
   conflicts=$(sync_mktemp)
-  git -C "$repo" diff --name-only --diff-filter=U > "$conflicts" 2>/dev/null || true
+  sync_names "$repo" diff --name-only --diff-filter=U > "$conflicts" || true
   git -C "$repo" merge --abort >/dev/null 2>&1 || true
   if [ ! -s "$conflicts" ]; then
     return 1
@@ -476,7 +497,9 @@ sync_pull_fail() {
     "not fast-forward") plain="this copy could not take the host's changes. Nothing was changed here. Ask the admin before you change anything." ;;
     "not on main") plain="this folder is not on its main branch. Nothing was changed. Ask the admin." ;;
     "foreign commit") plain="this folder has a change that sync did not make. Nothing was pushed or changed. Ask the admin." ;;
-    "squash") plain="your last changes reached main by a squash merge. Main has your text, so this copy now matches main. Sync needs merge commits: ask the admin never to squash a sync pull request." ;;
+    "squash") plain="your last changes reached main by a squash merge. Main has your text, so this copy now has main, and your other changes are kept. Sync needs merge commits: ask the admin never to squash a sync pull request." ;;
+    "squash: could not take main") plain="your last changes reached main by a squash merge, but this copy could not take main. Nothing was changed or pushed. Ask the admin." ;;
+    "merge left open") plain="a merge stopped halfway here and could not be undone. Nothing was changed or pushed. Ask the admin." ;;
     "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }." ;;
     "v0 catch-up: "*) plain="${reason#v0 catch-up: }." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
@@ -646,10 +669,41 @@ sync_unpushed_count() {
   } | git -C "$repo" rev-list --count --stdin 2>/dev/null || printf '%s\n' unknown
 }
 
+# A pull that could not leave this repo safe. The push in the same run commits nothing
+# there and sends nothing.
+sync_pull_stop() {
+  SYNC_PULL_STOPPED="${SYNC_PULL_STOPPED:-}|$1|"
+}
+
+sync_pull_stopped() {
+  case "${SYNC_PULL_STOPPED:-}" in
+    *"|$1|"*) return 0 ;;
+  esac
+  return 1
+}
+
+# A run that died inside sync's own merge leaves MERGE_HEAD and conflict lines in the
+# files. Undo that merge before anything resets: a reset would clear the merge and keep
+# the conflict lines, and the next push would send them.
+sync_abort_open_merge() {
+  local repo=$1 id=$2
+  git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 0
+  if [ "${OS_SYNC_ABORT_FAIL:-}" != "1" ] && git -C "$repo" merge --abort >/dev/null 2>&1; then
+    sync_log "pull merge-abort ${id}"
+    return 0
+  fi
+  return 1
+}
+
 sync_pull_ff() {
   local repo=$1
   local id=$2
   local tag old link_save err n
+  if ! sync_abort_open_merge "$repo" "$id"; then
+    sync_pull_stop "$id"
+    sync_pull_fail "$id" "merge left open"
+    return 1
+  fi
   if ! sync_git "$repo" fetch --prune origin >/dev/null 2>&1; then
     sync_pull_fail "$id" "could not reach origin"
     return 1
@@ -701,8 +755,12 @@ sync_pull_ff() {
       return 1
     fi
     if sync_squashed "$repo"; then
-      sync_after_squash "$repo" "$id"
-      sync_pull_fail "$id" "squash"
+      if sync_after_squash "$repo" "$id"; then
+        sync_pull_fail "$id" "squash"
+      else
+        sync_pull_stop "$id"
+        sync_pull_fail "$id" "squash: could not take main"
+      fi
       return 1
     fi
     if ! sync_merge_host "$repo" "$id"; then
