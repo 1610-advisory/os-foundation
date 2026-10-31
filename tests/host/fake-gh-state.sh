@@ -111,13 +111,24 @@ case "$method $path" in
     printf '%s\n' '{"number":4,"html_url":"https://github.com/acme/acme-os/pull/4"}'
     ;;
   "GET /repos/acme/acme-os/pulls/4")
-    printf '%s\n' '{"state":"open","merged":false,"head":{"sha":"abc123"}}'
+    # auto-on: auto-merge is set on this pull request.
+    if [ -f "$dir/auto-on" ]; then
+      printf '%s\n' '{"state":"open","merged":false,"node_id":"PR_4","auto_merge":{"merge_method":"merge"},"head":{"sha":"abc123"}}'
+    else
+      printf '%s\n' '{"state":"open","merged":false,"node_id":"PR_4","auto_merge":null,"head":{"sha":"abc123"}}'
+    fi
     ;;
   "GET /repos/acme/acme-os/pulls/4/reviews?per_page=100&page=1")
     printf '%s\n' '[]'
     ;;
   "POST graphql")
     [ ! -f "$dir/graphql-down" ] || refuse 502 "Bad Gateway"
+    if grep -q disablePullRequestAutoMerge "$dir/last-input" 2>/dev/null; then
+      # disable-ignored: GitHub answers 200, but auto-merge stays on.
+      [ -f "$dir/disable-ignored" ] || rm -f "$dir/auto-on"
+      printf '%s\n' '{"data":{"disablePullRequestAutoMerge":{"clientMutationId":null}}}'
+      exit 0
+    fi
     printf '%s\n' '{"data":{"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"checks","conclusion":"SUCCESS","status":"COMPLETED"},{"__typename":"CheckRun","name":"slow","conclusion":null,"status":"IN_PROGRESS"},{"__typename":"StatusContext","context":"model-review","state":"PENDING"}]}}}}]}}}}}'
     ;;
   "GET /repos/acme/acme-os/commits/abc123/check-runs?per_page=100&page=1")

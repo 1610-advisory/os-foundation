@@ -1050,6 +1050,11 @@ cmd_auto_merge_off() {
     q=$(jq -nc --arg id "$id" \
       '{query:"mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}", variables:{id:$id}}')
     host_gh_ok POST "graphql" "$q" >/dev/null
+    # Check the outcome, not only the call: read it again.
+    pr=$(host_gh_ok GET "$(host_repo "$POS1")/pulls/${POS2}")
+    if [ "$(printf '%s' "$pr" | jq -r '.auto_merge == null')" = "false" ]; then
+      host_die 3 "auto-merge is still on for pull request ${POS2}"
+    fi
   fi
   jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
 }

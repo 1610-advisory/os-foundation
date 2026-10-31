@@ -439,6 +439,20 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
         self.assertNotIn("rulesets", " ".join(self.calls()))
 
+    def test_auto_merge_off_checks_the_outcome(self):
+        # Round 4 (B38-GQL): off only when a second read shows no auto-merge.
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.flag("auto-on")
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse((self.dir / "auto-on").exists())
+        self.flag("auto-on")
+        self.flag("disable-ignored")
+        proc = run(["auto-merge-off", "acme-os", "4"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout)
+        self.assertEqual(proc.stderr.strip(), "auto-merge is still on for pull request 4")
+
     def test_auto_merge_on_a_green_pull_request_merges_it(self):
         # B45: GitHub refuses auto-merge when the checks are already green. Merge it now.
         self.flag("clean")
