@@ -41,6 +41,16 @@ printf '%s\n' "# Bot" > "$pass/bots/helper/BOT.md"
 mkdir -p "$pass/memory/logs-archive" "$pass/areas/marketing/memory/logs-archive"
 printf '# Session logs\n\nOne file per person per day: YYYY-MM-DD-{{PERSON_SLUG}}.md\n' > "$pass/memory/logs-archive/README.md"
 cp "$pass/memory/logs-archive/README.md" "$pass/areas/marketing/memory/logs-archive/README.md"
+# B42: an area's own workflow uses the actions form, like the root one.
+mkdir -p "$pass/areas/marketing/.github/workflows"
+# shellcheck disable=SC2016
+printf '%s\n' 'env:' '  OS_REVIEW_VENDOR: ${{ vars.OS_REVIEW_VENDOR }}' > "$pass/areas/marketing/.github/workflows/checks.yml"
+# B42: a workspace made by add-teammate has no placeholder left.
+(
+  # shellcheck disable=SC1090,SC1091
+  . "$root/template/skills/add-teammate/lib.sh"
+  os_write_workspace "$pass/users/mia" mia "Mia Member" acme "Acme Co" "$root/template/skills/add-teammate/workspace" >/dev/null
+)
 export HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config"
 mkdir -p "$HOME"
 if ! out=$("$lint" --ci --root "$pass"); then

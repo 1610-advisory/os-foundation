@@ -661,10 +661,11 @@ os_forgejo_owner() {
 }
 
 os_fill_placeholders() {
-  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb today
   # Split the braces. A line that holds both pairs looks like a placeholder.
   ob='{{'
   cb='}}'
+  today=$(date +%Y-%m-%d)
   # Text files only. Do not print file contents.
   find "$dest" -type f | while IFS= read -r f; do
     case "$f" in
@@ -673,12 +674,16 @@ os_fill_placeholders() {
     sed -i '' \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f" 2>/dev/null || \
     sed -i \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f"

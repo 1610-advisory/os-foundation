@@ -331,6 +331,28 @@ os_host_try() {
   return "$rc"
 }
 
+# Turn on auto-merge and print one line. A green pull request is merged at once (B45).
+os_auto_merge_line() {
+  local repo=$1 number=$2 out err
+  err=$(mktemp)
+  if out=$(os_host_try auto-merge "$repo" "$number" 2>"$err"); then
+    rm -f "$err"
+    if [ "$(printf '%s' "$out" | jq -r '.merge // empty' 2>/dev/null)" = "merged" ]; then
+      printf 'merged: %s %s (its checks were already green)\n' "$repo" "$number"
+    else
+      printf '%s\n' "auto-merge: on"
+    fi
+    return 0
+  fi
+  if grep -q 'is green: merge it' "$err"; then
+    printf 'pull request %s is green: merge it\n' "$number"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$repo" "$number" "$repo"
+  fi
+  rm -f "$err"
+}
+
 os_config_dir() {
   local slug=$1
   printf '%s/%s-os' "${XDG_CONFIG_HOME:-$HOME/.config}" "$slug"
@@ -639,10 +661,11 @@ os_forgejo_owner() {
 }
 
 os_fill_placeholders() {
-  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb today
   # Split the braces. A line that holds both pairs looks like a placeholder.
   ob='{{'
   cb='}}'
+  today=$(date +%Y-%m-%d)
   # Text files only. Do not print file contents.
   find "$dest" -type f | while IFS= read -r f; do
     case "$f" in
@@ -651,12 +674,16 @@ os_fill_placeholders() {
     sed -i '' \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f" 2>/dev/null || \
     sed -i \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f"
