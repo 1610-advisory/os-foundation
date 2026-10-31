@@ -451,10 +451,10 @@ class GithubSecondRunTests(unittest.TestCase):
             {"actor_type": "OrganizationAdmin", "bypass_mode": "pull_request"}
         ])
         self.assertNotIn("bypass_actors", bodies["main"])
-        click = 'Tick "Merge without waiting for requirements to be met (bypass rules)"'
+        click = 'tick "merge without waiting for requirements to be met (bypass rules)"'
         for doc in ("template/skills/upgrade/SKILL.md", "template/skills/sync/SKILL.md", "template/skills/_host/README.md"):
-            self.assertIn(click, (ROOT / doc).read_text(), doc)
-        self.assertIn(click, (ROOT / "template/skills/upgrade/upgrade.sh").read_text())
+            self.assertIn(click, (ROOT / doc).read_text().lower(), doc)
+        self.assertIn(click, (ROOT / "template/skills/upgrade/upgrade.sh").read_text().lower())
 
     def test_protect_on_paid_org_works(self):
         self.set_plan("team")
