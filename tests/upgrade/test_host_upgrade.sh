@@ -212,7 +212,8 @@ body="${FAKE_HOST_LOG}.body.acme2-os"
 [ -f "$body" ] || team_fail "B58: no body for the company pull request"
 head -n 1 "$body" | grep -q "^Upgrade to os-foundation release [0-9]*: the release's rules text, with the company's own lines kept (listed)\.$" \
   || { cat "$body" >&2; team_fail "B58: body does not open with what the upgrade is"; }
-grep -q '^- AGENTS.md: [0-9]* company lines kept$' "$body" || team_fail "B58: body does not list AGENTS.md"
+grep -q '^- AGENTS.md: [0-9]* company lines kept$' "$body" \
+  || { cat "$body" >&2; git -C "$co" log --format='--- %s%n%b' main..upgrade/v1 >&2; team_fail "B58: body does not list AGENTS.md"; }
 grep -q '^Approval moves' "$body" || team_fail "B58: body does not say how approval moves"
 grep -q "^Why: it is this release's default table" "$body" || team_fail "B58: body does not say why approval moves"
 grep -q '^Other changes:' "$body" || team_fail "B58: body lacks the other changes"

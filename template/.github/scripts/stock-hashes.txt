@@ -364,6 +364,7 @@
 6aab01e522c2e12504d11f543f4b7eabeb9db368 skills/sync/SKILL.md
 6abbcb330443809e2a44d694d0bf81af7a3bfbef skills/remove-teammate/CLI.md
 6cab9f558bd543ad2c594f3a762c0a74edc7c966 skills/nightly-review/review-prompt.md
+6d50739e8d2fab78c331c42fbb356d79993f7c0b skills/remove-teammate/remove.sh
 6d56c8f415be8e0094cb96b832f2818113f598ad skills/nightly-review/lib.sh
 6d9b5077ecde101115b62f537b940fdbbd611348 skills/add-teammate/join.sh
 6da010297ab5724c0a36e632ff45e2fecf9c794f skills/add-bot/templates/BOT.md
@@ -554,6 +555,7 @@ abf2a027e03ea316d57becf41e55366ea7540867 skills/remove-teammate/SKILL.md
 ac2942b2eddf08a4b8e7c3477bc1f2148cdbc984 .github/scripts/tools/add-teammate/lib.sh
 ac2942b2eddf08a4b8e7c3477bc1f2148cdbc984 skills/add-teammate/lib.sh
 ac6500e5dcf42c32cc64f5bdddd1311e1cd13d19 skills/remove-leak/remove-leak.sh
+ac9e446638249628ff2ade55dde29d783367a562 skills/upgrade/rules.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
 aed5d758b043de0b8c97d13ff154363cfdffdf54 skills/sync/CLI.md
 af07e22974cf9ebc68c64f45a6db9922c2df3c70 skills/nightly-review/CLI.md

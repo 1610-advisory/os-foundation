@@ -27,7 +27,6 @@
 1b0849aca4460deb037aba773773aa43b081b417 .github/scripts/override.sh
 1c100f3f78a38a51d2cdbfab397ba93471bda1ed skills/add-area/templates/_area/.gitattributes
 1cfe11ac35d3a08e791b7fb5aab045bcadb4a009 .github/scripts/model-review.sh
-2133b3f91028aec2a06ce75680b9cc1c828c2173 skills/remove-teammate/remove.sh
 215e0a6369659b47d22d218325922ac276701f07 skills/add-teammate/workspace/memory/logs/README.md
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
 270074a990f057a703858f9596e5a26a7d0f5935 .github/scripts/tools/host/github.sh
@@ -43,7 +42,6 @@
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
 473df61fd731784ed7dec671d246f3fef0fa8a89 .github/scripts/tools-release
-48a64034aea4e7194e7359247fc5821640fdcdbf skills/upgrade/rules.sh
 4a113c3778f079a4a43cf8b22e551bf20368b304 skills/add-bot/templates/BOT.md
 4b8e866b3381e2ea7a3264f0a606d41de7172c1e skills/remove-teammate/SKILL.md
 4dd6ef550eca24ad7a5bbb86fdba27436151dca9 skills/upgrade/v0/areas/marketing/AGENTS.md
@@ -63,6 +61,7 @@
 63b85343b094ea4552f392f3dcb22cb48c343c05 skills/sync/jobs/macos-interval.plist
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 646341034b13c9e21a6db07331028554efaede85 skills/sync/jobs/linux.service
+6d50739e8d2fab78c331c42fbb356d79993f7c0b skills/remove-teammate/remove.sh
 70186dc2e775269d1b1fbe2c695ec5efd1e6bebf skills/sync/CLI.md
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 7565326fbcf69ba95ecf44c13c8f19b9a8a5c62d skills/upgrade/refresh.sh
@@ -91,6 +90,7 @@
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
+ac9e446638249628ff2ade55dde29d783367a562 skills/upgrade/rules.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
 b185b55f0957e203a102a4a20fde6f04468c1fd1 skills/sync/jobs/macos-admin.plist
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md

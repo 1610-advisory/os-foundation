@@ -339,7 +339,8 @@ offboard_owners() {
   [ -n "$GH" ] || return 1
   for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
     [ -f "$dir/$f" ] || continue
-    os_owner_names "$dir/$f" | grep -Fxq -- "$(printf '%s' "@$GH" | tr '[:upper:]' '[:lower:]')" || continue
+    # A here-string, not a pipe: grep -q could stop the writer early under pipefail.
+    grep -Fxq -- "@$(printf '%s' "$GH" | tr '[:upper:]' '[:lower:]')" <<< "$(os_owner_names "$dir/$f")" || continue
     os_owner_drop "$dir/$f" "$GH" "$ADMIN_GH"
     hit=0
   done

@@ -65,7 +65,7 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 - Every rules PR gets a review by a different model first (`review-rules.md`).
 - Area rules: after the review, the area director approves.
 - Company-root rules: after the review, the admin approves.
-- Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin's approval. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: each other owner on the line approves.
+- Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: the other owners approve.
 - A failed review blocks the merge. Only the admin may override it, with the reason in the PR. The check logs it. Re-run a busy review.
 - Make branches and PRs for the person. They need not know git.
 

@@ -467,14 +467,17 @@ rules_stage_rules() {
 # the release, each rules file merged with the company lines it kept, and how approval
 # moves (the release's default table, nothing the company chose).
 rules_pr_body() {
-  local repo=$1 base=$2 dest=$3 subject notes rel n line release
+  local repo=$1 base=$2 dest=$3 subject subjects notes rel n line release
   release=$(tr -cd '0-9' < "$TEMPLATE/.github/scripts/tools-release" 2>/dev/null || true)
   notes=$(mktemp)
   git -C "$repo" log --format=%B --grep='^Upgrade: rules merge$' "${base}..HEAD" \
     | { grep -E '^(merged|kept|moved): ' || true; } > "$notes"
   {
     printf "Upgrade to os-foundation release %s: the release's rules text, with the company's own lines kept (listed).\n" "${release:-unknown}"
-    if git -C "$repo" log --format='%s' "${base}..HEAD" | grep -qx 'Upgrade: rules merge'; then
+    # Read the log first: grep -q in a pipe can stop git log early, and pipefail then
+    # reads that as no match.
+    subjects=$(git -C "$repo" log --format='%s' "${base}..HEAD")
+    if grep -qx 'Upgrade: rules merge' <<< "$subjects"; then
       printf '\n%s\n' "Rules merge (code owner reviews this first). Each file below is now this release's text, with the company's own lines put back:"
       sed -n 's/^merged: //p' "$notes" | while IFS= read -r rel; do
         n=$(grep -cF -- "kept: ${rel}: " "$notes" || true)
