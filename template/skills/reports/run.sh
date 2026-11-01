@@ -398,6 +398,8 @@ rp_write_weekly() {
   elif [ ! -f "$DIR/report-prompt.md" ] && [ "$rel" != "." ]; then
     summary_note="The summary did not run."
   fi
+  # An area may have no reports/ folder yet (S7): make it before writing.
+  mkdir -p "$repo/reports"
   {
     rp_front "week" "What happened in ${area}, week ${WEEK}" \
       "$(printf 'week: %s\narea: %s' "$WEEK" "$area")"

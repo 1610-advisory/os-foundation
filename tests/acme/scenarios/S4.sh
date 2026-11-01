@@ -65,9 +65,10 @@ else
   osf_use_seat "$slug" sam acme-member-d || osf_result "S4 FAIL member token missing"
 fi
 bash "$dest/skills/sync/sync.sh" push >"$work/push2.log" 2>&1 || true
-branch="sync/sam"
+seat=$(bash "$dest/skills/sync/sync.sh" seat)
+branch="sync/sam/$seat"
 if [ "$second" = "member-b" ]; then
-  branch="sync/max"
+  branch="sync/max/$seat"
 fi
 osf_host S4 file "$org" "${slug}-marketing" notes/used.md --ref "$branch"
 used=$(cat "$OSF_HOST_JSON")

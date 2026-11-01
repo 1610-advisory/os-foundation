@@ -30,7 +30,7 @@ The flags are in `skills/remove-leak/CLI.md`. Use exactly those.
 2. **What to remove?** One of:
    - **A file path**, when the whole file must go. Suggest the path from the hit.
    - **A scan rule id**, when a secret sits inside a file that should stay. It works for `aws-access-key`, `generic-api-key` and `private-key`, and for ids in `skills/sync/secret-patterns.txt`. The script replaces each match with `[removed]`. Other scan ids (`github-pat`, `slack-bot-token`, `high-entropy`): use the file path.
-3. **Is it still in an open pull request?** Suggest yes if the nightly push sent it today. Then ask for the pull request number and its branch (for example `sync/<person>`).
+3. **Is it still in an open pull request?** Suggest yes if the nightly push sent it today. Then ask for the pull request number and its branch (for example `sync/<person>/<computer>`).
 
 ## 3. Check the tool
 

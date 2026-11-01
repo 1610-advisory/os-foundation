@@ -1,1 +1,2 @@
+{"body":null,"method":"GET","path":"/repos/acme/acme-os"}
 {"body":{"archived":true},"method":"PATCH","path":"/repos/acme/acme-os"}

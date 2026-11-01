@@ -9,14 +9,16 @@ method=GET
 path=""
 include=0
 merge=0
+auto=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --method) method=$2; shift 2 ;;
-    --input) cat > /dev/null; shift 2 ;;
+    --input) cat > "$dir/last-input"; shift 2 ;;
     --hostname|--repo|-H) shift 2 ;;
     -i) include=1; shift ;;
     pr) shift ;;
     merge) merge=1; shift ;;
+    --auto) auto=1; shift ;;
     api) shift ;;
     /*|graphql) path=$1; shift ;;
     *) shift ;;
@@ -29,6 +31,15 @@ refuse() {
 }
 
 if [ "$merge" -eq 1 ]; then
+  # B45: the checks are already green. --auto is refused; a plain merge works.
+  if [ -f "$dir/clean" ] && [ "$auto" -eq 1 ]; then
+    printf '%s\n' "GraphQL: Pull request is in clean status (enablePullRequestAutoMerge)" >&2
+    exit 1
+  fi
+  if [ -f "$dir/clean" ] && [ -f "$dir/merge-fails" ]; then
+    printf '%s\n' "GraphQL: Base branch was modified (mergePullRequest)" >&2
+    exit 1
+  fi
   if [ -f "$dir/auto-merge-off" ] && [ ! -f "$dir/allowed" ]; then
     printf '%s\n' "GraphQL: Auto merge is not allowed for this repository (enablePullRequestAutoMerge)" >&2
     exit 1
@@ -62,9 +73,19 @@ case "$method $path" in
     printf '%s\n' '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true}'
     ;;
   "GET /repos/acme/acme-os")
-    printf '%s\n' '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true}'
+    [ ! -f "$dir/repo-missing" ] || refuse 404 "Not Found"
+    archived=false
+    [ ! -f "$dir/archived" ] || archived=true
+    printf '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true,"archived":%s}\n' "$archived"
     ;;
   "PATCH /repos/acme/acme-os")
+    # B66: GitHub refuses any change to an archived repo.
+    [ ! -f "$dir/archived" ] || refuse 403 "Repository was archived so is read-only."
+    if grep -q '"archived":true' "$dir/last-input" 2>/dev/null; then
+      touch "$dir/archived"
+      printf '%s\n' '{"archived":true}'
+      exit 0
+    fi
     [ ! -f "$dir/patch-denied" ] || refuse 403 "Must have admin rights to Repository."
     touch "$dir/allowed"
     printf '%s\n' '{"allow_auto_merge":true}'
@@ -93,14 +114,60 @@ case "$method $path" in
     fi
     refuse 404 "Branch not protected"
     ;;
+  "DELETE /repos/acme/acme-os/branches/logs/protection")
+    # B61: v0 Part A protected logs on paid plans (no deletion, admins included).
+    [ ! -f "$dir/logs-rule-denied" ] || refuse 403 "Must have admin rights to Repository."
+    if [ -f "$dir/logs-rule" ]; then
+      rm -f "$dir/logs-rule"
+      exit 0
+    fi
+    refuse 404 "Branch not protected"
+    ;;
+  "GET /repos/acme/acme-os/git/ref/heads/logs")
+    [ ! -f "$dir/logs-check-down" ] || refuse 500 "Server Error"
+    [ -f "$dir/logs" ] || refuse 404 "Not Found"
+    printf '%s\n' '{"ref":"refs/heads/logs","object":{"sha":"abc123"}}'
+    ;;
+  "DELETE /repos/acme/acme-os/git/refs/heads/logs")
+    [ ! -f "$dir/logs-delete-down" ] || refuse 500 "Server Error"
+    # Grok r5 P2: a 422 that is not "gone" (the branch stays).
+    [ ! -f "$dir/logs-delete-refused" ] || refuse 422 "Validation Failed"
+    [ ! -f "$dir/logs-rule" ] || refuse 422 "Cannot delete this protected branch (GH006)"
+    if [ -f "$dir/logs" ]; then
+      rm -f "$dir/logs"
+      exit 0
+    fi
+    refuse 422 "Reference does not exist"
+    ;;
+  "GET /repos/acme/acme-os/pulls?state=open&per_page=100&page=1")
+    # B40 b: open-prs gives each body. A web edit has CR LF; no body is null.
+    printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"},"body":"Ada: keep this.\r\n<!-- sync:files -->"},{"number":5,"head":{"ref":"rules/ada/x"},"body":null}]'
+    ;;
+  "GET /repos/acme/acme-os/pulls?state=open&head="*)
+    printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"}}]'
+    ;;
+  "PATCH /repos/acme/acme-os/pulls/4")
+    printf '%s\n' '{"number":4,"html_url":"https://github.com/acme/acme-os/pull/4"}'
+    ;;
   "GET /repos/acme/acme-os/pulls/4")
-    printf '%s\n' '{"state":"open","merged":false,"head":{"sha":"abc123"}}'
+    # auto-on: auto-merge is set on this pull request.
+    if [ -f "$dir/auto-on" ]; then
+      printf '%s\n' '{"state":"open","merged":false,"node_id":"PR_4","auto_merge":{"merge_method":"merge"},"head":{"sha":"abc123"}}'
+    else
+      printf '%s\n' '{"state":"open","merged":false,"node_id":"PR_4","auto_merge":null,"head":{"sha":"abc123"}}'
+    fi
     ;;
   "GET /repos/acme/acme-os/pulls/4/reviews?per_page=100&page=1")
     printf '%s\n' '[]'
     ;;
   "POST graphql")
     [ ! -f "$dir/graphql-down" ] || refuse 502 "Bad Gateway"
+    if grep -q disablePullRequestAutoMerge "$dir/last-input" 2>/dev/null; then
+      # disable-ignored: GitHub answers 200, but auto-merge stays on.
+      [ -f "$dir/disable-ignored" ] || rm -f "$dir/auto-on"
+      printf '%s\n' '{"data":{"disablePullRequestAutoMerge":{"clientMutationId":null}}}'
+      exit 0
+    fi
     printf '%s\n' '{"data":{"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","name":"checks","conclusion":"SUCCESS","status":"COMPLETED"},{"__typename":"CheckRun","name":"slow","conclusion":null,"status":"IN_PROGRESS"},{"__typename":"StatusContext","context":"model-review","state":"PENDING"}]}}}}]}}}}}'
     ;;
   "GET /repos/acme/acme-os/commits/abc123/check-runs?per_page=100&page=1")

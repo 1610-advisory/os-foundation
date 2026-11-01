@@ -205,6 +205,19 @@ try {
     exit 1
   }
 
+  # r8: join and an old v0 folder cloned with Git for Windows' own core.autocrlf=true. The
+  # base set aside and the person's copy differ only by the one edit.
+  $joinTest = (Join-Path $repo 'tests\team\test_join_old.sh') -replace '\\', '/'
+  $joinOutFile = Join-Path $script:work 'join-old-out.txt'
+  $joinErrFile = Join-Path $script:work 'join-old-err.txt'
+  & $bash $joinTest > $joinOutFile 2> $joinErrFile
+  $joinCode = $LASTEXITCODE
+  $joinOut = ''
+  if (Test-Path -LiteralPath $joinOutFile) { $joinOut = [System.IO.File]::ReadAllText($joinOutFile) }
+  if (Test-Path -LiteralPath $joinErrFile) { Get-Content -LiteralPath $joinErrFile | Out-Host }
+  Write-Output $joinOut
+  if ($joinCode -eq 0 -and $joinOut -match '(?m)^PASS\r?$') { Pass 'join-crlf' } else { Fail 'join-crlf' "exit $joinCode" }
+
   $seed = Join-Path $script:work 'seed'
   Copy-Tree (Join-Path $repo 'template') $seed
   Remove-LinkPath $seed '.agents/skills'
@@ -300,6 +313,7 @@ set -euo pipefail
 case "${1:-}" in
   whoami) printf '%s\n' '{"login":"mia-member"}' ;;
   get-token) printf '%s\n' 'local-token' ;;
+  open-prs) printf '%s\n' '[]' ;;
   open-pr) printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
   auto-merge) printf '%s\n' '{"ok":true}' ;;
   repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
@@ -312,6 +326,9 @@ esac
   $cfg = Join-Path $xdg 'acme-os'
   New-Item -ItemType Directory -Path $cfg -Force | Out-Null
   Write-Utf8 (Join-Path $cfg 'me') "mia`n"
+  # This computer's seat: its notes go to sync/mia/<seat>.
+  Write-Utf8 (Join-Path $cfg 'seat') "win-0a1b`n"
+  $syncRef = 'refs/heads/sync/mia/win-0a1b'
   $jobsDir = Join-Path $script:spaced 'jobs'
   $env:OS_COMPANY_ROOT = ($member -replace '\\', '/')
   $env:OS_PROFILE = ((Join-Path $member 'company-profile.md') -replace '\\', '/')
@@ -638,8 +655,8 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
 
   Write-Utf8 (Join-Path $member 'notes\clean.md') "a clean note`n"
   $pushCode = Invoke-Sync @('push')
-  $tree = & git --git-dir=$bare ls-tree -r --name-only refs/heads/sync/mia
-  $mode = & git --git-dir=$bare ls-tree refs/heads/sync/mia .agents/skills
+  $tree = & git --git-dir=$bare ls-tree -r --name-only $syncRef
+  $mode = & git --git-dir=$bare ls-tree $syncRef .agents/skills
   $staged = & git -C $member diff --cached --name-only
   $linkStaged = $false
   foreach ($line in @($staged)) {
@@ -652,31 +669,49 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
     Fail 'push' "exit $pushCode"
     Fail 'links-push' 'link path was staged or the commit missed the note'
   }
-  Remove-Item -LiteralPath (Join-Path $member 'notes\clean.md') -Force -ErrorAction SilentlyContinue
 
-  $beforeHold = & git --git-dir=$bare rev-parse refs/heads/sync/mia
+  # A case-only rename, as Explorer makes it. Git on Windows ignores case, so the note stays
+  # notes/clean.md in git: the push must not fail, lose the note or send it twice.
+  $caseTmp = Join-Path $member 'notes\clean.md.tmp'
+  [System.IO.File]::Move((Join-Path $member 'notes\clean.md'), $caseTmp)
+  [System.IO.File]::Move($caseTmp, (Join-Path $member 'notes\Clean.md'))
+  $caseCode = Invoke-Sync @('push')
+  $caseHits = @(& git --git-dir=$bare ls-tree -r --name-only $syncRef -- notes | Where-Object { $_ -ieq 'notes/clean.md' })
+  $caseDirty = @(& git -C $member status --porcelain -- notes)
+  if ($caseCode -eq 0 -and $caseHits.Count -eq 1 -and $caseDirty.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $member 'notes\Clean.md'))) {
+    Pass 'case-rename'
+  } else {
+    Fail 'case-rename' "exit $caseCode, $($caseHits.Count) copies on the host, $($caseDirty.Count) changes left"
+  }
+
+  # The pull request merges with a merge commit, as the host does it. Later pulls are fast-forwards.
+  Invoke-Git $seed @('fetch', '-q', 'origin', "${syncRef}:refs/remotes/origin/seat")
+  Invoke-Git $seed @('merge', '-q', '--no-ff', '-m', 'Merge sync pull request', 'refs/remotes/origin/seat')
+  Invoke-Git $seed @('push', '-q', 'origin', 'main')
+
+  $beforeHold = & git --git-dir=$bare rev-parse $syncRef
   Write-Utf8 (Join-Path $member 'notes\hold.md') "HOLD-ME`n"
   Invoke-Sync @('push') | Out-Null
-  $afterHold = & git --git-dir=$bare rev-parse refs/heads/sync/mia
-  $holdTree = & git --git-dir=$bare ls-tree -r --name-only refs/heads/sync/mia
+  $afterHold = & git --git-dir=$bare rev-parse $syncRef
+  $holdTree = & git --git-dir=$bare ls-tree -r --name-only $syncRef
   Remove-Item -LiteralPath (Join-Path $member 'notes\hold.md') -Force
   if ($beforeHold -eq $afterHold -and $holdTree -notcontains 'notes/hold.md') { Pass 'hold-engine' } else { Fail 'hold-engine' 'a commit was pushed' }
 
   $env:OS_SYNC_ENGINE = 'osf-missing-engine'
-  $beforeMiss = & git --git-dir=$bare rev-parse refs/heads/sync/mia
+  $beforeMiss = & git --git-dir=$bare rev-parse $syncRef
   Write-Utf8 (Join-Path $member 'notes\missing.md') "missing engine`n"
   $missCode = Invoke-Sync @('push')
-  $afterMiss = & git --git-dir=$bare rev-parse refs/heads/sync/mia
+  $afterMiss = & git --git-dir=$bare rev-parse $syncRef
   Remove-Item -LiteralPath (Join-Path $member 'notes\missing.md') -Force
   $env:OS_SYNC_ENGINE = $engine
   if ($missCode -ne 0 -and $beforeMiss -eq $afterMiss) { Pass 'missing-engine' } else { Fail 'missing-engine' "exit $missCode" }
 
   $secret = 'gh' + 'p_' + ('a' * 36)
-  $beforeSecret = & git --git-dir=$bare rev-parse refs/heads/sync/mia
+  $beforeSecret = & git --git-dir=$bare rev-parse $syncRef
   Write-Utf8 (Join-Path $member 'notes\secret.md') ("token = " + $secret + "`n")
   $secretCode = Invoke-Sync @('push')
-  $afterSecret = & git --git-dir=$bare rev-parse refs/heads/sync/mia
-  $shown = & git --git-dir=$bare grep -l -F $secret refs/heads/sync/mia
+  $afterSecret = & git --git-dir=$bare rev-parse $syncRef
+  $shown = & git --git-dir=$bare grep -l -F $secret $syncRef
   Remove-Item -LiteralPath (Join-Path $member 'notes\secret.md') -Force
   if ($beforeSecret -eq $afterSecret -and -not $shown) {
     Pass 'secret-hold'

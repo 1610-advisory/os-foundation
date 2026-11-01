@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -286,6 +287,101 @@ class ReviewErrorTests(unittest.TestCase):
         self.assertNotIn("\r", cfg)
 
 
+class ReviewRetryTests(unittest.TestCase):
+    """B32: a busy vendor (429 or 5xx) gets 3 tries in about 2 minutes, honouring Retry-After."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, text in (("rules.md", "Review rules.\n"), ("title", "t\n"), ("body", "b\n"), ("diff", "ok\n")):
+            (self.root / name).write_text(text, encoding="utf-8")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        # Each call answers the next "<code>[:<retry-after>]" in FAKE_SEQ.
+        curl = self.bin / "curl"
+        curl.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import os, sys
+            from pathlib import Path
+            cfg = Path(sys.argv[sys.argv.index("--config") + 1]).read_text(encoding="utf-8")
+            def opt(name):
+                return [l.split("=", 1)[1].strip().strip('"') for l in cfg.splitlines() if l.startswith(name + " = ")][0]
+            count = Path(os.environ["FAKE_COUNT"])
+            n = int(count.read_text()) if count.exists() else 0
+            count.write_text(str(n + 1))
+            code, _, after = os.environ["FAKE_SEQ"].split(",")[n].partition(":")
+            head = "HTTP/2 " + code + "\\r\\n"
+            if after:
+                head += "retry-after: " + after + "\\r\\n"
+            Path(opt("dump-header")).write_text(head + "\\r\\n", encoding="utf-8")
+            if code == "200":
+                body = '{"choices":[{"message":{"content":"SUMMARY: ok\\\\nVERDICT: PASS"}}]}'
+            else:
+                body = '{"error":{"message":"The model is at capacity"}}'
+            Path(opt("output")).write_text(body, encoding="utf-8")
+            sys.stdout.write(code)
+            """), encoding="utf-8")
+        curl.chmod(0o755)
+        sleep = self.bin / "sleep"
+        sleep.write_text('#!/bin/sh\nprintf \'%s\\n\' "$1" >> "$FAKE_SLEEPS"\n', encoding="utf-8")
+        sleep.chmod(0o755)
+
+    def review(self, seq):
+        count = self.root / "count"
+        count.unlink(missing_ok=True)
+        sleeps = self.root / "sleeps"
+        sleeps.write_text("", encoding="utf-8")
+        result = run(
+            ["bash", str(SCRIPTS / "model-review.sh"), "--rules", str(self.root / "rules.md"),
+             "--title-file", str(self.root / "title"), "--body-file", str(self.root / "body"),
+             "--diff-file", str(self.root / "diff"), "--out", str(self.root / "out")],
+            env={
+                "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                "OS_REVIEW_KEY": KEY,
+                "OS_REVIEW_VENDOR": "xai",
+                "FAKE_SEQ": seq,
+                "FAKE_COUNT": str(count),
+                "FAKE_SLEEPS": str(sleeps),
+            },
+        )
+        return result, int(count.read_text()), sleeps.read_text().split()
+
+    def test_429_then_200_passes_after_retry_after(self):
+        result, calls, sleeps = self.review("429:7,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, 2)
+        self.assertEqual(sleeps, ["7"])
+        self.assertIn("VERDICT: PASS", (self.root / "out").read_text(encoding="utf-8"))
+
+    def test_5xx_backs_off_without_retry_after(self):
+        result, calls, sleeps = self.review("503,502,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+
+    def test_retry_after_is_capped(self):
+        result, calls, sleeps = self.review("429:600,200")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sleeps, ["60"])
+
+    def test_still_busy_after_three_tries_fails_plainly(self):
+        result, calls, sleeps = self.review("429,500,429:30,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (3, ["20", "40"]))
+        self.assertIn("the review service is busy: re-run the checks later", result.stderr)
+        self.assertEqual(
+            (self.root / "out").read_text(encoding="utf-8"),
+            "the review service is busy: re-run the checks later\n",
+        )
+        self.assertNotIn(KEY, result.stdout + result.stderr)
+
+    def test_other_errors_are_not_retried(self):
+        result, calls, sleeps = self.review("401,200")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual((calls, sleeps), (1, []))
+        self.assertIn("the review API returned HTTP 401", result.stderr)
+
+
 class ToolCopyTests(unittest.TestCase):
     def test_every_tool_copy_matches_its_source(self):
         tools = ROOT / "template" / ".github" / "scripts" / "tools"
@@ -322,6 +418,9 @@ class ToolCopyTests(unittest.TestCase):
         source = ROOT / "template" / "review-rules.md"
         self.assertTrue(default.is_file())
         self.assertEqual(source.read_bytes(), default.read_bytes())
+        # B40: check 6 knows a sync pull request is one person's batch of notes.
+        self.assertIn("A `sync:` pull request is one person's batch of notes", source.read_text())
+        self.assertIn("A rules file mixed into it is still scope creep.", source.read_text())
 
     def test_no_placeholder_line_outside_skills(self):
         # Setup fills these on purpose. They are the tracked template files
@@ -557,7 +656,11 @@ class ToolsReleaseTests(unittest.TestCase):
 
         base = ROOT / "template" / ".github"
         files = [base / "workflows" / "checks.yml"] + sorted(
-            p for p in (base / "scripts").rglob("*") if p.is_file() and p.name != "tools-release"
+            p for p in (base / "scripts").rglob("*")
+            # The stock lists change with every stock file. The upgrade merges stock-hashes.txt
+            # into main whatever the release, and puts stock-current.txt on main at the same
+            # release, so they need no release of their own.
+            if p.is_file() and p.name not in ("tools-release", "stock-hashes.txt", "stock-current.txt")
         )
         digest = hashlib.sha256()
         for p in files:
@@ -570,6 +673,90 @@ class ToolsReleaseTests(unittest.TestCase):
             (want_release, want_hash),
             "check tools changed: raise template/.github/scripts/tools-release, then update " + str(self.FIXTURE.name),
         )
+
+
+class ReviewDiffTests(unittest.TestCase):
+    """B57: the review leaves out a file exactly as this release ships it, by the base list."""
+
+    def test_stock_text_is_left_out_and_a_changed_one_is_shown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            (repo / "notes.md").write_text("start\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "start")
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True,
+                                  capture_output=True, check=True).stdout.strip()
+            skill = repo / "skills" / "lint"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("STOCK_TEXT\n")
+            (skill / "edited.md").write_text("COMPANY_EDIT\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "head")
+            def blob(path):
+                return subprocess.run(["git", "-C", str(repo), "rev-parse", f"HEAD:{path}"], text=True,
+                                      capture_output=True, check=True).stdout.strip()
+            hashes = Path(tmp) / "stock-current.txt"
+            # The stock list names SKILL.md's text. edited.md's text is listed at another path only.
+            hashes.write_text(f"# list\n{blob('skills/lint/SKILL.md')} skills/lint/SKILL.md\n"
+                              f"{blob('skills/lint/edited.md')} skills/other/edited.md\n")
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD", str(hashes)], cwd=repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("STOCK_TEXT", result.stdout)
+            self.assertIn("COMPANY_EDIT", result.stdout)
+            self.assertIn("# 1 file is left out", result.stdout)
+            # No list: everything is shown.
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD", str(Path(tmp) / "none")], cwd=repo)
+            self.assertIn("STOCK_TEXT", result.stdout)
+
+    def test_run_checks_reads_the_list_from_the_base_tools(self):
+        text = (SCRIPTS / "run-checks.sh").read_text()
+        self.assertIn('review-diff.sh" "$range" "${tools}/.github/scripts/stock-current.txt"', text)
+
+    def test_putting_a_skill_back_to_an_older_release_text_is_reviewed(self):
+        # Round 3 P2: only this release's stock texts are left out. An older release's text
+        # is still in stock-hashes.txt (refresh may replace it), but it is a change here.
+        current = {}
+        for line in (SCRIPTS / "stock-current.txt").read_text().splitlines():
+            if not line.startswith("#"):
+                blob, path = line.split(" ", 1)
+                current[path] = blob
+        older = None
+        for line in (SCRIPTS / "stock-hashes.txt").read_text().splitlines():
+            if line.startswith("#"):
+                continue
+            blob, path = line.split(" ", 1)
+            if path.startswith("skills/") and path.endswith(".md") and path in current and current[path] != blob:
+                older = (path, blob)
+                break
+        self.assertIsNotNone(older, "no skill file with an older release text")
+        path, old_blob = older
+        def cat(blob):
+            return subprocess.run(["git", "-C", str(ROOT), "cat-file", "blob", blob],
+                                  capture_output=True, check=True).stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / path).parent.mkdir(parents=True)
+            git(repo, "init", "-q", "-b", "main")
+            (repo / path).write_bytes(cat(current[path]))
+            (repo / "notes.md").write_text("start\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "this release")
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True,
+                                  capture_output=True, check=True).stdout.strip()
+            (repo / path).write_bytes(cat(old_blob))
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "back to old text")
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD",
+                          str(SCRIPTS / "stock-current.txt")], cwd=repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"diff --git a/{path} b/{path}", result.stdout)
+            self.assertNotIn("left out", result.stdout)
+            # The whole history list would have hidden it.
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD",
+                          str(SCRIPTS / "stock-hashes.txt")], cwd=repo)
+            self.assertNotIn(f"diff --git a/{path}", result.stdout)
 
 
 class BaseRulesTests(unittest.TestCase):
@@ -614,93 +801,242 @@ class BaseRulesTests(unittest.TestCase):
         self.assertNotIn("HEAD_RULES", shown)
 
 
-class GitAuthHeaderTests(unittest.TestCase):
-    """B12: git over HTTP on GitHub refuses "Authorization: token". Both hosts take basic auth."""
+class OverrideCheckoutTests(unittest.TestCase):
+    """The workflow checks out with actions/checkout (full history, no token kept), then
+    runs main's checkout.sh. B49: an /override comment has no commits in its event, so
+    checkout.sh reads the pull request from the host API."""
 
-    # Long enough that base64 wraps at 76 characters without the tr step. Not a real token shape.
-    TOKEN = "job-token-test-value-" + "x" * 60
+    def git(self, *args, env, cwd=None):
+        return subprocess.run(["git", *args], check=True, env=env, cwd=cwd, text=True,
+                              capture_output=True).stdout.strip()
 
-    def want(self):
-        import base64
-        return "Authorization: basic " + base64.b64encode(f"x-access-token:{self.TOKEN}".encode()).decode()
-
-    def fake_git(self, tmp):
-        bin_dir = tmp / "bin"
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-override-"))
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(self.tmp)], check=False))
+        self.env = os.environ.copy()
+        self.env.update({
+            "GIT_AUTHOR_NAME": "Ada Admin", "GIT_AUTHOR_EMAIL": "ada.admin@acme.test",
+            "GIT_COMMITTER_NAME": "Ada Admin", "GIT_COMMITTER_EMAIL": "ada.admin@acme.test",
+        })
+        env = self.env
+        src = self.tmp / "src"
+        self.git("init", "-q", "-b", "main", str(src), env=env)
+        (src / ".github" / "scripts").mkdir(parents=True)
+        for name in ("checkout.sh", "lib.sh"):
+            (src / ".github" / "scripts" / name).write_text((SCRIPTS / name).read_text())
+        (src / ".github" / "scripts" / "run-checks.sh").write_text("BASE_RUN_CHECKS\n")
+        (src / "review-rules.md").write_text("rules\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "one", env=env)
+        (src / "a.md").write_text("a\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "two", env=env)
+        self.fork = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "checkout", "-q", "-b", "upgrade/v1", env=env)
+        (src / "b.md").write_text("b\n")
+        (src / ".github" / "scripts" / "run-checks.sh").write_text("HEAD_RUN_CHECKS\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "upgrade", env=env)
+        self.head = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.git("-C", str(src), "checkout", "-q", "main", env=env)
+        (src / "c.md").write_text("c\n")
+        self.git("-C", str(src), "add", "-A", env=env)
+        self.git("-C", str(src), "commit", "-q", "-m", "main moves on", env=env)
+        self.base = self.git("-C", str(src), "rev-parse", "HEAD", env=env)
+        self.src = src
+        self.comment_event = self.tmp / "comment.json"
+        self.comment_event.write_text(json.dumps({
+            "issue": {"number": 1, "pull_request": {"url": "x"}},
+            "comment": {"body": "/override v1 upgrade: stock skills, too large for the model review"},
+        }))
+        self.pr_event = self.tmp / "pr.event.json"
+        self.pr_event.write_text(json.dumps({"pull_request": {
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": self.head},
+            "base": {"ref": "main", "sha": self.base},
+        }}))
+        (self.tmp / "pr.json").write_text(json.dumps({
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": self.head},
+            "base": {"ref": "main", "sha": self.base},
+        }))
+        bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        fake = bin_dir / "git"
-        fake.write_text(textwrap.dedent("""\
+        curl = bin_dir / "curl"
+        curl.write_text(textwrap.dedent("""\
             #!/bin/bash
-            printf '%s\\n' "$*" >> "$FAKE_DIR/argv"
-            for a in "$@"; do
-              case "$a" in
-                fetch|ls-remote) printf '%s|%s\\n' "${GIT_CONFIG_KEY_0:-}" "${GIT_CONFIG_VALUE_0:-}" >> "$FAKE_DIR/header" ;;
-                checkout)
-                  mkdir -p .github/scripts
-                  printf '%s\\n' '#!/bin/bash' 'exit 0' > .github/scripts/checkout.sh
-                  : > .github/scripts/lib.sh
-                  ;;
-              esac
-            done
-            exit 0
+            # The token is in the --config file, never an argument.
+            printf '%s\\n' "$*" >> "$FAKE_DIR/curl-argv"
+            cfg=$2
+            url=$(sed -n 's/^url = "\\(.*\\)"$/\\1/p' "$cfg")
+            out=$(sed -n 's/^output = "\\(.*\\)"$/\\1/p' "$cfg")
+            printf '%s\\n' "$url" >> "$FAKE_DIR/curl-url"
+            if [ -n "${FAKE_API_404:-}" ]; then
+              printf '%s\\n' '{"message":"Not Found"}' > "$out"
+              printf '404'
+              exit 0
+            fi
+            cp "$FAKE_DIR/pr.json" "$out"
+            printf '200'
             """))
-        fake.chmod(0o755)
-        return bin_dir
+        curl.chmod(0o755)
+        (self.tmp / "runner").mkdir()
+        self.run_env = {
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(self.tmp),
+            "FAKE_DIR": str(self.tmp),
+            "JOB_TOKEN": "job-token-test-value",
+            "GITHUB_WORKSPACE": str(self.tmp / "work"),
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_API_URL": "https://api.github.com",
+            "GITHUB_REPOSITORY": "acme/acme-os",
+            "GITHUB_EVENT_NAME": "issue_comment",
+            "GITHUB_EVENT_PATH": str(self.comment_event),
+            "RUNNER_TEMP": str(self.tmp / "runner"),
+        }
 
-    def check(self, tmp):
-        headers = (tmp / "header").read_text().splitlines()
-        self.assertTrue(headers)
-        for line in headers:
-            self.assertEqual(line, "http.extraHeader|" + self.want())
-            self.assertNotIn("Authorization: token", line)
-        self.assertNotIn(self.TOKEN, (tmp / "argv").read_text())
+    def action_checkout(self, ref):
+        # What actions/checkout leaves: every branch under origin/, the ref checked out.
+        work = self.tmp / "work"
+        self.git("clone", "-q", "--no-checkout", str(self.src), str(work), env=self.env)
+        self.git("-C", str(work), "checkout", "-q", "--detach", ref, env=self.env)
 
-    def test_ci_git_sends_basic_auth(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            bin_dir = self.fake_git(tmp)
-            proc = run(
-                ["bash", "-c", 'source "$1"; trap ci_cleanup EXIT; ci_git fetch origin main', "git", str(SCRIPTS / "lib.sh")],
-                env={"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_DIR": raw, "JOB_TOKEN": self.TOKEN},
-            )
+    def step(self, name, extra=None):
+        script = self.tmp / f"{name.replace(' ', '-')}.sh"
+        script.write_text(workflow_step(name))
+        env = dict(self.run_env, **(extra or {}))
+        return run(["bash", str(script)], env=env, cwd=self.run_env["GITHUB_WORKSPACE"])
+
+    def state(self, key):
+        return (self.tmp / "runner" / "os-ci" / key).read_text().strip()
+
+    def test_override_takes_its_commits_from_the_pull_request(self):
+        self.action_checkout(self.head)
+        proc = self.step("base tools")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.state("head-sha"), self.head)
+        # The range starts where the branch left main; tools come from the base tip.
+        self.assertEqual(self.state("base-sha"), self.fork)
+        self.assertEqual(self.state("tools-sha"), self.base)
+        self.assertEqual(self.state("head-ref"), "upgrade/v1")
+        self.assertEqual((self.tmp / "curl-url").read_text().strip(),
+                         "https://api.github.com/repos/acme/acme-os/pulls/1")
+        self.assertNotIn("job-token-test-value", (self.tmp / "curl-argv").read_text())
+
+    def test_pull_request_takes_its_commits_from_the_event_and_tools_from_base(self):
+        self.action_checkout(self.head)
+        proc = self.step("base tools", {"GITHUB_EVENT_NAME": "pull_request",
+                                        "GITHUB_EVENT_PATH": str(self.pr_event)})
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.state("head-sha"), self.head)
+        self.assertEqual(self.state("base-sha"), self.fork)
+        self.assertFalse((self.tmp / "curl-url").exists())
+        tools = Path(self.state("tools-dir"))
+        self.assertEqual((tools / ".github" / "scripts" / "run-checks.sh").read_text(), "BASE_RUN_CHECKS\n")
+
+    def refused(self, proc, line):
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn(line, proc.stderr)
+        # Nothing from the head ran: no tools were copied, and the folder is not on the head.
+        self.assertFalse((self.tmp / "runner" / "os-checks").exists())
+        self.assertFalse((self.tmp / "runner" / "os-ci" / "tools-dir").exists())
+        self.assertNotIn("job-token-test-value", proc.stdout + proc.stderr)
+
+    def pr_into(self, base_ref, base_sha=None, head_sha=None):
+        (self.tmp / "pr.json").write_text(json.dumps({
+            "number": 1,
+            "head": {"ref": "upgrade/v1", "sha": head_sha or self.head},
+            "base": {"ref": base_ref, "sha": base_sha or self.head} if base_ref is not None
+            else {"sha": base_sha or self.head},
+        }))
+
+    def test_override_on_a_pull_request_into_another_branch_runs_nothing(self):
+        # A writer pushes branch upgrade/v1 with its own run-checks.sh, opens a pull request
+        # into it and comments /override: the job must not run that branch's tools.
+        self.pr_into("upgrade/v1")
+        self.action_checkout(self.fork)
+        proc = self.step("base tools")
+        self.refused(proc, "checkout failed: checks run only for a pull request into main, and this one is into upgrade/v1")
+        self.assertEqual(self.git("-C", str(self.tmp / "work"), "rev-parse", "HEAD", env=self.env), self.fork)
+
+    def test_override_with_no_base_branch_is_refused(self):
+        self.pr_into(None)
+        self.action_checkout(self.fork)
+        self.refused(self.step("base tools"),
+                     "checkout failed: checks run only for a pull request into main, and this one is into no branch")
+
+    def test_pull_request_event_into_another_branch_is_refused(self):
+        event = self.tmp / "pr-other.json"
+        event.write_text(json.dumps({"pull_request": {
+            "number": 1,
+            "head": {"ref": "x", "sha": self.head},
+            "base": {"ref": "upgrade/v1", "sha": self.head},
+        }}))
+        self.action_checkout(self.fork)
+        proc = self.step("base tools", {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+        self.refused(proc, "checkout failed: checks run only for a pull request into main, and this one is into upgrade/v1")
+
+    def test_override_needs_full_commit_ids(self):
+        self.pr_into("main", base_sha=self.base[:12])
+        self.action_checkout(self.head)
+        self.refused(self.step("base tools"),
+                     "checkout failed: pull request 1 has no full head and base commit")
+
+    def test_override_with_a_base_commit_not_on_main_is_refused(self):
+        # base.ref says main, but the base commit is on another branch.
+        self.pr_into("main", base_sha=self.head)
+        self.action_checkout(self.head)
+        self.refused(self.step("base tools"),
+                     f"checkout failed: the pull request's base commit {self.head} is not on main")
+
+    def test_override_stops_when_the_pull_request_cannot_be_read(self):
+        self.action_checkout(self.head)
+        proc = self.step("base tools", {"FAKE_API_404": "1"})
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("checkout failed: could not read pull request 1 from the host", proc.stderr)
+        self.assertNotIn("job-token-test-value", proc.stdout + proc.stderr)
+
+    def test_event_step_runs_only_for_an_override_on_a_pull_request(self):
+        def event(body, pr=True):
+            path = self.tmp / "e.json"
+            issue = {"number": 7}
+            if pr:
+                issue["pull_request"] = {"url": "x"}
+            path.write_text(json.dumps({"issue": issue, "comment": {"body": body}}))
+            out = self.tmp / "out.txt"
+            out.write_text("")
+            script = self.tmp / "event.sh"
+            script.write_text(workflow_step("event"))
+            proc = run(["bash", str(script)], env={"GITHUB_EVENT_NAME": "issue_comment",
+                                                   "GITHUB_EVENT_PATH": str(path), "GITHUB_OUTPUT": str(out)})
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.check(tmp)
-            self.assertNotIn(self.TOKEN, proc.stdout + proc.stderr)
+            return out.read_text()
+        self.assertEqual(event("  /override ok"), "run=yes\nref=refs/pull/7/head\n")
+        self.assertIn("run=no", event("thanks"))
+        self.assertIn("run=no", event("/override ok", pr=False))
 
-    def test_workflow_checkout_sends_basic_auth(self):
+    def test_workflow_uses_actions_checkout_pinned_with_full_history(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("Authorization: token", text)
-        lines = text.splitlines()
-        start = lines.index("      - name: checkout")
-        run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
-        body = []
-        for line in lines[run_at + 1:]:
-            if line.startswith("      - name:"):
-                break
-            body.append(line[10:] if line.startswith(" " * 10) else line.strip())
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            bin_dir = self.fake_git(tmp)
-            work = tmp / "work"
-            work.mkdir()
-            (tmp / "runner").mkdir()
-            script = tmp / "checkout-step.sh"
-            script.write_text("\n".join(body) + "\n")
-            proc = run(
-                ["bash", str(script)],
-                env={
-                    "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                    "FAKE_DIR": raw,
-                    "JOB_TOKEN": self.TOKEN,
-                    "GITHUB_WORKSPACE": str(work),
-                    "GITHUB_SERVER_URL": "https://github.com",
-                    "GITHUB_REPOSITORY": "acme/acme-os",
-                    "GITHUB_EVENT_NAME": "pull_request",
-                    "RUNNER_TEMP": str(tmp / "runner"),
-                },
-            )
-            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            self.check(tmp)
-            self.assertNotIn(self.TOKEN, proc.stdout + proc.stderr)
+        self.assertRegex(text, r"uses: actions/checkout@[0-9a-f]{40} # v\d+\.\d+\.\d+\n")
+        self.assertIn("fetch-depth: 0", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertNotIn("--depth", text)
+        self.assertNotIn("Authorization", text)
+        # The head is data: the scripts come from main, not the checked-out head.
+        self.assertIn("git show origin/main:.github/scripts/checkout.sh", text)
+
+
+def workflow_step(name):
+    """The run: body of one step of the checks workflow, as a script."""
+    lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"      - name: {name}")
+    run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    body = []
+    for line in lines[run_at + 1:]:
+        if line.startswith("      - name:") or line.startswith("      # "):
+            break
+        body.append(line[10:] if line.startswith(" " * 10) else line.strip())
+    return "\n".join(body) + "\n"
 
 
 class PathMatchTests(unittest.TestCase):
@@ -729,6 +1065,19 @@ class PathMatchTests(unittest.TestCase):
         self.assertTrue(self.match("glob", "areas/x/AGENTS.md", "areas/x/AGENTS.md"))
         self.assertFalse(self.match("glob", "areas/x/AGENTS.md", "AGENTS.md"))
         self.assertFalse(self.match("regex", r".*AGENTS\.md", "AGENTS.md.extra"))
+        # Item 9: the owner lines match at any depth.
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/AGENTS.md", "projects/launch/AGENTS.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "skills/ingest/SKILL.md"))
+        self.assertTrue(self.match("glob", "**/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertFalse(self.match("glob", "**/skills/", "skills"))
+        self.assertFalse(self.match("glob", "**/skills/", "notes/skills.md"))
+        self.assertTrue(self.match("glob", "/skills/", "skills/ingest/SKILL.md"))
+        self.assertFalse(self.match("glob", "/skills/", "projects/x/skills/a/SKILL.md"))
+        self.assertTrue(self.match("glob", "docs/", "docs/a.md"))
+        self.assertTrue(self.match("glob", "docs/", "x/docs/a.md"))
+        self.assertTrue(self.match("regex", r"^(.*/)?AGENTS\.md$", "projects/launch/AGENTS.md"))
+        self.assertFalse(self.match("regex", r"^(.*/)?AGENTS\.md$", "AGENTS.md.bak"))
 
 
 class ReviewParseTests(unittest.TestCase):
@@ -807,17 +1156,28 @@ class ReviewParseTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the review reported a finding", result.stderr)
-        self.assertIn("the review reported a finding", self.out.read_text(encoding="utf-8"))
+        out = self.out.read_text(encoding="utf-8")
+        self.assertIn("the review reported a finding", out)
+        # B58 (c): the failure names the override the admin may post.
+        self.assertIn("the admin may comment /override <reason>", result.stderr)
+        self.assertIn("the admin may comment /override <reason>", out)
+        # B36: the comment keeps what the review found.
+        self.assertIn("FINDING: 1 a.md:1 Bad.", out)
+        self.assertIn("FINDING: 1 a.md:1 Bad.", result.stderr)
+        self.assertIn("VERDICT: PASS", out)
 
 
 class GithubStatusTests(unittest.TestCase):
-    def test_check_run_shape(self):
+    """B51: on GitHub a second "checks" check run does not replace the failed one.
+    set-status.sh re-runs the failed pull_request run instead."""
+
+    def call(self, runs):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        body_log = root / "body.json"
+        (root / "runs.json").write_text(json.dumps({"workflow_runs": runs}), encoding="utf-8")
         fake = bin_dir / "curl"
         fake.write_text(
             textwrap.dedent(
@@ -826,48 +1186,154 @@ class GithubStatusTests(unittest.TestCase):
                 import os, sys
                 from pathlib import Path
                 cfg = Path(sys.argv[sys.argv.index("--config") + 1]).read_text(encoding="utf-8")
-                data = ""
-                url = ""
+                fields = {}
                 for line in cfg.splitlines():
-                    if line.startswith("url = "):
-                        url = line.split("=", 1)[1].strip().strip('"')
-                    if "data-binary" in line:
-                        data = line.split("@", 1)[1].strip().strip('"')
-                Path(os.environ["BODY_LOG"]).write_text(Path(data).read_text(encoding="utf-8"), encoding="utf-8")
-                Path(os.environ["URL_LOG"]).write_text(url, encoding="utf-8")
-                out = ""
-                for line in cfg.splitlines():
-                    if line.startswith("output = "):
-                        out = line.split("=", 1)[1].strip().strip('"')
-                Path(out).write_text("{}", encoding="utf-8")
-                sys.stdout.write("201")
+                    if " = " in line:
+                        k, v = line.split(" = ", 1)
+                        fields[k] = v.strip('"')
+                root = Path(os.environ["FAKE_ROOT"])
+                with (root / "calls.txt").open("a", encoding="utf-8") as f:
+                    f.write(fields.get("request", "GET") + " " + fields["url"] + "\\n")
+                body = "{}"
+                if "/actions/runs?" in fields["url"]:
+                    body = (root / "runs.json").read_text(encoding="utf-8")
+                Path(fields["output"]).write_text(body, encoding="utf-8")
+                sys.stdout.write("201" if fields.get("request") == "POST" else "200")
                 """
             ),
             encoding="utf-8",
         )
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-        url_log = root / "url.txt"
+        sha = "0ea1c084f40a29e6c81a6fd9e54d61b4be78e52d"
         result = run(
-            ["bash", str(SCRIPTS / "set-status.sh"), "abc123", "success", "override by ada for abc123: because"],
+            ["bash", str(SCRIPTS / "set-status.sh"), sha, "success", f"override by ada for {sha}: because"],
             env={
                 "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                "BODY_LOG": str(body_log),
-                "URL_LOG": str(url_log),
+                "FAKE_ROOT": str(root),
                 "JOB_TOKEN": KEY,
                 "GITHUB_REPOSITORY": "acme/demo",
                 "GITHUB_SERVER_URL": "https://github.com",
                 "GITHUB_API_URL": "https://api.github.com",
             },
         )
+        calls = (root / "calls.txt").read_text(encoding="utf-8") if (root / "calls.txt").exists() else ""
+        self.assertNotIn(KEY, calls + result.stdout + result.stderr)
+        return result, calls
+
+    def test_failed_run_is_re_run(self):
+        result, calls = self.call([
+            {"id": 11, "run_number": 3, "run_attempt": 1, "path": ".github/workflows/checks.yml",
+             "status": "completed", "conclusion": "failure"},
+            {"id": 12, "run_number": 9, "run_attempt": 1, "path": ".github/workflows/windows.yml",
+             "status": "completed", "conclusion": "failure"},
+        ])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("/check-runs", url_log.read_text(encoding="utf-8"))
-        body = body_log.read_text(encoding="utf-8")
-        self.assertIn('"name":"checks"', body)
-        self.assertIn('"status":"completed"', body)
-        self.assertIn('"conclusion":"success"', body)
-        self.assertRegex(body, r'"completed_at":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"')
-        self.assertIn("override by ada for abc123: because", body)
-        self.assertNotIn(KEY, body)
+        self.assertIn("event=pull_request&head_sha=0ea1c084f40a29e6c81a6fd9e54d61b4be78e52d", calls)
+        self.assertIn("POST https://api.github.com/repos/acme/demo/actions/runs/11/rerun-failed-jobs", calls)
+        self.assertNotIn("/check-runs", calls)
+        self.assertNotIn("runs/12/", calls)
+
+    def test_running_checks_are_left_alone(self):
+        result, calls = self.call([
+            {"id": 11, "run_number": 3, "run_attempt": 1, "path": ".github/workflows/checks.yml",
+             "status": "in_progress", "conclusion": None},
+        ])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("POST", calls)
+        self.assertIn("still running", result.stdout)
+
+    def test_no_run_fails_plainly(self):
+        result, calls = self.call([])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no checks run for", result.stderr)
+
+
+class OverrideHonourTests(unittest.TestCase):
+    """B51: the re-run passes when the override job left its line for this head, and the
+    person it names still passes override.sh on the base. A person cannot write that line."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        repo = self.root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        (repo / "people").mkdir()
+        (repo / "people" / "Ada.md").write_text("---\ngithub: acme-admin\nrole: admin\n---\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "init")
+        self.base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        (repo / "a.md").write_text("a\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "note")
+        self.HEAD = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        self.repo = repo
+
+    def run_checks(self, comments):
+        root, repo, base = self.root, self.repo, self.base
+        scripts = root / "tools" / ".github" / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("run-checks.sh", "lib.sh", "override.sh", "review-diff.sh"):
+            (scripts / name).write_text((SCRIPTS / name).read_text())
+        (scripts / "tools").mkdir()
+        (scripts / "tools" / "secret-scan.sh").write_text("exit 0\n")
+        (root / "comments.json").write_text(json.dumps(comments), encoding="utf-8")
+        (scripts / "host-read.sh").write_text('cat "$FAKE_COMMENTS"\n')
+        (scripts / "model-review.sh").write_text('echo REVIEW_RAN >&2\nexit 1\n')
+        (root / "tools" / "review-rules.md").write_text("rules\n")
+        state = root / "runner" / "os-ci"
+        state.mkdir(parents=True)
+        for key, value in {"event-name": "pull_request", "pr-number": "1", "head-sha": self.HEAD,
+                           "base-sha": base, "tools-sha": base, "tools-dir": str(root / "tools")}.items():
+            (state / key).write_text(value + "\n")
+        event = root / "event.json"
+        event.write_text(json.dumps({"pull_request": {"title": "t", "body": "b"}}))
+        return run(
+            ["bash", str(scripts / "run-checks.sh")],
+            cwd=repo,
+            env={
+                "RUNNER_TEMP": str(root / "runner"),
+                "FAKE_COMMENTS": str(root / "comments.json"),
+                "JOB_TOKEN": KEY,
+                "GITHUB_REPOSITORY": "acme/acme-os",
+                "GITHUB_SERVER_URL": "https://github.com",
+                "GITHUB_EVENT_PATH": str(event),
+            },
+        )
+
+    def line(self, user="acme-admin", head=None):
+        return f"override by {user} for {head or self.HEAD}: too large\n"
+
+    def test_bot_line_and_owner_comment_pass_without_a_review(self):
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/override too large", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": self.line(), "association": "NONE"},
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("REVIEW_RAN", result.stderr)
+
+    def test_line_for_another_head_does_not_count(self):
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/override too large", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": self.line(head="1" * 40), "association": "NONE"},
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("REVIEW_RAN", result.stderr)
+
+    def test_a_person_cannot_write_the_line(self):
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/override too large", "association": "MEMBER"},
+            {"login": "acme-admin", "body": self.line(), "association": "MEMBER"},
+        ])
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_the_named_person_must_still_be_an_owner(self):
+        result = self.run_checks([
+            {"login": "mallory", "body": "/override too large", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": self.line(user="mallory"), "association": "NONE"},
+        ])
+        self.assertNotEqual(result.returncode, 0)
 
 
 class OverrideTests(unittest.TestCase):

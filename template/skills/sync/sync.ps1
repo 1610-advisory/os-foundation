@@ -12,7 +12,7 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 function Show-Usage {
   Write-Output "Usage: sync.ps1 <command> [flags]"
   Write-Output "Runs sync.sh through Git for Windows bash. Never uses System32 bash (that is WSL)."
-  Write-Output "Commands match sync.sh: pull, push, propose, status, install-jobs, uninstall-jobs, helper, collect, admin-run."
+  Write-Output "Commands match sync.sh: pull, push, propose, status, seat, re-apply, install-jobs, uninstall-jobs, helper, collect, admin-run."
   Write-Output "Set OS_GIT_BASH to the bash.exe path when Git is not on PATH."
 }
 

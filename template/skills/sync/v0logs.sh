@@ -12,6 +12,19 @@
 
 V0LOGS_ARCHIVE=memory/logs-archive
 
+# Paths from git, one per line, never quoted (an accent or an em dash in a log name). Same
+# as sync_names in sync/lib.sh, which join.sh does not load.
+v0logs_names() {
+  local repo=$1 sub=$2 path
+  shift 2
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      ""|*$'\n'*) continue ;;
+    esac
+    printf '%s\n' "$path"
+  done < <(git -C "$repo" -c core.quotepath=false "$sub" -z "$@" 2>/dev/null)
+}
+
 # 0 when memory/logs is a worktree of branch logs and <ref> has the upgrade (it tracks
 # memory/logs-archive/ or memory/logs/).
 v0logs_stuck() {
@@ -90,7 +103,7 @@ v0logs_push() {
       if ! git -C "$tmp/logs" -c user.name="$(git -C "$repo" config user.name || printf 'Company OS')" \
         -c user.email="$(git -C "$repo" config user.email || printf 'os@localhost')" \
         merge -q --no-edit origin/logs >/dev/null 2>&1; then
-        files=$(git -C "$tmp/logs" diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//')
+        files=$(v0logs_names "$tmp/logs" diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//')
         git -C "$repo" worktree remove --force "$tmp/logs" >/dev/null 2>&1 || true
         rm -rf "$tmp"
         printf 'the logs branch here and on the host both changed %s. Nothing was removed. In memory/logs run: git pull --no-rebase origin logs, keep both texts in each of those files, git commit -am "Logs: merge", git push origin logs. Then run this again\n' "${files:-a file}" >&2
@@ -124,7 +137,7 @@ v0logs_follow() {
   git -C "$wt" merge-base --is-ancestor "$old" "$ref" 2>/dev/null || return 0
   keep=$(mktemp -d "${OS_KEEP_TMP:-${TMPDIR:-/tmp}}/os-logs-keep.XXXXXX") || return 1
   # Changed against the last commit (staged or not), and every untracked file.
-  { git -C "$wt" diff --name-only --no-renames HEAD; git -C "$wt" ls-files -o; } | sort -u > "$keep/.list"
+  { v0logs_names "$wt" diff --name-only --no-renames HEAD; v0logs_names "$wt" ls-files -o; } | sort -u > "$keep/.list"
   : > "$keep/.gone"
   : > "$keep/.beside"
   while IFS= read -r rel; do
@@ -314,6 +327,6 @@ v0logs_catch_up() {
       printf '%s\n' "could not write ${dest} from the old logs branch. Check the free disk space, then run skills/sync/sync.sh pull --full again" >&2
       return 1
     fi
-  done < <(git -C "$repo" diff --name-only --no-renames --diff-filter=AM "${tag}^{commit}" origin/logs 2>/dev/null)
+  done < <(v0logs_names "$repo" diff --name-only --no-renames --diff-filter=AM "${tag}^{commit}" origin/logs)
   printf '%s %s\n' "$n" "$m"
 }

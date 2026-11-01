@@ -2,16 +2,18 @@
 
 ```
 upgrade.sh [--dry-run] [--root <dir>] [--template <dir>] [--level solo|team|app] [--answers <file>]
+upgrade.sh --refresh [--dry-run] [--root <dir>] [--template <dir>]
 upgrade.sh --help
 ```
 
-Moves a v0 company folder to v1. Dry-run first. Then one branch and one pull request. Company content is not rewritten. One `git revert -m 1 <merge>` restores the old state.
+Moves a v0 company folder to v1. Dry-run first. Then one branch and one pull request. Company content is not rewritten. One `git revert -m 1 <merge>` restores the old state. `--refresh` brings a v1 company's stock skills and checks to a newer template (see "Refresh").
 
 ## Flags
 
 | Flag | Meaning |
 |---|---|
 | `--dry-run` | Print what would change and what conflicts. Change nothing. Exit 0. |
+| `--refresh` | A v1 company: refresh stock skills and checks. A v0 company: refused (exit 2); run the upgrade first. |
 | `--root <dir>` | Company folder. Default: the current directory. |
 | `--template <dir>` | v1 template folder. Default: the `template/` next to this skill when that folder is still the os-foundation template. |
 | `--level solo\|team\|app` | Level to write. Default: `solo`, or the `level` key in the answers file. |
@@ -47,7 +49,7 @@ Any of these means v0:
 The script stops early in these cases. Each one changes nothing.
 
 - **Windows.** Under Git Bash on Windows it prints `run the upgrade from a Mac or Linux clone of the company repo` and exits 2. Windows teammates get the result by their normal pull.
-- **Already v1.** `main` has `level:` in `company-profile.md` and both skill links committed as links. It prints `upgrade: already v1` and exits 0.
+- **Already v1.** `main` has `level:` in `company-profile.md` and both skill links committed as links. Without `--refresh` it prints `upgrade: already v1. To bring stock skills and checks to this template, run it with --refresh.` and exits 0.
 - **Pending, no host.** A branch `upgrade/v1` exists and there is no host: the person merges it by hand. It prints `upgrade: pending upgrade/v1` and `To start over, run in the company folder: git checkout main && git branch -D upgrade/v1` (plus the same for each area `upgrade/scripts`). It exits 0 and changes nothing.
 - **An earlier run's branches (host on).** The upgrade owns `upgrade/v1` (company) and `upgrade/scripts` (each area), in the folder and on the host. A branch is its own when its last commit is one the upgrade makes (`Upgrade to v1`, or a subject that starts `Upgrade: `). A folder left on its own upgrade branch goes back to `main`: `switched <folder> to main from <branch> (an earlier upgrade run)`. With a host, the dry run prints `change: replace <repo> <branch> (an earlier upgrade run made it; its pull request is reused)`. A real run rebuilds the branch from `main` and pushes it with `--force-with-lease` (only if the host branch has not moved since the run looked). It prints `replaced: <repo> <branch> (an earlier upgrade run made it)`. `open-pr` updates the open pull request from that branch, or opens a new one when the old one was closed. So a stopped or superseded run needs no start-over: run it again.
 - **Someone else's commits on an upgrade branch.** It prints one line per branch: `upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make. To keep them, merge or close its pull request first. To start over, in <folder> run: <commands> (that also closes its pull request). Then run upgrade again.` The commands are exact: `git checkout main && git branch -D <branch>` for the folder, `git push origin --delete <branch>` for the host, only the parts that hold such commits. A real run exits 2 before any change. The dry run prints the same line and goes on.
@@ -87,7 +89,7 @@ The company's `AGENTS.md` and `CLAUDE.md` get the v1 rules. The company's own li
 4. If the result is 10,000 bytes or more (`wc -c`), the company lines and sections go to `company-rules.md` instead, unchanged. `AGENTS.md` gets one line in "This company" that says to read it. That file is a rules file. If `CLAUDE.md` spills too, its lines go at the end of the same file under `## From CLAUDE.md`. Nothing in the file is replaced.
 5. A value with no source stays as its placeholder, for example `{{OWNER_NAME}}`. The dry run prints one `todo: fill` line for each, for example `todo: fill {{OWNER_NAME}}`.
 
-The rules merge is its own commit, `Upgrade: rules merge`, inside the one upgrade pull request. The pull request body lists it first, for the code owner. One `git revert -m 1` still undoes the whole upgrade.
+The rules merge is its own commit, `Upgrade: rules merge`, inside the one upgrade pull request. The commit message records each rules file and each company line kept. The pull request body opens with `Upgrade to os-foundation release <release>: the release's rules text, with the company's own lines kept (listed).` Then it lists, per rules file, each company line it kept and each line moved to a spill file. Then it says what moves between approval tiers (the release's default table, and why: it is the release's default). The code owner reads that first. The model review reads the body too: a change the body lists is explained, and a table set to the release's default is not a loosening (`review-rules.md`, section "Pull requests from the admin's own steps"). One `git revert -m 1` still undoes the whole upgrade.
 
 A file that is still exactly stock becomes the plain v1 file. A folder whose `AGENTS.md` already has `## 1. Level first` is left alone.
 
@@ -103,34 +105,48 @@ A folder of copies that git does not track becomes the link only when every file
 
 The old `logs` tip is tagged `logs-archive-<YYYY-MM-DD>`. Keep that tag for 90 days, then delete it. The script says so. It does not delete the tag. With a host, the tag goes up with the upgrade branch, so every clone has it: `sync.sh pull` uses it to bring in logs pushed to the old `logs` branch after the run (sync `CLI.md`). If that push fails it prints `logs-tag: could not push the logs-archive tag to <repo>. ...` and goes on.
 
-When the company or an area has an old `logs` branch and a host, the upgrade prints `log-freeze: ...` near the top (dry run and real run): before the real run every teammate commits and pushes their logs, and nobody writes a log until the pull requests merge. Before its last line, a real run prints four `teammates:` lines: in an old copy of the folder, do not run `git pull`; save the logs (`git -C memory/logs add -A`, `commit`, `pull --rebase`, `push`); after the merge and Part A, rename the old folder and join as a new teammate (Part B); then delete the old folder (SKILL.md section 11). A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead. Then one `admin:` line: sync push holds logs until the old branch is gone; when every teammate has moved, run `git push origin --delete logs` in the company folder and each area that had one.
+When the company or an area has an old `logs` branch and a host, the upgrade prints `log-freeze: ...` near the top (dry run and real run): before the real run every teammate commits and pushes their logs, and nobody writes a log until the pull requests merge. Before its last line, a real run prints four `teammates:` lines: in an old copy of the folder, do not run `git pull`; save the logs (`git -C memory/logs add -A`, `commit`, `pull --rebase`, `push`); after the merge and Part A, rename the old folder and join as a new teammate (Part B); join brings each file, commit and log the old folder holds that the host lacks into the new folder (`old-folder:` lines): a new file or log is copied, and a change to a file the host has is set aside for the agent to re-apply; never copy a whole file by hand. A stash is listed, to redo by hand. Delete the old folder only after each stash is redone, the agent has re-applied what was set aside, and sync has sent it (SKILL.md section 11). A teammate who already has the v1 `sync` skill runs `skills/sync/sync.sh pull` instead. Then one `admin:` line: sync push holds logs until the old branch is gone; v0 protected that branch, so a plain `git push origin --delete logs` fails; when every teammate has moved, run `skills/_host/host.sh drop-logs <repo>` for the company repo and each area repo that had one (the line names each repo; without a host it gives `git push origin --delete logs`).
 
 If the folder is app-linked (`app-link.json` or `OS_APP_LINK=1`), the dry-run says groups need Track K and were not read.
 
 When `host` is not `none` and `host.sh` is present, the script opens one pull request. At `team` or `app` it first does these steps, once per repo (the company repo, then each area repo), and prints each one. Solo skips steps 1 and 2:
 
-1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Every other `CODEOWNERS` line stays, after the rules lines, under `# Kept from before the upgrade.` Then `host.sh unprotect <repo>` (on GitHub this also removes the v0 classic rule, which would refuse the push), a push to `main`, and step 2. If the push is refused, it runs `protect` at once and stops: `main` is never left open. If that `protect` fails too, it prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`. No company content goes to `main`. When `main` has them, it compares them with this release's (`.github/workflows/checks.yml` and `.github/scripts/`; `review.conf` and `CODEOWNERS` stay as they are). The same: `checks-on-main: <repo> already`, no push. Different, and `.github/scripts/tools-release` on `main` is lower (tools from before the marker are release 0): it commits this release's tools on top of `origin/main` (`Upgrade: update check tools on main`) and pushes them by the same safe path, then prints `checks-on-main: <repo> updated the check tools on main (release <old> to <new>)`. Different, and `main`'s release is the same or higher: no push, `checks-on-main: <repo> already: kept the check tools on main (release <main>; this upgrade has <new>)`. Older tools never go over newer ones.
+1. `checks-on-main: <repo>`. The checks job copies its tools from `main`, never from the pull request head. A v0 `main` has no tools, so no upgrade pull request could pass. When `main` lacks `.github/workflows/checks.yml`, `.github/scripts/` or `.github/review.conf`, the script commits only those files on top of `origin/main`, plus rules-only `CODEOWNERS` files in place of a v0 `* <owners>` line (same owners). Every other `CODEOWNERS` line stays, after the rules lines, under `# Kept from before the upgrade.` Then `host.sh unprotect <repo>` (on GitHub this also removes the v0 classic rule, which would refuse the push), a push to `main`, and step 2. If the push is refused, it runs `protect` at once and stops: `main` is never left open. If that `protect` fails too, it prints `PROTECTION IS OFF on <repo>: run skills/_host/host.sh protect <repo> --code-owners --approvals 0`. When `main` lacks `review-rules.md`, this release's goes on `main` in the same commit (only the release's file: a company's own `review-rules.md` in the folder goes up in the upgrade pull request, which the review judges) (`checks-on-main: <repo> ... and review-rules.md`, or `checks-on-main: <repo> added review-rules.md to main` when it is the only change). So the review judges the upgrade pull request with the release's rules, which know the upgrade. The checks job copies `review-rules.md` from `main`, never from the pull request head, so the head cannot change the rules it is judged by. After this step the company folder fast-forwards to the new `main`. No company content goes to `main`. When `main` has them, it compares them with this release's (`.github/workflows/checks.yml` and `.github/scripts/`; `review.conf` and `CODEOWNERS` stay as they are). The same: `checks-on-main: <repo> already`, no push. Different, and `.github/scripts/tools-release` on `main` is lower (tools from before the marker are release 0): it commits this release's tools on top of `origin/main` (`Upgrade: update check tools on main`) and pushes them by the same safe path, then prints `checks-on-main: <repo> updated the check tools on main (release <old> to <new>)`. Different, and `main`'s release is the same or higher: no push, `checks-on-main: <repo> already: kept the check tools on main (release <main>; this upgrade has <new>)`. Older tools never go over newer ones.
 2. `protected: <repo>`: `host.sh protect <repo> --code-owners --approvals 0`. On GitHub that also replaces the v0 classic rule (one code-owner approval, which only the admin could give) and turns on auto-merge.
-3. The area pull requests, then the company pull request. On Forgejo each gets `host.sh auto-merge`. If that fails, it prints `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.` and goes on. On GitHub every upgrade pull request is the admin's own rules change, and GitHub never counts the author's own approval. So each one prints `merge-by-hand: <repo> <n>: it will not merge by itself. When its checks are green, the admin opens it, ticks "Merge without waiting for requirements to be met (bypass rules)" and clicks "Bypass rules and merge".` and gets no auto-merge. The `rules-review` ruleset lets an org admin bypass it on a pull request (`bypass_mode: pull_request`). Auto-merge does not use that bypass, and with it on GitHub shows "Disable auto-merge" in place of the bypass box. The dry-run `pr-plan:` line ends in `merge-by-hand` on GitHub and `auto-merge` on Forgejo. Solo with a host: no auto-merge; the person merges.
+3. The area pull requests, then the company pull request. On Forgejo each gets `host.sh auto-merge`. If that fails, it prints `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.` and goes on. On GitHub every upgrade pull request is the admin's own rules change, and the admin merges it by hand. Each one gets `host.sh auto-merge-off` (a pull request reused from an earlier run may still have auto-merge on, and would merge by itself), then prints `merge-by-hand: <repo> <n>: it will not merge by itself. When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), the admin opens it and merges it. When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".` If auto-merge cannot be turned off, or is still on when the host is read again, the line says `auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.` in place of `it will not merge by itself.` The `rules-review` ruleset lets an org admin bypass it on a pull request (`bypass_mode: pull_request`). The dry-run `pr-plan:` line ends in `merge-by-hand` on GitHub and `auto-merge` on Forgejo. At team level the company pull request's diff is measured as the checks job measures it: `.github/scripts/review-diff.sh` from the merge base with `origin/main`, which leaves out each file exactly as this release ships it (main's `stock-current.txt`). Over 100000 bytes (for example a long log the upgrade moves), it prints `override: <repo> <n> is too large for the model review ...` with the exact comment: after lint and the secret scan pass, the admin comments `/override v1 upgrade: stock skills, too large for the model review` on it. The override still runs lint and the secret scan. Solo with a host: no auto-merge; the person merges.
 
 At `team` or `app` it prints `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY` first, and `no review key yet: ...` when the org key is not there.
 
 Each area repo gets its own pull request for the check scripts, on `upgrade/scripts`. That pull request also adds `review-rules.md` when the area main lacks it, and carries the area rules merge as its own commit. It does not replace an existing file. A dry-run prints `pr-plan:` for that pull request and does not open it.
 
+## Refresh
+
+`--refresh`, on a v1 company, from the company folder, with `--template` the newer os-foundation `template/`:
+
+- **Stock files** are the files the template has under `skills/` and `.github/`. The company repo gets both. Each area repo gets `.github/` (its checks).
+- **Unchanged or not.** `.github/scripts/stock-hashes.txt` (it ships with the check tools) lists the git blob id and path of every stock file any release has shipped. A company copy on `main` that matches one is as shipped: it is replaced. A copy that matches none was changed by the company: it is kept, and the run prints `kept: <folder> <path> (changed by the company; compare it with the template by hand)`. A stock file this template no longer ships is removed when it is as shipped. A company skill of its own is never in the list, so it is never touched. Scripts keep their mode.
+- **Check tools first (team on a host).** The checks job runs main's tools, so each repo first gets this release's tools on `main` by the upgrade's own `checks-on-main:` step: `host.sh unprotect`, one push of `.github/workflows/checks.yml` and `.github/scripts/` only, then `protect` (an exit on the way puts protection back). Tools on main from a newer release are kept. The stock list is merged into main's whatever the release: it only grows. At the same release, this upgrade's `stock-current.txt` goes on main too. A dry run prints `change: checks-on-main <folder>`.
+- **The review.** The model review leaves out every file whose text is exactly the stock text this release ships at that path (`.github/scripts/stock-current.txt`; `# <n> files are left out` heads its diff). A file put back to an older release's text is a change, and is reviewed. The list comes from the base tools on `main`, never from the pull request, so a pull request cannot add to it, and a change to it is a `.github/` change that needs the code owner. A changed file is still reviewed, and lint and the secret scan read every file. So a refresh pull request passes on its own. If its diff is still over 100000 bytes (removed stock files count), the run prints `override: <repo> <n> is too large for the model review (<bytes> bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override refresh: stock skills, too large for the model review`.
+- **With a host:** one rules pull request per repo that has something to change, on `rules/<me>/refresh-<release>` (`<release>` from `.github/scripts/tools-release`), built in a temporary worktree on `origin/main`, never over the folder. Title `Refresh stock skills and checks (<release>)`. Auto-merge on, like `propose`: code owners approve it. It prints `opened: <repo> <n>`, the auto-merge line, and an `override: <repo> <n> if the model review fails it: ...` line with the exact comment. Teammates get the files with their next pull once it merges. A second run replaces the branch and reuses the open pull request. An open refresh pull request of the admin's for an older release (`rules/<me>/refresh-<older>`) is closed with a comment that names the new one (`closed: <repo> <n> (refresh for release <older>; replaced by <n>)`). The fetch uses `--prune`, so a branch deleted on the host leaves no stale ref. When the fetch fails, the line says why: `could not reach the host` only when the network failed; when the host answered, it names what it said (sign-in or repo refused, or the git error).
+- **Solo (no host):** one commit on `main` per repo, of those paths only (`committed: <folder>`). A path with a change not committed stops that repo with one line.
+- Per repo it prints `refresh: <folder>: <n> new, <n> replaced, <n> removed, <n> kept`, or `refresh: <folder> is current (<n> kept)`. `.github/scripts/stock-current.txt` and `stock-hashes.txt` are generated, never `kept:`: on a team they go on `main` with the check tools, and a solo folder takes this release's. While an old v0 `logs` branch is still on the host, a team refresh prints the same `admin:` line as the upgrade, ending `delete it with: skills/_host/host.sh drop-logs <repo>; ...` for each repo that has one. Then `refresh: ok. ...`, or with `--dry-run` `refresh: dry run, nothing changed`. A repo it could not fetch prints one line, the others go on, and it exits 3.
+
+Before a release, a maintainer runs `tests/static/stock-hashes.sh --write` in os-foundation; It writes both lists. `--check` fails when a stock file is missing from the list, or when `stock-current.txt` is not this release's stock files.
+
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0 | ok, including a dry-run that found conflicts or `upgrade: stopped:` lines, `upgrade: already v1` and `upgrade: pending upgrade/v1` (no host) |
+| 0 | ok, including a dry-run that found conflicts or `upgrade: stopped:` lines, `upgrade: already v1`, `upgrade: pending upgrade/v1` (no host) and a refresh |
 | 1 | usage |
-| 2 | refused (not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on, someone else's commits on an upgrade branch) |
+| 2 | refused (`--refresh` on a v0 folder, not a v0 folder, not a git repo, Windows, uncommitted changes, a spill file already there, no slug with host on, someone else's commits on an upgrade branch) |
 | 3 | tool error (`git filter-repo` missing) or host error (an area fetch failed, the check tools could not reach `main`, a Free GitHub org at team level) |
 | 4 | auth failed |
 
 ## What it prints
 
 ```
-upgrade: already v1
+upgrade: already v1. To bring stock skills and checks to this template, run it with --refresh.
 upgrade: pending upgrade/v1
 To start over, run in the company folder: git checkout main && git branch -D upgrade/v1. Then run upgrade again.
 switched <folder> to main from <branch> (an earlier upgrade run)
@@ -145,6 +161,7 @@ change: links
 change: logs-history
 change: level-block
 change: tier-table
+change: review-rules.md (new: the model review reads it from main)
 change: rules-merge <path> company-lines=<n> chars=<m>
 change: rules-spill <path> -> company-rules.md
 todo: AGENTS.md is <m> characters, over the 9,000 it sets for itself. Move ...
@@ -169,24 +186,26 @@ change: replace <repo> <branch> (an earlier upgrade run made it; its pull reques
 todo: answer slug (...)
 todo: answer review_vendor (...)
 review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY
-checks-on-main: <repo> [already | already: kept the check tools on main (...) | updated the check tools on main (release <old> to <new>)]
+checks-on-main: <repo> [(with review-rules.md) | added review-rules.md to main | already | already: kept the check tools on main (...) | updated the check tools on main (release <old> to <new>)]
 protected: <repo>
 pr: <repo> <number>
 auto-merge is off on <repo>: pull request <n> stays open until the admin merges it.
 replaced: <repo> <branch> (an earlier upgrade run made it)
-merge-by-hand: <repo> <n>: it will not merge by itself. When its checks are green, the admin opens it, ticks ... and clicks "Bypass rules and merge".
+merge-by-hand: <repo> <n>: it will not merge by itself. When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), the admin opens it and merges it. ... If GitHub asks for a review, ...
 pr: <number>
-admin, on GitHub: wait for the green checks. Open each pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge".
+override: <repo> <n> is too large for the model review (<bytes> bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review
+override: <repo> <n> if the model review fails it: read the finding. If the change is only what the pull request body says, the admin comments on it: /override <reason>
+admin, on GitHub: wait until the checks pass (when the model review fails one, see its override: line). Open each pull request and merge it. When you are the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".
 logs-tag: could not push the logs-archive tag to <repo>. ...
 teammates: in an old (v0) copy of this folder, do not run git pull. ...
 teammates: 1. ... 2. ... 3. ...
-admin: until the old logs branch is gone, sync push keeps logs in each folder (held) ...
+admin: until the old logs branch is gone, sync push keeps logs in each folder (held) ... When every teammate has moved, delete it with: skills/_host/host.sh drop-logs <repo>; ... (one per repo whose host has the old logs branch; without a host: git push origin --delete logs)
 upgrade: open pull requests: <repo> <n>, ... Merge each one when its checks pass.
 ```
 
 A dry-run prints `upgrade: dry-run` and no `pr:` line. A real run prints `upgrade: ok` when nothing is left for a person to merge. When any pull request will not merge by itself, the last line is `upgrade: open pull requests: ...` instead, never `upgrade: ok`.
 
-- `change: rules-merge` comes once per rules file: `AGENTS.md`, `CLAUDE.md`, and each `areas/<name>/AGENTS.md` and `CLAUDE.md`. `company-lines` is the count of company lines kept. `chars` is the size of the merged file in bytes.
+- `change: rules-merge` comes once per rules file: `AGENTS.md`, `CLAUDE.md`, and each `areas/<name>/AGENTS.md` and `CLAUDE.md`. `company-lines` is the count of company lines kept: the same lines the pull request body lists. Blank lines do not count, and neither does a stock v0 line (a v0 subheading that comes along with a company line under it). `chars` is the size of the merged file in bytes.
 - `change: rules-spill` comes only when the merged file would be 10,000 bytes or more. In an area the file is `area-rules.md`.
 - `todo: AGENTS.md is <m> characters` comes when the merged company `AGENTS.md` is over 9,000 but under 10,000. It says what to move out.
 - `change: skill-moved` comes only for a company skill in a tracked copy folder.

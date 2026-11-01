@@ -15,63 +15,66 @@ jobs:
   checks:
     runs-on: ${{ vars.OS_RUNNER || 'ubuntu-latest' }}
     permissions:
+      actions: write
       contents: write
       pull-requests: write
       issues: write
       checks: write
     steps:
+      - name: event
+        id: event
+        run: |
+          set -euo pipefail
+          run=yes
+          ref=""
+          if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
+            # Only an /override comment on a pull request runs the checks.
+            trimmed=$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" | sed 's/^[[:space:]]*//')
+            number=$(jq -r 'if .issue.pull_request then (.issue.number // "" | tostring) else "" end' "$GITHUB_EVENT_PATH")
+            case "$trimmed" in
+              /override*) ;;
+              *) run=no ;;
+            esac
+            case "$number" in
+              ''|*[!0-9]*) run=no ;;
+              *) ref="refs/pull/${number}/head" ;;
+            esac
+          else
+            ref=$(jq -r '.pull_request.head.sha // empty' "$GITHUB_EVENT_PATH")
+          fi
+          printf 'run=%s\nref=%s\n' "$run" "$ref" >> "$GITHUB_OUTPUT"
+
+      # Full history, and no token left in the folder's git config.
       - name: checkout
+        if: steps.event.outputs.run == 'yes'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.event.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: base tools
+        if: steps.event.outputs.run == 'yes'
         env:
           JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           umask 077
-          temp="${RUNNER_TEMP:-/tmp}"
-          mkdir -p "${temp}/os-ci"
-          if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
-            trimmed=$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" | sed 's/^[[:space:]]*//')
-            case "$trimmed" in
-              /override*) ;;
-              *)
-                printf '%s\n' yes > "${temp}/os-ci/skip"
-                exit 0
-                ;;
-            esac
-          fi
-          if [ -z "${JOB_TOKEN:-}" ]; then
-            echo "checkout failed: the job token is missing" >&2
-            exit 1
-          fi
-          cd "${GITHUB_WORKSPACE}"
-          git init -q .
-          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
-          # The token is an environment value. It is not a command argument.
-          # Git over HTTP on GitHub takes only basic auth (x-access-token:<token>). Forgejo takes it too.
-          git_auth=$(printf '%s' "x-access-token:${JOB_TOKEN}" | base64 | tr -d '\r\n')
-          GIT_CONFIG_COUNT=1 \
-            GIT_CONFIG_KEY_0=http.extraHeader \
-            GIT_CONFIG_VALUE_0="Authorization: basic ${git_auth}" \
-            GIT_TERMINAL_PROMPT=0 \
-            git -c credential.helper= fetch --depth 1 origin main
-          git checkout -q --detach FETCH_HEAD
-          cp .github/scripts/checkout.sh "${temp}/checkout.sh"
-          cp .github/scripts/lib.sh "${temp}/lib.sh"
-          (
-            cd "${temp}"
-            bash ./checkout.sh
-          )
+          boot="${RUNNER_TEMP:-/tmp}/os-ci-boot"
+          mkdir -p "$boot"
+          # Base copies only. The pull request head is data, not code.
+          git show origin/main:.github/scripts/checkout.sh > "${boot}/checkout.sh"
+          git show origin/main:.github/scripts/lib.sh > "${boot}/lib.sh"
+          bash "${boot}/checkout.sh"
 
       - name: run checks
+        if: steps.event.outputs.run == 'yes'
         env:
           JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OS_REVIEW_KEY: ${{ secrets.OS_REVIEW_KEY }}
         run: |
           set -euo pipefail
-          temp="${RUNNER_TEMP:-/tmp}"
-          if [ -f "${temp}/os-ci/skip" ] && [ "$(cat "${temp}/os-ci/skip")" = "yes" ]; then
-            exit 0
-          fi
-          tools_file="${temp}/os-ci/tools-dir"
+          tools_file="${RUNNER_TEMP:-/tmp}/os-ci/tools-dir"
           if [ ! -s "$tools_file" ]; then
             echo "checks failed: the base tools are missing" >&2
             exit 1

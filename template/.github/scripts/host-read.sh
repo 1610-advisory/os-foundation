@@ -14,7 +14,7 @@ usage() {
   cat << 'EOF'
 usage: host-read.sh comments OWNER REPO NUMBER
 
-Print a JSON array of {login, body} for the pull request comments.
+Print a JSON array of {login, body, association} for the pull request comments.
 Follows pages until a short page. Reads the job token from JOB_TOKEN,
 FORGEJO_TOKEN or GH_TOKEN. Never prints the token.
 EOF
@@ -93,4 +93,4 @@ while true; do
   fi
 done
 
-jq '[.[] | {login: (.user.login // ""), body: (.body // "")}]' "$combined"
+jq '[.[] | {login: (.user.login // ""), body: (.body // ""), association: (.author_association // "")}]' "$combined"

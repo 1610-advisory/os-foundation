@@ -77,6 +77,8 @@ case "$1" in
       printf '%s\n' '{"access":"ok"}'
       exit 0
     fi
+    # gh's own lines for a repo that is not there yet (round 5: team-on must not show them).
+    printf '%s\n' "gh: Not Found (HTTP 404)" "not found or no access" >&2
     printf '%s\n' '{"access":"no-access"}'
     exit 2
     ;;
@@ -183,6 +185,8 @@ grep -q 'review_key' "$answers" && team_fail "answers file must not hold a revie
   cat "$work/err" >&2
   team_fail "team-on spy run failed ($rc)"
 }
+# Round 5: a repo not there yet is expected before each create: no raw 404 lines.
+grep -q 'Not Found (HTTP 404)\|not found or no access' "$work/err" && { cat "$work/err" >&2; team_fail "r5: team-on showed the expected 404 lines"; }
 [ "$(git -C "$company" remote get-url origin)" = "http://127.0.0.1:9/acme/team-os.git" ] || team_fail "create path left the wrong company origin"
 [ "$(git -C "$company/areas/marketing" remote get-url origin)" = "http://127.0.0.1:9/acme/team-marketing.git" ] || team_fail "create path left the wrong area origin"
 [ "$(git -C "$company/users/ada" remote get-url origin)" = "http://127.0.0.1:9/acme/team-user-ada.git" ] || team_fail "create path left the wrong workspace origin"

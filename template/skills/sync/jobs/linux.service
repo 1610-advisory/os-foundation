@@ -4,6 +4,7 @@ Description=@DESC@
 [Service]
 Type=oneshot
 WorkingDirectory=@ROOT@
+Environment="PATH=@PATH@"
 ExecStart=/bin/bash @SYNC@ @ARG@
 
 [Install]

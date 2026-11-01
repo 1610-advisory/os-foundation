@@ -27,14 +27,13 @@ if [ $# -ne 0 ]; then
   exit 1
 fi
 
-if [ "$(ci_read_state skip 2>/dev/null || true)" = "yes" ]; then
-  exit 0
-fi
-
 event=$(ci_read_state event-name)
 pr=$(ci_read_state pr-number)
 head=$(ci_read_state head-sha)
 base=$(ci_read_state base-sha)
+# Owners come from the base tip. An older checkout.sh writes no tools-sha.
+tools_sha=$(ci_read_state tools-sha 2>/dev/null || true)
+tools_sha=${tools_sha:-$base}
 owner=${GITHUB_REPOSITORY%%/*}
 repo=${GITHUB_REPOSITORY#*/}
 
@@ -116,11 +115,48 @@ run_gates() {
   return 0
 }
 
+# B51: on GitHub an /override re-runs this pull request's failed run (set-status.sh).
+# That run passes when the override job left its line for this head commit, and the
+# person it names wrote an /override that override.sh still accepts on the base.
+# Only the job's own bot writes that line; a person's comment cannot stand in for it.
+override_for_head() {
+  local comments marker user note event_json decision
+  ci_is_github || return 1
+  [ -n "$pr" ] || return 1
+  comments=$(ci_mktemp)
+  if ! bash "$DIR/host-read.sh" comments "$owner" "$repo" "$pr" > "$comments" 2>/dev/null; then
+    return 1
+  fi
+  marker=$(jq -r --arg head "$head" '
+    [.[] | select(.login == "github-actions[bot]") | (.body | rtrimstr("\n"))
+      | select(split("\n") | length == 1)
+      | select(test("^override by [A-Za-z0-9][A-Za-z0-9-]* for " + $head + ": "))] | last // empty' "$comments")
+  [ -n "$marker" ] || return 1
+  user=${marker#override by }
+  user=${user%% *}
+  note=$(ci_mktemp)
+  event_json=$(ci_mktemp)
+  jq -r --arg user "$user" '[.[] | select((.login | ascii_downcase) == ($user | ascii_downcase))
+    | select(.body | test("^\\s*/override"))] | last // empty | .body' "$comments" > "$note"
+  [ -s "$note" ] || return 1
+  jq --arg user "$user" '[.[] | select((.login | ascii_downcase) == ($user | ascii_downcase))
+    | select(.body | test("^\\s*/override"))] | last | {comment: {author_association: (.association // "")}}' \
+    "$comments" > "$event_json"
+  decision=$(bash "$DIR/override.sh" --user "$user" --comment-file "$note" --base "$tools_sha" --event-file "$event_json")
+  case "$decision" in
+    valid\ *)
+      ci_summary_add "$marker"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 if [ "$event" = "issue_comment" ]; then
   comment_file=$(ci_mktemp)
   user=$(jq -r '.comment.user.login // empty' "$GITHUB_EVENT_PATH")
   jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" > "$comment_file"
-  decision=$(bash "$DIR/override.sh" --user "$user" --comment-file "$comment_file" --base "$base" --event-file "$GITHUB_EVENT_PATH")
+  decision=$(bash "$DIR/override.sh" --user "$user" --comment-file "$comment_file" --base "$tools_sha" --event-file "$GITHUB_EVENT_PATH")
   case "$decision" in
     valid\ *)
       reason=${decision#valid }
@@ -128,11 +164,12 @@ if [ "$event" = "issue_comment" ]; then
         exit 1
       fi
       msg="override by ${user} for ${head}: ${reason}"
-      bash "$DIR/set-status.sh" "$head" success "$msg"
       note=$(ci_mktemp)
       printf '%s\n' "$msg" > "$note"
       ci_summary_add "$msg"
+      # The line goes first: on GitHub the re-run reads it.
       post_comment "$note"
+      bash "$DIR/set-status.sh" "$head" success "$msg"
       exit 0
       ;;
     ignored\ empty)
@@ -152,6 +189,9 @@ fi
 if ! run_gates; then
   exit 1
 fi
+if override_for_head; then
+  exit 0
+fi
 range="${base}..${head}"
 
 title_file=$(ci_mktemp)
@@ -161,7 +201,8 @@ if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
   jq -r '.pull_request.title // empty' "$GITHUB_EVENT_PATH" > "$title_file"
   jq -r '.pull_request.body // empty' "$GITHUB_EVENT_PATH" > "$body_file"
 fi
-git diff --no-color "$range" > "$diff_file"
+# A file exactly as a release shipped it is left out. The stock list comes from the base.
+bash "$DIR/review-diff.sh" "$range" "${tools}/.github/scripts/stock-current.txt" > "$diff_file"
 
 review_rc=0
 out=$(ci_mktemp)
@@ -191,6 +232,10 @@ fi
 ci_summary_add "$(cat "$out")"
 post_comment "$out"
 if [ "$review_rc" -ne 0 ]; then
+  # An /override may have come in while the review ran.
+  if override_for_head; then
+    exit 0
+  fi
   exit 1
 fi
 exit 0

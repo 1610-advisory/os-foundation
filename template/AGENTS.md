@@ -60,13 +60,13 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 
 [team]:
 - Nobody writes to `main`, the admin included.
-- Notes and logs go on your branch `sync/<person>`. The nightly `sync` push puts them on one standing PR. It merges by itself when the checks pass.
+- Notes and logs go on `sync/<person>/<computer>`. The nightly `sync` push puts them on its standing PR. It merges by itself when the checks pass.
 - Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
 - Every rules PR gets a review by a different model first (`review-rules.md`).
 - Area rules: after the review, the area director approves.
 - Company-root rules: after the review, the admin approves.
-- Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin's approval. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: the review is enough.
-- A failed review blocks the merge. Only the admin may override it. The admin must write the reason in the PR. The check logs it.
+- Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: the other owners approve.
+- A failed review blocks the merge. Only the admin may override it, with the reason in the PR. The check logs it. Re-run a busy review.
 - Make branches and PRs for the person. They need not know git.
 
 ## 8. Folder units

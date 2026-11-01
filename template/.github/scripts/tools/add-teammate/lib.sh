@@ -331,6 +331,56 @@ os_host_try() {
   return "$rc"
 }
 
+# Turn on auto-merge and print one line. A green pull request is merged at once (B45).
+os_auto_merge_line() {
+  local repo=$1 number=$2 out err
+  err=$(mktemp)
+  if out=$(os_host_try auto-merge "$repo" "$number" 2>"$err"); then
+    rm -f "$err"
+    if [ "$(printf '%s' "$out" | jq -r '.merge // empty' 2>/dev/null)" = "merged" ]; then
+      printf 'merged: %s %s (its checks were already green)\n' "$repo" "$number"
+    else
+      printf '%s\n' "auto-merge: on"
+    fi
+    return 0
+  fi
+  if grep -q 'is green: merge it' "$err"; then
+    printf 'pull request %s is green: merge it\n' "$number"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$repo" "$number" "$repo"
+  fi
+  rm -f "$err"
+}
+
+# A rules pull request that changes CODEOWNERS (add-person, remove). On GitHub a code
+# owner must approve it, so auto-merge would wait for ever: it is merged by hand. An
+# earlier run on the same branch may have turned auto-merge on, so turn it off first
+# (B38), and say "will not merge by itself" only when that is true. Forgejo: auto-merge.
+os_owners_merge_line() {
+  local repo=$1 number=$2 what=$3 host=$4 will
+  if [ "$host" != "github" ]; then
+    os_auto_merge_line "$repo" "$number"
+    return 0
+  fi
+  if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+    will='so it will not merge by itself.'
+  else
+    will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+  fi
+  printf 'merge-by-hand: %s %s: it changes %s, %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+    "$repo" "$number" "$what" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+}
+
+# B58: a product step's own rules pull request (upgrade, refresh, team-on, add-person,
+# remove) can fail the model review on a change its body explains. Say the way past
+# before anyone has to ask. Only the admin may use it; the check logs it.
+os_override_line() {
+  local repo=$1 number=$2 reason=$3
+  printf 'override: %s %s if the model review fails it: read the finding. If the change is only what the pull request body says, the admin comments on it: /override %s\n' \
+    "$repo" "$number" "$reason"
+}
+
 os_config_dir() {
   local slug=$1
   printf '%s/%s-os' "${XDG_CONFIG_HOME:-$HOME/.config}" "$slug"
@@ -472,18 +522,28 @@ os_back_to_main() {
   return 0
 }
 
-# Back on main, put the branch's copy of each path in the folder as a local change, so
-# the person sees it now. It still reaches main only by the branch's pull request: sync
-# push holds a file whose content waits on a rules/* branch on the host.
-os_show_branch_files() {
-  local dir=$1 branch=$2 p rel
-  shift 2
-  [ "$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)" = "main" ] || return 0
-  for p in "$@"; do
-    rel=${p#"$dir"/}
-    mkdir -p "$dir/$(dirname "$rel")"
-    git -C "$dir" show "${branch}:${rel}" > "$dir/$rel" 2>/dev/null || true
-  done
+# Build a rules/* branch in a temporary worktree on origin/main, never over the folder:
+# after a sync push, the person's notes sit untracked there while origin/main has them,
+# so a checkout would stop (B47). Prints the worktree. Call os_branch_push when done.
+os_branch_start() {
+  local dir=$1 tw
+  tw=$(mktemp -d)
+  if ! git -C "$dir" worktree add -q --detach "$tw/b" origin/main >/dev/null 2>&1; then
+    rm -rf "$tw"
+    os_die 3 "could not prepare the change in ${dir}: run this again"
+  fi
+  printf '%s\n' "$tw/b"
+}
+
+# Push the worktree's commit to the branch (the script's own: a retry replaces it), set
+# origin/<branch> to it, and remove the worktree.
+os_branch_push() {
+  local dir=$1 wt=$2 branch=$3 rc=0
+  os_with_git_token git -C "$wt" push -q --force origin "HEAD:refs/heads/${branch}" || rc=$?
+  [ "$rc" -ne 0 ] || git -C "$wt" update-ref "refs/remotes/origin/${branch}" HEAD
+  git -C "$dir" worktree remove --force "$wt" >/dev/null 2>&1 || true
+  rm -rf "$(dirname "$wt")"
+  [ "$rc" -eq 0 ] || os_die 3 "could not push ${branch}: check the sign-in, then run this again"
 }
 
 # Commit only the paths the caller changed. Never "git add -A" in a shared root:
@@ -589,35 +649,33 @@ os_codeowners() {
   mkdir -p "$root/.github" "$root/.gitea"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
-    printf '%s\n' "/AGENTS.md $github_users"
-    printf '%s\n' "/CLAUDE.md $github_users"
-    printf '%s\n' "/company-rules.md $github_users"
-    printf '%s\n' "/area-rules.md $github_users"
-    printf '%s\n' "/review-rules.md $github_users"
-    printf '%s\n' "/skills/ $github_users"
+    printf '%s\n' "**/AGENTS.md $github_users"
+    printf '%s\n' "**/CLAUDE.md $github_users"
+    printf '%s\n' "**/company-rules.md $github_users"
+    printf '%s\n' "**/area-rules.md $github_users"
+    printf '%s\n' "**/review-rules.md $github_users"
+    printf '%s\n' "**/skills/ $github_users"
     printf '%s\n' "/bots/*/BOT.md $github_users"
-    printf '%s\n' "/CODEOWNERS $github_users"
-    printf '%s\n' "/docs/CODEOWNERS $github_users"
-    printf '%s\n' "/.github/ $github_users"
-    printf '%s\n' "/.gitea/ $github_users"
-    printf '%s\n' "/.forgejo/ $github_users"
-    printf '%s\n' "/.claude/ $github_users"
+    printf '%s\n' "**/CODEOWNERS $github_users"
+    printf '%s\n' "**/.github/ $github_users"
+    printf '%s\n' "**/.gitea/ $github_users"
+    printf '%s\n' "**/.forgejo/ $github_users"
+    printf '%s\n' "**/.claude/ $github_users"
   } > "$root/.github/CODEOWNERS"
   {
     printf '%s\n' "# Rules files only. Notes have no code owner."
-    printf '%s %s\n' '^AGENTS\.md$' "$forgejo_users"
-    printf '%s %s\n' '^CLAUDE\.md$' "$forgejo_users"
-    printf '%s %s\n' '^company-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^area-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^review-rules\.md$' "$forgejo_users"
-    printf '%s %s\n' '^skills/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?AGENTS\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CLAUDE\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?company-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?area-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?review-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?skills/.*' "$forgejo_users"
     printf '%s %s\n' '^bots/[^/]+/BOT\.md$' "$forgejo_users"
-    printf '%s %s\n' '^CODEOWNERS$' "$forgejo_users"
-    printf '%s %s\n' '^docs/CODEOWNERS$' "$forgejo_users"
-    printf '%s %s\n' '^\.github/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.gitea/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.forgejo/.*' "$forgejo_users"
-    printf '%s %s\n' '^\.claude/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CODEOWNERS$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.github/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.gitea/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.forgejo/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.claude/.*' "$forgejo_users"
   } > "$root/.gitea/CODEOWNERS"
 }
 
@@ -630,21 +688,79 @@ os_at_users() {
   fi
 }
 
-# Forgejo names one owner. An area names the director, or the admin if there is none.
-os_forgejo_owner() {
-  local admin=$1 director=$2
-  if [ -z "$director" ] || [ "$director" = "$admin" ]; then
-    printf '@%s' "$admin"
-  else
-    printf '@%s' "$director"
+# The owners named on the rule lines of CODEOWNERS files, one per line, sorted. A field
+# that starts with # begins a comment: the rest of the line is not an owner.
+os_owner_names() {
+  awk '/^#/ || NF < 2 { next } { for (i = 2; i <= NF && $i !~ /^#/; i++) print tolower($i) }' "$@" 2>/dev/null | LC_ALL=C sort -u
+}
+
+# Every rule line of the file names this owner.
+os_owner_on_every_line() {
+  local file=$1 who=$2
+  [ -f "$file" ] || return 1
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" '
+    /^#/ || NF == 0 { next }
+    { ok = 0; for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) == who) ok = 1; if (!ok) bad = 1 }
+    END { exit bad ? 1 : 0 }' "$file"
+}
+
+# Take one owner off every rule line of a CODEOWNERS file. A line left with no owner
+# names the admin instead, so someone in the company can still approve it. The owners
+# stop at the first field that starts with #: a comment after them stays as it was.
+os_owner_drop() {
+  local file=$1 who=$2 admin=$3 tmp
+  [ -f "$file" ] || return 0
+  tmp=$(mktemp)
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" -v admin="@$admin" '
+    /^#/ || NF < 2 { print; next }
+    {
+      out = $1; n = 0
+      for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) != who) { out = out " " $i; n++ }
+      # Never leave a line with no owner: with no admin known, the line stays as it was.
+      if (n == 0 && admin == "@") { print; next }
+      if (n == 0) out = out " " admin
+      for (; i <= NF; i++) out = out " " $i
+      print out
+    }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+# The body of a rules pull request that changes CODEOWNERS (B60): why, who becomes or
+# stops being a code owner, and that the admin stays on every line, so the model review
+# can check the change against it. Compares the folder's files with origin/main's.
+os_owners_body() {
+  local dir=$1 why=$2 admin=$3 before after added removed
+  before=$(mktemp)
+  after=$(mktemp)
+  { git -C "$dir" show origin/main:.github/CODEOWNERS 2>/dev/null || true; } | os_owner_names > "$before"
+  os_owner_names "$dir/.github/CODEOWNERS" > "$after"
+  added=$(comm -13 "$before" "$after" | paste -sd ' ' -)
+  removed=$(comm -23 "$before" "$after" | paste -sd ' ' -)
+  printf '%s\n' "$why"
+  printf '\n'
+  [ -z "$added" ] || printf 'Code owners added: %s\n' "$added"
+  [ -z "$removed" ] || printf 'Code owners removed: %s\n' "$removed"
+  if [ -n "$admin" ] && os_owner_on_every_line "$dir/.github/CODEOWNERS" "$admin" \
+    && os_owner_on_every_line "$dir/.gitea/CODEOWNERS" "$admin"; then
+    printf 'The admin (@%s) stays a code owner of every line.\n' "$admin"
   fi
+  if [ -f "$dir/.gitea/CODEOWNERS" ] \
+    && [ "$(os_owner_names "$dir/.github/CODEOWNERS")" = "$(os_owner_names "$dir/.gitea/CODEOWNERS")" ]; then
+    printf '%s\n' "\`.github/CODEOWNERS\` (GitHub) and \`.gitea/CODEOWNERS\` (Forgejo) name the same owners."
+  fi
+  if grep -qx '# Kept from main.' "$dir/.github/CODEOWNERS" 2>/dev/null; then
+    printf '%s\n' "Lines main already had are kept, under \"# Kept from main.\"."
+  fi
+  rm -f "$before" "$after"
 }
 
 os_fill_placeholders() {
-  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb today
   # Split the braces. A line that holds both pairs looks like a placeholder.
   ob='{{'
   cb='}}'
+  today=$(date +%Y-%m-%d)
   # Text files only. Do not print file contents.
   find "$dest" -type f | while IFS= read -r f; do
     case "$f" in
@@ -653,12 +769,16 @@ os_fill_placeholders() {
     sed -i '' \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f" 2>/dev/null || \
     sed -i \
       -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
       -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
       -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
       -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
       "$f"

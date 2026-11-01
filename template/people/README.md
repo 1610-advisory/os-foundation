@@ -6,7 +6,7 @@ Teammates fill these fields. Customer contacts and partners leave them empty.
 
 | Field | What it holds |
 |---|---|
-| `slug:` | Short lowercase id. Used in log file names (`memory/logs/YYYY-MM-DD-<slug>.md`) and the person's `sync/<slug>` branch. |
+| `slug:` | Short lowercase id. Used in log file names (`memory/logs/YYYY-MM-DD-<slug>.md`) and the person's `sync/<slug>/<computer>` branches. |
 | `github:` | Git host username. `sync` checks it against the signed-in account (team level). |
 | `email:` | Work email. |
 | `role:` | `admin`, `director` or `writer`. A director approves rules changes in their areas. |

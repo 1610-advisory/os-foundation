@@ -119,26 +119,6 @@ ci_trim() {
   printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
-# Git over HTTP on GitHub takes only basic auth: x-access-token and the token.
-# Forgejo takes the same form. printf is a shell builtin, so the token is never an argument.
-ci_git_header() {
-  local b64
-  b64=$(printf '%s' "x-access-token:${JOB_TOKEN}" | base64 | tr -d '\r\n')
-  printf '%s' "Authorization: basic ${b64}"
-}
-
-# Git reads the token from the environment, not from a command argument.
-ci_git() {
-  if [ -z "${JOB_TOKEN:-}" ]; then
-    ci_die 1 "checkout failed: the job token is missing"
-  fi
-  GIT_CONFIG_COUNT=1 \
-    GIT_CONFIG_KEY_0=http.extraHeader \
-    GIT_CONFIG_VALUE_0="$(ci_git_header)" \
-    GIT_TERMINAL_PROMPT=0 \
-    git -c credential.helper= "$@"
-}
-
 # kind is glob (GitHub CODEOWNERS) or regex (Forgejo CODEOWNERS).
 # Exit 0 when the pattern matches the path. Anchored on path boundaries.
 ci_path_match() {
@@ -174,24 +154,32 @@ ci_path_match() {
         anchored = 1
         pat = substr(pat, 2)
       }
+      # A folder pattern (a trailing /) matches each file under a matching folder.
+      dir = 0
       if (pat != "" && substr(pat, length(pat), 1) == "/") {
         pat = substr(pat, 1, length(pat) - 1)
-        if (index(path, pat) == 1 && (length(path) == length(pat) || substr(path, length(pat) + 1, 1) == "/")) exit 0
-        exit 1
+        dir = 1
       }
-      if (anchored || index(pat, "/") > 0) {
-        if (gm(pat, path)) exit 0
-        exit 1
-      }
-      if (gm(pat, path)) exit 0
       n = split(path, segs, "/")
       acc = ""
-      for (i = n; i >= 1; i--) {
-        if (acc == "") acc = segs[i]
-        else acc = segs[i] "/" acc
-        if (gm(pat, acc)) exit 0
+      for (i = 1; i <= n; i++) {
+        acc = (i == 1) ? segs[1] : acc "/" segs[i]
+        if (dir && i == n) break
+        if (!dir && i < n) continue
+        if (fm(pat, acc)) exit 0
       }
       exit 1
+    }
+    # Anchored, or with a / inside: from the root. Else at any depth.
+    function fm(p, s,   k, m, parts, tail) {
+      if (anchored || index(p, "/") > 0) return gm(p, s)
+      m = split(s, parts, "/")
+      tail = ""
+      for (k = m; k >= 1; k--) {
+        tail = (tail == "") ? parts[k] : parts[k] "/" tail
+        if (gm(p, tail)) return 1
+      }
+      return 0
     }
   '
 }
@@ -226,6 +214,47 @@ ci_auth_header() {
   else
     printf '%s\n' "Authorization: token ${token}"
   fi
+}
+
+# Call one host API path (/repos/...) with the job token: METHOD PATH OUT [BODY_FILE].
+# The token goes in a mode-600 curl config, never in an argument, and the config is
+# removed at once. A 2xx answer is success.
+ci_api_call() {
+  local method=$1 path=$2 out=$3 body=${4:-} cfg err http rc
+  cfg=$(ci_mktemp)
+  err=$(ci_mktemp)
+  {
+    printf '%s\n' "header = \"$(ci_auth_header "$JOB_TOKEN")\""
+    printf '%s\n' 'header = "Accept: application/json"'
+    printf '%s\n' "url = \"$(ci_api_base)${path}\""
+    printf '%s\n' "request = \"${method}\""
+    if [ -n "$body" ]; then
+      printf '%s\n' 'header = "Content-Type: application/json"'
+      printf '%s\n' "data-binary = \"@${body}\""
+    fi
+    printf '%s\n' "output = \"${out}\""
+    printf '%s\n' 'silent' 'show-error' 'connect-timeout = 10' 'max-time = 60'
+    printf '%s\n' 'write-out = "%{http_code}"'
+  } > "$cfg"
+  set +e
+  http=$(curl --config "$cfg" 2>"$err")
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  case "$http" in
+    2??) ;;
+    *) rc=1 ;;
+  esac
+  if [ "$rc" -ne 0 ]; then
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+}
+
+ci_api_get() {
+  ci_api_call GET "$1" "$2"
 }
 
 ci_summary_add() {

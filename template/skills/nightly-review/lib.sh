@@ -261,6 +261,29 @@ nr_person_heading() {
   awk '/^# / { sub(/^# /, ""); print; exit }' "$1"
 }
 
+# Files in each inbox/ (company and areas) older than 7 days on the review date.
+# A committed file counts from its first commit, else from its file time. No edits.
+nr_inbox_old() {
+  local limit n=0 dir repo f rel t
+  limit=$(($(nr_epoch "$NR_DATE") - 7 * 86400))
+  for dir in "$NR_ROOT/inbox" "$NR_ROOT"/areas/*/inbox; do
+    [ -d "$dir" ] || continue
+    repo=$(dirname "$dir")
+    while IFS= read -r f; do
+      case "$(basename "$f")" in
+        README.md|.*) continue ;;
+      esac
+      rel=${f#"$repo"/}
+      t=$(git -C "$repo" log --diff-filter=A --format=%ct -- "$rel" 2>/dev/null | tail -n 1 || true)
+      [ -n "$t" ] || t=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f")
+      if [ "$t" -lt "$limit" ]; then
+        n=$((n + 1))
+      fi
+    done < <(find "$dir" -type f)
+  done
+  printf '%s\n' "$n"
+}
+
 nr_admin_slug() {
   local f role slug
   for f in "$NR_ROOT"/people/*.md; do

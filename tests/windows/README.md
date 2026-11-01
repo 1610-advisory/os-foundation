@@ -11,3 +11,5 @@ tests/windows/s15.ps1
 Each check prints one line: `S15 <check> PASS`, `FAIL`, or `BLOCKED`. The script exits non-zero on any FAIL. BLOCKED is not a failure.
 
 The workflow is `.github/workflows/windows.yml`. It runs on pull requests that touch the Windows files, and on `workflow_dispatch`.
+
+It first runs `tests/team/test_join_old.sh` in Git Bash (check `join-crlf`): join reads an old folder cloned with the runner's own `core.autocrlf=true`, and the base it sets aside differs from the person's copy only by the one edit.

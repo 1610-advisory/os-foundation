@@ -245,7 +245,9 @@ while IFS= read -r area; do
       cp "$rules_src" "$ROOT/areas/$area/review-rules.md"
     fi
   fi
-  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")" "$(os_forgejo_owner "$ADMIN_GH" "$director_gh")"
+  # The same owners in both files (B60). On Forgejo every name on a line must approve, so
+  # an area rules change there needs the director and the admin.
+  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
@@ -263,12 +265,17 @@ rules_on_main() {
     && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null
 }
 
+# A repo that does not exist yet is the expected case here (exit 2: not found), so its
+# "Not Found (HTTP 404)" lines are not shown. Any other error is.
 repo_exists() {
-  local rc
+  local rc err
+  err=$(mktemp)
   set +e
-  os_host repo-access "$1" >/dev/null
+  os_host repo-access "$1" >/dev/null 2>"$err"
   rc=$?
   set -e
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || cat "$err" >&2
+  rm -f "$err"
   [ "$rc" -eq 0 ]
 }
 
@@ -283,6 +290,7 @@ commit_rules_before_protect() {
   fi
   os_with_git_token git -C "$dir" fetch origin
   if rules_on_main "$dir"; then
+    propose_team_rules "$dir" "$msg"
     return 0
   fi
   os_git_commit "$dir" "$msg" "$@"
@@ -299,6 +307,75 @@ commit_rules_before_protect() {
   rm -f "$err"
   printf '%s\n' "main is protected and .github/CODEOWNERS, .gitea/CODEOWNERS, or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
   exit 2
+}
+
+# Main already has rules (a second run, or after an upgrade). Never push to main: the
+# rules files this run changed go up as one rules pull request, as sync propose does.
+# A CODEOWNERS line the company added on main stays, after the rules lines.
+# Notes (people pages, the profile) go up with the admin's next sync push.
+propose_team_rules() {
+  local dir=$1 msg=$2 f wt name pr number reuse body branch="rules/${ADMIN}/team-on" changed=()
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+    [ -f "$dir/$f" ] || continue
+    git -C "$dir" show "origin/main:$f" 2>/dev/null \
+      | awk 'NR == FNR { if ($0 !~ /^#/ && NF) seen[$1] = 1; next }
+          /^#/ || NF == 0 || $1 == "*" || $1 == ".*" { next }
+          !($1 in seen) { print }' "$dir/$f" - > "$dir/$f.keep" || true
+    if grep -q '[^[:space:]]' "$dir/$f.keep"; then
+      { printf '\n%s\n' "# Kept from main."; cat "$dir/$f.keep"; } >> "$dir/$f"
+    fi
+    rm -f "$dir/$f.keep"
+  done
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS .github/review.conf review-rules.md; do
+    [ -f "$dir/$f" ] || continue
+    if git -C "$dir" cat-file -e "origin/main:$f" 2>/dev/null \
+      && [ "$(git -C "$dir" hash-object -- "$dir/$f")" = "$(git -C "$dir" rev-parse "origin/main:$f")" ]; then
+      continue
+    fi
+    changed+=("$f")
+  done
+  [ "${#changed[@]}" -gt 0 ] || return 0
+  name=$(basename "$(git -C "$dir" remote get-url origin)" .git)
+  # An earlier run pushed these same files: reuse its branch and pull request.
+  reuse=1
+  for f in "${changed[@]}"; do
+    [ "$(git -C "$dir" rev-parse -q --verify "origin/${branch}:$f" 2>/dev/null)" = "$(git -C "$dir" hash-object -- "$dir/$f")" ] || reuse=0
+  done
+  if [ "$reuse" -eq 0 ]; then
+    wt=$(os_branch_start "$dir")
+    for f in "${changed[@]}"; do
+      mkdir -p "$(dirname "$wt/$f")"
+      cp "$dir/$f" "$wt/$f"
+    done
+    os_git_commit "$wt" "$msg" "${changed[@]}" >/dev/null
+    os_branch_push "$dir" "$wt" "$branch"
+  fi
+  body=$(mktemp)
+  team_rules_body "$dir" "${changed[@]}" > "$body"
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "rules: ${msg}" --body-file "$body")
+  rm -f "$body"
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  [ -n "$number" ] || os_die 3 "could not open the rules pull request for ${name}: run team-on again"
+  printf 'rules-pr: %s %s (%s)\n' "$name" "$number" "${changed[*]}"
+  os_auto_merge_line "$name" "$number"
+  os_override_line "$name" "$number" "team-on: the code owners and review rules the body lists"
+}
+
+# What team-on's rules pull request changes, and why (B60).
+team_rules_body() {
+  local dir=$1 why f
+  shift
+  case "$dir" in
+    */areas/*) why="team-on: names the area director as a code owner of the $(basename "$dir") area rules. The admin stays a code owner." ;;
+    *) why="team-on: sets the code owners of the company rules files for the team." ;;
+  esac
+  os_owners_body "$dir" "$why" "$ADMIN_GH"
+  for f in "$@"; do
+    case "$f" in
+      review-rules.md) printf '%s\n' "review-rules.md: the release's review rules. The model review reads them from main." ;;
+      .github/review.conf) printf '%s\n' ".github/review.conf: which model reviews this repo's pull requests." ;;
+    esac
+  done
 }
 
 # A refused push is a host error: exit 3 with one plain line.

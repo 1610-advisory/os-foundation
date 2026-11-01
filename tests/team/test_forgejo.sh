@@ -217,16 +217,16 @@ done
 grep -q 'CODEOWNERS' "$company/.github/CODEOWNERS" || true
 grep -q '@acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS missing admin"
 grep -F -q '/.gitea/ @acme-admin' "$company/.github/CODEOWNERS" || die "company CODEOWNERS does not own .gitea"
-grep -F -q '^AGENTS\.md$ @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS missing"
-grep -F -x -q '^CODEOWNERS$ @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own the root file"
-grep -F -x -q '^\.claude/.* @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own .claude"
-grep -F -q '^\.gitea/.* @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own itself"
+grep -F -q '^(.*/)?AGENTS\.md$ @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS missing"
+grep -F -x -q '^(.*/)?CODEOWNERS$ @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own the root file"
+grep -F -x -q '^(.*/)?\.claude/.* @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own .claude"
+grep -F -q '^(.*/)?\.gitea/.* @acme-admin' "$company/.gitea/CODEOWNERS" || die "company Forgejo CODEOWNERS does not own itself"
 grep -q '@acme-director' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing director"
 grep -q '@acme-admin' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS missing admin"
 grep -F -q '/.gitea/ @acme-director @acme-admin' "$company/areas/marketing/.github/CODEOWNERS" || die "area CODEOWNERS does not own .gitea"
-grep -F -x -q '^skills/.* @acme-director' "$company/areas/marketing/.gitea/CODEOWNERS" || die "area Forgejo CODEOWNERS must name only the director"
-grep -F -x -q '^CODEOWNERS$ @acme-director' "$company/areas/marketing/.gitea/CODEOWNERS" || die "area Forgejo CODEOWNERS does not own the root file"
-grep -q acme-admin "$company/areas/marketing/.gitea/CODEOWNERS" && die "area Forgejo CODEOWNERS names the admin"
+grep -F -x -q '^(.*/)?skills/.* @acme-director @acme-admin' "$company/areas/marketing/.gitea/CODEOWNERS" || die "area Forgejo CODEOWNERS must name the director and the admin"
+grep -F -x -q '^(.*/)?CODEOWNERS$ @acme-director @acme-admin' "$company/areas/marketing/.gitea/CODEOWNERS" || die "area Forgejo CODEOWNERS does not own the root file"
+[ "$(grep -v '^#' "$company/areas/marketing/.gitea/CODEOWNERS" | grep -v '^$' | sed 's/^[^ ]* //' | sort -u)" = "$(grep -v '^#' "$company/areas/marketing/.github/CODEOWNERS" | grep -v '^$' | sed 's/^[^ ]* //' | sort -u)" ] || die "area .gitea and .github CODEOWNERS name different owners"
 [ -f "$company/people/Mia Member.md" ] || die "people page missing"
 grep -q '^slug: mia$' "$company/people/Mia Member.md" || die "people slug missing"
 
@@ -306,7 +306,7 @@ root=$clone
 me=mia
 areas=marketing,finance
 EOF
-export HOME="$join_home" XDG_CONFIG_HOME="$join_home/.config" OS_JOBS_DIR="$join_home/jobs"
+export HOME="$join_home" XDG_CONFIG_HOME="$join_home/.config" OS_JOBS_DIR="$join_home/jobs" OS_JOBS_LOAD=0
 if ! FORGEJO_TOKEN=$(load_token "$token_dir/acme-member-a") \
   "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" >"$work/join.out" 2>"$work/join.err"; then
   cat "$work/join.out" "$work/join.err" >> "$log"
@@ -318,29 +318,34 @@ grep -q 'cloned: team-marketing' "$work/join.out" || die "marketing was not clon
 grep -q 'skipped: team-finance' "$work/join.out" || die "finance was not skipped"
 grep -q 'cloned: team-user-mia' "$work/join.out" || die "workspace was not cloned"
 grep -q 'terms: proposed' "$work/join.out" || die "terms were not proposed"
-grep -qx 'auto-merge: on' "$work/join.out" || die "terms PR did not get auto-merge"
+if grep -q 'auto-merge is off' "$work/join.out" "$work/join.err"; then
+  die "terms PR did not get auto-merge"
+fi
 if grep -q 'propose refused' "$work/join.out" "$work/join.err"; then
   die "join printed propose refused"
 fi
-git -C "$clone" rev-parse --verify --quiet origin/sync/mia >/dev/null || die "sync branch missing"
-git -C "$clone" log -1 --format=%s origin/sync/mia | grep -q 'Join: accept terms' || die "terms commit is not on the sync branch"
+# join commits the terms in the folder and runs sync push: this computer's branch.
+seat=$(OS_COMPANY_ROOT="$clone" bash "$root/template/skills/sync/sync.sh" seat)
+[ -n "$seat" ] || die "no seat"
+branch="sync/mia/$seat"
+git -C "$clone" rev-parse --verify --quiet "origin/$branch" >/dev/null || die "sync branch missing"
+git -C "$clone" log -1 --format=%s "origin/$branch" | grep -q 'Join: accept terms' || die "terms commit is not on the sync branch"
+git -C "$clone" log -1 --format=%B "origin/$branch" | grep -qx "Sync-Seat: $seat" || die "terms commit has no Sync-Seat line"
 page=$(os_person_file "$clone" mia)
 [ -n "$page" ] || die "people page missing"
 rel=${page#"$clone/"}
-git -C "$clone" show "origin/sync/mia:$rel" | grep -q '^terms_accepted: ' || die "terms date is not on the sync branch"
-number=$(awk '/^pr: / { print $2; exit }' "$work/join.out")
-[ -n "$number" ] || die "terms PR was not opened"
-head_ref=$(python3 - "$token_dir/acme-member-a" "$number" << 'PY'
+git -C "$clone" show "origin/$branch:$rel" | grep -q '^terms_accepted: ' || die "terms date is not on the sync branch"
+number=$(python3 - "$token_dir/acme-member-a" "$branch" << 'PY'
 import json, sys, urllib.request
 token = open(sys.argv[1], encoding="utf-8").read().strip()
-url = "http://localhost:3300/api/v1/repos/acme/team-os/pulls/" + sys.argv[2]
+url = "http://localhost:3300/api/v1/repos/acme/team-os/pulls?state=all"
 req = urllib.request.Request(url, headers={"Authorization": "token " + token})
 with urllib.request.urlopen(req, timeout=10) as resp:
     data = json.load(resp)
-print(data.get("head", {}).get("ref", ""))
+print(next((str(p["number"]) for p in data if p.get("head", {}).get("ref") == sys.argv[2]), ""))
 PY
 )
-[ "$head_ref" = "sync/mia" ] || die "terms PR head is not the sync branch"
+[ -n "$number" ] || die "terms PR was not opened from the sync branch"
 grep -qxF 'keep this line' "$join_home/.claude/CLAUDE.md" || die "claude config was overwritten"
 grep -q "@$clone/users/mia/profile/PROFILE.md" "$join_home/.claude/CLAUDE.md" || die "claude pointer missing"
 grep -q "Read $clone/users/mia/profile/PROFILE.md" "$join_home/.codex/AGENTS.md" || die "codex pointer missing"

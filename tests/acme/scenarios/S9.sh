@@ -38,8 +38,14 @@ osf_host S9 clone-denied acme-member-d "$org" "${slug}-os" >/dev/null
 if [ "$OSF_HOST_RC" -ne 0 ]; then
   osf_result "S9 FAIL access was not revoked"
 fi
-if ! grep -q 'left: 2026-10-24' "$dest/people/"*.md; then
-  osf_result "S9 FAIL people page was not marked left"
+# The page is marked left on the offboard branch. The folder keeps main's page until that
+# pull request merges, so the admin's own sync push cannot carry it.
+osf_host S9 file "$org" "${slug}-os" "people/Sam Member.md" --ref "rules/ada/offboard-sam"
+if [ "$OSF_HOST_RC" -ne 0 ] || ! grep -q 'left: 2026-10-24' "$OSF_HOST_JSON"; then
+  osf_result "S9 FAIL people page was not marked left on the offboard branch"
+fi
+if grep -q 'left: 2026-10-24' "$dest/people/Sam Member.md"; then
+  osf_result "S9 FAIL the folder page changed before the offboard pull request merged"
 fi
 
 # Count 14 days on the removed seat's sandbox. A second sandbox stays offline and must remain.

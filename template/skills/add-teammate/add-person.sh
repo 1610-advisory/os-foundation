@@ -84,23 +84,23 @@ ADMIN_GH=$(os_fm_get "$ADMIN_PAGE" github)
 COMPANY_REPO=$(os_company_repo "$SLUG")
 branch="rules/${ADMIN}/add-${PERSON}"
 
-(
-  cd "$ROOT" || exit 1
-  git fetch origin >/dev/null 2>&1 || true
-  git checkout -q -B "$branch" origin/main
-)
-
-page=$(os_write_person_page "$ROOT" "$PERSON" "$name" "$gh" "$email" "$role" "$areas" "$manager")
+git -C "$ROOT" fetch origin >/dev/null 2>&1 || true
+wt=$(os_branch_start "$ROOT") || exit 3
+tpage=$(os_write_person_page "$wt" "$PERSON" "$name" "$gh" "$email" "$role" "$areas" "$manager")
 
 # Director updates CODEOWNERS on the area repo, by its own PR, after the page.
-os_git_commit "$ROOT" "People: add ${PERSON}" "$page"
-# The branch is this script's own, rebuilt from origin/main. A retry replaces it.
-os_with_git_token git -C "$ROOT" push --force --set-upstream origin "$branch"
+os_git_commit "$wt" "People: add ${PERSON}" "$tpage"
+os_branch_push "$ROOT" "$wt" "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
-os_show_branch_files "$ROOT" "$branch" "$page"
 pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "People: add ${PERSON}")
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
+# Like join: the page is not a rules file, so it merges by itself when the checks pass.
+# Ask now, before the workspace, while the checks still run (B37, B45).
+merge_line=""
+if [ -n "$number" ]; then
+  merge_line=$(os_auto_merge_line "$COMPANY_REPO" "$number")
+fi
 
 WS_TEMPLATE="$DIR/workspace"
 ws_dir="$ROOT/users/$PERSON"
@@ -125,6 +125,7 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   fi
 done
 
+area_lines=""
 for a in $(printf '%s' "$areas" | tr ',' ' '); do
   a=$(os_trim "$a")
   [ -n "$a" ] || continue
@@ -135,20 +136,29 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   [ -e "$ROOT/areas/$a/.git" ] || continue
   abranch="rules/${ADMIN}/add-${PERSON}"
   os_with_git_token git -C "$ROOT/areas/$a" fetch origin
-  git -C "$ROOT/areas/$a" checkout -q -B "$abranch" origin/main
-  os_codeowners "$ROOT/areas/$a" "$(os_at_users "$ADMIN_GH" "$gh")" "$(os_forgejo_owner "$ADMIN_GH" "$gh")"
-  os_git_commit "$ROOT/areas/$a" "Rules: director for ${a}" .github/CODEOWNERS .gitea/CODEOWNERS
-  os_with_git_token git -C "$ROOT/areas/$a" push --force --set-upstream origin "$abranch"
+  wt=$(os_branch_start "$ROOT/areas/$a") || exit 3
+  # The same owners in both files (B60): the director and the admin.
+  os_codeowners "$wt" "$(os_at_users "$ADMIN_GH" "$gh")"
+  os_git_commit "$wt" "Rules: director for ${a}" .github/CODEOWNERS .gitea/CODEOWNERS
+  abody=$(mktemp)
+  os_owners_body "$wt" "add-person: names ${PERSON} as a code owner of the ${a} area rules, as the area director. The admin stays a code owner." "$ADMIN_GH" > "$abody"
+  os_branch_push "$ROOT/areas/$a" "$wt" "$abranch"
   os_back_to_main "$ROOT/areas/$a"
   set +e
-  pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}")
+  pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}" --body-file "$abody")
   pr_rc=$?
   set -e
+  rm -f "$abody"
   area_number=$(printf '%s' "$pr" | jq -r '.number // empty' 2>/dev/null || true)
   if [ "$pr_rc" -ne 0 ] || [ -z "$area_number" ]; then
     printf '%s\n' "could not open a pull request for $(os_area_repo "$SLUG" "$a")" >&2
     exit 2
   fi
+  # B62: it changes CODEOWNERS. GitHub: merged by hand (like remove). Forgejo: auto-merge.
+  area_lines="${area_lines}rules-pr: $(os_area_repo "$SLUG" "$a") ${area_number}
+$(os_owners_merge_line "$(os_area_repo "$SLUG" "$a")" "$area_number" CODEOWNERS "$HOST_KIND")
+$(os_override_line "$(os_area_repo "$SLUG" "$a")" "$area_number" "add-person: names ${PERSON} as the ${a} area director")
+"
 done
 
 printf 'add-person: ok\n'
@@ -156,5 +166,8 @@ printf 'person: %s\n' "$PERSON"
 printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$PERSON")"
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
+  printf '%s\n' "$merge_line"
+  os_override_line "$COMPANY_REPO" "$number" "add-person: ${PERSON}'s people page"
 fi
+printf '%s' "$area_lines"
 os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")" "$HOST_KIND" "$HOST_URL"

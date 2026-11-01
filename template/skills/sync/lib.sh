@@ -58,6 +58,20 @@ sync_mktemp() {
   printf '%s\n' "$f"
 }
 
+# Paths from git diff, log or ls-files, one per line. -z and NUL reads: a path with an
+# accent, an em dash or an emoji is never quoted, so it matches the same path from
+# status -z. A path with a line break is left out, as sync_changed_names does.
+sync_names() {
+  local repo=$1 sub=$2 path
+  shift 2
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      ""|*$'\n'*) continue ;;
+    esac
+    printf '%s\n' "$path"
+  done < <(git -C "$repo" -c core.quotepath=false "$sub" -z "$@" 2>/dev/null)
+}
+
 # The caller removes it when the step is done.
 sync_keep_dir() {
   local d
@@ -162,7 +176,90 @@ sync_find_root() {
   done
 }
 
+# B70: a job that launchd starts (or an app opened from Finder) gets PATH
+# /usr/bin:/bin:/usr/sbin:/sbin. Homebrew git, jq and gh, and the claude CLI, live in other
+# folders. Each one that exists goes before the bare system folders, as brew shellenv puts
+# them (r8): /usr/bin/git is only Apple's stand-in when the command line tools are missing.
+sync_path_add() {
+  local d e want="" head="" tail="" add="" sys=0
+  for d in "$@"; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    case ":${want}:" in
+      *":${d}:"*) continue ;;
+    esac
+    want="${want:+${want}:}${d}"
+  done
+  [ -n "$want" ] || return 0
+  while IFS= read -r -d : e; do
+    if [ "$sys" -eq 0 ]; then
+      case "$e" in
+        /usr/bin|/bin|/usr/sbin|/sbin) sys=1 ;;
+      esac
+    fi
+    if [ "$sys" -eq 0 ]; then
+      head="${head:+${head}:}${e}"
+    else
+      case ":${want}:" in
+        *":${e}:"*) continue ;;
+      esac
+      tail="${tail:+${tail}:}${e}"
+    fi
+  done < <(printf '%s:' "${PATH:-}")
+  while IFS= read -r -d : d; do
+    case ":${head}:" in
+      *":${d}:"*) continue ;;
+    esac
+    add="${add:+${add}:}${d}"
+  done < <(printf '%s:' "$want")
+  PATH=$head
+  [ -z "$add" ] || PATH="${PATH:+${PATH}:}${add}"
+  [ -z "$tail" ] || PATH="${PATH:+${PATH}:}${tail}"
+  export PATH
+}
+
+# A tool sync needs and cannot find: say which, never "could not reach the host". git that
+# is only the macOS stand-in (xcrun: no command line tools) is not installed either (r8).
+sync_need() {
+  local t out
+  for t in "$@"; do
+    command -v "$t" >/dev/null 2>&1 || { sync_need_fail "$t" "${t} not found: install it, or run join again"; continue; }
+    [ "$t" = "git" ] || continue
+    if ! out=$(git --version 2>&1); then
+      case "$out" in
+        *"xcrun: error"*|*"invalid active developer path"*|*"CommandLineTools"*)
+          sync_need_fail git "git not installed: install the Xcode command line tools, or run join again" ;;
+        *) sync_need_fail git "git does not run ($(printf '%s' "$out" | head -n 1)): install it, or run join again" ;;
+      esac
+    fi
+  done
+}
+
+# Low (r8): the missing tool also goes to sync.log and to status's last error, once the
+# state folder is known. sync.sh status (SYNC_NEED_SOFT=1) goes on to print it, unless
+# jq itself is missing.
+sync_need_fail() {
+  local t=$1 msg=$2 tmp
+  if [ -n "${SYNC_HELD:-}" ] && [ -f "$SYNC_HELD" ]; then
+    printf '%s %s\n' "$(sync_now)" "fail tool ${msg}" >> "$SYNC_LOG" 2>/dev/null || true
+    if command -v jq >/dev/null 2>&1 && tmp=$(mktemp "${SYNC_HELD}.XXXXXX" 2>/dev/null); then
+      if jq --arg e "$msg" '.last_error = $e' "$SYNC_HELD" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$SYNC_HELD"
+        chmod 600 "$SYNC_HELD"
+      else
+        rm -f "$tmp"
+      fi
+    fi
+  fi
+  if [ "${SYNC_NEED_SOFT:-0}" = "1" ] && [ "$t" != "jq" ]; then
+    printf '%s\n' "$msg" >&2
+    return 0
+  fi
+  sync_die 1 "$msg"
+}
+
 sync_bind() {
+  local line
+  sync_path_add /opt/homebrew/bin /usr/local/bin "${HOME:+$HOME/.local/bin}"
   SYNC_ROOT=$(sync_find_root)
   export OS_PROFILE="${OS_PROFILE:-$SYNC_ROOT/company-profile.md}"
   if [ -n "${OS_HOST_SH:-}" ]; then
@@ -179,6 +276,12 @@ sync_bind() {
   SYNC_SLUG=$("$PROFILE_SH" company_slug 2>/dev/null || true)
   [ -n "$SYNC_SLUG" ] || sync_die 1 "company_slug is not set"
   SYNC_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/${SYNC_SLUG}-os"
+  # The folders of the tools that join found (install-jobs writes them, B70).
+  if [ -f "$SYNC_CONFIG/tool-path" ]; then
+    while IFS= read -r line; do
+      sync_path_add "$line"
+    done < "$SYNC_CONFIG/tool-path"
+  fi
   SYNC_STATE="$SYNC_CONFIG/state"
   mkdir -p "$SYNC_STATE"
   chmod 700 "$SYNC_CONFIG" "$SYNC_STATE"
@@ -194,6 +297,10 @@ sync_bind() {
   if [ ! -f "$SYNC_HELD" ]; then
     printf '%s\n' '{"last_error":"","files":[]}' > "$SYNC_HELD"
     chmod 600 "$SYNC_HELD"
+  fi
+  sync_need git jq
+  if [ "$("$PROFILE_SH" host 2>/dev/null || true)" = "github" ] && [ -z "${OS_HOST_SH:-}" ]; then
+    sync_need gh
   fi
 }
 
@@ -240,6 +347,27 @@ sync_me() {
     return 0
   fi
   tr -d '[:space:]' < "$file"
+}
+
+# One id per computer, made once (at join, or at the first push on this code): the
+# host name, cut to a slug, and four random characters, so two computers with the same
+# name still differ. Push sends to sync/<me>/<seat>.
+sync_seat() {
+  local file="$SYNC_CONFIG/seat" seat
+  if [ -f "$file" ]; then
+    seat=$(tr -d '[:space:]' < "$file")
+    if sync_safe_slug "$seat"; then
+      printf '%s\n' "$seat"
+      return 0
+    fi
+  fi
+  seat=$( (hostname 2>/dev/null || uname -n) | cut -d. -f1 | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9\n' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c 1-24 | sed 's/-$//')
+  sync_safe_slug "$seat" || seat=seat
+  seat="${seat}-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+  printf '%s\n' "$seat" > "$file"
+  chmod 600 "$file"
+  printf '%s\n' "$seat"
 }
 
 sync_profile() {
@@ -322,17 +450,39 @@ sync_held_error() {
   chmod 600 "$SYNC_HELD"
 }
 
+# A pull or push that went through for every repo clears the last error, whatever left
+# it. Never one this run set: a later repo's error stays.
+sync_clear_error() {
+  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  [ -n "$(jq -r '.last_error // ""' "$SYNC_HELD")" ] || return 0
+  sync_held_error ""
+}
+
+# Push holds for one repo are worked out again each push. A re-apply hold stays until
+# the agent is done with it (re-apply.sh done).
 sync_held_replace() {
   local repo=$1
   local added=$2
   local tmp
   tmp=$(sync_mktemp)
   if [ -s "$added" ]; then
-    jq -s --arg repo "$repo" '.[0].files = ([.[0].files[] | select(.repo != $repo)] + .[1:]) | .[0]' \
+    jq -s --arg repo "$repo" '.[0].files = ([.[0].files[] | select(.repo != $repo or .kind == "re-apply")] + .[1:]) | .[0]' \
       "$SYNC_HELD" "$added" > "$tmp"
   else
-    jq --arg repo "$repo" '.files = [.files[] | select(.repo != $repo)]' "$SYNC_HELD" > "$tmp"
+    jq --arg repo "$repo" '.files = [.files[] | select(.repo != $repo or .kind == "re-apply")]' "$SYNC_HELD" > "$tmp"
   fi
+  mv "$tmp" "$SYNC_HELD"
+  chmod 600 "$SYNC_HELD"
+}
+
+# A push hold on a file main now has (a rules file whose pull request merged) is over.
+sync_held_drop() {
+  local tmp
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  tmp=$(sync_mktemp)
+  jq --arg repo "$1" --arg path "$2" \
+    '.files = [.files[] | select(.repo != $repo or .path != $path or .kind == "re-apply")]' "$SYNC_HELD" > "$tmp"
   mv "$tmp" "$SYNC_HELD"
   chmod 600 "$SYNC_HELD"
 }
@@ -340,7 +490,7 @@ sync_held_replace() {
 # Drop held files that are gone, so a session never tells the person about a file that is
 # not there. Ids: root, area:<name>, workspace. An unknown id stays.
 sync_held_prune() {
-  local tmp keep id path dir me line
+  local tmp keep id path dir me line mine
   [ -f "$SYNC_HELD" ] || return 0
   me=$(sync_me 2>/dev/null || true)
   keep=$(sync_mktemp)
@@ -355,7 +505,14 @@ sync_held_prune() {
       workspace) dir="$SYNC_ROOT/users/${me}" ;;
       *) dir="" ;;
     esac
-    if [ -n "$dir" ] && [ -n "$path" ] && [ ! -e "$dir/$path" ] && [ ! -L "$dir/$path" ]; then
+    # A re-apply hold names a file the host may have deleted. It goes with its set-aside copy.
+    if [ "$(printf '%s' "$line" | jq -r '.kind // ""')" = "re-apply" ]; then
+      mine=$(printf '%s' "$line" | jq -r '.mine // ""')
+      if [ "$mine" != "deleted" ] && [ ! -f "$mine" ]; then
+        sync_log "held gone ${id} ${path} re-apply"
+        continue
+      fi
+    elif [ -n "$dir" ] && [ -n "$path" ] && [ ! -e "$dir/$path" ] && [ ! -L "$dir/$path" ]; then
       sync_log "held gone ${id} ${path}"
       continue
     fi

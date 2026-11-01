@@ -921,6 +921,19 @@ cmd_invites() {
   jq -nc --argjson invites "$list" '{invites:$invites}'
 }
 
+# Every repo in the org, by name.
+cmd_org_repos() {
+  local all
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}/repos"
+    return 0
+  fi
+  all=$(host_gh_all "/orgs/${OS_ORG}/repos") || exit $?
+  printf '%s' "$all" | jq -c '{repos: [.[].name]}'
+}
+
 # Cancel every pending invite for <user>: the org's, or one repo's. 404 is gone already.
 cmd_cancel_invites() {
   local list id n errf rc path
@@ -948,12 +961,20 @@ cmd_cancel_invites() {
 }
 
 cmd_archive() {
-  local name body
+  local name body cur
   host_need_name
   name=$POS1
   body=$(jq -nc '{archived:true}')
   if host_dry; then
+    host_emit GET "$(host_repo "$name")"
     host_emit PATCH "$(host_repo "$name")" "$body"
+    return 0
+  fi
+  # Already archived is done (B66): GitHub refuses a PATCH on an archived repo (403,
+  # "Repository was archived so is read-only"), so a second remove must not ask again.
+  cur=$(host_gh_ok GET "$(host_repo "$name")")
+  if [ "$(printf '%s' "$cur" | jq -r '.archived // false')" = "true" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, archived:true, already:true}'
     return 0
   fi
   host_gh_ok PATCH "$(host_repo "$name")" "$body" >/dev/null
@@ -985,12 +1006,125 @@ cmd_open_pr() {
   number=$(printf '%s' "$list" | jq -r --arg head "$HEAD" \
     '.[] | select(.head.ref==$head) | .number' | head -n 1)
   if [ -n "$number" ]; then
-    patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    # No --body-file: keep the body it has (B40). A person may have written one.
+    if [ -n "$BODY_FILE" ]; then
+      patch=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    else
+      patch=$(jq -nc --arg title "$TITLE" '{title:$title}')
+    fi
     existing=$(host_gh_ok PATCH "$(host_repo "$name")/pulls/${number}" "$patch")
   else
     existing=$(host_gh_ok POST "$(host_repo "$name")/pulls" "$body")
   fi
   printf '%s' "$existing" | jq -c '{number:.number, url:.html_url}'
+}
+
+# Open pull requests: number, head branch and body.
+cmd_open_prs() {
+  local all
+  host_need_name
+  if host_dry; then
+    host_emit GET "$(host_repo "$POS1")/pulls?state=open"
+    return 0
+  fi
+  all=$(host_gh_all "$(host_repo "$POS1")/pulls?state=open") || exit $?
+  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref, body:(.body // "")}]}'
+}
+
+# The old v0 logs branch (B61). v0 Part A protected it on paid plans (no deletion, admins
+# included), so a plain git push --delete fails with GH006. The admin runs this once every
+# teammate has moved: it lifts that classic rule and deletes the branch. It touches only
+# logs, never main. A rule or branch already gone is fine.
+cmd_drop_logs() {
+  local name errf rc deleted=true lifted=0 again=""
+  host_need_name
+  name=$POS1
+  if host_dry; then
+    host_emit GET "$(host_repo "$name")"
+    host_emit DELETE "$(host_repo "$name")/branches/logs/protection"
+    host_emit DELETE "$(host_repo "$name")/git/refs/heads/logs"
+    host_emit GET "$(host_repo "$name")/git/ref/heads/logs"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  # A 404 on the calls below is not proof the branch is gone: the repo may be missing or
+  # out of reach. Check the repo first.
+  rc=0
+  host_gh_call GET "$(host_repo "$name")" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      host_die 3 "no repo ${OS_ORG}/${name} that this sign-in can see: check the name, then run drop-logs again"
+    fi
+    cat "$errf" >&2
+    host_die 3 "could not read the repo ${OS_ORG}/${name}: nothing was changed"
+  fi
+  rc=0
+  host_gh_call DELETE "$(host_repo "$name")/branches/logs/protection" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    lifted=1
+    again=" The old protection on logs is already off: run skills/_host/host.sh drop-logs ${name} again."
+  elif ! grep -q 'HTTP 404' "$errf"; then
+    cat "$errf" >&2
+    host_die 3 "could not lift the old protection on ${name} logs: sign in as an org owner"
+  fi
+  rc=0
+  host_gh_call DELETE "$(host_repo "$name")/git/refs/heads/logs" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if grep -qE 'HTTP 404|HTTP 422' "$errf"; then
+      deleted=false
+    else
+      cat "$errf" >&2
+      host_die 3 "could not delete the logs branch on ${name}.${again}"
+    fi
+  fi
+  # Only a branch the host confirms is gone is done.
+  rc=0
+  host_gh_call GET "$(host_repo "$name")/git/ref/heads/logs" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    host_die 3 "the logs branch is still on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+  fi
+  if ! grep -q 'HTTP 404' "$errf"; then
+    cat "$errf" >&2
+    host_die 3 "could not check that the logs branch is gone on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+  fi
+  : "$lifted"
+  jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
+}
+
+cmd_close_pr() {
+  local body
+  host_need_number
+  body=$(jq -nc '{state:"closed"}')
+  if host_dry; then
+    host_emit PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body"
+    return 0
+  fi
+  host_gh_ok PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body" >/dev/null
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, closed:true}'
+}
+
+# Turn auto-merge off. A pull request with none is already off.
+cmd_auto_merge_off() {
+  local pr id q
+  host_need_number
+  if host_dry; then
+    host_emit GET "$(host_repo "$POS1")/pulls/${POS2}"
+    return 0
+  fi
+  pr=$(host_gh_ok GET "$(host_repo "$POS1")/pulls/${POS2}")
+  if [ "$(printf '%s' "$pr" | jq -r '.auto_merge == null')" = "false" ]; then
+    id=$(printf '%s' "$pr" | jq -r '.node_id // empty')
+    [ -n "$id" ] || host_die 3 "pull request has no id"
+    q=$(jq -nc --arg id "$id" \
+      '{query:"mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}", variables:{id:$id}}')
+    host_gh_ok POST "graphql" "$q" >/dev/null
+    # Check the outcome, not only the call: read it again.
+    pr=$(host_gh_ok GET "$(host_repo "$POS1")/pulls/${POS2}")
+    if [ "$(printf '%s' "$pr" | jq -r '.auto_merge == null')" = "false" ]; then
+      host_die 3 "auto-merge is still on for pull request ${POS2}"
+    fi
+  fi
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
 }
 
 host_require_branch() {
@@ -1047,6 +1181,23 @@ cmd_auto_merge() {
         rm -f "$err"
         jq -nc --arg name "$name" --argjson number "$number" \
           '{ok:true, name:$name, number:$number, auto_merge:"already"}'
+        return 0
+        ;;
+      *"clean status"*)
+        # The checks are already green, so GitHub will not wait for them (B45). Merge now.
+        set +e
+        if [ -n "$GH_HOSTNAME" ]; then
+          gh pr merge "$number" --repo "${OS_ORG}/${name}" --merge --hostname "$GH_HOSTNAME" >"$err" 2>&1
+        else
+          gh pr merge "$number" --repo "${OS_ORG}/${name}" --merge >"$err" 2>&1
+        fi
+        code=$?
+        set -e
+        rm -f "$err"
+        if [ "$code" -ne 0 ]; then
+          host_die 3 "pull request ${number} is green: merge it"
+        fi
+        jq -nc --arg name "$name" --argjson number "$number" '{ok:true, name:$name, number:$number, merge:"merged"}'
         return 0
         ;;
     esac
@@ -1258,6 +1409,7 @@ case "$VERB" in
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
   team-repos) cmd_team_repos ;;
+  org-repos) cmd_org_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
@@ -1267,6 +1419,10 @@ case "$VERB" in
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;
+  auto-merge-off) cmd_auto_merge_off ;;
+  open-prs) cmd_open_prs ;;
+  close-pr) cmd_close_pr ;;
+  drop-logs) cmd_drop_logs ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

@@ -21,8 +21,9 @@ sync_not_workspace_only() {
     root|area) ;;
     *) return 1 ;;
   esac
+  # memory/logs-archive/ holds v0 logs that pull's catch-up brought in (B68).
   case "$path" in
-    memory/logs/*) return 0 ;;
+    memory/logs/*|memory/logs-archive/*) return 0 ;;
   esac
   if [ "$kind" = "area" ]; then
     case "$path" in
@@ -62,52 +63,11 @@ sync_v0_logs_open() {
   fi
 }
 
-# Refresh origin/rules/* with fetch --prune, so a branch the host deleted (its pull
-# request closed or merged) stops holding files. Writes "<sha> <ref>" for each ref the
-# prune dropped to SYNC_GONE_RULES. Offline: the refs stay as they are and still hold.
-sync_rules_refresh() {
-  local repo=$1 before
-  SYNC_GONE_RULES=$(sync_mktemp)
-  [ -n "$(git -C "$repo" for-each-ref --count=1 refs/remotes/origin/rules/)" ] || return 0
-  before=$(sync_mktemp)
-  git -C "$repo" for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/rules/ > "$before"
-  sync_git "$repo" fetch --prune origin >/dev/null 2>&1 || return 0
-  while IFS=' ' read -r sha ref; do
-    [ -n "$ref" ] || continue
-    git -C "$repo" show-ref --verify --quiet "$ref" || printf '%s %s\n' "$sha" "$ref" >> "$SYNC_GONE_RULES"
-  done < "$before"
-}
-
-# The rules/* branch the host deleted that held this file's content, if any. Not when
-# origin/main has that content: then the pull request merged.
-sync_gone_branch() {
-  local repo=$1 path=$2 sha ref want
-  [ -s "${SYNC_GONE_RULES:-}" ] && [ -f "$repo/$path" ] || return 1
-  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
-  [ "$(git -C "$repo" rev-parse -q --verify "origin/main:${path}" 2>/dev/null)" != "$want" ] || return 1
-  while IFS=' ' read -r sha ref; do
-    if [ "$(git -C "$repo" rev-parse -q --verify "${sha}:${path}" 2>/dev/null)" = "$want" ]; then
-      printf '%s\n' "${ref#refs/remotes/origin/}"
-      return 0
-    fi
-  done < "$SYNC_GONE_RULES"
-  return 1
-}
-
-# A file whose content is already on a rules/* branch on the host (remove-teammate,
-# add-person, propose) waits for that pull request. It never goes on the standing one too.
-sync_pending_branch() {
-  local repo=$1 path=$2 ref want
-  [ -f "$repo/$path" ] || return 1
-  want=$(git -C "$repo" hash-object -- "$repo/$path" 2>/dev/null) || return 1
-  while IFS= read -r ref; do
-    [ -n "$ref" ] || continue
-    if [ "$(git -C "$repo" rev-parse -q --verify "${ref}:${path}" 2>/dev/null)" = "$want" ]; then
-      printf '%s\n' "${ref#refs/remotes/origin/}"
-      return 0
-    fi
-  done < <(git -C "$repo" for-each-ref --format='%(refname)' refs/remotes/origin/rules/)
-  return 1
+# A file still holding a merge's conflict lines is never committed: it would replace both
+# sides' text on main.
+CONFLICT_REASON="conflict lines (<<<<<<< or >>>>>>>): keep the text you want, delete those lines, then push again"
+sync_has_conflict_lines() {
+  grep -Eq '^(<<<<<<<|>>>>>>>) ' "$1" 2>/dev/null
 }
 
 sync_hold_rules() {
@@ -153,10 +113,15 @@ sync_identity() {
     printf '%s\n' "sign in again" >&2
     return 1
   fi
+  # Offline (B55): the host cannot say who is signed in, but nothing goes to the host
+  # either. Commit here; sync_push_commits sends nothing until a push that can check.
   if [ "$rc" -eq 5 ]; then
+    SYNC_OFFLINE=1
+    # The line waits for the end of the run: one line for the push, not one per step.
+    SYNC_OFFLINE_SAY="offline: changes are saved here and go up with the next push"
     sync_held_error "offline"
-    sync_log "push fail identity offline"
-    return 1
+    sync_log "push offline identity: commit here only"
+    return 0
   fi
   if [ "$rc" -ne 0 ]; then
     sync_held_error "identity check failed"
@@ -215,6 +180,10 @@ sync_engine_one() {
   local cmd prompt out err pid elapsed limit rc line n
   cmd=$(sync_engine_cmd)
   [ -n "$cmd" ] || return 3
+  # B70: the engine's program (claude) not on PATH is its own error, not a failed check.
+  # shellcheck disable=SC2086
+  set -- $cmd
+  command -v "$1" >/dev/null 2>&1 || return 127
   prompt=$(sync_mktemp)
   out=$(sync_mktemp)
   err=$(sync_mktemp)
@@ -232,6 +201,7 @@ sync_engine_one() {
     if [ "$elapsed" -ge "$limit" ]; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
+      [ "${SYNC_OFFLINE:-0}" != "1" ] || return 6
       return 124
     fi
     sleep 1
@@ -241,7 +211,13 @@ sync_engine_one() {
   wait "$pid"
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || return "$rc"
+  if [ "$rc" -ne 0 ]; then
+    # No network for the engine: 6, so push can say "offline", not "engine check failed".
+    if grep -qiE 'could not resolve|getaddrinfo|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|network is unreachable|connection (error|refused|timed out)|failed to connect|unable to connect|offline' "$err"; then
+      return 6
+    fi
+    return "$rc"
+  fi
   n=$(awk 'NF { c++ } END { print c + 0 }' "$out")
   [ "$n" = "1" ] || return 2
   line=$(awk 'NF { print; exit }' "$out")
@@ -298,40 +274,39 @@ sync_scan_files() {
   return 0
 }
 
+# The only refs push writes: this computer's sync/<me>/<seat>, a rules/<me>/* branch
+# (propose builds it fresh, so it may be forced), and the workspace's own main. Never a
+# forced main or sync branch.
 sync_push_ref() {
-  local dir=$1
-  local ref=$2
-  local force=$3
-  local me
+  local dir=$1 src=$2 ref=$3 force=$4 me
   me=$(sync_me)
   case "$ref" in
-    "refs/heads/sync/${me}"|"refs/heads/rules/${me}/"*)
-      ;;
-    refs/heads/main)
-      if [ "$force" = "1" ]; then
-        sync_die 1 "refusing to force-push main"
-      fi
-      ;;
-    *)
-      sync_die 1 "refusing to push that branch"
-      ;;
+    "refs/heads/rules/${me}/"*) ;;
+    "refs/heads/sync/${me}/"*|refs/heads/main) force=0 ;;
+    *) sync_die 1 "refusing to push that branch" ;;
   esac
   if [ "$force" = "1" ]; then
-    sync_git "$dir" push --force origin "HEAD:${ref}"
+    sync_git "$dir" push --force origin "${src}:${ref}"
   else
-    sync_git "$dir" push origin "HEAD:${ref}"
+    sync_git "$dir" push origin "${src}:${ref}"
   fi
 }
 
+# A body file is optional. Without one, the host keeps the pull request's body.
 sync_open_pr() {
   local name=$1
   local head=$2
   local title=$3
+  local body=${4:-}
   local tries=5 rc out err
   err=$(sync_mktemp)
   while [ "$tries" -gt 0 ]; do
     set +e
-    out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    if [ -n "$body" ]; then
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" --body-file "$body" 2>"$err")
+    else
+      out=$("$HOST_SH" open-pr "$name" --head "$head" --base main --title "$title" 2>"$err")
+    fi
     rc=$?
     set -e
     if [ "$rc" -eq 0 ]; then
@@ -345,6 +320,38 @@ sync_open_pr() {
     sleep 1
   done
   return 2
+}
+
+# Push owns only the lines between these markers in a sync pull request's body (B40 b).
+SYNC_BODY_START='<!-- sync:files -->'
+SYNC_BODY_END='<!-- /sync:files -->'
+
+# Write the body for head's pull request to out. On an open pull request, replace only
+# the block between the markers and keep every other line. An old body with no markers
+# stays as it is, with the block after it. Exit 1 when the open pull requests cannot be
+# read: the caller then gives open-pr no body, so the host keeps the one it has.
+sync_pr_body() {
+  local name=$1 head=$2 block=$3 out=$4 old listing
+  old=$(sync_mktemp)
+  listing=$(sync_mktemp)
+  # Check open-prs itself, not a pipe's last command (B40-READ).
+  if ! "$HOST_SH" open-prs "$name" > "$listing" 2>/dev/null \
+    || ! jq -e '.prs | type == "array"' "$listing" >/dev/null 2>&1; then
+    return 1
+  fi
+  # GitHub keeps a body written on the web with CR LF line ends.
+  jq -r --arg head "$head" '[.prs[] | select(.head == $head) | .body // ""][0] // ""' "$listing" \
+    | tr -d '\r' > "$old"
+  if grep -qxF "$SYNC_BODY_START" "$old" && grep -qxF "$SYNC_BODY_END" "$old"; then
+    awk -v start="$SYNC_BODY_START" -v end="$SYNC_BODY_END" -v block="$block" '
+      $0 == start { while ((getline line < block) > 0) print line; skip = 1; next }
+      $0 == end { skip = 0; next }
+      !skip { print }' "$old" > "$out"
+  elif grep -q '[^[:space:]]' "$old"; then
+    { cat "$old"; printf '\n'; cat "$block"; } > "$out"
+  else
+    cat "$block" > "$out"
+  fi
 }
 
 sync_commit_author() {
@@ -365,110 +372,185 @@ sync_commit_author() {
 }
 
 sync_apply_fail() {
-  local repo=$1
-  local tmp=$2
-  local id=$3
-  local why=$4
-  if [ -n "$tmp" ]; then
-    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
-  fi
+  local id=$1 why=$2
   sync_log "push fail ${id} ${why}"
+  # status shows it as the last error, like every other failed push.
+  sync_held_error "push failed for ${id}: ${why}"
   return 1
 }
 
-# Called from 'if !', so set -e does not stop this function. Check every step.
-sync_apply_commit() {
-  local repo=$1
-  local id=$2
-  local kind=$3
-  local files=$4
-  local message=$5
-  local me ref tmp author name email path n rc sha from to name_on_host number
-  me=$(sync_me)
-  n=$(wc -l < "$files" | tr -d ' ')
-  [ "$n" -gt 0 ] || return 0
-  author=$(sync_commit_author)
-  name=$(printf '%s\n' "$author" | head -n 1)
-  email=$(printf '%s\n' "$author" | tail -n 1)
-  tmp=""
-  sync_git "$repo" fetch --prune origin >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    sync_apply_fail "$repo" "" "$id" "could not reach origin"
-    return 1
-  fi
-  tmp=$(mktemp -d)
-  chmod 700 "$tmp"
-  git -C "$repo" worktree add --detach "$tmp" origin/main >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    sync_apply_fail "$repo" "$tmp" "$id" "worktree"
-    return 1
-  fi
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ]; then
-      mkdir -p "$tmp/$(dirname "$path")"
-      cp "$repo/$path" "$tmp/$path"
-      rc=$?
-      if [ "$rc" -ne 0 ]; then
-        sync_apply_fail "$repo" "$tmp" "$id" "copy"
-        return 1
-      fi
-    else
-      rm -f "$tmp/$path"
-    fi
-  done < "$files"
-  if [ -n "${SYNC_RENAMES:-}" ] && [ -f "$SYNC_RENAMES" ]; then
-    while IFS=$(printf '\t') read -r from to; do
-      [ -n "$to" ] || continue
-      if grep -Fxq "$to" "$files"; then
-        rm -f "$tmp/$from"
-      fi
-    done < "$SYNC_RENAMES"
-  fi
-  git -C "$tmp" add -A >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    sync_apply_fail "$repo" "$tmp" "$id" "add"
-    return 1
-  fi
-  sync_unstage_link_copies "$tmp"
-  git -C "$tmp" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false \
-    commit -F "$message" >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    sync_apply_fail "$repo" "$tmp" "$id" "commit"
-    return 1
-  fi
-  if [ "$kind" = "workspace" ]; then
-    sync_push_ref "$tmp" "refs/heads/main" 0 >/dev/null 2>&1
-    rc=$?
-    if [ "$rc" -ne 0 ]; then
-      sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
-      return 1
-    fi
-    sha=$(git -C "$tmp" rev-parse HEAD)
-    git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
-    git -C "$repo" reset --mixed "$sha" >/dev/null 2>&1 || true
+# The message for one sync commit: the file's own line, or for many files "Update <n>
+# files" and one line per file under it, path first (B54). The two lists are parallel.
+sync_commit_text() {
+  local files=$1 messages=$2 n
+  n=$(grep -c . "$files" || true)
+  if [ "$n" -le 1 ]; then
+    head -n 1 "$messages" | cut -c 1-72
     return 0
   fi
-  ref="refs/heads/sync/${me}"
-  sync_push_ref "$tmp" "$ref" 1 >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    sync_apply_fail "$repo" "$tmp" "$id" "could not reach origin"
+  printf 'Update %s files\n\n' "$n"
+  paste -d '\n' "$files" "$messages" | awk 'NR % 2 == 1 { p = $0; next } { print "- " p ": " $0 }'
+}
+
+# Commit the approved files in the folder itself. Only those paths: everything is unstaged
+# first, so a file someone staged by hand is never published (held files stay as they
+# are). Called from 'if !', so set -e does not stop this function. Check every step.
+sync_commit_local() {
+  local repo=$1 id=$2 files=$3 text=$4 list msg
+  git -C "$repo" reset -q || { sync_apply_fail "$id" "commit"; return 1; }
+  list=$(sync_mktemp)
+  tr '\n' '\0' < "$files" > "$list"
+  git -C "$repo" --literal-pathspecs add -A --pathspec-from-file="$list" --pathspec-file-nul >/dev/null 2>&1 \
+    || { sync_apply_fail "$id" "add"; return 1; }
+  sync_unstage_link_copies "$repo"
+  if git -C "$repo" diff --cached --quiet; then
+    return 0
+  fi
+  msg=$(sync_commit_msg "$text")
+  if ! sync_git_commit "$repo" "$msg" commit -q >/dev/null 2>&1; then
+    git -C "$repo" reset -q || true
+    sync_apply_fail "$id" "commit"
     return 1
   fi
-  git -C "$repo" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
-  tmp=""
+}
+
+# Rules paths and secret blobs in a range of commits. Return 1 before any push. Person
+# and bot push the same way: check the range, then push it as it is.
+sync_check_range() {
+  local repo=$1 id=$2 range=$3
+  local list line path sha kind dir n scanner rc blob
+  list=$(sync_mktemp)
+  set +e
+  git -C "$repo" log -z --name-only --no-renames --pretty=format: "$range" > "$list"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_range_fail "$id" "secret scan"
+    return 1
+  fi
+  # -z keeps both sides of a rename and does not quote a path.
+  while IFS= read -r -d '' path || [ -n "$path" ]; do
+    [ -n "$path" ] || continue
+    if sync_hold_rules "$path"; then
+      sync_range_fail "$id" "rules file: propose it with sync.sh propose"
+      return 1
+    fi
+  done < "$list"
+  scanner="$SYNC_DIR/secret-scan.sh"
+  if [ ! -f "$scanner" ]; then
+    sync_range_fail "$id" "secret scan"
+    return 1
+  fi
+  dir=$(mktemp -d)
+  chmod 700 "$dir"
+  n=0
+  set +e
+  git -C "$repo" rev-list --objects "$range" > "$list"
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    rm -rf "$dir"
+    sync_range_fail "$id" "secret scan"
+    return 1
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *" "*) sha=${line%% *} ;;
+      *) continue ;;
+    esac
+    kind=$(git -C "$repo" cat-file -t "$sha" 2>/dev/null || true)
+    [ "$kind" = "blob" ] || continue
+    n=$((n + 1))
+    blob="$dir/blob-$n"
+    if ! git -C "$repo" cat-file blob "$sha" > "$blob"; then
+      rm -rf "$dir"
+      sync_range_fail "$id" "secret scan"
+      return 1
+    fi
+    chmod 600 "$blob"
+  done < "$list"
+  if [ "$n" -eq 0 ]; then
+    blob="$dir/blob-0"
+    : > "$blob"
+    chmod 600 "$blob"
+  fi
+  set +e
+  "$scanner" --files -- "$dir"/blob-* >/dev/null 2>"$dir/scan.err"
+  rc=$?
+  set -e
+  rm -rf "$dir"
+  if [ "$rc" -ne 0 ]; then
+    sync_range_fail "$id" "secret scan"
+    return 1
+  fi
+  return 0
+}
+
+sync_range_fail() {
+  local id=$1 why=$2
+  if [ -n "${OS_BOT:-}" ]; then
+    sync_bot_fail "$id" "$why"
+  else
+    sync_apply_fail "$id" "$why"
+  fi
+}
+
+# Send this folder's commits that main lacks. The workspace is the person's own repo: its
+# main, fast-forward only. A company or area repo: sync/<me>/<seat>, one standing pull
+# request per computer, merged with a merge commit. Never forced.
+sync_push_commits() {
+  local repo=$1 id=$2 kind=$3
+  local me seat branch name_on_host number pr_body block rc
+  if [ -z "$(git -C "$repo" rev-list -n 1 origin/main..HEAD 2>/dev/null)" ]; then
+    return 0
+  fi
+  if [ "${SYNC_OFFLINE:-0}" = "1" ]; then
+    sync_log "push offline ${id} committed here, not sent"
+    return 1
+  fi
+  sync_check_range "$repo" "$id" "origin/main..HEAD" || return 1
+  if [ "$kind" = "workspace" ]; then
+    if ! sync_push_ref "$repo" HEAD refs/heads/main 0 >/dev/null 2>&1; then
+      sync_apply_fail "$id" "could not reach origin"
+      return 1
+    fi
+    return 0
+  fi
+  me=$(sync_me)
+  seat=$(sync_seat)
+  branch="sync/${me}/${seat}"
   name_on_host=$(sync_remote_name "$repo") || {
-    sync_log "push fail ${id} could not open a pull request"
+    sync_apply_fail "$id" "could not open a pull request"
     return 1
   }
-  number=$(sync_open_pr "$name_on_host" "sync/${me}" "sync: ${me}" | jq -r '.number // empty')
+  sync_old_branch_retire "$repo" "$id" "$name_on_host" || return 1
+  sync_squashed_branch_drop "$repo" "$id" "$branch" || return 1
+  set +e
+  sync_push_ref "$repo" HEAD "refs/heads/${branch}" 0 >/dev/null 2>&1
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    sync_apply_fail "$id" "could not reach origin"
+    return 1
+  fi
+  # The body says whose notes these are and lists each file, so the review can match
+  # the change to it (B40).
+  block=$(sync_mktemp)
+  {
+    printf '%s\n' "$SYNC_BODY_START"
+    printf "These are %s's notes from sync.\n\n" "$me"
+    sync_names "$repo" diff --name-only origin/main...HEAD | sed 's/^/- /'
+    sync_reapply_questions "$id"
+    printf '%s\n' "$SYNC_BODY_END"
+  } > "$block"
+  pr_body=$(sync_mktemp)
+  if ! sync_pr_body "$name_on_host" "$branch" "$block" "$pr_body"; then
+    pr_body=""
+    sync_log "push body ${id} could not read the open pull request: its body stays"
+  fi
+  number=$(sync_open_pr "$name_on_host" "$branch" "sync: ${me} (${seat})" "$pr_body" | jq -r '.number // empty')
   if [ -z "$number" ]; then
-    sync_log "push fail ${id} could not open a pull request"
+    sync_apply_fail "$id" "could not open a pull request"
     return 1
   fi
   "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
@@ -481,12 +563,63 @@ sync_apply_commit() {
   return 0
 }
 
+# A squash heal that could not delete this computer's branch on the host leaves it holding
+# the squashed commits, so this push would not fast-forward. When every file those commits
+# changed has the same text on main, main holds that work: delete the branch, then push.
+# Never forced. A branch with work main lacks stays, and the push stops as before.
+sync_squashed_branch_drop() {
+  local repo=$1 id=$2 branch=$3 ref
+  ref="refs/remotes/origin/${branch}"
+  git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null || return 0
+  ! git -C "$repo" merge-base --is-ancestor "$ref" HEAD || return 0
+  sync_files_on_main "$repo" "$ref" >/dev/null || return 0
+  if sync_git "$repo" push origin ":refs/heads/${branch}" >/dev/null 2>&1; then
+    git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
+    sync_log "push ${id} deleted ${branch}: main already has its work"
+    return 0
+  fi
+  printf '%s\n' "${id}: could not delete the branch ${branch} on the host. It holds only work main already has. Nothing was sent." >&2
+  sync_apply_fail "$id" "could not delete ${branch} on the host"
+}
+
+# Moving from the old sync code (keep for one release, then delete). Git cannot keep a
+# branch sync/<me> beside sync/<me>/<seat>, so the old branch goes before the first new
+# push: its open pull request is closed and the branch deleted. Only when this folder
+# holds every file that branch changed (the old push rebuilt it from this folder's files,
+# so it does), else stop and say so.
+sync_old_branch_retire() {
+  local repo=$1 id=$2 name=$3 me old path listing number
+  me=$(sync_me)
+  old="refs/remotes/origin/sync/${me}"
+  git -C "$repo" rev-parse --verify --quiet "$old" >/dev/null 2>&1 || return 0
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    [ "$(sync_blob_of "$repo" "$old" "$path")" = "$(sync_blob_of "$repo" HEAD "$path")" ] && continue
+    [ "$(sync_blob_of "$repo" "$old" "$path")" = "$(sync_blob_of "$repo" origin/main "$path")" ] && continue
+    sync_apply_fail "$id" "the old branch sync/${me} has ${path}, which this folder lacks; ask the admin"
+    return 1
+  done < <(sync_names "$repo" diff --name-only --no-renames "origin/main...${old}")
+  listing=$(sync_mktemp)
+  if "$HOST_SH" open-prs "$name" > "$listing" 2>/dev/null; then
+    number=$(jq -r --arg head "sync/${me}" '[.prs[]? | select(.head == $head) | .number][0] // empty' "$listing")
+    if [ -n "$number" ] && "$HOST_SH" close-pr "$name" "$number" >/dev/null 2>&1; then
+      sync_log "push closed old pull request ${name} ${number} sync/${me}"
+    fi
+  fi
+  if ! sync_git "$repo" push origin ":refs/heads/sync/${me}" >/dev/null 2>&1; then
+    sync_apply_fail "$id" "could not remove the old branch sync/${me}"
+    return 1
+  fi
+  git -C "$repo" update-ref -d "$old" 2>/dev/null || true
+  sync_log "push removed old branch ${id} sync/${me}"
+}
+
 sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg pending
-  local scan_rc v0open=""
+  local changed hits path rule reason added commit_files messages diff eng decision msg
+  local scan_rc v0open="" missing
   case "$id" in
     root) kind=root ;;
     area:*) kind=area ;;
@@ -494,19 +627,41 @@ sync_push_one() {
     *) kind=root ;;
   esac
   sync_materialize_repo "$repo"
-  changed=$(sync_mktemp)
-  SYNC_RENAMES=$(sync_mktemp)
-  sync_changed_names "$repo" > "$changed" || true
-  sync_rename_pairs "$repo" > "$SYNC_RENAMES" || true
-  if git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-    git -C "$repo" diff --name-only origin/main HEAD >> "$changed" || true
+  # Take the host's changes first: a file merged meanwhile is no change (B46), and a file
+  # changed here and on the host is set aside before it can reach a commit (memo 8.1).
+  # A failed pull does not stop the push: its line is already out.
+  sync_pull_fetched "$repo" "$id" || true
+  # A pull that could not leave the folder safe (an open merge, a squash heal that
+  # failed): its line is out, and nothing here is committed or sent.
+  if sync_pull_stopped "$id"; then
+    sync_log "push stop ${id} the pull did not finish"
+    return 1
   fi
+  case "$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)" in
+    main) ;;
+    upgrade/*)
+      sync_log "push stop ${id} on an upgrade branch"
+      return 1
+      ;;
+    *)
+      sync_apply_fail "$id" "this folder is not on its main branch; ask the admin"
+      return 1
+      ;;
+  esac
+  if [ "$kind" != "workspace" ] && [ "$(sync_foreign_commits "$repo")" != "0" ]; then
+    sync_apply_fail "$id" "this folder has a change that sync did not make; nothing was pushed. Ask the admin"
+    return 1
+  fi
+  git -C "$repo" reset -q
+  changed=$(sync_mktemp)
+  sync_changed_names "$repo" > "$changed" || true
   sort -u "$changed" -o "$changed"
   sync_drop_link_copies "$repo" "$changed"
   if [ ! -s "$changed" ]; then
+    sync_held_replace "$id" /dev/null
+    sync_push_commits "$repo" "$id" "$kind" || return 1
     return 0
   fi
-  [ "$kind" = "workspace" ] || sync_rules_refresh "$repo"
   added=$(sync_mktemp)
   while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -560,14 +715,10 @@ sync_push_one() {
     if awk -F: -v p="$path" 'index($0, p ":") == 1 { found=1 } END { exit !found }' "$hits"; then
       continue
     fi
-    if [ "$kind" != "workspace" ] && pending=$(sync_pending_branch "$repo" "$path"); then
-      sync_hold_line "$id" "$path" "waits for its own pull request (${pending})" >> "$added"
-      sync_log "push hold ${id} ${path} pending ${pending}"
+    if [ -f "$repo/$path" ] && sync_has_conflict_lines "$repo/$path"; then
+      sync_hold_line "$id" "$path" "$CONFLICT_REASON" >> "$added"
+      sync_log "push hold ${id} ${path} conflict lines"
       continue
-    fi
-    if [ "$kind" != "workspace" ] && pending=$(sync_gone_branch "$repo" "$path"); then
-      printf '%s\n' "${path}: its own pull request (${pending}) was closed and its branch is gone, so push no longer waits for it" >&2
-      sync_log "push release ${id} ${path} ${pending} gone"
     fi
     if [ "$kind" != "workspace" ] && sync_hold_rules "$path"; then
       sync_hold_line "$id" "$path" "$RULES_REASON" >> "$added"
@@ -607,6 +758,25 @@ sync_push_one() {
     eng=$(sync_engine_one "$kind" "$path" "$diff")
     rc=$?
     set -e
+    if [ "$rc" -eq 6 ] || { [ "$rc" -ne 0 ] && [ "${SYNC_OFFLINE:-0}" = "1" ]; }; then
+      # No network: the check cannot run, so nothing is committed (fail closed). Nothing
+      # was judged either, so these files are not held: they stay here as they are and go
+      # up at the next online push. Holds found before this file stay.
+      sync_held_replace "$id" "$added"
+      SYNC_OFFLINE_SAY="offline: these notes stay here and go up when you are online"
+      [ "${SYNC_OFFLINE:-0}" = "1" ] || sync_held_error "offline: the push check could not reach its engine"
+      sync_log "push offline ${id} engine not reachable: notes wait here"
+      return 1
+    fi
+    missing=$(sync_engine_cmd)
+    missing=${missing%% *}
+    if [ "$rc" -eq 127 ] && ! command -v "$missing" >/dev/null 2>&1; then
+      # Nothing was judged: the files stay here as they are, and go at the next push.
+      sync_held_replace "$id" "$added"
+      sync_held_error "${missing} not found: install it, or run join again"
+      sync_log "push fail ${id} ${missing} not found"
+      return 1
+    fi
     if [ "$rc" -ne 0 ]; then
       : > "$added"
       while IFS= read -r path; do
@@ -636,15 +806,12 @@ sync_push_one() {
     printf '%s\n' "$msg" >> "$messages"
   done < "$changed"
   sync_held_replace "$id" "$added"
-  if [ ! -s "$commit_files" ]; then
-    return 0
+  if [ -s "$commit_files" ]; then
+    if ! sync_commit_local "$repo" "$id" "$commit_files" "$(sync_commit_text "$commit_files" "$messages")"; then
+      return 1
+    fi
   fi
-  msgfile=$(sync_mktemp)
-  head -n 1 "$messages" | cut -c 1-72 > "$msgfile"
-  if ! sync_apply_commit "$repo" "$id" "$kind" "$commit_files" "$msgfile"; then
-    return 1
-  fi
-  sync_push_clear_error
+  sync_push_commits "$repo" "$id" "$kind" || return 1
   sync_log "push ok ${id}"
   if [ "$kind" != "workspace" ]; then
     sync_pull_one "$repo" "$id" || true
@@ -652,21 +819,8 @@ sync_push_one() {
   return 0
 }
 
-# A good push clears an error an earlier push left. It never clears a pull error (a
-# clean pull clears that), and never an error an earlier repo set in this run.
-sync_push_clear_error() {
-  local err
-  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
-  [ -f "${SYNC_HELD:-}" ] || return 0
-  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
-  case "$err" in
-    ""|"pull failed for "*) return 0 ;;
-  esac
-  sync_held_error ""
-}
-
-# Bot runs already committed on sync/<bot>. Push those commits as they are.
-# Do not commit again, and do not touch sync/<me>.
+# Bot runs already committed on sync/<bot>. Push those commits as they are, after the
+# same range check as a person's push. Do not commit again, and do not touch sync/<me>.
 # The bot key is the boundary. This path does not check that me is the bot.
 sync_bot_fail() {
   local id=$1 why=$2
@@ -695,11 +849,12 @@ sync_bot_git() {
       "$@"
 }
 
-# Slug is checked before this runs. The only refspec is sync/<bot>.
+# Slug is checked before this runs. The only refspec is sync/<bot>, never forced: a run
+# builds on the last one until it merges (add-bot run.sh).
 sync_bot_push_ref() {
   local dir=$1 bot=$2
   local ref="refs/heads/sync/${bot}"
-  sync_bot_git "$dir" "$bot" push --force origin "${ref}:${ref}"
+  sync_bot_git "$dir" "$bot" push origin "${ref}:${ref}"
 }
 
 sync_bot_url_has_credential() {
@@ -785,83 +940,6 @@ sync_bot_range() {
   printf '%s\n' "$ref"
 }
 
-# Rules paths and secret blobs in the range. Return 1 before any push.
-sync_bot_check_range() {
-  local repo=$1 id=$2 ref=$3
-  local range list line path sha kind dir n scanner rc blob
-  range=$(sync_bot_range "$repo" "$ref")
-  list=$(sync_mktemp)
-  set +e
-  git -C "$repo" log -z --name-only --no-renames --pretty=format: "$range" > "$list"
-  rc=$?
-  set -e
-  if [ "$rc" -ne 0 ]; then
-    sync_bot_fail "$id" "secret scan"
-    return 1
-  fi
-  # -z keeps both sides of a rename and does not quote a path.
-  while IFS= read -r -d '' path || [ -n "$path" ]; do
-    [ -n "$path" ] || continue
-    if sync_hold_rules "$path"; then
-      sync_bot_fail "$id" "rules file: propose it with sync.sh propose"
-      return 1
-    fi
-  done < "$list"
-  scanner="$SYNC_DIR/secret-scan.sh"
-  if [ ! -f "$scanner" ]; then
-    sync_bot_fail "$id" "secret scan"
-    return 1
-  fi
-  dir=$(mktemp -d)
-  chmod 700 "$dir"
-  n=0
-  set +e
-  git -C "$repo" rev-list --objects "$range" > "$list"
-  rc=$?
-  set -e
-  if [ "$rc" -ne 0 ]; then
-    rm -rf "$dir"
-    sync_bot_fail "$id" "secret scan"
-    return 1
-  fi
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      *" "*)
-        sha=${line%% *}
-        ;;
-      *)
-        continue
-        ;;
-    esac
-    kind=$(git -C "$repo" cat-file -t "$sha" 2>/dev/null || true)
-    [ "$kind" = "blob" ] || continue
-    n=$((n + 1))
-    blob="$dir/blob-$n"
-    if ! git -C "$repo" cat-file blob "$sha" > "$blob"; then
-      rm -rf "$dir"
-      sync_bot_fail "$id" "secret scan"
-      return 1
-    fi
-    chmod 600 "$blob"
-  done < "$list"
-  if [ "$n" -eq 0 ]; then
-    blob="$dir/blob-0"
-    : > "$blob"
-    chmod 600 "$blob"
-  fi
-  set +e
-  # shellcheck disable=SC2086
-  "$scanner" --files -- "$dir"/blob-* >/dev/null 2>"$dir/scan.err"
-  rc=$?
-  set -e
-  rm -rf "$dir"
-  if [ "$rc" -ne 0 ]; then
-    sync_bot_fail "$id" "secret scan"
-    return 1
-  fi
-  return 0
-}
-
 # Called from '||', so set -e does not stop this function. Check every step.
 sync_bot_push_repo() {
   local repo=$1 id=$2 bot=$3 token=$4
@@ -887,7 +965,7 @@ sync_bot_push_repo() {
       return 0
     fi
   fi
-  if ! sync_bot_check_range "$repo" "$id" "$ref"; then
+  if ! sync_check_range "$repo" "$id" "$(sync_bot_range "$repo" "$ref")"; then
     return 1
   fi
   sync_bot_push_ref "$repo" "$bot" >/dev/null 2>&1
@@ -981,7 +1059,8 @@ sync_push_bot() {
 cmd_push() {
   sync_lock
   if [ -n "${OS_BOT:-}" ]; then
-    sync_push_bot || return 1
+    sync_push_bot || { sync_unreached_flush; return 1; }
+    sync_unreached_flush
     return 0
   fi
   sync_identity || return 1
@@ -990,6 +1069,10 @@ cmd_push() {
   sync_held_prune
   sync_each sync_push_one || rc=1
   sync_held_prune
+  # One line for the push, then one for the pull (not one per repo).
+  [ -z "${SYNC_OFFLINE_SAY:-}" ] || printf '%s\n' "$SYNC_OFFLINE_SAY" >&2
+  sync_unreached_flush
+  [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }
 
@@ -1215,7 +1298,7 @@ sync_propose_repo() {
     sync_propose_fail "$name" "commit" 2
     return 2
   fi
-  if ! sync_push_ref "$tmp" "refs/heads/rules/${me}/${topic}" 1; then
+  if ! sync_push_ref "$tmp" HEAD "refs/heads/rules/${me}/${topic}" 1; then
     sync_propose_fail "$name" "push" 2
     return 2
   fi

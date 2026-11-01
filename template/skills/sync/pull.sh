@@ -36,77 +36,313 @@ sync_changed_names() {
   done < <(git -C "$repo" status --porcelain -z -uall)
 }
 
-# Rename pairs: from<TAB>to. Push deletes from only when to is approved.
-sync_rename_pairs() {
-  local repo=$1
-  local line xy path from
-  while IFS= read -r -d '' line; do
-    [ -n "$line" ] || continue
-    xy=${line:0:2}
-    path=${line:3}
-    case "$xy" in
-      R*|C*)
-        IFS= read -r -d '' from || true
-        printf '%s\t%s\n' "$from" "$path"
-        ;;
-    esac
-  done < <(git -C "$repo" status --porcelain -z -uall)
+# Files the host changed since this folder's history and the host's last met.
+sync_host_changed() {
+  local repo=$1 base
+  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 1
+  sync_names "$repo" diff --name-only --no-renames "$base" origin/main
 }
 
-sync_prepare_ff() {
-  local repo=$1
-  local incoming dirty path incfile save
-  local blocked=0
+# Put one path back as HEAD has it. A copy HEAD does not track is removed.
+sync_drop_local() {
+  local repo=$1 path=$2
+  if git -C "$repo" cat-file -e "HEAD:${path}" 2>/dev/null; then
+    git -C "$repo" --literal-pathspecs checkout -q HEAD -- "$path"
+  else
+    git -C "$repo" --literal-pathspecs rm -q --cached --ignore-unmatch -- "$path" >/dev/null 2>&1 || true
+    rm -f "$repo/$path"
+  fi
+}
+
+# The blob of a path in a commit, or none.
+sync_blob_of() {
+  git -C "$1" rev-parse -q --verify "$2:$3" 2>/dev/null || printf '%s\n' none
+}
+
+# Before the host's commits come in, look at each file that is changed here and that the
+# host changed too. The same text as the host's (a proposed rules file that merged, a
+# delete that merged, B48), or deleted on both sides: drop the local copy. Different: a
+# real change made while someone else changed the file. Git never merges it by machine:
+# the person's version is set aside and the host's text comes in (memo 8.1).
+sync_dirty_pass() {
+  local repo=$1 id=$2 incoming dirty path want have
   incoming=$(sync_mktemp)
   dirty=$(sync_mktemp)
-  save=$(sync_keep_dir)
-  git -C "$repo" diff --name-only HEAD origin/main > "$incoming" || true
+  sync_host_changed "$repo" > "$incoming" 2>/dev/null || return 0
+  [ -s "$incoming" ] || return 0
   sync_changed_names "$repo" > "$dirty" || true
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if ! grep -Fxq "$path" "$incoming"; then
+    grep -Fxq -- "$path" "$incoming" || continue
+    want=$(sync_blob_of "$repo" origin/main "$path")
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ]; then
+      have=$(git -C "$repo" hash-object -- "$path" 2>/dev/null || true)
+      if [ "$want" = "$have" ]; then
+        sync_drop_local "$repo" "$path"
+        sync_held_drop "$id" "$path"
+        continue
+      fi
+    elif [ ! -e "$repo/$path" ] && [ ! -L "$repo/$path" ] && [ "$want" = "none" ]; then
+      sync_drop_local "$repo" "$path"
+      sync_held_drop "$id" "$path"
       continue
     fi
-    incfile=$(sync_mktemp)
-    if ! git -C "$repo" show "origin/main:$path" > "$incfile" 2>/dev/null; then
-      blocked=1
-      break
-    fi
-    if [ -f "$repo/$path" ] && cmp -s "$repo/$path" "$incfile"; then
-      mkdir -p "$save/$(dirname "$path")"
-      cp "$repo/$path" "$save/$path"
-      continue
-    fi
-    blocked=1
-    break
+    sync_set_aside "$repo" "$id" "$path" "$(sync_blob_of "$repo" HEAD "$path")" worktree || return 1
+    sync_drop_local "$repo" "$path"
   done < "$dirty"
-  if [ "$blocked" -eq 1 ]; then
-    rm -rf "$save"
-    return 1
-  fi
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    [ -f "$save/$path" ] || continue
-    if git -C "$repo" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-      git -C "$repo" checkout HEAD -- "$path"
-    else
-      rm -f "$repo/$path"
-    fi
-  done < "$dirty"
-  printf '%s\n' "$save"
 }
 
-sync_restore_ff() {
-  local repo=$1
-  local save=$2
-  local path
-  [ -d "$save" ] || return 0
-  find "$save" -type f | while IFS= read -r path; do
-    rel=${path#"$save/"}
-    mkdir -p "$repo/$(dirname "$rel")"
-    cp "$path" "$repo/$rel"
+# Where a set-aside copy lives: ${config}/state/reapply/<repo>/<path>.
+sync_reapply_dir() {
+  local id=$1
+  case "$id" in
+    area:*) id="area-${id#area:}" ;;
+  esac
+  printf '%s/reapply/%s\n' "$SYNC_STATE" "$id"
+}
+
+# Keep the person's version of one file, and the text it was edited from, and hold the
+# file: the agent re-applies the change on the host's text (re-apply.md). from is
+# worktree (an edit not committed), commit (a sync commit not merged yet) or held:<file>
+# (a copy taken out first; no file means deleted). A sixth argument is the hold's reason;
+# with it the caller prints its own line (join, B69).
+sync_set_aside() {
+  local repo=$1 id=$2 path=$3 base=$4 from=$5 why=${6:-} dir slot mine basefile n=1 line tmp
+  dir=$(sync_reapply_dir "$id")
+  slot="${dir}/${path}"
+  while [ -e "$slot" ] || [ -e "${slot}.base" ]; do
+    n=$((n + 1))
+    slot="${dir}/${path}.${n}"
   done
-  rm -rf "$save"
+  mkdir -p "$(dirname "$slot")"
+  chmod 700 "$SYNC_STATE/reapply" 2>/dev/null || true
+  mine=$slot
+  if [ "$from" = "commit" ]; then
+    if git -C "$repo" cat-file -e "HEAD:${path}" 2>/dev/null; then
+      git -C "$repo" show "HEAD:${path}" > "$mine" || return 1
+    else
+      mine=deleted
+    fi
+  elif [ "${from#held:}" != "$from" ]; then
+    if [ -e "${from#held:}" ]; then
+      cp -p "${from#held:}" "$mine" || return 1
+    else
+      mine=deleted
+    fi
+  elif [ -f "$repo/$path" ]; then
+    cp -p "$repo/$path" "$mine" || return 1
+  else
+    mine=deleted
+  fi
+  [ "$mine" = "deleted" ] || chmod 600 "$mine"
+  basefile=none
+  if [ "$base" != "none" ]; then
+    basefile="${slot}.base"
+    git -C "$repo" cat-file blob "$base" > "$basefile" || return 1
+    chmod 600 "$basefile"
+  fi
+  line=$(jq -nc --arg repo "$id" --arg path "$path" --arg base "$base" --arg mine "$mine" --arg basefile "$basefile" \
+    --arg why "${why:-re-apply: changed on the host while you worked}" \
+    '{repo:$repo, path:$path, kind:"re-apply", reason:$why, base:$base, mine:$mine, basefile:$basefile}')
+  tmp=$(sync_mktemp)
+  jq --argjson f "$line" '.files += [$f]' "$SYNC_HELD" > "$tmp"
+  mv "$tmp" "$SYNC_HELD"
+  chmod 600 "$SYNC_HELD"
+  sync_log "pull re-apply ${id} ${path}"
+  [ -z "$why" ] || return 0
+  printf '%s\n' "${id} ${path}: changed on the host while you worked. Your version is set aside and the host's text is here; the agent re-applies your change (skills/sync/re-apply.md)."
+}
+
+# Sync makes every commit in this folder, each with a Sync-Seat trailer. A commit
+# without one (made by hand, or by another tool) is never pushed or merged.
+sync_foreign_commits() {
+  local repo=$1
+  git -C "$repo" rev-parse --verify --quiet origin/main >/dev/null 2>&1 || return 0
+  git -C "$repo" log --no-merges --format='%H %(trailers:key=Sync-Seat,valueonly,separator=%x2C)' origin/main..HEAD \
+    | awk 'NF < 2 { c++ } END { print c + 0 }'
+}
+
+# The commit message trailer for this computer.
+sync_trailer() {
+  printf '\nSync-Seat: %s\n' "$(sync_seat)"
+}
+
+sync_commit_msg() {
+  local text=$1 file
+  file=$(sync_mktemp)
+  { printf '%s\n' "$text"; sync_trailer; } > "$file"
+  printf '%s\n' "$file"
+}
+
+sync_git_commit() {
+  local repo=$1 msgfile=$2 author name email
+  shift 2
+  author=$(sync_commit_author)
+  name=$(printf '%s\n' "$author" | head -n 1)
+  email=$(printf '%s\n' "$author" | tail -n 1)
+  git -C "$repo" -c user.name="$name" -c user.email="$email" -c commit.gpgsign=false "$@" -F "$msgfile"
+}
+
+# Every file a ref's commits changed since it met main has the same text on main: main
+# holds that work, whatever commits it came in by. Prints how many files.
+sync_files_on_main() {
+  local repo=$1 ref=$2 base path n=0
+  base=$(git -C "$repo" merge-base "$ref" origin/main 2>/dev/null) || return 1
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    [ "$(sync_blob_of "$repo" "$ref" "$path")" = "$(sync_blob_of "$repo" origin/main "$path")" ] || return 1
+    n=$((n + 1))
+  done < <(sync_names "$repo" diff --name-only --no-renames "$base" "$ref")
+  printf '%s\n' "$n"
+}
+
+# A squash merge puts the person's change on main as a new commit. The folder's own
+# commits then never reach main, so nothing fast-forwards again. Seen when every file the
+# local commits changed already has the same text on main.
+sync_squashed() {
+  local n
+  n=$(sync_files_on_main "$1" HEAD) || return 1
+  [ "$n" -gt 0 ]
+}
+
+# B72: main has the same text, but from another seat's sync commits, not from a squash of
+# this seat's pull request. Every commit main gained since the fork that touched those
+# files has a Sync-Seat line, and none names this seat (a squash keeps the squashed
+# commits' lines in its message). A commit without one (made on the web) is a squash.
+sync_same_text_elsewhere() {
+  local repo=$1 base seat sha msg n=0
+  seat=$(sync_seat)
+  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 1
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    msg=$(git -C "$repo" log -1 --format=%B "$sha") || return 1
+    ! grep -Eq "(^|[[:space:]])Sync-Seat: ${seat}([[:space:]]|\$)" <<< "$msg" || return 1
+    grep -q '^Sync-Seat: ' <<< "$msg" || return 1
+    n=$((n + 1))
+  done < <({ printf '%s\n' "^${base}" origin/main --; sync_names "$repo" diff --name-only --no-renames "$base" HEAD; } \
+    | git -C "$repo" --literal-pathspecs rev-list --no-merges --stdin)
+  [ "$n" -gt 0 ]
+}
+
+# Put back every file sync_after_squash copied out: the folder is as it was.
+sync_squash_restore() {
+  local repo=$1 hold=$2 i=1 path
+  while [ -f "${hold}/${i}.path" ]; do
+    path=$(cat "${hold}/${i}.path")
+    rm -f "$repo/$path"
+    if [ -e "${hold}/${i}" ] || [ -L "${hold}/${i}" ]; then
+      mkdir -p "$(dirname "$repo/$path")"
+      cp -pP "${hold}/${i}" "$repo/$path"
+    fi
+    i=$((i + 1))
+  done
+}
+
+# After a squash, main has every file these commits changed, with the same text, so
+# nothing is lost by taking main as it is. The folder takes main's text for every file
+# main has and this commit lacks, a teammate's note merged since too: a reset that kept
+# the old text would make the next push put it back. A file changed here that main changed
+# too is copied out and put back as HEAD has it, so git can take main. Only once main is
+# in is it set aside (8.1). Every other change here stays. Returns 1 when main could not be
+# taken: every copied file is put back, so nothing changed and the branch stays. Returns 2
+# when a file could not be set aside after main came in: its copy stays where the line
+# says. The old commits are never pushed again: this computer's branch on the host is
+# deleted, so the next push starts from main.
+sync_after_squash() {
+  local repo=$1 id=$2 me seat ref old dirty hold path i n=0
+  old=$(git -C "$repo" rev-parse HEAD)
+  dirty=$(sync_mktemp)
+  sync_changed_names "$repo" > "$dirty" || true
+  mkdir -p "$SYNC_STATE"
+  hold=$(mktemp -d "${SYNC_STATE}/squash.XXXXXX") || return 1
+  chmod 700 "$hold"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    grep -Fxq -- "$path" "$dirty" || continue
+    n=$((n + 1))
+    printf '%s' "$path" > "${hold}/${n}.path"
+    if [ -e "$repo/$path" ] || [ -L "$repo/$path" ]; then
+      cp -pP "$repo/$path" "${hold}/${n}" || { sync_squash_restore "$repo" "$hold"; rm -rf "$hold"; return 1; }
+    fi
+    if [ -f "$repo/$path" ] && [ ! -L "$repo/$path" ] \
+      && [ "$(git -C "$repo" hash-object -- "$path" 2>/dev/null)" = "$(sync_blob_of "$repo" origin/main "$path")" ]; then
+      : > "${hold}/${n}.same"
+    fi
+  done < <(sync_names "$repo" diff --name-only --no-renames HEAD origin/main)
+  i=1
+  while [ "$i" -le "$n" ]; do
+    sync_drop_local "$repo" "$(cat "${hold}/${i}.path")"
+    i=$((i + 1))
+  done
+  if [ "${OS_SYNC_SQUASH_FAIL:-}" = "1" ] || ! git -C "$repo" reset -q \
+    || ! git -C "$repo" reset -q --merge origin/main >/dev/null 2>&1; then
+    sync_squash_restore "$repo" "$hold"
+    rm -rf "$hold"
+    sync_log "pull squash ${id} could not take main"
+    return 1
+  fi
+  sync_log "pull squash ${id} took main"
+  i=1
+  while [ "$i" -le "$n" ]; do
+    path=$(cat "${hold}/${i}.path")
+    if [ ! -e "${hold}/${i}.same" ] \
+      && ! sync_set_aside "$repo" "$id" "$path" "$(sync_blob_of "$repo" "$old" "$path")" "held:${hold}/${i}"; then
+      sync_log "pull squash ${id} could not set aside ${path}"
+      printf '%s\n' "${id} ${path}: could not set your version aside. Your copy is at ${hold}/${i}. Ask the admin." >&2
+      return 2
+    fi
+    i=$((i + 1))
+  done
+  rm -rf "$hold"
+  [ "$id" != "workspace" ] || return 0
+  me=$(sync_me)
+  seat=$(sync_seat)
+  ref="refs/remotes/origin/sync/${me}/${seat}"
+  git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null || return 0
+  git -C "$repo" merge-base --is-ancestor "$ref" "$old" || return 0
+  if sync_git "$repo" push origin ":refs/heads/sync/${me}/${seat}" >/dev/null 2>&1; then
+    git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
+  else
+    sync_log "pull squash ${id} could not delete sync/${me}/${seat}"
+    printf '%s\n' "${id}: could not delete the branch sync/${me}/${seat} on the host. It holds only work main already has. The next push deletes it first, then sends." >&2
+  fi
+}
+
+# This folder has sync commits the host has not merged, and the host's main moved on.
+# Bring main in with a merge commit, as the host would. A file both sides changed is set
+# aside (its change is undone in one sync commit, so the host's text wins the merge).
+sync_merge_host() {
+  local repo=$1 id=$2 msg conflicts base path n
+  git -C "$repo" reset -q
+  msg=$(sync_commit_msg "Take main from the host")
+  if sync_git_commit "$repo" "$msg" merge --no-ff -q origin/main >/dev/null 2>&1; then
+    return 0
+  fi
+  conflicts=$(sync_mktemp)
+  sync_names "$repo" diff --name-only --diff-filter=U > "$conflicts" || true
+  git -C "$repo" merge --abort >/dev/null 2>&1 || true
+  if [ ! -s "$conflicts" ]; then
+    return 1
+  fi
+  base=$(git -C "$repo" merge-base HEAD origin/main) || return 1
+  n=0
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    sync_set_aside "$repo" "$id" "$path" "$(sync_blob_of "$repo" "$base" "$path")" commit || return 1
+    if git -C "$repo" cat-file -e "${base}:${path}" 2>/dev/null; then
+      git -C "$repo" --literal-pathspecs checkout -q "$base" -- "$path" || return 1
+    else
+      git -C "$repo" --literal-pathspecs rm -q -- "$path" >/dev/null || return 1
+    fi
+    n=$((n + 1))
+  done < "$conflicts"
+  msg=$(sync_commit_msg "Set aside ${n} files the host changed too")
+  sync_git_commit "$repo" "$msg" commit -q >/dev/null 2>&1 || return 1
+  msg=$(sync_commit_msg "Take main from the host")
+  if ! sync_git_commit "$repo" "$msg" merge --no-ff -q origin/main >/dev/null 2>&1; then
+    git -C "$repo" merge --abort >/dev/null 2>&1 || true
+    return 1
+  fi
 }
 
 sync_rewrite_tag() {
@@ -339,7 +575,14 @@ sync_pull_fail() {
     "could not reach origin") plain="could not reach the host. Check the internet connection and sign-in, then run it again." ;;
     "no origin/main") plain="the host has no main branch. Ask the admin." ;;
     "local changes") plain="files changed here are in the way. Run sync.sh push, then pull again." ;;
-    "not fast-forward") plain="this copy has commits that are not on the host. Ask the admin before you change anything." ;;
+    "not fast-forward") plain="this copy could not take the host's changes. Nothing was changed here. Ask the admin before you change anything." ;;
+    "not on main") plain="this folder is not on its main branch. Nothing was changed. Ask the admin." ;;
+    "upgrade not merged: "*) plain="this folder is on ${reason#upgrade not merged: } until the upgrade pull request merges. Nothing was changed. When it has merged, run skills/sync/sync.sh pull again: it puts the folder back on main." ;;
+    "foreign commit") plain="this folder has a change that sync did not make. Nothing was pushed or changed. Ask the admin." ;;
+    "squash") plain="your last changes reached main by a squash merge. Main has your text, so this copy now has main, and your other changes are kept. Sync needs merge commits: ask the admin never to squash a sync pull request." ;;
+    "squash: could not take main") plain="your last changes reached main by a squash merge, but this copy could not take main. Nothing was changed or pushed. Ask the admin." ;;
+    "squash: could not set a file aside") plain="your last changes reached main by a squash merge. This copy now has main, but a file changed here could not be set aside: the line above says where its copy is. Nothing was pushed. Ask the admin." ;;
+    "merge left open") plain="a merge stopped halfway here and could not be undone. Nothing was changed or pushed. Ask the admin." ;;
     "v0 logs: "*) plain="the old logs folder memory/logs could not be moved: ${reason#v0 logs: }." ;;
     "v0 catch-up: "*) plain="${reason#v0 catch-up: }." ;;
     "unpushed: "*) plain="this copy has ${reason#unpushed: } commits (on any local branch) that are not on the host, so it was not swapped for a fresh copy after the host history was rewritten. Nothing was removed. Ask the admin." ;;
@@ -359,21 +602,24 @@ sync_pull_fail() {
   # One line per repo. The first reason is the one to act on.
   [ "${SYNC_PULL_FAILED:-}" != "$id" ] || return 0
   SYNC_PULL_FAILED=$id
-  printf 'pull failed for %s: %s\n' "$id" "$plain" >&2
+  if [ "$reason" = "could not reach origin" ]; then
+    # Every repo fails the same way when the host is down: one line at the end names them.
+    SYNC_UNREACHED="${SYNC_UNREACHED:+${SYNC_UNREACHED}, }${id}"
+    SYNC_UNREACHED_PLAIN=$plain
+  else
+    printf 'pull failed for %s: %s\n' "$id" "$plain" >&2
+  fi
   if [ -z "${SYNC_RUN_ERROR:-}" ]; then
     sync_held_error "pull failed for ${id}: ${plain}"
   fi
 }
 
-# A clean pull clears an error an earlier pull left. It never clears a push error.
-sync_pull_clear_error() {
-  local err
-  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
-  [ -f "${SYNC_HELD:-}" ] || return 0
-  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
-  case "$err" in
-    "pull failed for "*) sync_held_error "" ;;
-  esac
+
+# The one line for every repo the host could not be reached for.
+sync_unreached_flush() {
+  [ -n "${SYNC_UNREACHED:-}" ] || return 0
+  printf 'pull failed for %s: %s\n' "$SYNC_UNREACHED" "$SYNC_UNREACHED_PLAIN" >&2
+  SYNC_UNREACHED=""
 }
 
 sync_pull_mark() {
@@ -429,48 +675,37 @@ sync_pull_one() {
   return "$rc"
 }
 
-# A clone left on the person's own sync branch never fast-forwards: push rebuilds
-# that branch on the host. join.sh did this before it went back to main, and so
-# did v0. Go back to main only when every change made on the branch is on the host
-# (origin/main or origin/sync/<me>). Never drop work that is not pushed.
+# Moving from the old sync code (keep for one release, then delete): a clone that join
+# or v0 left on sync/<me> goes back to main. Only HEAD moves: the files stay as they are,
+# so what the branch held is now a local change, which the pass below drops when main
+# already has it, and the next push sends when it does not.
+#
+# The admin's folder after an upgrade on a host is the same case (B52): the upgrade leaves
+# the company folder on upgrade/v1 and each area on upgrade/scripts. Once that branch is
+# on the host's main (its pull request merged), the folder goes back to main the same way.
+# Files team-on wrote meanwhile that main now has drop in the pass below.
 sync_pull_leave_own_branch() {
-  local repo=$1
-  local id=$2
-  local me cur base path
+  local repo=$1 id=$2 me cur base
   me=$(sync_me)
-  [ -n "$me" ] || return 0
   cur=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)
-  [ "$cur" = "sync/${me}" ] || return 0
-  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null || true)
-  if [ -z "$base" ]; then
-    sync_log "pull hold ${id} on sync/${me}: no common history with main"
+  case "$cur" in
+    upgrade/*)
+      git -C "$repo" merge-base --is-ancestor HEAD origin/main 2>/dev/null || return 0
+      ;;
+    *)
+      [ -n "$me" ] && [ "$cur" = "sync/${me}" ] || return 0
+      ;;
+  esac
+  if git -C "$repo" rev-parse --verify --quiet refs/heads/main >/dev/null \
+    && ! git -C "$repo" merge-base --is-ancestor refs/heads/main origin/main; then
+    sync_log "pull hold ${id} on ${cur}: main has commits the host lacks"
     return 0
   fi
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    if git -C "$repo" diff --quiet HEAD origin/main -- "$path"; then
-      continue
-    fi
-    if git -C "$repo" rev-parse --verify --quiet "origin/sync/${me}" >/dev/null \
-      && git -C "$repo" diff --quiet HEAD "origin/sync/${me}" -- "$path"; then
-      continue
-    fi
-    sync_log "pull hold ${id} on sync/${me}: ${path} is not pushed yet"
-    return 0
-  done < <(git -C "$repo" diff --name-only "$base" HEAD)
-  # A plain checkout keeps uncommitted and untracked files. It refuses rather than overwrite one.
-  if git -C "$repo" show-ref --verify --quiet refs/heads/main; then
-    git -C "$repo" checkout -q main 2>/dev/null || {
-      sync_log "pull hold ${id} on sync/${me}: could not switch to main"
-      return 0
-    }
-  else
-    git -C "$repo" checkout -q -b main origin/main 2>/dev/null || {
-      sync_log "pull hold ${id} on sync/${me}: could not switch to main"
-      return 0
-    }
-  fi
-  sync_log "pull ok ${id} back on main from sync/${me}"
+  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 0
+  git -C "$repo" update-ref refs/heads/main "$base" || return 0
+  git -C "$repo" symbolic-ref HEAD refs/heads/main || return 0
+  git -C "$repo" reset -q
+  sync_log "pull ok ${id} back on main from ${cur}"
 }
 
 # A v0 clone keeps memory/logs as a worktree of branch logs after the upgrade lands
@@ -532,11 +767,41 @@ sync_unpushed_count() {
   } | git -C "$repo" rev-list --count --stdin 2>/dev/null || printf '%s\n' unknown
 }
 
+# A pull that could not leave this repo safe. The push in the same run commits nothing
+# there and sends nothing.
+sync_pull_stop() {
+  SYNC_PULL_STOPPED="${SYNC_PULL_STOPPED:-}|$1|"
+}
+
+sync_pull_stopped() {
+  case "${SYNC_PULL_STOPPED:-}" in
+    *"|$1|"*) return 0 ;;
+  esac
+  return 1
+}
+
+# A run that died inside sync's own merge leaves MERGE_HEAD and conflict lines in the
+# files. Undo that merge before anything resets: a reset would clear the merge and keep
+# the conflict lines, and the next push would send them.
+sync_abort_open_merge() {
+  local repo=$1 id=$2
+  git -C "$repo" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1 || return 0
+  if [ "${OS_SYNC_ABORT_FAIL:-}" != "1" ] && git -C "$repo" merge --abort >/dev/null 2>&1; then
+    sync_log "pull merge-abort ${id}"
+    return 0
+  fi
+  return 1
+}
+
 sync_pull_ff() {
   local repo=$1
   local id=$2
-  local save tag old link_save err n
-  # --prune drops origin/* refs whose branch the host deleted (push's pending hold reads them).
+  local tag old link_save err n branch rc same
+  if ! sync_abort_open_merge "$repo" "$id"; then
+    sync_pull_stop "$id"
+    sync_pull_fail "$id" "merge left open"
+    return 1
+  fi
   if ! sync_git "$repo" fetch --prune origin >/dev/null 2>&1; then
     sync_pull_fail "$id" "could not reach origin"
     return 1
@@ -554,46 +819,97 @@ sync_pull_ff() {
     fi
   fi
   sync_pull_leave_own_branch "$repo" "$id"
-  if git -C "$repo" merge-base --is-ancestor HEAD origin/main; then
-    save=$(sync_prepare_ff "$repo" || true)
-    if [ -z "$save" ]; then
-      sync_pull_fail "$id" "local changes"
+  branch=$(git -C "$repo" symbolic-ref --short -q HEAD 2>/dev/null || true)
+  case "$branch" in
+    main) ;;
+    upgrade/*)
+      sync_pull_fail "$id" "upgrade not merged: ${branch}"
+      return 1
+      ;;
+    *)
+      sync_pull_fail "$id" "not on main"
+      return 1
+      ;;
+  esac
+  # The host rewrote its history (remove-leak): a fresh copy, unless work is not pushed.
+  if ! git -C "$repo" merge-base --is-ancestor HEAD origin/main \
+    && ! git -C "$repo" merge-base --is-ancestor origin/main HEAD; then
+    tag=$(sync_rewrite_tag "$repo" "$id" || true)
+    if [ -n "$tag" ]; then
+      # A reclone keeps only changed files. Commits the host never had would be lost.
+      n=$(sync_unpushed_count "$repo")
+      if [ "$n" != "0" ]; then
+        sync_pull_fail "$id" "unpushed: ${n}"
+        return 1
+      fi
+      sync_reclone "$repo" "$id" "$tag"
+      return $?
+    fi
+  fi
+  # Both have commits the other lacks. A commit sync did not make, or a squash, is seen
+  # from the commits alone, before any file here is touched: a stop changes nothing, and
+  # the squash heal sets files aside only once main is in.
+  if ! git -C "$repo" merge-base --is-ancestor HEAD origin/main \
+    && ! git -C "$repo" merge-base --is-ancestor origin/main HEAD; then
+    if [ "$id" != "workspace" ] && [ "$(sync_foreign_commits "$repo")" != "0" ]; then
+      sync_pull_fail "$id" "foreign commit"
       return 1
     fi
-    old=$(git -C "$repo" rev-parse HEAD)
-    link_save=$(sync_stash_link_dirs "$repo")
-    if ! git -C "$repo" merge --ff-only origin/main >/dev/null 2>&1; then
-      sync_restore_ff "$repo" "$save"
-      git -C "$repo" checkout -q HEAD -- .agents/skills .claude/skills 2>/dev/null || true
-      sync_put_back_stashed_links "$repo" "$link_save"
-      rm -rf "$link_save"
-      rm -f "${link_save}.has"
+    if sync_squashed "$repo"; then
+      same=0
+      ! sync_same_text_elsewhere "$repo" || same=1
+      rc=0
+      sync_after_squash "$repo" "$id" || rc=$?
+      if [ "$same" -eq 1 ] && [ "$rc" -eq 0 ]; then
+        # B72: another seat sent the same text first. Nobody squashed: no error.
+        sync_log "pull same-text ${id}"
+      else
+        case "$rc" in
+          0) sync_pull_fail "$id" "squash" ;;
+          2) sync_pull_fail "$id" "squash: could not set a file aside" ;;
+          *)
+            sync_pull_stop "$id"
+            sync_pull_fail "$id" "squash: could not take main"
+            ;;
+        esac
+        return 1
+      fi
+    fi
+  fi
+  if ! sync_dirty_pass "$repo" "$id"; then
+    sync_pull_fail "$id" "re-apply: could not set a file aside"
+    return 1
+  fi
+  old=$(git -C "$repo" rev-parse HEAD)
+  if git -C "$repo" merge-base --is-ancestor origin/main HEAD; then
+    # Up to date. Local commits wait for their pull request.
+    return 0
+  fi
+  if ! git -C "$repo" merge-base --is-ancestor HEAD origin/main; then
+    if ! sync_merge_host "$repo" "$id"; then
       sync_pull_fail "$id" "not fast-forward"
       return 1
     fi
-    rm -rf "$save"
-    if [ "$old" != "$(git -C "$repo" rev-parse HEAD)" ]; then
-      sync_log "pull ok ${id}"
-    fi
-    if [ -f "${link_save}.has" ]; then
-      sync_replace_plain_link_files "$repo"
-    fi
-    sync_finish_stashed_links "$repo" "$link_save"
+    sync_log "pull ok ${id} merged"
     return 0
   fi
-  tag=$(sync_rewrite_tag "$repo" "$id" || true)
-  if [ -n "$tag" ]; then
-    # A reclone keeps only changed files. Commits the host never had would be lost.
-    n=$(sync_unpushed_count "$repo")
-    if [ "$n" != "0" ]; then
-      sync_pull_fail "$id" "unpushed: ${n}"
-      return 1
-    fi
-    sync_reclone "$repo" "$id" "$tag"
-    return $?
+  link_save=$(sync_stash_link_dirs "$repo")
+  if ! git -C "$repo" merge --ff-only origin/main >/dev/null 2>&1; then
+    git -C "$repo" checkout -q HEAD -- .agents/skills .claude/skills 2>/dev/null || true
+    sync_put_back_stashed_links "$repo" "$link_save"
+    rm -rf "$link_save"
+    rm -f "${link_save}.has"
+    sync_pull_fail "$id" "local changes"
+    return 1
   fi
-  sync_pull_fail "$id" "not fast-forward"
-  return 1
+  if [ "$old" != "$(git -C "$repo" rev-parse HEAD)" ]; then
+    sync_log "pull ok ${id}"
+  fi
+  if [ -f "${link_save}.has" ]; then
+    sync_replace_plain_link_files "$repo"
+  fi
+  sync_finish_stashed_links "$repo" "$link_save"
+  return 0
 }
 
 sync_each() {
@@ -1229,8 +1545,7 @@ cmd_pull() {
   else
     sync_pull_run_quick || rc=$?
   fi
-  if [ "$rc" -eq 0 ]; then
-    sync_pull_clear_error
-  fi
+  sync_unreached_flush
+  [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }

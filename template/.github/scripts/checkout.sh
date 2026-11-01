@@ -1,6 +1,8 @@
 #!/bin/bash
-# Check out the pull request head with history.
-# The job token stays in a mode-600 file. It is never a command argument.
+# Find the pull request's commits and copy the check tools from its base.
+# actions/checkout has already fetched the full history and checked out the head.
+# The head is data, not code (D26): every script the checks run is copied out of
+# the base commit here, and the workflow copied this file from main.
 set -euo pipefail
 
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -12,11 +14,10 @@ usage() {
   cat << 'EOF'
 usage: checkout.sh
 
-Check out the pull request head with full history.
-Reads JOB_TOKEN, GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_EVENT_NAME
-and GITHUB_EVENT_PATH from the environment.
-Writes head and base commits under the runner temp directory.
-The token is never printed.
+Find the pull request head and base in the checked-out folder.
+Copy the check tools from the base commit to the runner temp directory.
+Reads GITHUB_EVENT_NAME, GITHUB_EVENT_PATH and GITHUB_REPOSITORY.
+An /override comment reads its pull request with JOB_TOKEN. The token is never printed.
 EOF
 }
 
@@ -49,120 +50,89 @@ save_base_tools() {
   ci_write_state tools-dir "$tools"
 }
 
-if [ -z "${JOB_TOKEN:-}" ]; then
-  ci_die 1 "checkout failed: the job token is missing"
-fi
-if [ -z "${GITHUB_SERVER_URL:-}" ] || [ -z "${GITHUB_REPOSITORY:-}" ]; then
-  ci_die 1 "checkout failed: the job did not set the repository"
-fi
+is_sha() {
+  [ "${#1}" -eq 40 ] && case "$1" in *[!0-9a-f]*) return 1 ;; *) return 0 ;; esac
+}
 
 event_name=${GITHUB_EVENT_NAME:-}
 event_file=${GITHUB_EVENT_PATH:-}
-if [ -n "$event_file" ] && [ -f "$event_file" ] && [ "$event_name" = "issue_comment" ]; then
-  trimmed=$(jq -r '.comment.body // empty' "$event_file" | sed 's/^[[:space:]]*//')
-  case "$trimmed" in
-    /override*) ;;
-    *)
-      ci_write_state event-name "$event_name"
-      ci_write_state skip yes
-      exit 0
-      ;;
-  esac
+if [ -z "$event_file" ] || [ ! -f "$event_file" ]; then
+  ci_die 1 "checkout failed: the job has no event file"
 fi
 
-work=${GITHUB_WORKSPACE:-$(pwd)}
-mkdir -p "$work"
-cd "$work"
+cd "${GITHUB_WORKSPACE:-$(pwd)}"
+if ! git rev-parse --verify --quiet HEAD >/dev/null; then
+  ci_die 1 "checkout failed: the pull request head is not checked out"
+fi
 
-url="${GITHUB_SERVER_URL%/}/${GITHUB_REPOSITORY}.git"
-case "$url" in
-  *'@'*) ci_die 1 "checkout failed: refusing a credential in a clone URL" ;;
+case "$event_name" in
+  pull_request|pull_request_review)
+    pr_number=$(jq -r '.pull_request.number // empty' "$event_file")
+    head_ref=$(jq -r '.pull_request.head.ref // empty' "$event_file")
+    base_ref=$(jq -r '.pull_request.base.ref // empty' "$event_file")
+    head_sha=$(jq -r '.pull_request.head.sha // empty' "$event_file")
+    base_sha=$(jq -r '.pull_request.base.sha // empty' "$event_file")
+    ;;
+  issue_comment)
+    pr_number=$(jq -r '.issue.number // empty' "$event_file")
+    case "$pr_number" in
+      ''|*[!0-9]*) ci_die 1 "checkout failed: the comment has no pull request number" ;;
+    esac
+    # A comment event has no commits. Take them from the pull request itself (B49).
+    pr_json=$(ci_mktemp)
+    if [ -z "${JOB_TOKEN:-}" ] || ! ci_api_get "/repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" "$pr_json"; then
+      ci_die 1 "checkout failed: could not read pull request ${pr_number} from the host"
+    fi
+    head_ref=$(jq -r '.head.ref // empty' "$pr_json")
+    base_ref=$(jq -r '.base.ref // empty' "$pr_json")
+    head_sha=$(jq -r '.head.sha // empty' "$pr_json")
+    base_sha=$(jq -r '.base.sha // empty' "$pr_json")
+    if ! is_sha "$head_sha" || ! is_sha "$base_sha"; then
+      ci_die 1 "checkout failed: pull request ${pr_number} has no full head and base commit"
+    fi
+    ;;
+  *)
+    ci_die 1 "checkout failed: the checks run only for a pull request"
+    ;;
 esac
 
-if [ -d .git ]; then
-  if git remote get-url origin >/dev/null 2>&1; then
-    git remote set-url origin "$url"
-  else
-    git remote add origin "$url"
-  fi
-else
-  git init -q .
-  git remote add origin "$url"
+# Checks run only for a pull request into main. issue_comment has no branch filter, so a
+# comment on a pull request into any other branch must not run that branch's tools with
+# the job token. An empty base is a refusal too. Nothing from the head runs before this.
+if [ "$base_ref" != "main" ]; then
+  ci_die 1 "checkout failed: checks run only for a pull request into main, and this one is into ${base_ref:-no branch}"
 fi
-
-pr_number=""
-head_ref=""
-base_ref="main"
-head_sha=""
-base_sha=""
-
-if [ -n "$event_file" ] && [ -f "$event_file" ]; then
-  case "$event_name" in
-    pull_request|pull_request_review)
-      pr_number=$(jq -r '.pull_request.number // empty' "$event_file")
-      head_ref=$(jq -r '.pull_request.head.ref // empty' "$event_file")
-      base_ref=$(jq -r '.pull_request.base.ref // "main"' "$event_file")
-      head_sha=$(jq -r '.pull_request.head.sha // empty' "$event_file")
-      base_sha=$(jq -r '.pull_request.base.sha // empty' "$event_file")
-      ;;
-    issue_comment)
-      pr_number=$(jq -r '.issue.number // empty' "$event_file")
-      is_pr=$(jq -r 'if .issue.pull_request then "yes" else "no" end' "$event_file")
-      if [ "$is_pr" != "yes" ]; then
-        ci_die 1 "checkout failed: the comment is not on a pull request"
-      fi
-      ;;
-  esac
-fi
-
-if [ -n "$pr_number" ]; then
-  ci_git fetch --no-tags origin \
-    "+refs/pull/${pr_number}/head:refs/remotes/pull/${pr_number}/head" \
-    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}"
-  if [ -z "$head_sha" ]; then
-    head_sha=$(git rev-parse "refs/remotes/pull/${pr_number}/head")
-  fi
-else
-  ci_git fetch --no-tags origin \
-    "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}"
-  head_sha=${GITHUB_SHA:-}
-fi
-
 if [ -z "$head_sha" ]; then
-  ci_die 1 "checkout failed: the pull request head is missing"
+  ci_die 1 "checkout failed: the pull request has no head commit"
 fi
-if [ -f "$(git rev-parse --git-path shallow)" ]; then
-  ci_git fetch --unshallow origin || true
+if ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
+  ci_die 1 "checkout failed: commit ${head_sha} is not in the checkout (the pull request changed; run the checks again)"
 fi
-
-if [ -z "$head_ref" ] && [ -n "$pr_number" ]; then
-  head_ref=$(ci_git ls-remote origin 'refs/heads/*' | awk -v sha="$head_sha" '
-    $1 == sha {
-      ref = $2
-      sub(/^refs\/heads\//, "", ref)
-      if (ref != "main") { print ref; exit }
-    }
-  ')
+if [ "$(git rev-parse HEAD)" != "$head_sha" ]; then
+  git checkout -f -q --detach "$head_sha"
 fi
 
-git checkout -f -q --detach "$head_sha"
-
-if [ -z "$base_sha" ]; then
-  if git rev-parse --verify --quiet "refs/remotes/origin/${base_ref}" >/dev/null; then
-    base_sha=$(git merge-base "refs/remotes/origin/${base_ref}" HEAD || true)
-  fi
+# The tools, the owners and the review rules come from main as fetched now: the only base.
+# The host's base commit for the pull request can be far older than main (GitHub keeps it
+# from when the pull request opened), and a re-run must see today's tools.
+tools_sha=$(git rev-parse --verify --quiet "refs/remotes/origin/main^{commit}" || true)
+if [ -z "$tools_sha" ]; then
+  ci_die 1 "checkout failed: main is not in the checkout"
 fi
-if [ -z "$base_sha" ]; then
-  ci_die 1 "checkout failed: the base commit is missing"
+if [ -n "$base_sha" ] && ! git merge-base --is-ancestor "$base_sha" "$tools_sha" 2>/dev/null; then
+  ci_die 1 "checkout failed: the pull request's base commit ${base_sha} is not on main"
 fi
+# A branch need not hold the newest main: a person may push before they pull. The range
+# starts at the merge base, so main's newer changes are not read as the branch's own.
+range_base=$(git merge-base "$tools_sha" "$head_sha") || ci_die 1 "checkout failed: the head and the base share no history"
 
-save_base_tools "$base_sha"
+save_base_tools "$tools_sha"
 
 ci_write_state event-name "$event_name"
-ci_write_state skip no
 ci_write_state pr-number "$pr_number"
 ci_write_state head-sha "$head_sha"
-ci_write_state base-sha "$base_sha"
+ci_write_state base-sha "$range_base"
+ci_write_state tools-sha "$tools_sha"
 ci_write_state head-ref "$head_ref"
 ci_write_state base-ref "$base_ref"
 printf '%s\n' "checked out ${head_sha}"

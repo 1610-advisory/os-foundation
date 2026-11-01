@@ -694,6 +694,26 @@ cmd_team_repos() {
   jq -nc --arg team "$team" --argjson repos "$all" '{team:$team, exists:true, repos:$repos}'
 }
 
+# Every repo in the org, by name.
+cmd_org_repos() {
+  local page=1 n all='[]'
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  while true; do
+    if ! fj_call GET "/orgs/${OS_ORG}/repos?limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[].name]')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --argjson repos "$all" '{repos:$repos}'
+}
+
 # Forgejo adds people to teams and repos at once. It has no pending invites.
 fj_need_invite_args() {
   [ -n "$POS1" ] || host_die 1 "user is required"
@@ -720,6 +740,15 @@ cmd_archive() {
   host_need_name
   name=$POS1
   body=$(jq -nc '{archived:true}')
+  # Already archived is done (B66): a second remove must not stop here.
+  if ! fj_call GET "$(host_repo "$name")"; then
+    fj_offline
+  fi
+  fj_ok
+  if [ "$(printf '%s' "$FJ_BODY" | jq -r '.archived // false')" = "true" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, archived:true, already:true}'
+    return 0
+  fi
   if ! fj_call PATCH "$(host_repo "$name")" "$body"; then
     fj_offline
   fi
@@ -758,7 +787,12 @@ cmd_open_pr() {
     page=$((page + 1))
   done
   if [ -n "$number" ]; then
-    body=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    # No --body-file: keep the body it has (B40). A person may have written one.
+    if [ -n "$BODY_FILE" ]; then
+      body=$(jq -nc --arg title "$TITLE" --arg body "$text" '{title:$title, body:$body}')
+    else
+      body=$(jq -nc --arg title "$TITLE" '{title:$title}')
+    fi
     if ! fj_call PATCH "$(host_repo "$name")/pulls/${number}" "$body"; then
       fj_offline
     fi
@@ -811,6 +845,93 @@ cmd_auto_merge() {
   done
   jq -nc --arg name "$name" --argjson number "$number" \
     '{ok:true, name:$name, number:$number, merge:"merge"}'
+}
+
+# Open pull requests: number and head branch.
+cmd_open_prs() {
+  local page=1 n all='[]'
+  host_need_name
+  while true; do
+    if ! fj_call GET "$(host_repo "$POS1")/pulls?state=open&limit=50&page=${page}"; then
+      fj_offline
+    fi
+    fj_ok
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref, body:(.body // "")}]')
+    n=$(printf '%s' "$FJ_BODY" | jq 'length')
+    if [ "$n" -lt 50 ]; then
+      break
+    fi
+    page=$((page + 1))
+  done
+  jq -nc --argjson prs "$all" '{prs:$prs}'
+}
+
+# The old v0 logs branch (B61): lift a protection rule on it, then delete it. Only logs.
+# A rule or branch already gone is fine.
+cmd_drop_logs() {
+  local name deleted=true again=""
+  host_need_name
+  name=$POS1
+  # A 404 below is proof only when the repo is there (Grok r5 P2): check it first.
+  if ! fj_call GET "$(host_repo "$name")"; then
+    fj_offline
+  fi
+  if [ "$FJ_HTTP" = "404" ]; then
+    host_die 3 "no repo ${OS_ORG}/${name} that this sign-in can see: check the name, then run drop-logs again"
+  fi
+  fj_ok
+  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/logs"; then
+    fj_offline
+  fi
+  if [ "$FJ_HTTP" != "404" ]; then
+    fj_ok
+    again=" The old protection on logs is already off: run skills/_host/host.sh drop-logs ${name} again."
+  fi
+  # Forgejo answers a delete of a missing branch with 500, so look first.
+  if ! fj_call GET "$(host_repo "$name")/branches/logs"; then
+    fj_offline
+  fi
+  if [ "$FJ_HTTP" = "404" ]; then
+    deleted=false
+  else
+    fj_ok
+    if ! fj_call DELETE "$(host_repo "$name")/branches/logs"; then
+      host_die 5 "host is offline: could not delete the logs branch on ${name}.${again}"
+    fi
+    case "$FJ_HTTP" in
+      200|204) ;;
+      *) host_die 3 "could not delete the logs branch on ${name} (${FJ_HTTP}).${again}" ;;
+    esac
+    # Only a branch the host confirms is gone is done.
+    if ! fj_call GET "$(host_repo "$name")/branches/logs"; then
+      host_die 5 "host is offline: could not check that the logs branch is gone on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+    fi
+    if [ "$FJ_HTTP" != "404" ]; then
+      host_die 3 "the logs branch is still on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+    fi
+  fi
+  jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
+}
+
+cmd_close_pr() {
+  local body
+  host_need_number
+  body=$(jq -nc '{state:"closed"}')
+  if ! fj_call PATCH "$(host_repo "$POS1")/pulls/${POS2}" "$body"; then
+    fj_offline
+  fi
+  fj_ok
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, closed:true}'
+}
+
+# Cancel a scheduled merge. 404: none was scheduled, so it is already off.
+cmd_auto_merge_off() {
+  host_need_number
+  if ! fj_call DELETE "$(host_repo "$POS1")/pulls/${POS2}/merge"; then
+    fj_offline
+  fi
+  [ "$FJ_HTTP" = "404" ] || fj_ok
+  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
 }
 
 cmd_pr_status() {
@@ -971,6 +1092,7 @@ case "$VERB" in
   team-add) cmd_team_add ;;
   team-remove) cmd_team_remove ;;
   team-repos) cmd_team_repos ;;
+  org-repos) cmd_org_repos ;;
   grant) cmd_grant ;;
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
@@ -980,6 +1102,10 @@ case "$VERB" in
   archive-repo) cmd_archive ;;
   open-pr) cmd_open_pr ;;
   auto-merge) cmd_auto_merge ;;
+  auto-merge-off) cmd_auto_merge_off ;;
+  open-prs) cmd_open_prs ;;
+  close-pr) cmd_close_pr ;;
+  drop-logs) cmd_drop_logs ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

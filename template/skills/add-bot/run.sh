@@ -125,6 +125,106 @@ if [ -z "$engine" ]; then
 fi
 [ -n "$engine" ] || bot_die 3 "no engine"
 
+if [ -n "$inbox" ] && [ "$inbox" != "none" ]; then
+  bot_slug_ok "inbox" "$inbox"
+  allowed=0
+  while IFS= read -r line; do
+    [ "$line" = "none" ] && continue
+    [ "$line" = "$inbox" ] && allowed=1
+  done << EOF
+$(bot_field "$page" shared_inbox || true)
+EOF
+  if [ "$allowed" -ne 1 ]; then
+    bot_log_line "refused inbox ${inbox}"
+    bot_die 2 "inbox ${inbox} is not in shared_inbox"
+  fi
+fi
+
+# A bot may run in any folder --root names, a person's live folder too: nothing checks
+# who `me` is. So it never works in the folder itself. Each repo in scope gets a temporary
+# worktree on sync/<bot>, laid out as the folder is (the company repo, then
+# areas/<area>). The company repo is always there for the bot page and the profile,
+# detached when it is not in scope. The folder stays on main, as it was.
+work=$(mktemp -d)
+chmod 700 "$work"
+BOT_WORKTREES=""
+bot_run_cleanup() {
+  local entry
+  for entry in $BOT_WORKTREES; do
+    git -C "${entry%%=*}" worktree remove --force "${entry#*=}" >/dev/null 2>&1 || true
+    git -C "${entry%%=*}" worktree prune >/dev/null 2>&1 || true
+  done
+  rm -rf "$work"
+  bot_cleanup
+}
+trap bot_run_cleanup EXIT
+
+# Where sync/<bot> starts. A run that never reached the host (offline, a failed push)
+# left commits only here: build on them, never reset them. Else the host's branch while
+# its pull request has not merged. Else main.
+bot_branch_start() {
+  local path=$1 mine="refs/heads/sync/${bot}" theirs="refs/remotes/origin/sync/${bot}" known=""
+  if git -C "$path" show-ref --verify --quiet refs/heads/main; then
+    known=refs/heads/main
+  fi
+  # shellcheck disable=SC2086
+  if git -C "$path" show-ref --verify --quiet "$mine" \
+    && [ -n "$(git -C "$path" rev-list -n 1 "$mine" --not --remotes=origin $known 2>/dev/null)" ]; then
+    printf '%s\n' "$mine"
+  elif git -C "$path" show-ref --verify --quiet "$theirs" \
+    && ! git -C "$path" merge-base --is-ancestor "$theirs" origin/main 2>/dev/null; then
+    printf '%s\n' "$theirs"
+  elif git -C "$path" show-ref --verify --quiet refs/remotes/origin/main; then
+    printf '%s\n' origin/main
+  elif git -C "$path" show-ref --verify --quiet refs/heads/main; then
+    printf '%s\n' main
+  else
+    printf '%s\n' HEAD
+  fi
+}
+
+bot_worktree() {
+  local path=$1 dest=$2 start
+  git -C "$path" worktree prune >/dev/null 2>&1 || true
+  # An older run.sh left the folder on sync/<bot>. It is clean (checked above): back to main.
+  if [ "$(git -C "$path" symbolic-ref --short -q HEAD 2>/dev/null || true)" = "sync/${bot}" ]; then
+    git -C "$path" checkout -q main >/dev/null 2>&1 \
+      || bot_die 2 "$(basename "$path") is on sync/${bot} and could not go back to main"
+  fi
+  start=$(bot_branch_start "$path")
+  git -C "$path" worktree add -q -B "sync/${bot}" "$dest" "$start" >/dev/null 2>&1 \
+    || bot_die 3 "could not open a worktree for $(basename "$path")"
+  BOT_WORKTREES="${BOT_WORKTREES} ${path}=${dest}"
+}
+
+bot_is_git "$BOT_ROOT" || bot_die 2 "the company folder is not a git repo"
+scope_file=$(bot_mktemp)
+bot_field "$page" repo_scope > "$scope_file" || true
+company_in_scope=0
+grep -q '=company$' "$scope_file" && company_in_scope=1
+if [ "$company_in_scope" -eq 1 ]; then
+  bot_worktree "$BOT_ROOT" "$work"
+else
+  git -C "$BOT_ROOT" worktree add -q --detach "$work" HEAD >/dev/null 2>&1 \
+    || bot_die 3 "could not open a worktree for the company folder"
+  BOT_WORKTREES="${BOT_WORKTREES} ${BOT_ROOT}=${work}"
+fi
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  scope=${line#*=}
+  [ "$scope" != "company" ] || continue
+  path=$(bot_repo_path "$BOT_ROOT" "$scope")
+  bot_is_git "$path" || continue
+  bot_worktree "$path" "$(bot_repo_path "$work" "$scope")"
+done < "$scope_file"
+
+# The run's log is part of its work: it goes up on sync/<bot> with the run.
+mkdir -p "${work}/bots/${bot}/logs"
+log_file="${work}/bots/${bot}/logs/${day}.md"
+if [ -n "$inbox" ] && [ "$inbox" != "none" ]; then
+  bot_log_line "read inbox ${inbox}"
+fi
+
 hooks=$(mktemp -d)
 chmod 700 "$hooks"
 BOT_TMP_FILES="${BOT_TMP_FILES} ${hooks}"
@@ -159,38 +259,6 @@ chmod 700 "${wrap_dir}/git"
 bot_email=$(bot_field "$page" email || true)
 bot_email=$(bot_trim "$bot_email")
 
-scope_file=$(bot_mktemp)
-bot_field "$page" repo_scope > "$scope_file" || true
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  scope=${line#*=}
-  path=$(bot_repo_path "$BOT_ROOT" "$scope")
-  if ! bot_is_git "$path"; then
-    continue
-  fi
-  if git -C "$path" show-ref --verify --quiet "refs/remotes/origin/main"; then
-    git -C "$path" checkout -B "sync/${bot}" "origin/main"
-  elif git -C "$path" show-ref --verify --quiet refs/heads/main; then
-    git -C "$path" checkout -B "sync/${bot}" main
-  fi
-done < "$scope_file"
-
-if [ -n "$inbox" ] && [ "$inbox" != "none" ]; then
-  bot_slug_ok "inbox" "$inbox"
-  allowed=0
-  while IFS= read -r line; do
-    [ "$line" = "none" ] && continue
-    [ "$line" = "$inbox" ] && allowed=1
-  done << EOF
-$(bot_field "$page" shared_inbox || true)
-EOF
-  if [ "$allowed" -ne 1 ]; then
-    bot_log_line "refused inbox ${inbox}"
-    bot_die 2 "inbox ${inbox} is not in shared_inbox"
-  fi
-  bot_log_line "read inbox ${inbox}"
-fi
-
 prompt=$(bot_mktemp)
 awk '
   BEGIN { fm = 0; n = 0 }
@@ -203,11 +271,13 @@ awk '
   { print }
 ' "$routine_file" > "$prompt"
 
-# OS_BOT tells sync.sh push this is the bot's branch, not the person's.
+# OS_BOT tells sync.sh push this is the bot's branch, not the person's. The engine sees
+# the worktrees as its company folder; the push runs from the folder.
 export OS_BOT="$bot"
-export OS_ROOT="$BOT_ROOT"
 (
-  cd "${BOT_ROOT}/bots/${bot}"
+  cd "${work}/bots/${bot}"
+  # shellcheck disable=SC2030
+  export OS_ROOT="$work"
   export OS_RUN_ID="$run_id"
   export OS_BOT_OWNER="$owner"
   if [ -n "$bot_email" ]; then
@@ -217,12 +287,24 @@ export OS_ROOT="$BOT_ROOT"
   # The engine command is the admin's setting. It is not a secret.
   # shellcheck disable=SC2086
   PATH="${wrap_dir}:${PATH}" eval "$engine" < "$prompt"
+  if [ "$company_in_scope" -eq 1 ] && [ -n "$(git -C "$work" status --porcelain -- "bots/${bot}/logs")" ]; then
+    PATH="${wrap_dir}:${PATH}" git -C "$work" add -- "bots/${bot}/logs"
+    PATH="${wrap_dir}:${PATH}" git -C "$work" commit -q -m "Log: ${bot} run ${run_id}"
+  fi
 )
+
+# A change the run did not commit goes with the worktree. Say so.
+for entry in $BOT_WORKTREES; do
+  left=$(git -C "${entry#*=}" status --porcelain -- . ":(exclude)bots/${bot}/logs" 2>/dev/null | grep -c . || true)
+  if [ "$left" -gt 0 ]; then
+    printf 'not committed: %s files in %s were left by the run and dropped\n' "$left" "$(basename "${entry%%=*}")" >&2
+  fi
+done
 
 sync_sh=$(bot_sync_sh)
 (
   cd "$BOT_ROOT"
-  bash "$sync_sh" push
+  OS_ROOT="$BOT_ROOT" bash "$sync_sh" push
 )
 
 printf 'run_id: %s\n' "$run_id"

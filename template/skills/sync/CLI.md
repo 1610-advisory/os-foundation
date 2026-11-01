@@ -1,6 +1,6 @@
 # sync CLI
 
-The person does not run git. An agent or an OS job runs `sync.sh`. The script commits, pushes, and opens pull requests. It never writes to `main` in the company repo or an area repo.
+The person does not run git. An agent or an OS job runs `sync.sh`. The script commits in the folder, pushes, and opens pull requests. It never pushes to `main` in the company repo or an area repo. It never forces a push of `main` or a sync branch.
 
 Run it from the company folder, or set `OS_COMPANY_ROOT` to that folder. The company folder has `company-profile.md`.
 
@@ -13,9 +13,12 @@ skills/sync/sync.sh <command> [flags]
 | Command | Does |
 |---|---|
 | `pull [--full]` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. Plain `pull` asks the host first and pulls only the repos that changed. `--full` pulls every repo. Any other flag prints `unknown flag` and exits 1. On failure, leave that repo's working copy unchanged and write one line to the log. See "Pull". |
-| `push` | Nightly push. Identity check first. Then, in each repo: secret scan, engine check, commit, push. Company and area repos go to `sync/<me>` and one standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
+| `push` | Nightly push. Identity check first. Then, in each repo: take the host's changes, secret scan, engine check, commit in the folder, push. Company and area repos go to `sync/<me>/<seat>` and that computer's standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
 | `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
-| `status` | Print held files, the last error, and `last full pull: <time>`. The next session reads this. |
+| `status` | Print the last error, held files, one line per repo with commits the host does not have yet (`<repo>: <n> changes here are not on the host yet`, or `1 change here is`), and `last full pull: <time>`. The next session reads this. |
+| `re-apply [list \| done <repo> <path> \| ask <repo> <path> <question>]` | Files changed here and on the host before either merged. See "Changed under you" and `re-apply.md`. |
+| `set-aside <repo> <path> <mine-file\|-> <base-file\|->` | Used by `join.sh` (B69): sets one file from an old v0 folder aside as a re-apply hold (reason `re-apply: brought from the old folder by join`). `-` for mine is deleted; `-` for base is none. Prints `set-aside`, `already` (that version's hold is open) or `done` (it was re-applied: `state/join-brought` notes each version). |
+| `seat` | Print this computer's seat id. Makes it on first use. `join` uses it. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
 | `uninstall-jobs` | Remove the job files this script wrote. |
 | `helper` | Device helper. Counts days with no access. Warns from day 7. Deletes the company folder on day 14. |
@@ -32,12 +35,14 @@ Per computer, never in a repo: `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/`
 | File | Contents |
 |---|---|
 | `me` | The person's slug, one line. On a bot box, the bot slug. |
+| `seat` | This computer's seat id, one line: the host name as a slug and 4 random hex characters (`laptop-3f9a`). Made at join, or at the first push on this code. Two computers of one person have two seats. |
 | `engine` | Optional one-line override of `sync_engine`. |
 | `forgejo-token` | Forgejo token, mode 0600. The host layer reads it. |
 | `state/sync.log` | One line per event. No secret values. |
 | `state/held.json` | Held files and the last error. |
 | `state/helper.json` | Counted days for the device helper. |
 | `state/rewrite` | Last `os-rewrite-*` tag applied, one repo per line. |
+| `state/reapply/<repo>/<path>` | The person's version of a file set aside, and `<path>.base`, the text it was edited from. |
 
 `held.json` shape:
 
@@ -45,43 +50,73 @@ Per computer, never in a repo: `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/`
 {"last_error":"","files":[{"repo":"root","path":"notes/a.md","reason":"..."}]}
 ```
 
-`repo` is `root`, `area:<name>`, or `workspace`.
+`repo` is `root`, `area:<name>`, or `workspace`. A re-apply hold also has `"kind":"re-apply"`, `base` (the blob it was edited from, or `none`), `mine` (the set-aside copy, or `deleted`), `basefile`, and `question` once asked. Push does not recompute it: it stays until `re-apply done`.
 
 A held file that no longer exists leaves the list at the start and end of each `push` and at each `status`, so a session never reports a file that is gone. `sync.log` gets `held gone <repo> <path>`.
 
 ## Identity
 
-Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of the `people/*.md` page whose `slug:` is `me`. A mismatch pushes nothing. `status` says why.
+Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of the `people/*.md` page whose `slug:` is `me`. A mismatch pushes nothing. `status` says why. When the host cannot be reached for that check (`whoami` exit 5), `push` still commits here, prints `offline: changes are saved here and go up with the next push` once at the end of the run, and sends nothing (`push offline <repo> committed here, not sent` in the log); the last error is `offline`. The next push that can check sends those commits. When the push check's engine cannot run for lack of network either (its error names the network, or it times out while the host is unreachable), nothing is committed (fail closed) and nothing is held: the line is `offline: these notes stay here and go up when you are online`, and the files stay in the folder as they are (log `push offline <repo> engine not reachable: notes wait here`). Any other engine failure is still `engine check failed`. When the host cannot be reached for several repos, pull prints one line that names them all (`pull failed for root, area:finance: could not reach the host. ...`), not one line per repo. So an offline push prints two lines: one for the push, one for the pull.
 
 ## Nightly push
 
-For each repo that has changes:
+The folder commits. Each commit sync makes has the trailer `Sync-Seat: <seat>` and the person as author (git `-c user.name`, `-c user.email`). A commit without the trailer in `origin/main..HEAD` (made by hand, or by another tool) stops the repo: nothing is pushed or merged, and `status` says `this folder has a change that sync did not make; nothing was pushed. Ask the admin`. The workspace is the person's own repo, so it has no trailer check.
 
-1. Secret scan. A hit holds that file. The reason names the rule, never the value. A scan error pushes nothing for that repo.
-2. Rules files in the company repo or an area are held. They are not sent to the engine. The reason is exactly: `rules file: propose it with sync.sh propose`. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, or anything under `.github/`, `.gitea/`, `.forgejo/`, or `.claude/`. In the workspace these files are the person's own. They are not held for this reason.
-   - A file whose content is already on a `rules/*` branch on the host (from `remove-teammate`, `add-person`, or `propose`) is held first, with the reason `waits for its own pull request (rules/<person>/<topic>)`. That pull request is its only path to `main`. Once it merges, the next `pull` makes the file clean. Push and pull fetch with `--prune`, so the hold reads the branches the host has now. If that pull request was closed and its branch deleted, push prints `<file>: its own pull request (<branch>) was closed and its branch is gone, so push no longer waits for it` and treats the file like any other. A closed pull request whose branch is kept still holds the file: delete the branch on the host to let it go.
-3. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
-   - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` (company repo or area) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
+For each repo:
+
+1. Take the host's changes first, as `pull` does (see "Pull"). A file the host merged meanwhile is then no change (B46), and a file changed here and on the host is set aside before it can reach a commit ("Changed under you"). A failed pull does not stop the push: its line is already out.
+2. Secret scan. A hit holds that file. The reason names the rule, never the value. A scan error pushes nothing for that repo.
+   If that pull could not leave the repo safe (an open merge it could not undo, a squash it could not heal), nothing in that repo is committed or sent: `push stop <repo> the pull did not finish`.
+3. A file with a merge's conflict lines (a line that starts with `<<<<<<< ` or `>>>>>>> `) is held: `conflict lines (<<<<<<< or >>>>>>>): keep the text you want, delete those lines, then push again`. It would replace both sides' text on `main`.
+4. Rules files in the company repo or an area are held. They are not sent to the engine. The reason is exactly: `rules file: propose it with sync.sh propose`. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, or anything under `.github/`, `.gitea/`, `.forgejo/`, or `.claude/`. In the workspace these files are the person's own. They are not held for this reason. Once its own pull request merges, `main` has the same text, and the next pull drops the local copy and its hold.
+5. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
+   - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` or `memory/logs-archive/` (company repo or area; B68: the archive holds old logs that pull brought in) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
    - An area's `drafts/` folder is shared copy in progress. Its files go to the area on the standing pull request, and everyone who reads the area sees them. A private draft goes in the person's workspace `drafts/`.
-4. Committable files are committed on `sync/<me>`, rebuilt from `origin/main`. The script force-pushes only that branch. It then calls `host.sh open-pr` and `host.sh auto-merge`, then `pull`.
-5. The workspace repo is pushed to its own `main`. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
+6. The files that passed are committed on `main` in the folder: `git reset`, then `git add -A` of those paths only, so a file someone staged by hand is checked like any other. Held files stay as they are. The message is the engine's line for one file. For more, it is `Update <n> files`, then one line per file, `- <path>: <engine line>`. Then the `Sync-Seat:` trailer. The author is the person (git `user.name` and `user.email`, else the slug and the people page email).
+7. The commits `main` lacks are checked as a range, the same way a bot's are ("Bot run push": rules paths and a secret scan of every blob), then pushed with `git push origin main:refs/heads/sync/<me>/<seat>`. Never forced: the branch only grows, and a merged pull request leaves it an ancestor of `main`.
+8. The standing pull request `sync: <me> (<seat>)`, one per computer, with a body (`These are <me>'s notes from sync.`, then one line per file, then any `- re-apply question: ...` lines) between `<!-- sync:files -->` and `<!-- /sync:files -->`. On an open pull request it reads the body (`host.sh open-prs`) and replaces only that block: every other line a person wrote stays. An old body with no markers stays, with the block after it. If the open pull requests cannot be read, it gives `open-pr` no body, so the host keeps the one it has. Then `host.sh auto-merge` (a merge commit), then `pull`. A pull request may take a few minutes to merge after its checks go green: the host's own auto-merge runs on its own clock.
+9. The workspace repo pushes its commits to its own `main`, fast-forward only. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
 
-Held files stay in the working copy, unchanged. Nothing held is pushed. After the pull request merges, the next `pull` is clean apart from held files. If it has not merged, `pull` still works and keeps local changes.
+Held files stay in the working copy, unchanged. Nothing held is pushed. A commit that could not be pushed (offline) stays here: `status` counts it, and the next push sends it.
 
-Any failed step pushes nothing for that repo. A network failure writes one log line and pushes nothing.
+A failed push step (`push fail <repo> <step>` in the log) is also the last error: `status` prints `last error: push failed for <repo>: <step>`. Any failed step pushes nothing for that repo.
+
+### Moving from the old code
+
+The old code kept one branch per person, `sync/<me>`, rebuilt and force-pushed each night, and left pushed files in the folder uncommitted. Git cannot hold `sync/<me>` and `sync/<me>/<seat>` at once. The first push on this code checks that every file the old branch changed is here or on `main`, closes its open pull request, and deletes `sync/<me>` on the host (`push removed old branch <repo> sync/<me>`). If the old branch has a file this folder lacks, it stops with `the old branch sync/<me> has <path>, which this folder lacks; ask the admin`. The first pull drops loose copies that `main` already has ("Pull"). Keep this for one release.
+
+## Changed under you
+
+A file changed here and on the host before either side merged. Git never merges it by machine (no `merge=union`, no `-X ours`). Delete on one side and edit on the other is the same case. Seen in two places:
+
+- **A change not committed** (at `pull`, and at the pull that starts each push): the file is changed here and `git diff <merge-base> origin/main` names it.
+- **A sync commit not merged yet** (the host's `main` moved past the folder's commits): `pull` merges `origin/main` with a merge commit `Take main from the host`, as the host would. On a conflict it stops that merge, sets each conflicting file aside from the commit, adds one sync commit `Set aside <n> files the host changed too` that puts them back to the merge base, and merges again, so the host's text wins.
+
+Either way the person's version goes to `state/reapply/<repo>/<path>` with the text it started from (`<path>.base`), the host's text comes into the folder, and a hold says `re-apply: changed on the host while you worked`. The rest of the repo pulls as usual. `pull` prints `<repo> <path>: changed on the host while you worked. ...`. The agent then follows `re-apply.md`:
+
+- `sync.sh re-apply` lists each hold: `now:` (the folder file, or `deleted on the host`), `base:` (or `none (a new file)`), `mine:` (or `deleted here`), and `asked:` when a question is open.
+- `sync.sh re-apply done <repo> <path>` deletes the set-aside copy and the hold. The agent made the change on the new text, or it was there already. The next push sends it.
+- `sync.sh re-apply ask <repo> <path> "<one line>"` keeps the hold and records the question: a line in `users/<me>/inbox/re-apply.md`, a comment `re-apply question: <path>: <line>` on this computer's open sync pull request for that repo (when there is one), and the same line in that pull request's body at the next push. The nightly review lists those lines in the person's digest (`## waiting on you (re-apply)`).
+
+A re-apply hold leaves the list when its set-aside copy is gone. A repo that refuses a re-apply step (the copy cannot be written) fails its pull with `re-apply: could not set a file aside`.
+
+## Squash merge
+
+Sync needs merge commits: auto-merge uses them. Someone may still squash a sync pull request on the web. Then `main` has the person's text in a new commit, and the folder's own commits never reach `main`. `pull` sees it when every file those commits changed has the same text on `main`. Nothing is lost, so it takes `main` with `git reset --merge`: every file `main` changed gets `main`'s text in the folder (a teammate's note merged since too), and every other change here stays. A file changed here that `main` changed too is copied out and put back as the folder's commit has it, so the reset can run. Only once `main` is in is it set aside ("Changed under you"). The trailer check and the squash check run before step 2 below, so nothing is set aside before the heal. It deletes this computer's branch on the host and fails with `your last changes reached main by a squash merge. Main has your text, so this copy now has main, and your other changes are kept. Sync needs merge commits: ask the admin never to squash a sync pull request.` The next push starts from `main`. If the branch cannot be deleted, it says so and names it (`<repo>: could not delete the branch sync/<me>/<seat> on the host. ...`). The next push then deletes it first, when the branch on the host is not in `HEAD` and every file its commits changed has `main`'s text (log `push <repo> deleted sync/<me>/<seat>: main already has its work`), then pushes as usual. Never forced. A branch that holds work `main` lacks is never deleted. If a file cannot be set aside after the reset, the line names where its copy is and the pull fails with `could not set a file aside`. If the reset fails, every copied file is put back, nothing moves, the branch stays, the push in the same run commits nothing, and the line is `your last changes reached main by a squash merge, but this copy could not take main. Nothing was changed or pushed. Ask the admin.`
+
+Path lists come from git with `-z` and `core.quotepath=false`, so a name with an accent, an em dash or an emoji is never quoted and is matched like any other.
 
 ## Bot run push
 
-When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>`. The bot key is the boundary. This path does not check that `me` is the bot.
+When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>/*`. The bot key is the boundary. This path does not check that `me` is the bot.
 
-For each company or area repo that already has commits on `sync/<bot>` that are not on `origin/main`:
+A bot run commits on `sync/<bot>`. It starts from `origin/sync/<bot>` while that branch has commits `main` lacks, else from `origin/main`. For each company or area repo with commits on `sync/<bot>` that are not on `origin/main`:
 
 1. Refuse a credential in the origin URL before any fetch. The message does not include the URL.
 2. Take the bot token from `host.sh get-token --bot`. If that fails, stop before the push. The token is an environment value for the pull request calls only (`GH_TOKEN` on GitHub, `FORGEJO_TOKEN` on Forgejo). It is not an argument, a URL, or a log line.
-3. Scan every blob in `origin/main..sync/<bot>` with `secret-scan.sh`. If `origin/main` is missing, scan every blob on the branch. A hit or a scan error pushes nothing.
-4. If any changed path in that range is a rules file, stop. The reason is `rules file: propose it with sync.sh propose`.
-5. Push that branch as it is. The commits stay the same, including `Run-Id` and `Bot-Owner`. Git uses `skills/add-bot/git-credential-os-bot`.
-6. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, as the bot. Wait until it merges.
+3. Check the range `origin/main..sync/<bot>` as a person's push does: a rules file in it stops (`rules file: propose it with sync.sh propose`), and every blob goes through `secret-scan.sh`. If `origin/main` is missing, every blob on the branch. A hit or a scan error pushes nothing.
+4. Push that branch as it is, never forced. The commits stay the same, including `Run-Id` and `Bot-Owner`. Git uses `skills/add-bot/git-credential-os-bot`.
+5. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, as the bot. Wait until it merges.
 
 `OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
 
@@ -100,7 +135,13 @@ For each company or area repo that already has commits on `sync/<bot>` that are 
 
 Use `pull --full` when something looks out of date, after a git step by hand, or for support. Session start in every `AGENTS.md` and the 15-minute job keep plain `pull`.
 
-A working copy left on the person's own branch `sync/<me>` never fast-forwards, because each push rebuilds that branch on the host. Before it fast-forwards, `pull` checks that every change made on that branch is on the host already (`origin/main` or `origin/sync/<me>`). If so, it switches to `main` and logs `pull ok <repo> back on main from sync/<me>`. Uncommitted and untracked files come along. If a change is not on the host, it stays on the branch and logs `pull hold <repo> on sync/<me>: <path> is not pushed yet`. It never drops that work. The next push sends it.
+Each pull, for each repo: first, a merge a crashed run left open (`MERGE_HEAD`) is undone with `git merge --abort`, before any reset (log `pull merge-abort <repo>`). If it cannot be undone, the pull fails with `a merge stopped halfway here and could not be undone. Nothing was changed or pushed. Ask the admin.` Then, after the fetch:
+
+1. **Back to main** (moving from the old code; keep for one release). A working copy left on `sync/<me>` by older join code goes back to `main` at the commit both share with `origin/main`. Only `HEAD` moves: the files stay, so what the branch held is now a local change. Log: `pull ok <repo> back on main from sync/<me>`. If local `main` has commits the host lacks, it stays and logs `pull hold <repo> on sync/<me>: main has commits the host lacks`. The admin's folder after an upgrade on a host is the same case: the upgrade leaves the company folder on `upgrade/v1` and each area on `upgrade/scripts`. Once that branch is on `origin/main` (its pull request merged), the folder goes back to `main` the same way (log `pull ok <repo> back on main from upgrade/v1`), and a file team-on wrote that `main` now has, with the same text, drops in step 2. Before the merge the pull fails with `this folder is on upgrade/v1 until the upgrade pull request merges. Nothing was changed. When it has merged, run skills/sync/sync.sh pull again: it puts the folder back on main.` A folder on any other branch fails with `this folder is not on its main branch. Nothing was changed. Ask the admin.`
+2. **Dirty but equal.** Each file changed here that the host changed too: the same text as `origin/main`, or deleted on both sides, drops the local copy (and any push hold on it). Old seats held such copies of what they had pushed; a merged delete (B48) is the same case. A different text is "Changed under you".
+3. **Fast-forward** with `git merge --ff-only origin/main`, when `HEAD` is behind. When the folder has sync commits the host has not merged and the host moved on: the merge commit ("Changed under you"). The trailer check and the squash check for that case run before step 2. When `origin/main` is already in `HEAD`: nothing to do; the commits wait for their pull request.
+
+A file in the way of the fast-forward that the host did not change (an untracked file where the host now has a folder) still stops that repo: `files changed here are in the way. Run sync.sh push, then pull again.`
 
 The log lines (`pull ok <repo>`, `pull fail <repo> <reason>`) and exit codes are the same for both forms.
 
@@ -110,7 +151,7 @@ Logs pushed to the old `logs` branch after the upgrade: a full pull (and any pul
 
 While the host still has a `logs` branch, `push` holds every changed file under `memory/logs/` (company and areas) with the reason `waits until the old logs branch is deleted on the host (skills/upgrade/SKILL.md section 11)`. A teammate's old clone ignores `memory/logs/`, and its first plain `git pull` would write over any log `main` has there. It asks the host with `ls-remote` on each push, even when this clone has no `logs` ref, because an old copy can push the branch back after the admin deleted it. Only "no such branch" lets logs go; offline counts as still there. A repo with no v0 history (no `logs` branch, no `logs-archive-*` tag, no `memory/logs-archive/`) asks nobody.
 
-A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error. A good push clears only an error that a push set. It never clears a pull error.
+A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. A pull or push that goes through for every repo clears the last error, whatever left it (a push takes main first, so it is a good pull too). An error set in the same run stays.
 
 ### State file
 
@@ -146,7 +187,7 @@ It never clones again while this copy has a commit the host never had, on `HEAD`
 
 ## OS jobs
 
-`install-jobs` refuses `level: solo`. It writes files into `OS_JOBS_DIR`. On macOS and Linux it loads them only when `OS_JOBS_LOAD=1`. On Windows it registers them unless `OS_JOBS_LOAD=0`.
+`install-jobs` refuses `level: solo`. It writes files into `OS_JOBS_DIR`. Each macOS job (`EnvironmentVariables`) and Linux unit (`Environment=`) carries the `PATH` that the install saw, which is join's, and the folders of `git`, `jq`, `gh` and the engine (`claude`) go into `<config>/tool-path` (B70). launchd and systemd start a job with a bare `PATH`. Every sync run also puts `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` and the `tool-path` folders, when they exist, before the bare system folders (`/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`), as `brew shellenv` does. On a Mac without the command line tools, `/usr/bin/git` is only Apple's stand-in. A tool still not found stops with `<tool> not found: install it, or run join again` (git and jq on every run, gh on GitHub, the engine at push), never `could not reach the host`. Only the stand-in git stops with `git not installed: install the Xcode command line tools, or run join again`. On macOS and Linux it loads them only when `OS_JOBS_LOAD=1`. On macOS, join sets it (B73): launchd reads `~/Library/LaunchAgents` only at login, so join starts the jobs at once (`launchctl bootout`, then `bootstrap`; one `sync-jobs: started <label>` line each), unless `OS_JOBS_LOAD=0` or `OS_JOBS_DIR` is set. `uninstall-jobs` stops them the same way. On Windows it registers them unless `OS_JOBS_LOAD=0`.
 
 Default folder: macOS `~/Library/LaunchAgents`, Linux `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user`, Windows `%LOCALAPPDATA%\os-foundation\tasks`.
 

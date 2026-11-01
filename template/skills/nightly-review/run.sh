@@ -519,9 +519,34 @@ nr_apply_plan() {
   fi
 }
 
+# Re-apply questions a person's computer put on its open sync pull request (sync
+# re-apply.md): one "person<TAB>area<TAB>path: question" line each. The host is the only
+# place they meet. No host (a dry run): none.
+nr_reapply_questions() {
+  local dir rel name url listing
+  [ "${OS_SKIP_PUSH:-}" != "1" ] || return 0
+  listing=$(mktemp)
+  for dir in "$NR_ROOT" "$NR_ROOT"/areas/*; do
+    [ -d "$dir/.git" ] || [ -f "$dir/.git" ] || continue
+    if [ "$dir" = "$NR_ROOT" ]; then rel=company; else rel=$(basename "$dir"); fi
+    url=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
+    name=$(nr_origin_name "$url")
+    [ -n "$name" ] || continue
+    nr_host open-prs "$name" > "$listing" 2>/dev/null || continue
+    jq -r --arg rel "$rel" '.prs[]? | select(.head | test("^sync/[a-z0-9-]+/"))
+      | (.head | split("/")[1]) as $p
+      | (.body // "") | gsub("\r"; "") | split("\n")[]
+      | select(startswith("- re-apply question: "))
+      | [$p, $rel, ltrimstr("- re-apply question: ")] | @tsv' "$listing" 2>/dev/null || true
+  done
+  rm -f "$listing"
+}
+
 nr_write_digests() {
-  local cap json md
+  local cap json md questions
   cap=$(nr_cap)
+  questions=$(mktemp)
+  nr_reapply_questions > "$questions"
   json="$NR_STATE_DIR/digests/${NR_DATE}.json"
   jq -n \
     --arg date "$NR_DATE" \
@@ -536,10 +561,15 @@ nr_write_digests() {
     }' > "$json"
   chmod 600 "$json"
   # One markdown digest per audience.
-  local audiences
+  local audiences admin inbox_old
   audiences=$(jq -r '.items[].audience // empty' "$json" | sort -u)
-  if [ "$NR_FAILED" = "1" ]; then
-    audiences=$(printf '%s\n%s\n' "$audiences" "$(nr_admin_slug)" | sort -u)
+  admin=$(nr_admin_slug)
+  inbox_old=$(nr_inbox_old)
+  if [ "$NR_FAILED" = "1" ] || [ "$inbox_old" -gt 0 ]; then
+    audiences=$(printf '%s\n%s\n' "$audiences" "$admin" | sort -u)
+  fi
+  if [ -s "$questions" ]; then
+    audiences=$(printf '%s\n%s\n' "$audiences" "$(cut -f 1 "$questions")" | sort -u)
   fi
   local person
   for person in $audiences; do
@@ -549,6 +579,14 @@ nr_write_digests() {
       printf '# Digest %s\n\n' "$NR_DATE"
       if [ "$NR_FAILED" = "1" ]; then
         printf '%s\n\n' "The review did not run."
+      fi
+      if [ "$person" = "$admin" ] && [ "$inbox_old" -gt 0 ]; then
+        printf 'inbox: %s files older than 7 days — say "ingest"\n\n' "$inbox_old"
+      fi
+      if awk -F '\t' -v p="$person" '$1 == p { f = 1 } END { exit !f }' "$questions"; then
+        printf '%s\n\n' "## waiting on you (re-apply)"
+        awk -F '\t' -v p="$person" '$1 == p { print "- " $2 " " $3 }' "$questions"
+        printf '\n'
       fi
       jq -r --arg p "$person" '
         [.items[] | select(.audience == $p)]
@@ -578,6 +616,7 @@ nr_write_digests() {
     } > "$md"
     chmod 600 "$md"
   done
+  rm -f "$questions"
 }
 
 nr_lock

@@ -45,7 +45,7 @@ git -C "$fresh" show-ref --verify --quiet refs/heads/logs && team_fail "dry run 
 "$upgrade" --root "$fresh" --template "$root/template" --level solo > "$work/fresh.out" 2>&1 \
   || { cat "$work/fresh.out" >&2; team_fail "fresh clone upgrade failed"; }
 git -C "$fresh" cat-file -e upgrade/v1:memory/logs-archive/2026-10-01-ada.md 2>/dev/null || team_fail "fresh clone skipped the logs move"
-git -C "$fresh" log --format=%s upgrade/v1 -- memory/logs-archive/2026-10-01-ada.md | grep -qx 'Logs: day one' \
+grep -qx 'Logs: day one' <<< "$(git -C "$fresh" log --format=%s upgrade/v1 -- memory/logs-archive/2026-10-01-ada.md)" \
   || team_fail "logs history missing"
 # No grep -q after git in a pipe: under pipefail an early match is a SIGPIPE failure.
 [ -z "$(git -C "$fresh" ls-tree --name-only upgrade/v1 skills/logs-folder/)" ] || team_fail "logs-folder was kept after the move"

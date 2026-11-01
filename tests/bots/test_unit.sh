@@ -238,6 +238,10 @@ printf '%s\n' "$bodies" | grep -q "Bot-Owner: ada"
 count=$(git -C "$root" log "sync/helper" --grep "Run-Id: ${run_id}" --format='%H' | wc -l | tr -d ' ')
 [ "$count" = "2" ] || bots_fail "expected 2 trailer commits, got $count"
 grep -q "^push$" "$OS_SYNC_LOG"
+# The run worked in a temporary worktree: the folder is still on main, clean.
+[ "$(git -C "$root" symbolic-ref --short HEAD)" = "main" ] || bots_fail "the run moved the folder off main"
+[ -z "$(git -C "$root" status --porcelain)" ] || bots_fail "the run left the folder dirty"
+[ "$(git -C "$root" worktree list | wc -l | tr -d ' ')" = "1" ] || bots_fail "a run worktree was left"
 bots_pass "routine commits carry trailers"
 
 # Inbox refusal and allow.
@@ -271,8 +275,7 @@ pathlib.Path(path).write_text("\n".join(lines) + "\n")
 PY
 git -C "$root" add bots
 git -C "$root" commit -q -m "mark engine"
-git -C "$root" checkout -q main
-git -C "$root" merge -q --ff-only sync/helper
+git -C "$root" merge -q --no-edit sync/helper
 rm -f "$marker"
 set +e
 bash "$run" helper mail --root "$root" >"$tmp/mail.out" 2>"$tmp/mail.err"
@@ -291,15 +294,65 @@ path.write_text(text)
 PY
 git -C "$root" add bots
 git -C "$root" commit -q -m "allow finance inbox"
-git -C "$root" checkout -q main
-git -C "$root" merge -q --ff-only sync/helper || git -C "$root" merge -q sync/helper
+git -C "$root" merge -q --no-edit sync/helper
 bash "$run" helper mail --root "$root" >"$tmp/mail2.out"
 [ -f "$marker" ]
-grep -q "read inbox finance" "$root/bots/helper/logs/"*.md
-if grep -q "Read the shared inbox" "$root/bots/helper/logs/"*.md; then
+# The read line is part of the run: committed on sync/helper with its trailers.
+git -C "$root" log -p sync/helper -- bots/helper/logs > "$tmp/bot-log"
+grep -q "read inbox finance" "$tmp/bot-log" || bots_fail "inbox read not logged"
+git -C "$root" log -1 --format=%B sync/helper -- bots/helper/logs > "$tmp/bot-log-msg"
+grep -q "Run-Id: " "$tmp/bot-log-msg" || bots_fail "log commit has no Run-Id"
+if grep -q "Read the shared inbox" "$tmp/bot-log"; then
   bots_fail "inbox log includes message text"
 fi
 bots_pass "shared inbox read is logged"
+
+# Grok r1 P1: a run whose push never reached the host keeps its commit. The next run
+# builds on it, never resets sync/helper to the host's main. A folder an older run.sh
+# left on sync/helper goes back to main.
+git -C "$root" merge -q --no-edit sync/helper
+keep_bare="$tmp/keep.git"
+git init -q --bare -b main "$keep_bare"
+git -C "$root" remote remove origin 2>/dev/null || true
+git -C "$root" remote add origin "$keep_bare"
+cat > "$tmp/note.sh" << EOF
+#!/bin/bash
+set -euo pipefail
+cat >/dev/null
+n=\$(( \$(cat "$tmp/note-count" 2>/dev/null || printf 0) + 1 ))
+printf '%s\n' "\$n" > "$tmp/note-count"
+mkdir -p "\$OS_ROOT/notes"
+printf 'run %s\n' "\$n" > "\$OS_ROOT/notes/run-\$n.md"
+git -C "\$OS_ROOT" add "notes/run-\$n.md"
+git -C "\$OS_ROOT" commit -q -m "run \$n"
+EOF
+chmod 700 "$tmp/note.sh"
+python3 - "$root/bots/helper/BOT.md" "$tmp/note.sh" << 'PY'
+import pathlib, sys
+path, engine = sys.argv[1], sys.argv[2]
+lines = []
+for line in pathlib.Path(path).read_text().splitlines():
+    lines.append('engine: "' + engine + '"' if line.startswith("engine:") else line)
+pathlib.Path(path).write_text("\n".join(lines) + "\n")
+PY
+git -C "$root" add bots
+git -C "$root" commit -q -m "note engine"
+git -C "$root" push -q origin main
+git -C "$root" fetch -q origin
+# The recorded push sends nothing: as if the host was not reached.
+bash "$run" helper daily --root "$root" >"$tmp/keep1.out"
+first=$(git -C "$root" rev-parse sync/helper)
+git -C "$root" cat-file -e "${first}:notes/run-1.md" || bots_fail "first run made no commit"
+git -C "$root" checkout -q sync/helper
+bash "$run" helper daily --root "$root" >"$tmp/keep2.out"
+git -C "$root" merge-base --is-ancestor "$first" sync/helper || bots_fail "the second run reset the first run's commit"
+git -C "$root" cat-file -e "sync/helper:notes/run-1.md" || bots_fail "run 1 note is gone"
+git -C "$root" cat-file -e "sync/helper:notes/run-2.md" || bots_fail "run 2 note is missing"
+[ "$(git -C "$root" symbolic-ref --short HEAD)" = "main" ] || bots_fail "the folder is not back on main"
+[ -z "$(git -C "$root" status --porcelain)" ] || bots_fail "the folder is dirty after the runs"
+git -C "$root" merge -q --no-edit sync/helper
+git -C "$root" remote remove origin
+bots_pass "a run after a failed push keeps the earlier run's commit"
 
 # Hand-off off, then on with no cloud caller.
 cat > "$root/bots/helper/routines/hand.md" << 'EOF'

@@ -18,9 +18,16 @@ Check only the lines the diff adds or changes. Each check below is a finding whe
 3. **Private-source quotes.** A quote or close paraphrase of a DM, a private channel, a personal mailbox, a 1:1 meeting, calendar details, HR or pay. Also "X said in a DM" or "from an email to Y". A plain company fact with no source detail is fine.
 4. **Rules that loosen a tier.** A change to an `AGENTS.md`, `CLAUDE.md`, skill, `bots/*/BOT.md` or `.github/` file that lets an agent do more with less approval: a row moved to a lower tier, an approver removed, a check skipped, an area rule looser than the company table, or a rule that lets anyone write to `main`.
 5. **Broken links.** A `[[wiki-link]]` or a relative path that the diff adds and that points at a file the diff deletes or renames, or at a name that is plainly wrong.
-6. **Scope creep.** Changes that the pull request title and body do not explain, or a rules change mixed into a notes change.
+6. **Scope creep.** Changes that the pull request title and body do not explain, or a rules change mixed into a notes change. A `sync:` pull request is one person's batch of notes: its files need no other explanation. A rules file mixed into it is still scope creep.
 
 Anything else you notice (style, wording, a better way) is a note. A note never fails the review.
+
+## Pull requests from the admin's own steps
+
+These come from a product step, not from a person's edit. Judge them by this section, and by checks 1 to 5 as usual.
+
+- **Upgrade and refresh.** Title `Upgrade to v1`, `Upgrade: check scripts` or `Refresh stock skills and checks (<release>)`. The pull request sets rules files to this release's text and puts the company's own lines back. Its body lists each rules file and each company line it kept. Those listed changes are explained (check 6). An `AGENTS.md` approval table set to this release's default is not a loosening (check 4). The default company table: Auto (notes, logs, links: nobody before, the nightly review after); Agent decides and logs (soft delete, move with link rewrite, edits to more than 20 files); Ask (area rules files: the area director); Ask (company-root rules files and permissions: the admin). The default area table adds no rows (`(none yet)`) and says the company table applies. Still a finding: a change the body does not list, a table looser than this default, or an approver removed.
+- **Code owners.** Title `rules: Team: area rules`, `Rules: add <person>`, `People: add <person>` or `Offboard: <person>`. The body says who becomes or stops being a code owner, and why. A `CODEOWNERS` change the body explains is not scope creep (check 6). It is not a loosening (check 4) while the admin stays an owner of every line. Still a finding: the admin taken off a line, or a line left with no owner.
 
 ## Output
 

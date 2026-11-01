@@ -108,6 +108,14 @@ class RulesSizeTests(unittest.TestCase):
         self.assertRegex(result.stdout.strip(), r"^OK [1-9][0-9]* files$")
 
 
+class StockHashesTests(unittest.TestCase):
+    def test_every_stock_file_is_in_the_refresh_list(self):
+        # upgrade --refresh replaces only files it knows as shipped; a stock file missing
+        # from the list would be kept as "changed by the company" in the next release.
+        result = run("stock-hashes.sh", ["--check"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class PlaceholderTests(unittest.TestCase):
     def test_unknown_placeholder_fails(self):
         env = git_env()
