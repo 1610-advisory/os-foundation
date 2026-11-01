@@ -1,5 +1,3 @@
-> v1 in progress, not released; use `1610.sh/os`.
-
 # os-foundation
 
 A company OS: one folder you own with company knowledge, instructions for AI agents, and saved ways of working.
