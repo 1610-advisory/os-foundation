@@ -658,7 +658,7 @@ area_main=$(git --git-dir "$work/git/acme10-marketing.git" rev-parse main)
 : > "$FAKE_HOST_LOG"
 set +e
 b53_env() {
-  HOME="$work/b53-home" XDG_CONFIG_HOME="$work/b53-home/.config" OS_JOBS_DIR="$work/b53-home/jobs" \
+  HOME="$work/b53-home" XDG_CONFIG_HOME="$work/b53-home/.config" OS_JOBS_DIR="$work/b53-home/jobs" OS_JOBS_LOAD=0 \
     OS_PROFILE_SH="$co10/skills/_host/profile.sh" "$@"
 }
 mkdir -p "$work/b53-home"

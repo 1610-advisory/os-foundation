@@ -306,7 +306,7 @@ root=$clone
 me=mia
 areas=marketing,finance
 EOF
-export HOME="$join_home" XDG_CONFIG_HOME="$join_home/.config" OS_JOBS_DIR="$join_home/jobs"
+export HOME="$join_home" XDG_CONFIG_HOME="$join_home/.config" OS_JOBS_DIR="$join_home/jobs" OS_JOBS_LOAD=0
 if ! FORGEJO_TOKEN=$(load_token "$token_dir/acme-member-a") \
   "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" >"$work/join.out" 2>"$work/join.err"; then
   cat "$work/join.out" "$work/join.err" >> "$log"

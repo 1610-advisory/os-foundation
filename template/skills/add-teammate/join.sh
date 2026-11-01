@@ -254,7 +254,13 @@ if [ "$word" = "claude" ]; then
 fi
 sync_materialize_links "$ROOT" 1
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
-  OS_COMPANY_ROOT="$ROOT" "$ROOT/skills/sync/sync.sh" install-jobs
+  # B73: launchd reads ~/Library/LaunchAgents only at login. On macOS join starts the jobs
+  # now, as on Windows, unless OS_JOBS_LOAD=0. Only for the real jobs folder.
+  jobs_load=${OS_JOBS_LOAD:-}
+  if [ -z "$jobs_load" ] && [ "$(uname -s)" = "Darwin" ] && [ -z "${OS_JOBS_DIR:-}" ]; then
+    jobs_load=1
+  fi
+  OS_JOBS_LOAD=$jobs_load OS_COMPANY_ROOT="$ROOT" "$ROOT/skills/sync/sync.sh" install-jobs
 else
   printf '%s\n' "sync-jobs: skills/sync/sync.sh is not here yet"
 fi
@@ -531,7 +537,10 @@ old_stash() {
   fi
   printf '%s\n' "$top" >> "${OLD_TMP}/stash-seen"
   OLD_N=$((OLD_N + 1))
-  OLD_STASH=1
+  OLD_STASH=$((OLD_STASH + 1))
+  # B71: sync.sh status names it until the old folder is gone or has no stash, so the agent
+  # never says to delete the old folder while a stash is only there.
+  printf '%s\t%s\n' "$gitdir" "$old" >> "$OLD_STASH_NOTE"
   printf 'old-folder: %s has %s stashed changes the host lacks (git -C %s stash list). join does not open a stash: git -C %s stash show -p shows each one. Redo it here before deleting the old folder.\n' \
     "$label" "$n" "$old" "$old"
 }
@@ -693,7 +702,7 @@ old_report_repo() {
       continue
     else
       # Gone from the worktree (r8): a commit the host lacks may hold it. Bring that text.
-      ref=$(printf '%s\n' "$paths" | REL="$rel" awk -F'\t' 'NF == 2 && $2 == ENVIRON["REL"] { print $1; exit }')
+      ref=$(printf '%s\n' "$paths" | REL="$rel" awk -F'\t' 'NF == 2 && $2 == ENVIRON["REL"] && !n++ { print $1 }')
       [ -n "$ref" ] || continue
       mine=$(old_blob_file "$gd" "${ref}:${rel}")
     fi
@@ -703,7 +712,10 @@ old_report_repo() {
 }
 
 old_folder_report() {
-  local cand area stash_say
+  local cand area stash_say left state
+  state="$(os_config_dir "$SLUG")/state"
+  mkdir -p "$state"
+  OLD_STASH_NOTE=$(mktemp "${state}/old-stash.XXXXXX") || OLD_STASH_NOTE=/dev/null
   for cand in "$(dirname "$ROOT")"/*; do
     [ -d "$cand" ] && [ -e "$cand/.git" ] || continue
     [ "$(cd "$cand" && pwd)" != "$ROOT" ] || continue
@@ -719,7 +731,9 @@ old_folder_report() {
       old_report_repo "$area" "$ROOT/areas/$(basename "$area")" "$area"
     done
     rm -rf "$OLD_TMP"
-    # r8: a stash is never set aside or copied. It is only in the old folder until redone.
+    # r8, B71: a stash is never set aside or copied. It is only in the old folder until it
+    # is redone here, and the delete rule names it.
+    left=$((OLD_N - OLD_STASH))
     stash_say=""
     [ "$OLD_STASH" -eq 0 ] \
       || stash_say=" Its stashed changes are still only in the old folder: redo each one here first (git -C ${cand} stash show -p)."
@@ -727,16 +741,36 @@ old_folder_report() {
       printf 'old-folder: %s: some of it could not be checked (listed above). Check that part by hand. Nothing was deleted. Do not delete it yet.\n' "$cand"
     elif [ "$OLD_UNCHECKED" -eq 1 ]; then
       # Never "you may delete it" when a part could not be read (B64).
-      printf 'old-folder: %s held %s items the host lacks (listed above), and some of it could not be checked. Check that part by hand.%s Nothing was deleted. Do not delete it yet.\n' "$cand" "$OLD_N" "$stash_say"
-    elif [ "$OLD_STASH" -eq 1 ]; then
-      # Never the delete-after-re-apply line while a stash is only there (r8).
-      printf 'old-folder: %s held %s items the host lacks (listed above). join copied or set aside the files for the agent.%s Nothing was deleted. Do not delete it yet.\n' "$cand" "$OLD_N" "$stash_say"
+      printf 'old-folder: %s held %s the host lacks (listed above), and some of it could not be checked. Check that part by hand.%s Nothing was deleted. Do not delete it yet.\n' "$cand" "$(old_items "$OLD_N")" "$stash_say"
+    elif [ "$OLD_STASH" -gt 0 ] && [ "$left" -eq 0 ]; then
+      printf 'old-folder: %s has nothing else the host lacks, only the stash listed above.%s Nothing was deleted. Delete the old folder only after each stash is redone here.\n' "$cand" "$stash_say"
+    elif [ "$OLD_STASH" -gt 0 ]; then
+      # Never the delete-after-re-apply line alone while a stash is only there.
+      printf 'old-folder: %s held %s the host lacks (listed above). join copied %s here or set %s aside for the agent.%s Nothing was deleted. Delete the old folder only after each stash is redone here, the agent has re-applied what was set aside, and sync has sent it to the host.\n' \
+        "$cand" "$(old_items "$OLD_N")" "$(old_it "$left")" "$(old_it "$left")" "$stash_say"
     elif [ "$OLD_N" -eq 0 ]; then
       printf 'old-folder: %s has nothing the host lacks. You may delete it.\n' "$cand"
     else
-      printf 'old-folder: %s held %s items the host lacks (listed above). join copied them here or set them aside for the agent. Nothing was deleted. Delete the old folder only after the agent has re-applied what was set aside and sync has sent it to the host.\n' "$cand" "$OLD_N"
+      printf 'old-folder: %s held %s the host lacks (listed above). join copied %s here or set %s aside for the agent. Nothing was deleted. Delete the old folder only after the agent has re-applied what was set aside and sync has sent it to the host.\n' \
+        "$cand" "$(old_items "$OLD_N")" "$(old_it "$OLD_N")" "$(old_it "$OLD_N")"
     fi
   done
+  if [ "$OLD_STASH_NOTE" != "/dev/null" ]; then
+    if [ -s "$OLD_STASH_NOTE" ]; then
+      mv -f "$OLD_STASH_NOTE" "${state}/old-stash"
+      chmod 600 "${state}/old-stash"
+    else
+      rm -f "$OLD_STASH_NOTE" "${state}/old-stash"
+    fi
+  fi
+}
+
+# "1 item", "2 items"; "it", "them".
+old_items() {
+  if [ "$1" -eq 1 ]; then printf '1 item'; else printf '%s items' "$1"; fi
+}
+old_it() {
+  if [ "$1" -eq 1 ]; then printf 'it'; else printf 'them'; fi
 }
 old_folder_report || true
 

@@ -53,7 +53,7 @@ EOF
 
 cmd_status() {
   local err
-  sync_bind
+  SYNC_NEED_SOFT=1 sync_bind
   sync_held_prune
   err=$(jq -r '.last_error // ""' "$SYNC_HELD")
   if [ -n "$err" ]; then
@@ -69,6 +69,19 @@ cmd_status() {
   fi
   sync_each sync_status_unpushed || true
   sync_pull_status_line
+  sync_old_stash_status
+}
+
+# B71: join found stashed changes in an old (v0) folder. A stash is never brought here, so
+# name it while that folder still has one. The old folder may go only after it is redone.
+sync_old_stash_status() {
+  local gd old
+  [ -f "$SYNC_STATE/old-stash" ] || return 0
+  while IFS=$'\t' read -r gd old; do
+    [ -n "$gd" ] && [ -e "$gd" ] || continue
+    git --git-dir "$gd" rev-parse -q --verify refs/stash >/dev/null 2>&1 || continue
+    printf 'old folder: %s still has stashed changes that are only there. Redo each one here first (git -C %s stash show -p). Do not delete the old folder until then.\n' "$old" "$old"
+  done < "$SYNC_STATE/old-stash"
 }
 
 # Commits here that no branch on the host has: they go up with the next push.

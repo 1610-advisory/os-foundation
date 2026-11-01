@@ -222,16 +222,39 @@ sync_path_add() {
 sync_need() {
   local t out
   for t in "$@"; do
-    command -v "$t" >/dev/null 2>&1 || sync_die 1 "${t} not found: install it, or run join again"
+    command -v "$t" >/dev/null 2>&1 || { sync_need_fail "$t" "${t} not found: install it, or run join again"; continue; }
     [ "$t" = "git" ] || continue
     if ! out=$(git --version 2>&1); then
       case "$out" in
         *"xcrun: error"*|*"invalid active developer path"*|*"CommandLineTools"*)
-          sync_die 1 "git not installed: install the Xcode command line tools, or run join again" ;;
-        *) sync_die 1 "git does not run ($(printf '%s' "$out" | head -n 1)): install it, or run join again" ;;
+          sync_need_fail git "git not installed: install the Xcode command line tools, or run join again" ;;
+        *) sync_need_fail git "git does not run ($(printf '%s' "$out" | head -n 1)): install it, or run join again" ;;
       esac
     fi
   done
+}
+
+# Low (r8): the missing tool also goes to sync.log and to status's last error, once the
+# state folder is known. sync.sh status (SYNC_NEED_SOFT=1) goes on to print it, unless
+# jq itself is missing.
+sync_need_fail() {
+  local t=$1 msg=$2 tmp
+  if [ -n "${SYNC_HELD:-}" ] && [ -f "$SYNC_HELD" ]; then
+    printf '%s %s\n' "$(sync_now)" "fail tool ${msg}" >> "$SYNC_LOG" 2>/dev/null || true
+    if command -v jq >/dev/null 2>&1 && tmp=$(mktemp "${SYNC_HELD}.XXXXXX" 2>/dev/null); then
+      if jq --arg e "$msg" '.last_error = $e' "$SYNC_HELD" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$SYNC_HELD"
+        chmod 600 "$SYNC_HELD"
+      else
+        rm -f "$tmp"
+      fi
+    fi
+  fi
+  if [ "${SYNC_NEED_SOFT:-0}" = "1" ] && [ "$t" != "jq" ]; then
+    printf '%s\n' "$msg" >&2
+    return 0
+  fi
+  sync_die 1 "$msg"
 }
 
 sync_bind() {
@@ -259,10 +282,6 @@ sync_bind() {
       sync_path_add "$line"
     done < "$SYNC_CONFIG/tool-path"
   fi
-  sync_need git jq
-  if [ "$("$PROFILE_SH" host 2>/dev/null || true)" = "github" ] && [ -z "${OS_HOST_SH:-}" ]; then
-    sync_need gh
-  fi
   SYNC_STATE="$SYNC_CONFIG/state"
   mkdir -p "$SYNC_STATE"
   chmod 700 "$SYNC_CONFIG" "$SYNC_STATE"
@@ -278,6 +297,10 @@ sync_bind() {
   if [ ! -f "$SYNC_HELD" ]; then
     printf '%s\n' '{"last_error":"","files":[]}' > "$SYNC_HELD"
     chmod 600 "$SYNC_HELD"
+  fi
+  sync_need git jq
+  if [ "$("$PROFILE_SH" host 2>/dev/null || true)" = "github" ] && [ -z "${OS_HOST_SH:-}" ]; then
+    sync_need gh
   fi
 }
 

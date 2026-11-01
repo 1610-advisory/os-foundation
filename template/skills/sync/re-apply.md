@@ -28,3 +28,4 @@ At session start, when `sync.sh status` lists a `re-apply:` hold. Before other w
 - Never put a set-aside copy back over the folder file.
 - Never edit `base` or `mine`. `re-apply done` deletes them.
 - One file at a time. `<repo>` is as printed: `root`, `area:<name>` or `workspace`.
+- Holds from `join` (`re-apply: brought from the old folder by join`) come from an old (v0) folder. Never tell the person they may delete that old folder while `sync.sh status` prints an `old folder: ... still has stashed changes` line. A stash is never brought or set aside. Help them redo each stash here first (`git -C <old> stash show -p`). The old folder may go only after each stash is redone, every join hold is re-applied, and sync has sent it.

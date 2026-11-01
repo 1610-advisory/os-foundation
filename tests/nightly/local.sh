@@ -327,6 +327,26 @@ mdx_case() {
   rm -rf "$box"
 }
 
+# S7: an area with nothing to decide has no reports/ folder yet. The weekly report still
+# gets written there and published.
+no_decide_case() {
+  local box company area weekly
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  rm -f "$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24.json"
+  rm -rf "$area/reports"
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43
+  weekly=$(show "$area" "review/2026-10-24" "reports/2026-W43.md")
+  printf '%s\n' "$weekly" | grep -F 'Commits merged' >/dev/null
+  pass "weekly report with nothing to decide"
+  rm -rf "$box"
+}
+
 argv_case() {
   local box company area spy log sentinel
   box=$(mktemp -d)
@@ -615,6 +635,7 @@ cap_case
 solo_case
 bots_case
 mdx_case
+no_decide_case
 ( argv_case )
 inbox_case
 printf 'PASS: %s local checks\n' "$PASS"

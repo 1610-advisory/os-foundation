@@ -410,7 +410,7 @@ grep -qx -- "- sam: from the old folder" <<< "$up" || team_fail "B69: the person
 join_run > "$work/old4.out"
 grep -q "^old-folder: $old branch price .*: notes/terms.md is already set aside for notes/terms.md: the agent re-applies it" "$work/old4.out" \
   || { cat "$work/old4.out" >&2; team_fail "B69: a second join did not name the open hold"; }
-grep -q "^old-folder: $old held 1 items" "$work/old4.out" || { cat "$work/old4.out" >&2; team_fail "B69: a second join brought something again"; }
+grep -q "^old-folder: $old held 1 item the host lacks (listed above). join copied it here or set it aside" "$work/old4.out" || { cat "$work/old4.out" >&2; team_fail "B69: a second join brought something again"; }
 st_sync re-apply "done" root notes/terms.md >/dev/null || team_fail "B69: re-apply done failed for terms"
 join_run > "$work/old4.out"
 grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old4.out" \
@@ -431,11 +431,22 @@ join_run > "$work/old5.out"
 grep -q "^old-folder: $old has 1 stashed changes the host lacks" "$work/old5.out" || { cat "$work/old5.out" >&2; team_fail "Grok r6: the stash is not listed"; }
 [ "$(grep -c 'stashed changes the host lacks' "$work/old5.out")" = "1" ] || team_fail "Grok r6: the shared stash is listed more than once"
 grep -q 'You may delete it' "$work/old5.out" && team_fail "Grok r6: said the old folder may go with a stash in it"
-# r8: the closing line says the stash is only in the old folder, never delete after re-apply.
-grep -qx "old-folder: $old held 1 items the host lacks (listed above). join copied or set aside the files for the agent. Its stashed changes are still only in the old folder: redo each one here first (git -C $old stash show -p). Nothing was deleted. Do not delete it yet." "$work/old5.out" \
+# r8, B71: the closing line says the stash is only in the old folder, and the old folder
+# goes only after each stash is redone. Never "join copied them" for a stash alone (low).
+grep -qx "old-folder: $old has nothing else the host lacks, only the stash listed above. Its stashed changes are still only in the old folder: redo each one here first (git -C $old stash show -p). Nothing was deleted. Delete the old folder only after each stash is redone here." "$work/old5.out" \
   || { cat "$work/old5.out" >&2; team_fail "r8: the closing line does not keep the stash"; }
-grep -q 'Delete the old folder only after' "$work/old5.out" && team_fail "r8: the closing line allows a delete with a stash in the old folder"
+grep -q 'Delete the old folder only after the agent' "$work/old5.out" && team_fail "r8: the closing line allows a delete with a stash in the old folder"
+grep -q 'join copied them' "$work/old5.out" && team_fail "r8 low: said join copied a stash"
+# B71: sync status names the stash while the old folder has it, then stops once it is gone.
+grep -qx "$old/.git	$old" "$work/home/.config/acme-os/state/old-stash" || team_fail "B71: join did not note the stash"
+st_status=$(HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_COMPANY_ROOT="$co" OS_HOST_SH="$work/bin/host.sh" \
+  OS_PROFILE_SH="$root/template/skills/_host/profile.sh" bash "$root/template/skills/sync/sync.sh" status 2>&1 || true)
+grep -qx "old folder: $old still has stashed changes that are only there. Redo each one here first (git -C $old stash show -p). Do not delete the old folder until then." <<< "$st_status" \
+  || { printf '%s\n' "$st_status" >&2; team_fail "B71: status does not name the stash"; }
 git -C "$old" stash drop -q
+st_status=$(HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_COMPANY_ROOT="$co" OS_HOST_SH="$work/bin/host.sh" \
+  OS_PROFILE_SH="$root/template/skills/_host/profile.sh" bash "$root/template/skills/sync/sync.sh" status 2>&1 || true)
+grep -q "still has stashed changes" <<< "$st_status" && team_fail "B71: status names a stash that was dropped"
 # Grok r6 detached HEAD: a commit made while detached in the logs folder is listed.
 git --git-dir "$old/.git/worktrees/logs" --work-tree "$old/memory/logs" checkout -q --detach
 printf '%s\n' "detached" > "$old/memory/logs/2026-11-02-sam.md"

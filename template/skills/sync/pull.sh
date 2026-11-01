@@ -205,6 +205,25 @@ sync_squashed() {
   [ "$n" -gt 0 ]
 }
 
+# B72: main has the same text, but from another seat's sync commits, not from a squash of
+# this seat's pull request. Every commit main gained since the fork that touched those
+# files has a Sync-Seat line, and none names this seat (a squash keeps the squashed
+# commits' lines in its message). A commit without one (made on the web) is a squash.
+sync_same_text_elsewhere() {
+  local repo=$1 base seat sha msg n=0
+  seat=$(sync_seat)
+  base=$(git -C "$repo" merge-base HEAD origin/main 2>/dev/null) || return 1
+  while IFS= read -r sha; do
+    [ -n "$sha" ] || continue
+    msg=$(git -C "$repo" log -1 --format=%B "$sha") || return 1
+    ! grep -Eq "(^|[[:space:]])Sync-Seat: ${seat}([[:space:]]|\$)" <<< "$msg" || return 1
+    grep -q '^Sync-Seat: ' <<< "$msg" || return 1
+    n=$((n + 1))
+  done < <({ printf '%s\n' "^${base}" origin/main --; sync_names "$repo" diff --name-only --no-renames "$base" HEAD; } \
+    | git -C "$repo" --literal-pathspecs rev-list --no-merges --stdin)
+  [ "$n" -gt 0 ]
+}
+
 # Put back every file sync_after_squash copied out: the folder is as it was.
 sync_squash_restore() {
   local repo=$1 hold=$2 i=1 path
@@ -777,7 +796,7 @@ sync_abort_open_merge() {
 sync_pull_ff() {
   local repo=$1
   local id=$2
-  local tag old link_save err n branch rc
+  local tag old link_save err n branch rc same
   if ! sync_abort_open_merge "$repo" "$id"; then
     sync_pull_stop "$id"
     sync_pull_fail "$id" "merge left open"
@@ -837,17 +856,24 @@ sync_pull_ff() {
       return 1
     fi
     if sync_squashed "$repo"; then
+      same=0
+      ! sync_same_text_elsewhere "$repo" || same=1
       rc=0
       sync_after_squash "$repo" "$id" || rc=$?
-      case "$rc" in
-        0) sync_pull_fail "$id" "squash" ;;
-        2) sync_pull_fail "$id" "squash: could not set a file aside" ;;
-        *)
-          sync_pull_stop "$id"
-          sync_pull_fail "$id" "squash: could not take main"
-          ;;
-      esac
-      return 1
+      if [ "$same" -eq 1 ] && [ "$rc" -eq 0 ]; then
+        # B72: another seat sent the same text first. Nobody squashed: no error.
+        sync_log "pull same-text ${id}"
+      else
+        case "$rc" in
+          0) sync_pull_fail "$id" "squash" ;;
+          2) sync_pull_fail "$id" "squash: could not set a file aside" ;;
+          *)
+            sync_pull_stop "$id"
+            sync_pull_fail "$id" "squash: could not take main"
+            ;;
+        esac
+        return 1
+      fi
     fi
   fi
   if ! sync_dirty_pass "$repo" "$id"; then

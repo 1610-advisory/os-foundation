@@ -701,7 +701,7 @@ class SyncFixTests(unittest.TestCase):
         self.assertIn("a change that sync did not make", self.sync("status").stdout)
         self.assertTrue((self.company / "ok.md").exists())
 
-    def dana_changes(self, bare, files):
+    def dana_changes(self, bare, files, msg="dana"):
         dana = self.tmp / "dana"
         if not dana.exists():
             run(["git", "clone", "-q", str(bare), str(dana)], env=self.env, check=True)
@@ -712,7 +712,7 @@ class SyncFixTests(unittest.TestCase):
             else:
                 (dana / path).write_text(text)
         run(["git", "-C", str(dana), "add", "-A"], env=self.env, check=True)
-        run(["git", "-C", str(dana), "commit", "-q", "-m", "dana"], env=self.env, check=True)
+        run(["git", "-C", str(dana), "commit", "-q", "-m", msg], env=self.env, check=True)
         run(["git", "-C", str(dana), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
 
     def shared_seed(self):
@@ -1306,6 +1306,31 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
                              env=self.env).stdout, "b.md\n")
 
+    def test_the_same_text_from_another_seat_is_not_a_squash(self):
+        # B72: two seats send the same catch-up file. The other seat's commit merged first.
+        # This seat drops its own commit quietly: no squash error, and a log line.
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        (self.company / "a.md").write_text("a note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"a.md": "a note\n"}, msg="Sync: notes\n\nSync-Seat: desk-7c7c")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("squash", result.stdout + result.stderr)
+        self.assertNotIn("squash merge", self.sync("status").stdout)
+        self.assertIn("last error: none", self.sync("status").stdout)
+        self.assertIn("pull same-text root", self.sync_log())
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        # A real squash of this seat's pull request keeps this seat's line: still an error.
+        (self.company / "b.md").write_text("b note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"b.md": "b note\n"}, msg="sync: mia (%s) (#3)\n\n* Sync: notes\n\nSync-Seat: %s" % (SEAT, SEAT))
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("squash merge", result.stderr)
+
     def host_show(self, ref, path):
         return run(["git", "--git-dir", str(self.tmp / "origin.git"), "show", f"{ref}:{path}"],
                    env=self.env).stdout
@@ -1580,8 +1605,48 @@ class SyncFixTests(unittest.TestCase):
     def join(self, answers):
         env = self.env.copy()
         env["OS_JOBS_DIR"] = str(self.tmp / "jobs")
+        env["OS_JOBS_LOAD"] = "0"
         return run(["bash", str(ROOT / "template" / "skills" / "add-teammate" / "join.sh"), "--answers", str(answers)],
                    env=env, cwd=self.company)
+
+    def test_join_on_a_mac_starts_the_jobs(self):
+        # B73: launchd reads ~/Library/LaunchAgents only at login. On macOS join starts the
+        # jobs itself (bootout first, then bootstrap), unless OS_JOBS_LOAD=0. A fake
+        # launchctl records the calls: nothing is loaded for real.
+        if os.uname().sysname != "Darwin":
+            self.skipTest("macOS only")
+        bare, answers = self.join_ready()
+        (self.company / "skills").symlink_to(ROOT / "template" / "skills")
+        with open(self.company / ".git" / "info" / "exclude", "a") as fh:
+            fh.write("/skills\n")
+        fake = self.tmp / "fakebin"
+        fake.mkdir()
+        calls = self.tmp / "launchctl.log"
+        (fake / "launchctl").write_text('#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s"\n' % calls)
+        (fake / "launchctl").chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = "%s:%s" % (fake, env["PATH"])
+        env.pop("OS_JOBS_DIR", None)
+        env.pop("OS_JOBS_LOAD", None)
+        join = ["bash", str(ROOT / "template" / "skills" / "add-teammate" / "join.sh"), "--answers", str(answers)]
+        result = run(join, env=env, cwd=self.company)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        uid = str(os.getuid())
+        agents = self.home / "Library" / "LaunchAgents"
+        log = calls.read_text()
+        for job in ("pull", "push", "helper"):
+            label = "com.osfoundation.acme." + job
+            self.assertIn("bootout gui/%s/%s\n" % (uid, label), log)
+            self.assertIn("bootstrap gui/%s %s\n" % (uid, agents / (label + ".plist")), log)
+            self.assertIn("sync-jobs: started " + label, result.stdout)
+        self.assertLess(log.index("bootout gui/%s/com.osfoundation.acme.pull" % uid),
+                        log.index("bootstrap gui/%s %s" % (uid, agents / "com.osfoundation.acme.pull.plist")))
+        # OS_JOBS_LOAD=0 writes the jobs only.
+        calls.unlink()
+        env["OS_JOBS_LOAD"] = "0"
+        result = run(join, env=env, cwd=self.company)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(calls.exists())
 
     def host_page(self, bare, ref):
         return run(["git", "--git-dir", str(bare), "show", f"{ref}:people/Mia.md"], env=self.env).stdout
@@ -2071,6 +2136,11 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotEqual(pull.returncode, 0)
         self.assertIn("git not installed: install the Xcode command line tools, or run join again", pull.stderr)
         self.assertNotIn("could not reach the host", pull.stdout + pull.stderr)
+        # Low (r8): a missing tool also goes to sync.log and to status's last error.
+        self.assertIn("fail tool git not installed", self.sync_log())
+        status = self.sync("status", env=env)
+        self.assertIn("last error: git not installed: install the Xcode command line tools, or run join again",
+                      status.stdout, status.stdout + status.stderr)
 
     def test_catch_up_logs_are_never_held_as_workspace_only(self):
         # B68: the catch-up writes old-branch logs into memory/logs-archive/ and says the

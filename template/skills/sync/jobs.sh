@@ -349,7 +349,14 @@ sync_load_jobs() {
     macos)
       for f in "$dir"/com.osfoundation."${label}".*.plist; do
         [ -f "$f" ] || continue
-        launchctl bootstrap "gui/$(id -u)" "$f" 2>/dev/null || launchctl load -w "$f"
+        # Idempotent (B73): a job already loaded is booted out first, then loaded again.
+        launchctl bootout "gui/$(id -u)/$(basename "$f" .plist)" >/dev/null 2>&1 || true
+        if launchctl bootstrap "gui/$(id -u)" "$f" 2>/dev/null || launchctl load -w "$f" 2>/dev/null; then
+          printf 'sync-jobs: started %s\n' "$(basename "$f" .plist)"
+        else
+          printf 'sync-jobs: could not start %s now. It starts at the next login, or run: launchctl bootstrap gui/%s %s\n' \
+            "$(basename "$f" .plist)" "$(id -u)" "$f"
+        fi
       done
       ;;
     linux)
@@ -378,7 +385,8 @@ cmd_uninstall_jobs() {
           "com.osfoundation.${safe}."*) ;;
           *) continue ;;
         esac
-        if [ "${OS_JOBS_LOAD:-}" = "1" ]; then
+        # Join starts them on the real jobs folder (B73), so stop them there too.
+        if [ "${OS_JOBS_LOAD:-}" = "1" ] || { [ -z "${OS_JOBS_LOAD:-}" ] && [ -z "${OS_JOBS_DIR:-}" ]; }; then
           launchctl bootout "gui/$(id -u)" "$f" 2>/dev/null || launchctl unload -w "$f" 2>/dev/null || true
         fi
         rm -f "$f"

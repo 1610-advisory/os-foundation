@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S5 — a skill fix by PR. Cursor is blocked, so another vendor proposes. Director approves by API.
+# S5 — a skill fix by PR. Cursor is blocked, so another vendor proposes. Director and admin approve by API.
 set -euo pipefail
 
 here=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -84,6 +84,11 @@ fi
 if ! osf_approve "$org" "${slug}-marketing" "$number" acme-director; then
   osf_result "S5 FAIL director approval"
 fi
+# B60 (accepted design): on Forgejo an area's CODEOWNERS names the director and the admin on
+# every rules line, and every name on a line must approve. So the admin approves too.
+if ! osf_approve "$org" "${slug}-marketing" "$number" acme-admin; then
+  osf_result "S5 FAIL admin approval"
+fi
 i=0
 merged=false
 while [ "$i" -lt 36 ]; do
@@ -97,7 +102,7 @@ while [ "$i" -lt 36 ]; do
   sleep 5
 done
 if [ "$merged" != "true" ]; then
-  osf_result "S5 FAIL not merged after director approval"
+  osf_result "S5 FAIL not merged after director and admin approval"
 fi
 
 osf_host S5 file "$org" "${slug}-marketing" skills/sample/SKILL.md --ref main
