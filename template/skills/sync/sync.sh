@@ -40,6 +40,7 @@ Commands:
   status
   seat
   re-apply [list | done <repo> <path> | ask <repo> <path> <question>]
+  set-aside <repo> <path> <mine-file|-> <base-file|->   (join uses it)
   install-jobs [--admin] [--bot]
   uninstall-jobs
   helper
@@ -98,6 +99,10 @@ main() {
     re-apply)
       sync_bind
       cmd_reapply "$@"
+      ;;
+    set-aside)
+      sync_bind
+      cmd_set_aside "$@"
       ;;
     seat)
       [ $# -eq 0 ] || { usage >&2; exit 1; }

@@ -10,6 +10,11 @@
     <string>-c</string>
     <string>@ARG@</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+  </dict>
   <key>WorkingDirectory</key>
   <string>@ROOT@</string>
   <key>StartCalendarInterval</key>

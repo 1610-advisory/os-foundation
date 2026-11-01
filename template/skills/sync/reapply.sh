@@ -130,6 +130,40 @@ sync_reapply_questions() {
     "$SYNC_HELD"
 }
 
+# join (B69): the person's version of one file from their old (v0) folder, and the text
+# it was edited from (- for none, a new file; mine - for deleted). The agent re-applies it
+# on the host's current text, as for any re-apply hold. Each version set aside is noted
+# in state/join-brought, so a later join does not bring it again: "already" while its hold
+# is open, "done" once the agent has re-applied it.
+cmd_set_aside() {
+  local id dir path mine basef base=none key ledger
+  [ $# -eq 4 ] || sync_die 1 "usage: sync.sh set-aside <repo> <path> <mine-file|-> <base-file|->"
+  id=$1 path=$2 mine=$3 basef=$4
+  dir=$(sync_repo_dir "$id") || sync_die 1 "no repo ${id} here"
+  [ -d "$dir/.git" ] || [ -f "$dir/.git" ] || sync_die 1 "no repo ${id} here"
+  sync_lock
+  key=deleted
+  [ "$mine" = "-" ] || key=$(git hash-object -- "$mine") || sync_die 1 "could not read ${mine}"
+  ledger="$SYNC_STATE/join-brought"
+  if [ -f "$ledger" ] && grep -Fxq -- "${id}	${path}	${key}" "$ledger"; then
+    if [ -n "$(sync_reapply_hold "$id" "$path")" ]; then
+      printf '%s\n' "already"
+    else
+      printf '%s\n' "done"
+    fi
+    return 0
+  fi
+  if [ "$basef" != "-" ]; then
+    base=$(git -C "$dir" hash-object -w -- "$basef") || sync_die 1 "could not keep the base text of ${path}"
+  fi
+  [ "$mine" != "-" ] || mine="${SYNC_RUN_TMP}/deleted"
+  sync_set_aside "$dir" "$id" "$path" "$base" "held:${mine}" "re-apply: brought from the old folder by join" \
+    || sync_die 1 "could not set ${path} aside"
+  printf '%s\t%s\t%s\n' "$id" "$path" "$key" >> "$ledger"
+  chmod 600 "$ledger"
+  printf '%s\n' "set-aside"
+}
+
 cmd_reapply() {
   local sub=${1:-}
   [ $# -eq 0 ] || shift

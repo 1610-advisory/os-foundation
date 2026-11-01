@@ -277,12 +277,24 @@ git --git-dir "$work/origin.git" log -1 --format=%B "sync/sam/$seat" | grep -qx 
   || team_fail "the folder's main is not what went up"
 git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync branch"
 
-# B63, B64, B65: an old v0 copy, renamed beside the folder after it was made, the way
-# section 11 says: it was built at this folder's path, with a "git worktree add" logs
-# folder (git writes an absolute link), then renamed, and the new clone took the name.
-# So memory/logs/.git in the old folder names this folder's .git. Join lists each file
-# and commit in it that the host lacks, one line each, and never changes or deletes it.
+# B63 to B65, B69 and Grok r6: an old v0 copy, renamed beside the folder after it was
+# made, the way section 11 says: it was built at this folder's path, with a "git worktree
+# add" logs folder (git writes an absolute link), then renamed, and the new clone took
+# the name. So memory/logs/.git in the old folder names this folder's .git. join brings
+# each item the host lacks here itself: a new file or a log is copied, and a change to a
+# file the host has is set aside for re-apply, so newer lines on main stay (B69). It
+# never changes or deletes the old folder.
 old="$work/co-old"
+st_was_main=$(git --git-dir "$work/origin.git" rev-parse main)
+st_was_head=$(git -C "$co" rev-parse HEAD)
+st_was_seat=$(git --git-dir "$work/origin.git" rev-parse "sync/sam/$seat")
+# A plan file on main that the old folder will change.
+mkdir -p "$co/notes"
+printf '%s\n' "# Plan" "- base line" > "$co/notes/plan.md"
+printf '%s\n' "# Terms" "- base terms" > "$co/notes/terms.md"
+git -C "$co" add notes/plan.md notes/terms.md
+git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m plan
+git -C "$co" push -q origin HEAD:main
 mv "$co" "$work/co-new"
 git clone -q -b main "$work/origin.git" "$co"
 git -C "$co" remote set-url origin https://github.com/acme/acme-os.git
@@ -299,22 +311,24 @@ git -C "$co" update-ref refs/remotes/origin/logs HEAD
 git -C "$co" checkout -q main
 git -C "$co" worktree add -q "$co/memory/logs" logs
 printf '%s\n' "/memory/logs/" >> "$co/.git/info/exclude"
-# A log committed on the logs branch and never pushed, and one never committed.
+# A log committed on the logs branch and never pushed, one never committed, and one
+# renamed with git mv (Grok r6: the new path is listed).
 printf '%s\n' "day two" > "$co/memory/logs/2026-10-31-sam.md"
 git -C "$co/memory/logs" add 2026-10-31-sam.md
 git -C "$co/memory/logs" commit -q -m "Log: sam"
 printf '%s\n' "not saved" > "$co/memory/logs/2026-11-01-sam.md"
+git -C "$co/memory/logs" mv 2026-10-01-sam.md 2026-10-01-sam-renamed.md
 # A side branch with a commit the host never got (listed once, under the company).
 git -C "$co" checkout -q -b price
 printf '%s\n' "prices" > "$co/prices.md"
-git -C "$co" add prices.md
+printf '%s\n' "- price: side terms" >> "$co/notes/terms.md"
+git -C "$co" add prices.md notes/terms.md
 git -C "$co" commit -q -m "Pat: draft price list"
 git -C "$co" checkout -q main
 printf '%s\n' "never pushed" > "$co/draft.md"
-printf '%s\n' "edited here" >> "$co/company-profile.md"
+printf '%s\n' "- sam: from the old folder" >> "$co/notes/plan.md"
 cp "$work/co-new/people/Ada Admin.md" "$co/people/same.md"
 cp "$work/co-new/people/Ada Admin.md" "$work/co-new/people/same.md"
-mkdir -p "$co/notes"
 printf '%s\n' "a local commit" > "$co/notes/local.md"
 git -C "$co" add notes/local.md
 git -C "$co" commit -q -m "Local note"
@@ -324,58 +338,125 @@ git -C "$co/areas/lab" remote add origin https://github.com/acme/acme-lab.git
 printf '%s\n' "lab" > "$co/areas/lab/lab.md"
 git -C "$co/areas/lab" add lab.md
 git -C "$co/areas/lab" -c user.email=s@acme.test -c user.name=Sam commit -q -m "Lab note"
-# The rename, then the new folder takes the usual name.
+# The rename, then the new folder takes the usual name. Main moves on after the old copy
+# was made: a colleague adds a line to the same plan file.
 mv "$co" "$old"
 mv "$work/co-new" "$co"
+printf '%s\n' "- ada: newer on main" >> "$co/notes/plan.md"
+git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -am "newer plan line"
+git -C "$co" push -q origin HEAD:main
+# The new folder has joined the area too; a fresh v1 area has no memory/logs/ yet.
+mkdir -p "$co/areas/lab"
+git -C "$co/areas/lab" init -q -b main
+git -C "$co/areas/lab" remote add origin https://github.com/acme/acme-lab.git
 git -C "$old/memory/logs" status >/dev/null 2>&1 && team_fail "B64 setup: the old logs link still works after the rename"
 old_snap() {
   (cd "$old" && git status --porcelain && git rev-parse HEAD && git for-each-ref \
-    && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+    && find . -type f -print0 | sort -z | xargs -0 cksum)
 }
 old_state=$(old_snap)
 join_run > "$work/old.out"
-grep -qx "old-folder: $old/draft.md is not on the host. Copy it into this folder before deleting the old folder." "$work/old.out" \
-  || { cat "$work/old.out" >&2; team_fail "B63: join did not list the untracked file"; }
-grep -qx "old-folder: $old/company-profile.md is not on the host. Copy it into this folder before deleting the old folder." "$work/old.out" \
-  || team_fail "B63: join did not list the changed file"
+cp_line() { grep -qx "old-folder: $1 copied to $2: sync sends it." "$work/old.out" || { cat "$work/old.out" >&2; team_fail "$3"; }; }
+cp_line "$old/draft.md" draft.md "B63: join did not copy the untracked file"
+cp_line "$old branch price (last commit [0-9a-f]* \"Pat: draft price list\"): prices.md" prices.md "B65: join did not bring the side-branch file"
+cp_line "$old/notes/local.md" notes/local.md "B63: join did not bring the local commit's file"
+cp_line "$old/areas/lab/lab.md" areas/lab/lab.md "B63: join did not bring the area commit's file"
+cp_line "$old/memory/logs/2026-11-01-sam.md" memory/logs/2026-11-01-sam.md "B64: join did not copy the unsaved log"
+cp_line "$old/memory/logs/2026-10-31-sam.md" memory/logs/2026-10-31-sam.md "B64: join did not copy the unpushed log commit's log"
+cp_line "$old/memory/logs/2026-10-01-sam-renamed.md" memory/logs/2026-10-01-sam-renamed.md "Grok r6: join did not list a renamed log"
+[ "$(cat "$co/prices.md")" = "prices" ] || team_fail "item 3: prices.md has the wrong text"
+[ "$(cat "$co/memory/logs/2026-10-31-sam.md")" = "day two" ] || team_fail "item 3: the log has the wrong text"
+[ "$(cat "$co/areas/lab/lab.md")" = "lab" ] || team_fail "item 3: lab.md has the wrong text"
+# B69: the changed tracked file is set aside, never copied over main's newer line.
+grep -qx "old-folder: $old/notes/plan.md is set aside for notes/plan.md: the agent re-applies the change to the host's current text (skills/sync/sync.sh re-apply list). Nothing to copy." "$work/old.out" \
+  || { cat "$work/old.out" >&2; team_fail "B69: join did not set the changed file aside"; }
+grep -qx -- "- ada: newer on main" "$co/notes/plan.md" || team_fail "B69: join changed main's text"
+grep -q 'sam: from the old folder' "$co/notes/plan.md" && team_fail "B69: join copied the old file over main"
+grep -q "^old-folder: $old branch price (last commit [0-9a-f]* \"Pat: draft price list\"): notes/terms.md is set aside for notes/terms.md: " "$work/old.out" \
+  || team_fail "B69: the side-branch change to a file main has is not set aside"
 grep -q "same.md" "$work/old.out" && team_fail "B63: join listed a file the folder has with the same text"
-grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Local note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the local commit"
-grep -q "^old-folder: $old/areas/lab commit [0-9a-f]\{8\} \"Lab note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the area commit"
-# B64: the logs are read through the old folder's own .git, after the rename.
-grep -qx "old-folder: $old/memory/logs/2026-11-01-sam.md is not on the host. Copy it into memory/logs/ here: sync sends it." "$work/old.out" \
-  || { cat "$work/old.out" >&2; team_fail "B64: join did not list the unsaved log in the renamed folder"; }
-grep -q "^old-folder: $old/memory/logs commit [0-9a-f]\{8\} \"Log: sam\" is not on the host. Copy the logs it changed into memory/logs/ here: sync sends them" "$work/old.out" \
-  || team_fail "B64: join did not list the unpushed log commit"
-# B65: the side-branch commit once, under the company; a log commit only under logs; no push.
-[ "$(grep -c 'Pat: draft price list' "$work/old.out")" = "1" ] || team_fail "B65: the side-branch commit is not listed exactly once"
-grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Pat: draft price list\"" "$work/old.out" || team_fail "B65: the side-branch commit is not under the company"
-grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Log: sam\"" "$work/old.out" && team_fail "B65: a log commit is listed under the company"
 grep -q '^old-folder:.*push' "$work/old.out" && team_fail "B65: join printed a push command"
-grep -qx "old-folder: $old holds 7 items the host lacks (listed above). Copy them here first. Nothing was deleted." "$work/old.out" \
+grep -q 'Copy it into\|Copy the logs' "$work/old.out" && team_fail "item 3: join asked the person to copy"
+grep -qx "old-folder: $old held 9 items the host lacks (listed above). join copied them here or set them aside for the agent. Nothing was deleted. Delete the old folder only after the agent has re-applied what was set aside and sync has sent it to the host." "$work/old.out" \
   || { cat "$work/old.out" >&2; team_fail "B63: join did not sum up the old folder"; }
 [ "$old_state" = "$(old_snap)" ] || team_fail "B63: join changed the old folder"
 [ ! -e "$co/.git/worktrees" ] || team_fail "B64: join wrote a worktree into the new folder"
 grep -q 'join: ok' "$work/old.out" || team_fail "B63: join did not finish"
-# B64: logs git cannot open: never "You may delete it".
+# B69: the agent re-applies on the host's text; both lines go up.
+st_sync() {
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" OS_SYNC_ENGINE="$root/tests/fakes/engine.sh" OS_HOST_SH="$work/bin/host.sh" \
+    OS_PROFILE_SH="$root/template/skills/_host/profile.sh" OS_COMPANY_ROOT="$co" bash "$root/template/skills/sync/sync.sh" "$@"
+}
+st_sync re-apply list > "$work/reapply.out"
+grep -qx -- "- root notes/plan.md" "$work/reapply.out" || { cat "$work/reapply.out" >&2; team_fail "B69: no re-apply hold"; }
+base=$(jq -r '.files[] | select(.path == "notes/plan.md") | .basefile' "$work/home/.config/acme-os/state/held.json")
+mine=$(jq -r '.files[] | select(.path == "notes/plan.md") | .mine' "$work/home/.config/acme-os/state/held.json")
+[ "$(cat "$base")" = "$(printf '%s\n' "# Plan" "- base line")" ] || team_fail "B69: the base is not the old folder's HEAD text"
+grep -qx -- "- sam: from the old folder" "$mine" || team_fail "B69: the set-aside copy is not the person's text"
+# The side branch's file: its base is the text where the branch left main.
+held=$(jq -r '.files[] | select(.path == "notes/terms.md") | "\(.basefile) \(.mine)"' "$work/home/.config/acme-os/state/held.json")
+[ "$(cat "${held% *}")" = "$(printf '%s\n' "# Terms" "- base terms")" ] || team_fail "B69: the side-branch base is not the merge-base text"
+grep -qx -- "- price: side terms" "${held#* }" || team_fail "B69: the side-branch copy is not the branch's text"
+printf '%s\n' "- sam: from the old folder" >> "$co/notes/plan.md"
+st_sync re-apply "done" root notes/plan.md >/dev/null || team_fail "B69: re-apply done failed"
+# The new folder's lab area has no host here: keep it out of this push.
+mv "$co/areas/lab" "$work/lab-aside"
+st_sync push > "$work/st-push.out" 2>&1 || { cat "$work/st-push.out" >&2; team_fail "B69: push after re-apply failed"; }
+mv "$work/lab-aside" "$co/areas/lab"
+up=$(git --git-dir "$work/origin.git" show "sync/sam/$seat:notes/plan.md")
+grep -qx -- "- ada: newer on main" <<< "$up" || team_fail "B69: main's newer line is not on the host: $up"
+grep -qx -- "- sam: from the old folder" <<< "$up" || team_fail "B69: the person's line is not on the host: $up"
+# A second join: what was copied or re-applied is not brought again; an open hold says so.
+join_run > "$work/old4.out"
+grep -q "^old-folder: $old branch price .*: notes/terms.md is already set aside for notes/terms.md: the agent re-applies it" "$work/old4.out" \
+  || { cat "$work/old4.out" >&2; team_fail "B69: a second join did not name the open hold"; }
+grep -q "^old-folder: $old held 1 items" "$work/old4.out" || { cat "$work/old4.out" >&2; team_fail "B69: a second join brought something again"; }
+st_sync re-apply "done" root notes/terms.md >/dev/null || team_fail "B69: re-apply done failed for terms"
+join_run > "$work/old4.out"
+grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old4.out" \
+  || { cat "$work/old4.out" >&2; team_fail "B69: a third join brought something again"; }
+# B64: logs git cannot open: never "You may delete it", and no "holds 0 items" (low).
 mv "$old/.git/worktrees/logs" "$work/wt-logs-aside"
 join_run > "$work/old3.out"
 grep -qx "old-folder: $old/memory/logs could not be checked (git cannot open it). Copy each log in it that memory/logs/ does not have into memory/logs/ by hand before deleting the old folder." "$work/old3.out" \
   || { cat "$work/old3.out" >&2; team_fail "B64: no could-not-check line for the logs"; }
 grep -q 'You may delete it' "$work/old3.out" && team_fail "B64: said the old folder may go with its logs unchecked"
-grep -q "^old-folder: $old holds 5 items the host lacks (listed above), and some of it could not be checked. .*Do not delete it yet.$" "$work/old3.out" \
-  || team_fail "B64: no do-not-delete summary"
+grep -qx "old-folder: $old: some of it could not be checked (listed above). Check that part by hand. Nothing was deleted. Do not delete it yet." "$work/old3.out" \
+  || { cat "$work/old3.out" >&2; team_fail "low: the could-not-check summary"; }
 mv "$work/wt-logs-aside" "$old/.git/worktrees/logs"
+# Grok r6 stash: a stash is listed, and never "You may delete it".
+printf '%s\n' "stashed edit" >> "$old/notes/local.md"
+git -C "$old" stash -q
+join_run > "$work/old5.out"
+grep -q "^old-folder: $old has 1 stashed changes the host lacks" "$work/old5.out" || { cat "$work/old5.out" >&2; team_fail "Grok r6: the stash is not listed"; }
+[ "$(grep -c 'stashed changes' "$work/old5.out")" = "1" ] || team_fail "Grok r6: the shared stash is listed more than once"
+grep -q 'You may delete it' "$work/old5.out" && team_fail "Grok r6: said the old folder may go with a stash in it"
+git -C "$old" stash drop -q
+# Grok r6 detached HEAD: a commit made while detached in the logs folder is listed.
+git --git-dir "$old/.git/worktrees/logs" --work-tree "$old/memory/logs" checkout -q --detach
+printf '%s\n' "detached" > "$old/memory/logs/2026-11-02-sam.md"
+git --git-dir "$old/.git/worktrees/logs" --work-tree "$old/memory/logs" add 2026-11-02-sam.md
+git --git-dir "$old/.git/worktrees/logs" --work-tree "$old/memory/logs" -c user.name=t -c user.email=t@example.test commit -q -m "Log: detached"
+join_run > "$work/old6.out"
+grep -qx "old-folder: $old/memory/logs/2026-11-02-sam.md copied to memory/logs/2026-11-02-sam.md: sync sends it." "$work/old6.out" \
+  || { cat "$work/old6.out" >&2; team_fail "Grok r6: a commit on a detached logs HEAD is not brought"; }
 # Nothing left: one line says so.
-rm -rf "$old/draft.md" "$old/areas" "$old/memory/logs/2026-11-01-sam.md"
-git -C "$old" checkout -q -- company-profile.md
+rm -rf "$old/draft.md" "$old/areas" "$old/memory/logs"
+git -C "$old" worktree prune
+git -C "$old" checkout -q -- notes/plan.md
 git -C "$old" reset -q --hard origin/main
-git -C "$old" branch -q -D price
-git -C "$old" update-ref refs/remotes/origin/logs refs/heads/logs
+git -C "$old" branch -q -D price logs
 rm -f "$old/people/same.md"
 join_run > "$work/old2.out"
 grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old2.out" \
   || { cat "$work/old2.out" >&2; team_fail "B63: a clean old folder was not called clean"; }
-rm -rf "$old" "$co/people/same.md"
+rm -rf "$old" "$co/people/same.md" "$co/draft.md" "$co/prices.md" "$co/notes" "$co/areas/lab" \
+  "$co/memory/logs/2026-11-01-sam.md" "$co/memory/logs/2026-10-31-sam.md" "$co/memory/logs/2026-10-01-sam-renamed.md" \
+  "$co/memory/logs/2026-11-02-sam.md" "$work/home/.config/acme-os/state/reapply"
+git -C "$co" reset -q --hard "$st_was_head"
+git --git-dir "$work/origin.git" update-ref refs/heads/main "$st_was_main"
+git --git-dir "$work/origin.git" update-ref "refs/heads/sync/sam/$seat" "$st_was_seat"
+git -C "$co" fetch -q origin
 
 # Item 11 (a): claude is in ~/.local/bin but not on PATH. Join says so, gives the step,
 # and stops before the jobs. A PATH with no claude on it, even when this computer has one.

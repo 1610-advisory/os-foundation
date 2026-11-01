@@ -104,9 +104,10 @@ sync_reapply_dir() {
 # Keep the person's version of one file, and the text it was edited from, and hold the
 # file: the agent re-applies the change on the host's text (re-apply.md). from is
 # worktree (an edit not committed), commit (a sync commit not merged yet) or held:<file>
-# (a copy taken out first; no file means deleted).
+# (a copy taken out first; no file means deleted). A sixth argument is the hold's reason;
+# with it the caller prints its own line (join, B69).
 sync_set_aside() {
-  local repo=$1 id=$2 path=$3 base=$4 from=$5 dir slot mine basefile n=1 line tmp
+  local repo=$1 id=$2 path=$3 base=$4 from=$5 why=${6:-} dir slot mine basefile n=1 line tmp
   dir=$(sync_reapply_dir "$id")
   slot="${dir}/${path}"
   while [ -e "$slot" ] || [ -e "${slot}.base" ]; do
@@ -141,12 +142,14 @@ sync_set_aside() {
     chmod 600 "$basefile"
   fi
   line=$(jq -nc --arg repo "$id" --arg path "$path" --arg base "$base" --arg mine "$mine" --arg basefile "$basefile" \
-    '{repo:$repo, path:$path, kind:"re-apply", reason:"re-apply: changed on the host while you worked", base:$base, mine:$mine, basefile:$basefile}')
+    --arg why "${why:-re-apply: changed on the host while you worked}" \
+    '{repo:$repo, path:$path, kind:"re-apply", reason:$why, base:$base, mine:$mine, basefile:$basefile}')
   tmp=$(sync_mktemp)
   jq --argjson f "$line" '.files += [$f]' "$SYNC_HELD" > "$tmp"
   mv "$tmp" "$SYNC_HELD"
   chmod 600 "$SYNC_HELD"
   sync_log "pull re-apply ${id} ${path}"
+  [ -z "$why" ] || return 0
   printf '%s\n' "${id} ${path}: changed on the host while you worked. Your version is set aside and the host's text is here; the agent re-applies your change (skills/sync/re-apply.md)."
 }
 

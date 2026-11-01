@@ -261,8 +261,8 @@ grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each
 grep -q "^admin: .*v0 protected that branch (no deletion), so a plain git push --delete fails\. When every teammate has moved, delete it with: skills/_host/host.sh drop-logs acme2-os; skills/_host/host.sh drop-logs acme2-marketing$" "$work/run.out" \
   || { grep '^admin: until' "$work/run.out" >&2; team_fail "B61: the admin line does not give drop-logs per repo"; }
 # B63: line 3 says to copy the old folder's work before deleting it.
-grep -q "^teammates: 3\. Before deleting the old folder, keep its work: join.sh lists each file and commit in it that the host does not have" "$work/run.out" \
-  || team_fail "B63: teammates line 3 does not say to keep the old folder's work"
+grep -q "^teammates: 3\. Before deleting the old folder, keep its work: join.sh brings each file, commit and log in it that the host does not have into the new folder .* Never copy a whole file over" "$work/run.out" \
+  || team_fail "B63, B69: teammates line 3 does not say join brings the old folder's work"
 # B52: the run says how the folder gets back to main after the merge.
 grep -q "^admin: this folder stays on upgrade/v1 (each area on upgrade/scripts) until its pull request merges. When every upgrade pull request has merged, run skills/sync/sync.sh pull in this folder" "$work/run.out" || team_fail "no admin line for going back to main"
 

@@ -21,8 +21,9 @@ sync_not_workspace_only() {
     root|area) ;;
     *) return 1 ;;
   esac
+  # memory/logs-archive/ holds v0 logs that pull's catch-up brought in (B68).
   case "$path" in
-    memory/logs/*) return 0 ;;
+    memory/logs/*|memory/logs-archive/*) return 0 ;;
   esac
   if [ "$kind" = "area" ]; then
     case "$path" in
@@ -179,6 +180,10 @@ sync_engine_one() {
   local cmd prompt out err pid elapsed limit rc line n
   cmd=$(sync_engine_cmd)
   [ -n "$cmd" ] || return 3
+  # B70: the engine's program (claude) not on PATH is its own error, not a failed check.
+  # shellcheck disable=SC2086
+  set -- $cmd
+  command -v "$1" >/dev/null 2>&1 || return 127
   prompt=$(sync_mktemp)
   out=$(sync_mktemp)
   err=$(sync_mktemp)
@@ -614,7 +619,7 @@ sync_push_one() {
   local id=$2
   local kind
   local changed hits path rule reason added commit_files messages diff eng decision msg
-  local scan_rc v0open=""
+  local scan_rc v0open="" missing
   case "$id" in
     root) kind=root ;;
     area:*) kind=area ;;
@@ -761,6 +766,15 @@ sync_push_one() {
       SYNC_OFFLINE_SAY="offline: these notes stay here and go up when you are online"
       [ "${SYNC_OFFLINE:-0}" = "1" ] || sync_held_error "offline: the push check could not reach its engine"
       sync_log "push offline ${id} engine not reachable: notes wait here"
+      return 1
+    fi
+    missing=$(sync_engine_cmd)
+    missing=${missing%% *}
+    if [ "$rc" -eq 127 ] && ! command -v "$missing" >/dev/null 2>&1; then
+      # Nothing was judged: the files stay here as they are, and go at the next push.
+      sync_held_replace "$id" "$added"
+      sync_held_error "${missing} not found: install it, or run join again"
+      sync_log "push fail ${id} ${missing} not found"
       return 1
     fi
     if [ "$rc" -ne 0 ]; then

@@ -150,9 +150,19 @@ class SyncLocalTests(unittest.TestCase):
 
         write_profile(self.company / "company-profile.md", "team", [])
         env["OS_JOBS_PLATFORM"] = "macos"
+        # B70: each job carries the PATH the install saw (launchd's own is bare).
+        tools = self.tmp / "tools & bin"
+        tools.mkdir()
+        env["PATH"] = str(tools) + ":" + env["PATH"]
         made = self.sync("install-jobs", "--admin", env=env)
         self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
         plists = sorted(jobs.glob("*.plist"))
+        for plist in plists:
+            body = plist.read_text()
+            self.assertIn("<key>EnvironmentVariables</key>", body, plist.name)
+            self.assertIn("<key>PATH</key>", body, plist.name)
+            self.assertIn(str(self.tmp / "tools &amp; bin") + ":", body, plist.name)
+        self.assertTrue((self.home / ".config" / "acme-os" / "tool-path").is_file())
         self.assertGreaterEqual(len(plists), 4)
         for plist in plists:
             lint = run(["plutil", "-lint", str(plist)])
@@ -171,6 +181,8 @@ class SyncLocalTests(unittest.TestCase):
         names = sorted(p.name for p in linux.iterdir())
         self.assertTrue(any(n.endswith(".service") for n in names))
         self.assertTrue(any(n.endswith(".timer") for n in names))
+        for service in linux.glob("*.service"):
+            self.assertIn('Environment="PATH=' + str(tools) + ":", service.read_text(), service.name)
         push_timer = next(p for p in linux.glob("*push*.timer"))
         self.assertIn("Persistent=true", push_timer.read_text())
         self.assertIn("RandomizedDelaySec=1800", push_timer.read_text())
@@ -1976,6 +1988,63 @@ class SyncFixTests(unittest.TestCase):
         again = self.sync("pull", "--full")
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertNotIn("logs: ", again.stdout)
+
+    def test_a_bare_job_path_still_finds_the_tools(self):
+        # B70: launchd starts a job with PATH /usr/bin:/bin:/usr/sbin:/sbin. Tools in
+        # ~/.local/bin (claude) or Homebrew are found anyway; a missing one is named.
+        self.seed_origin()
+        bindir = self.home / ".local" / "bin"
+        bindir.mkdir(parents=True)
+        for tool in ("jq", "git"):
+            found = shutil.which(tool)
+            if found and not (bindir / tool).exists():
+                (bindir / tool).symlink_to(found)
+        claude = bindir / "claude"
+        claude.write_text('#!/bin/bash\nexec bash "%s"\n' % ENGINE)
+        claude.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["OS_SYNC_ENGINE"] = "claude -p"
+        pull = self.sync("pull", env=env)
+        self.assertEqual(pull.returncode, 0, pull.stdout + pull.stderr)
+        (self.company / "note.md").write_text("a shop note\n")
+        push = self.sync("push", env=env)
+        self.assertEqual(push.returncode, 0, push.stdout + push.stderr)
+        self.assertIn("note.md", self.tree(SEAT_REF))
+        # No claude anywhere: the push says so, and keeps the file here.
+        claude.unlink()
+        (self.company / "later.md").write_text("a later note\n")
+        push = self.sync("push", env=env)
+        self.assertNotEqual(push.returncode, 0)
+        status = self.sync("status", env=env).stdout
+        self.assertIn("last error: claude not found: install it, or run join again", status)
+        self.assertNotIn("could not reach the host", push.stdout + push.stderr + status)
+        self.assertTrue((self.company / "later.md").exists())
+        # Any tool sync needs: one plain line.
+        need = run(["bash", "-c", 'source "$1/lib.sh"; sync_need no-such-tool-b70', "x", str(SYNC)], env=self.env)
+        self.assertEqual(need.returncode, 1)
+        self.assertIn("no-such-tool-b70 not found: install it, or run join again", need.stderr)
+
+    def test_catch_up_logs_are_never_held_as_workspace_only(self):
+        # B68: the catch-up writes old-branch logs into memory/logs-archive/ and says the
+        # next push sends them. Rule 5 is a path rule there too, so a model that calls one
+        # "belongs in the workspace" does not hold it.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-05-noa.md").write_text("WORKSPACE-ME noa, after the upgrade\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: noa"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("are now in memory/logs-archive/ in root. The next push sends them.", result.stdout)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs-archive/2026-10-05-noa.md", self.tree(SEAT_REF))
+        status = self.sync("status").stdout
+        self.assertNotIn("2026-10-05-noa.md", status)
+        self.assertIn("push path-rule root memory/logs-archive/2026-10-05-noa.md", self.sync_log())
 
     def test_catch_up_keeps_a_change_made_here(self):
         # logsfix (53): an archived log edited here (not pushed) is not replaced by the

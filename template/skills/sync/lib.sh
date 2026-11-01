@@ -176,7 +176,32 @@ sync_find_root() {
   done
 }
 
+# B70: a job that launchd starts (or an app opened from Finder) gets PATH
+# /usr/bin:/bin:/usr/sbin:/sbin. Homebrew git, jq and gh, and the claude CLI, live in other
+# folders. Add each one that exists and is missing.
+sync_path_add() {
+  local d
+  for d in "$@"; do
+    [ -n "$d" ] && [ -d "$d" ] || continue
+    case ":${PATH}:" in
+      *":${d}:"*) continue ;;
+    esac
+    PATH="${PATH:+${PATH}:}${d}"
+  done
+  export PATH
+}
+
+# A tool sync needs and cannot find: say which, never "could not reach the host".
+sync_need() {
+  local t
+  for t in "$@"; do
+    command -v "$t" >/dev/null 2>&1 || sync_die 1 "${t} not found: install it, or run join again"
+  done
+}
+
 sync_bind() {
+  local line
+  sync_path_add /opt/homebrew/bin /usr/local/bin "${HOME:+$HOME/.local/bin}"
   SYNC_ROOT=$(sync_find_root)
   export OS_PROFILE="${OS_PROFILE:-$SYNC_ROOT/company-profile.md}"
   if [ -n "${OS_HOST_SH:-}" ]; then
@@ -193,6 +218,16 @@ sync_bind() {
   SYNC_SLUG=$("$PROFILE_SH" company_slug 2>/dev/null || true)
   [ -n "$SYNC_SLUG" ] || sync_die 1 "company_slug is not set"
   SYNC_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/${SYNC_SLUG}-os"
+  # The folders of the tools that join found (install-jobs writes them, B70).
+  if [ -f "$SYNC_CONFIG/tool-path" ]; then
+    while IFS= read -r line; do
+      sync_path_add "$line"
+    done < "$SYNC_CONFIG/tool-path"
+  fi
+  sync_need git jq
+  if [ "$("$PROFILE_SH" host 2>/dev/null || true)" = "github" ] && [ -z "${OS_HOST_SH:-}" ]; then
+    sync_need gh
+  fi
   SYNC_STATE="$SYNC_CONFIG/state"
   mkdir -p "$SYNC_STATE"
   chmod 700 "$SYNC_CONFIG" "$SYNC_STATE"

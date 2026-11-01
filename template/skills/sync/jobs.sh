@@ -56,6 +56,7 @@ sync_render() {
     line=${line//@DESC@/$DESC}
     line=${line//@DELAY@/$delay}
     line=${line//@USER@/$user}
+    line=${line//@PATH@/${JOBPATH:-}}
     printf '%s\n' "$line"
   done < "$src" > "$dest"
   if [ "$patsub" -eq 1 ]; then
@@ -154,6 +155,10 @@ cmd_install_jobs() {
   ARG=""
   DESC=""
   LABEL="com.osfoundation.${label}"
+  # B70: launchd and systemd start a job with a bare PATH. Each job gets the PATH this
+  # install saw (join's), and sync reads the folders of the tools found here.
+  sync_tool_dirs > "$SYNC_CONFIG/tool-path"
+  chmod 600 "$SYNC_CONFIG/tool-path"
   case "$platform" in
     macos) sync_install_macos "$dir" "$admin" ;;
     linux) sync_install_linux "$dir" "$admin" "$label" ;;
@@ -177,10 +182,24 @@ cmd_install_jobs() {
   fi
 }
 
+# The folder of each tool sync and the OS jobs run, as found now: one per line.
+sync_tool_dirs() {
+  local t p cmd
+  cmd=$(sync_engine_cmd 2>/dev/null || true)
+  for t in git jq gh claude "${cmd%% *}"; do
+    [ -n "$t" ] || continue
+    p=$(command -v "$t" 2>/dev/null) || continue
+    case "$p" in
+      /*) dirname "$p" ;;
+    esac
+  done | awk '!seen[$0]++'
+}
+
 sync_install_macos() {
   local dir=$1
   local admin=$2
   local src
+  JOBPATH=$(sync_xml "$PATH")
   src="$SYNC_DIR/jobs"
   LABEL="com.osfoundation.${label}.pull"
   ARG="pull"
@@ -214,6 +233,9 @@ sync_install_linux() {
   local admin=$2
   local safe=$3
   local src unit
+  # systemd reads % as a specifier and " as a quote in Environment=.
+  JOBPATH=${PATH//%/%%}
+  JOBPATH=${JOBPATH//\"/}
   src="$SYNC_DIR/jobs"
   unit="osfoundation-${safe}"
   LABEL="${unit}-pull"

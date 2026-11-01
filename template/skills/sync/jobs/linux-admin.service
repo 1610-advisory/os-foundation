@@ -4,6 +4,7 @@ Description=@DESC@
 [Service]
 Type=oneshot
 WorkingDirectory=@ROOT@
+Environment="PATH=@PATH@"
 ExecStart=/bin/bash @ROOT@/skills/nightly-review/run.sh
 ExecStart=/bin/bash @ROOT@/skills/reports/run.sh
 
