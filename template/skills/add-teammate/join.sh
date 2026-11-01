@@ -357,13 +357,37 @@ old_same_repo() {
   return 1
 }
 
+# The git folder of an old v0 logs worktree (memory/logs), read through the old folder's
+# own .git (B64). git wrote an absolute link in memory/logs/.git, so after the rename it
+# names the new folder. Read only: never "worktree repair" there. Prints the path, or
+# fails when it cannot be found.
+old_logs_gitdir() {
+  local old=$1 link name gd
+  [ -f "$old/memory/logs/.git" ] || return 1
+  link=$(sed -n 's/^gitdir: //p' "$old/memory/logs/.git" | head -n 1)
+  [ -n "$link" ] || return 1
+  name=$(basename "$link")
+  gd="$old/.git/worktrees/$name"
+  [ -f "$gd/HEAD" ] || return 1
+  printf '%s\n' "$gd"
+}
+
 old_report_repo() {
-  local old=$1 new=$2 label=$3 rel sha subject want have dest skip=0
+  local old=$1 new=$2 label=$3 rel sha subject want have dest skip=0 out gd branch logs_dest
   dest="this folder"
-  [ "$new" = "$ROOT" ] || dest=${new#"$ROOT"/}
+  logs_dest="memory/logs/"
+  if [ "$new" != "$ROOT" ]; then
+    dest=${new#"$ROOT"/}
+    logs_dest="${dest}/memory/logs/"
+  fi
   # Changed and untracked files whose text this folder does not have. With -z a rename
   # or copy is followed by its old path as a record of its own: skip that one.
-  while IFS= read -r -d '' rel; do
+  if ! out=$(git --no-optional-locks -C "$old" -c core.quotepath=false status --porcelain -z --untracked-files=all 2>/dev/null | tr '\0' '\n'); then
+    printf 'old-folder: %s could not be checked (git status failed there). Compare it with this folder by hand before deleting it.\n' "$label"
+    OLD_UNCHECKED=1
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
     if [ "$skip" -eq 1 ]; then
       skip=0
       continue
@@ -380,28 +404,66 @@ old_report_repo() {
     fi
     printf 'old-folder: %s/%s is not on the host. Copy it into %s before deleting the old folder.\n' "$label" "$rel" "$dest"
     OLD_N=$((OLD_N + 1))
-  done < <(git --no-optional-locks -C "$old" -c core.quotepath=false status --porcelain -z --untracked-files=all 2>/dev/null || true)
-  # Commits on any local branch that this folder (a fresh clone of the host) does not have.
+  done <<< "$out"
+  # Commits on any local branch that this folder (a fresh clone of the host) does not
+  # have. The old logs branch is left out here: its commits are logs (below, B65).
+  if ! out=$(git -C "$old" log --exclude=logs --branches --not --remotes --format='%H %s' 2>/dev/null); then
+    printf 'old-folder: %s could not be checked (git log failed there). Compare it with this folder by hand before deleting it.\n' "$label"
+    OLD_UNCHECKED=1
+  fi
   while IFS=' ' read -r sha subject; do
     [ -n "$sha" ] || continue
     git -C "$new" cat-file -e "${sha}^{commit}" 2>/dev/null && continue
     printf 'old-folder: %s commit %s "%s" is not on the host. Copy its changes into this folder (git -C %s show %s).\n' \
       "$label" "${sha:0:8}" "$subject" "$old" "${sha:0:8}"
     OLD_N=$((OLD_N + 1))
-  done < <(git -C "$old" log --branches --not --remotes --format='%H %s' 2>/dev/null || true)
-  # The old logs folder: a log not committed, or committed and never pushed.
-  if [ -e "$old/memory/logs/.git" ]; then
-    while IFS= read -r -d '' rel; do
-      printf 'old-folder: %s/memory/logs/%s is not on the host. Copy it into memory/logs-archive/ here.\n' "$label" "${rel:3}"
-      OLD_N=$((OLD_N + 1))
-    done < <(git --no-optional-locks -C "$old/memory/logs" -c core.quotepath=false status --porcelain -z --untracked-files=all 2>/dev/null || true)
-    while IFS=' ' read -r sha subject; do
-      [ -n "$sha" ] || continue
-      printf 'old-folder: %s/memory/logs commit %s "%s" is not on the host. Push it from there: git -C %s/memory/logs push.\n' \
-        "$label" "${sha:0:8}" "$subject" "$old"
-      OLD_N=$((OLD_N + 1))
-    done < <(git -C "$old/memory/logs" log --branches --not --remotes --format='%H %s' 2>/dev/null || true)
+  done <<< "$out"
+  # The old logs folder: a log not committed, or committed on the logs branch and never
+  # pushed. v1 keeps logs in memory/logs/ and sync sends them, so each one is copied
+  # there. Never push the old logs branch: that would bring back the branch the admin
+  # deleted, and every teammate's logs would wait again.
+  [ -e "$old/memory/logs/.git" ] || return 0
+  if ! gd=$(old_logs_gitdir "$old"); then
+    printf 'old-folder: %s/memory/logs could not be checked (git cannot open it). Copy each log in it that %s does not have into %s by hand before deleting the old folder.\n' \
+      "$label" "$logs_dest" "$logs_dest"
+    OLD_UNCHECKED=1
+    return 0
   fi
+  if ! out=$(git --no-optional-locks --git-dir "$gd" --work-tree "$old/memory/logs" -c core.quotepath=false \
+    status --porcelain -z --untracked-files=all 2>/dev/null | tr '\0' '\n'); then
+    printf 'old-folder: %s/memory/logs could not be checked (git status failed there). Copy each log in it that %s does not have into %s by hand before deleting the old folder.\n' \
+      "$label" "$logs_dest" "$logs_dest"
+    OLD_UNCHECKED=1
+    return 0
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    case "$rel" in
+      R*|C*) continue ;;
+    esac
+    rel=${rel:3}
+    [ -f "$old/memory/logs/$rel" ] || continue
+    if [ -f "$new/memory/logs/$rel" ] \
+      && [ "$(git hash-object -- "$old/memory/logs/$rel")" = "$(git hash-object -- "$new/memory/logs/$rel")" ]; then
+      continue
+    fi
+    printf 'old-folder: %s/memory/logs/%s is not on the host. Copy it into %s here: sync sends it.\n' "$label" "$rel" "$logs_dest"
+    OLD_N=$((OLD_N + 1))
+  done <<< "$out"
+  branch=$(git --git-dir "$gd" symbolic-ref -q --short HEAD 2>/dev/null || printf '%s' logs)
+  if ! out=$(git --git-dir "$gd" log "refs/heads/${branch}" --not --remotes --format='%H %s' 2>/dev/null); then
+    printf 'old-folder: %s/memory/logs could not be checked (git log failed there). Copy each log in it that %s does not have into %s by hand before deleting the old folder.\n' \
+      "$label" "$logs_dest" "$logs_dest"
+    OLD_UNCHECKED=1
+    return 0
+  fi
+  while IFS=' ' read -r sha subject; do
+    [ -n "$sha" ] || continue
+    git -C "$new" cat-file -e "${sha}^{commit}" 2>/dev/null && continue
+    printf 'old-folder: %s/memory/logs commit %s "%s" is not on the host. Copy the logs it changed into %s here: sync sends them (git -C %s show --name-only %s lists them). Do not send the old logs branch to the host.\n' \
+      "$label" "${sha:0:8}" "$subject" "$logs_dest" "$old" "${sha:0:8}"
+    OLD_N=$((OLD_N + 1))
+  done <<< "$out"
 }
 
 old_folder_report() {
@@ -411,13 +473,17 @@ old_folder_report() {
     [ "$(cd "$cand" && pwd)" != "$ROOT" ] || continue
     old_same_repo "$cand" "$(os_company_repo "$SLUG")" || continue
     OLD_N=0
+    OLD_UNCHECKED=0
     old_report_repo "$cand" "$ROOT" "$cand"
     for area in "$cand"/areas/*; do
       [ -e "$area/.git" ] || continue
       old_same_repo "$area" "$(os_area_repo "$SLUG" "$(basename "$area")")" || continue
       old_report_repo "$area" "$ROOT/areas/$(basename "$area")" "$area"
     done
-    if [ "$OLD_N" -eq 0 ]; then
+    if [ "$OLD_UNCHECKED" -eq 1 ]; then
+      # Never "you may delete it" when a part could not be read (B64).
+      printf 'old-folder: %s holds %s items the host lacks (listed above), and some of it could not be checked. Copy them here first, and check the rest by hand. Nothing was deleted. Do not delete it yet.\n' "$cand" "$OLD_N"
+    elif [ "$OLD_N" -eq 0 ]; then
       printf 'old-folder: %s has nothing the host lacks. You may delete it.\n' "$cand"
     else
       printf 'old-folder: %s holds %s items the host lacks (listed above). Copy them here first. Nothing was deleted.\n' "$cand" "$OLD_N"

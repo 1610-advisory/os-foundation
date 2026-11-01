@@ -457,6 +457,56 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout)["deleted"], False)
 
+    def test_drop_logs_proves_the_branch_is_gone(self):
+        # Grok r5 P2: a missing repo is not "deleted:false".
+        self.flag("repo-missing")
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("no repo acme/acme-os that this sign-in can see: check the name", proc.stderr)
+        self.assertEqual(self.writes(), [])
+        (self.dir / "repo-missing").unlink()
+        # A 422 that leaves the branch there is not done either.
+        self.flag("logs")
+        self.flag("logs-delete-refused")
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("the logs branch is still on acme-os. Run skills/_host/host.sh drop-logs acme-os again.", proc.stderr)
+        self.assertNotIn('"ok"', proc.stdout)
+        (self.dir / "logs-delete-refused").unlink()
+        # The branch check itself fails: not done.
+        self.flag("logs-check-down")
+        (self.dir / "logs").unlink()
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("could not check that the logs branch is gone on acme-os", proc.stderr)
+
+    def test_drop_logs_says_the_rule_is_off_when_the_delete_fails(self):
+        # Grok r5 P3: the rule went, then the delete failed: say so, and run it again.
+        self.flag("logs-rule")
+        self.flag("logs")
+        self.flag("logs-delete-down")
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn(
+            "could not delete the logs branch on acme-os. The old protection on logs is already off: "
+            "run skills/_host/host.sh drop-logs acme-os again.",
+            proc.stderr,
+        )
+        (self.dir / "logs-delete-down").unlink()
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["deleted"], True)
+
+    def test_archive_repo_twice_is_done(self):
+        # B66: GitHub refuses a change to an archived repo. Already archived is done.
+        proc = run(["archive-repo", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue((self.dir / "archived").exists())
+        proc = run(["archive-repo", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "archived": True, "already": True})
+        self.assertEqual(sum("--method PATCH /repos/acme/acme-os" in w for w in self.writes()), 1)
+
     def test_drop_logs_stops_when_the_rule_stays(self):
         self.flag("logs-rule")
         self.flag("logs-rule-denied")

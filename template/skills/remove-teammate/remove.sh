@@ -311,6 +311,15 @@ for repo in "$COMPANY_REPO" $(for area in $AREAS; do os_area_repo "$SLUG" "$area
   done
 done
 
+# What this run could not do. Each part is named, and the run does not end "remove: ok".
+UNFINISHED=""
+not_finished() {
+  case " ${UNFINISHED} " in
+    *" $1 "*) ;;
+    *) UNFINISHED="${UNFINISHED:+${UNFINISHED} }$1" ;;
+  esac
+}
+
 # The person's sync branches: one per computer (sync/<person>/<seat>), and sync/<person>
 # from older code. Deleting a branch closes its pull request. Work not merged by now
 # stays in the person's archived workspace and on their computer, not in the company.
@@ -320,6 +329,8 @@ for dir in "$ROOT" $(for area in $AREAS; do printf '%s\n' "$ROOT/areas/${area}";
   rel=${rel#/}
   if ! refs=$(os_with_git_token git -C "$dir" ls-remote --heads origin 2>/dev/null); then
     printf 'could not list branches in %s: delete sync/%s/* by hand\n' "${rel:-company}" "$PERSON"
+    name=${rel#areas/}
+    not_finished "${name:-company}"
     continue
   fi
   printf '%s\n' "$refs" | awk -v p="refs/heads/sync/${PERSON}" '$2 == p || index($2, p "/") == 1 { print $2 }' \
@@ -361,6 +372,20 @@ offboard_body() {
   [ "$bots" -eq 0 ] || printf '%s\n' "bots: each bot ${PERSON} owned now has owner: ${NEW_OWNER}."
 }
 
+# The offboard branch an earlier run pushed, once main has its change (B67): delete it,
+# so no branch equal to main is left on the host. Never one that holds work main lacks.
+offboard_drop_stray() {
+  local dir=$1 repo=$2 label=$3 tip
+  tip=$(git -C "$dir" rev-parse -q --verify "refs/remotes/origin/${branch}" 2>/dev/null) || return 0
+  git -C "$dir" merge-base --is-ancestor "$tip" refs/remotes/origin/main 2>/dev/null || return 0
+  if os_with_git_token git -C "$dir" push -q origin ":refs/heads/${branch}" 2>/dev/null; then
+    git -C "$dir" update-ref -d "refs/remotes/origin/${branch}" 2>/dev/null || true
+    printf 'deleted: %s %s (main has its change)\n' "$repo" "$branch"
+  else
+    printf 'could not delete %s on %s: delete it by hand (main has its change)\n' "$branch" "$label"
+  fi
+}
+
 # How one offboard pull request merges. One that changes rules files (bots/, CODEOWNERS)
 # is the admin's own: on GitHub the admin merges it by hand. Anything else merges by itself.
 offboard_merge_line() {
@@ -387,7 +412,12 @@ branch="rules/${ADMIN}/offboard-${PERSON}"
 os_with_git_token git -C "$ROOT" fetch origin
 wt=$(os_branch_start "$ROOT") || exit 3
 PAGE=$(os_person_file "$wt" "$PERSON")
-os_fm_set "$PAGE" left "$WHEN"
+# A run again after the first offboard merged keeps that date (B67): no new change.
+LEFT_MAIN=$(os_fm_get "$PAGE" left 2>/dev/null || true)
+case "$LEFT_MAIN" in
+  ""|'""') os_fm_set "$PAGE" left "$WHEN" ;;
+  *) WHEN=$LEFT_MAIN ;;
+esac
 
 moved=0
 bot=""
@@ -417,14 +447,24 @@ if offboard_owners "$wt"; then
 fi
 
 os_git_commit "$wt" "Offboard: ${PERSON}" "${paths[@]}"
-body=$(mktemp)
-offboard_body "$wt" "$moved" "$owners" > "$body"
-os_branch_push "$ROOT" "$wt" "$branch"
-# The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
-os_back_to_main "$ROOT"
-pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}" --body-file "$body")
-rm -f "$body"
-number=$(printf '%s' "$pr" | jq -r '.number // empty')
+number=""
+if [ "$(git -C "$wt" rev-parse HEAD)" = "$(git -C "$ROOT" rev-parse refs/remotes/origin/main)" ]; then
+  # Nothing to change: an earlier run's offboard pull request merged (B67). No branch,
+  # no push, no pull request; a branch an earlier run left is deleted when main has it.
+  git -C "$ROOT" worktree remove --force "$wt" >/dev/null 2>&1 || true
+  rm -rf "$(dirname "$wt")"
+  printf 'already done: %s (main has the offboard change)\n' "$COMPANY_REPO"
+  offboard_drop_stray "$ROOT" "$COMPANY_REPO" company
+else
+  body=$(mktemp)
+  offboard_body "$wt" "$moved" "$owners" > "$body"
+  os_branch_push "$ROOT" "$wt" "$branch"
+  # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
+  os_back_to_main "$ROOT"
+  pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}" --body-file "$body")
+  rm -f "$body"
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+fi
 
 printf 'left: %s\n' "$WHEN"
 if [ "$moved" -eq 1 ]; then
@@ -442,7 +482,6 @@ fi
 
 # Each area repo where the person is a code owner: its own rules pull request (R6).
 # An area this run could not reach is named, and the run does not end "remove: ok".
-UNFINISHED=""
 if [ -n "$GH" ]; then
   for area in $AREAS; do
     adir="$ROOT/areas/$area"
@@ -450,17 +489,18 @@ if [ -n "$GH" ]; then
     if ! os_with_git_token git -C "$adir" fetch origin; then
       printf 'not finished: %s: could not fetch %s, so its CODEOWNERS may still name %s. Run remove again when the host is reachable.\n' \
         "$area" "$(os_area_repo "$SLUG" "$area")" "$PERSON"
-      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
+      not_finished "$area"
       continue
     fi
     if ! awt=$(os_branch_start "$adir"); then
       printf 'not finished: %s: could not start a branch from main. Run remove again.\n' "$area"
-      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
+      not_finished "$area"
       continue
     fi
     if ! offboard_owners "$awt"; then
       git -C "$adir" worktree remove --force "$awt" >/dev/null 2>&1 || true
       rm -rf "$(dirname "$awt")"
+      offboard_drop_stray "$adir" "$(os_area_repo "$SLUG" "$area")" "$area"
       continue
     fi
     apaths=()
@@ -479,7 +519,7 @@ if [ -n "$GH" ]; then
     if [ -z "$anum" ]; then
       printf 'could not open the offboard pull request for %s: run remove again\n' "$arepo" >&2
       printf 'not finished: %s: no offboard pull request on %s.\n' "$area" "$arepo"
-      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
+      not_finished "$area"
       continue
     fi
     printf 'rules-pr: %s %s (%s)\n' "$arepo" "$anum" "${apaths[*]}"

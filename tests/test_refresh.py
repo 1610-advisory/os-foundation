@@ -153,6 +153,24 @@ class RefreshTests(unittest.TestCase):
         heads = run(["git", "ls-remote", "--heads", str(self.bare)], env=self.env).stdout
         self.assertNotIn("rules/", heads)
 
+    def test_dry_run_never_keeps_the_generated_lists_and_names_drop_logs(self):
+        # Round 6: the stock lists are generated, never "changed by the company", and an old
+        # v0 logs branch still on the host gets the admin's drop-logs line.
+        scripts = self.company / ".github" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        for name in ("stock-current.txt", "stock-hashes.txt"):
+            path = scripts / name
+            path.write_text((path.read_text() if path.exists() else "") + "0000000000000000000000000000000000000000 skills/old/SKILL.md\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "older lists"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main", "main:logs"], env=self.env, check=True)
+        result = self.refresh("--dry-run")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("stock-current.txt (changed by the company", result.stdout)
+        self.assertNotIn("stock-hashes.txt (changed by the company", result.stdout)
+        self.assertIn("kept: the company folder skills/ingest/SKILL.md", result.stdout)
+        self.assertIn("delete it with: skills/_host/host.sh drop-logs acme-os", result.stdout)
+
     def test_refresh_opens_one_rules_pull_request_with_only_stock_files(self):
         release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
         result = self.refresh()

@@ -73,9 +73,19 @@ case "$method $path" in
     printf '%s\n' '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true}'
     ;;
   "GET /repos/acme/acme-os")
-    printf '%s\n' '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true}'
+    [ ! -f "$dir/repo-missing" ] || refuse 404 "Not Found"
+    archived=false
+    [ ! -f "$dir/archived" ] || archived=true
+    printf '{"name":"acme-os","full_name":"acme/acme-os","clone_url":"https://github.com/acme/acme-os.git","private":true,"archived":%s}\n' "$archived"
     ;;
   "PATCH /repos/acme/acme-os")
+    # B66: GitHub refuses any change to an archived repo.
+    [ ! -f "$dir/archived" ] || refuse 403 "Repository was archived so is read-only."
+    if grep -q '"archived":true' "$dir/last-input" 2>/dev/null; then
+      touch "$dir/archived"
+      printf '%s\n' '{"archived":true}'
+      exit 0
+    fi
     [ ! -f "$dir/patch-denied" ] || refuse 403 "Must have admin rights to Repository."
     touch "$dir/allowed"
     printf '%s\n' '{"allow_auto_merge":true}'
@@ -113,7 +123,15 @@ case "$method $path" in
     fi
     refuse 404 "Branch not protected"
     ;;
+  "GET /repos/acme/acme-os/git/ref/heads/logs")
+    [ ! -f "$dir/logs-check-down" ] || refuse 500 "Server Error"
+    [ -f "$dir/logs" ] || refuse 404 "Not Found"
+    printf '%s\n' '{"ref":"refs/heads/logs","object":{"sha":"abc123"}}'
+    ;;
   "DELETE /repos/acme/acme-os/git/refs/heads/logs")
+    [ ! -f "$dir/logs-delete-down" ] || refuse 500 "Server Error"
+    # Grok r5 P2: a 422 that is not "gone" (the branch stays).
+    [ ! -f "$dir/logs-delete-refused" ] || refuse 422 "Validation Failed"
     [ ! -f "$dir/logs-rule" ] || refuse 422 "Cannot delete this protected branch (GH006)"
     if [ -f "$dir/logs" ]; then
       rm -f "$dir/logs"

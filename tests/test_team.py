@@ -57,6 +57,9 @@ class TeamScripts(unittest.TestCase):
     def test_remove_owners(self):
         run_script("test_remove_owners.sh")
 
+    def test_remove_rerun(self):
+        run_script("test_remove_rerun.sh")
+
     def test_teams(self):
         run_script("test_teams.sh")
 

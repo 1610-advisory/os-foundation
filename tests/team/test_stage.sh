@@ -277,28 +277,62 @@ git --git-dir "$work/origin.git" log -1 --format=%B "sync/sam/$seat" | grep -qx 
   || team_fail "the folder's main is not what went up"
 git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync branch"
 
-# B63: an old copy renamed beside the folder. Join lists each file and commit in it that
-# the host lacks, one line each, and never changes or deletes it.
+# B63, B64, B65: an old v0 copy, renamed beside the folder after it was made, the way
+# section 11 says: it was built at this folder's path, with a "git worktree add" logs
+# folder (git writes an absolute link), then renamed, and the new clone took the name.
+# So memory/logs/.git in the old folder names this folder's .git. Join lists each file
+# and commit in it that the host lacks, one line each, and never changes or deletes it.
 old="$work/co-old"
-git clone -q -b main "$work/origin.git" "$old"
-git -C "$old" remote set-url origin https://github.com/acme/acme-os.git
-git -C "$old" config user.email sam@acme.test
-git -C "$old" config user.name "Sam Member"
-printf '%s\n' "never pushed" > "$old/draft.md"
-printf '%s\n' "edited here" >> "$old/company-profile.md"
-cp "$co/people/Ada Admin.md" "$old/people/same.md"
-cp "$co/people/Ada Admin.md" "$co/people/same.md"
-mkdir -p "$old/notes"
-printf '%s\n' "a local commit" > "$old/notes/local.md"
-git -C "$old" add notes/local.md
-git -C "$old" commit -q -m "Local note"
-mkdir -p "$old/areas/lab"
-git -C "$old/areas/lab" init -q -b main
-git -C "$old/areas/lab" remote add origin https://github.com/acme/acme-lab.git
-printf '%s\n' "lab" > "$old/areas/lab/lab.md"
-git -C "$old/areas/lab" add lab.md
-git -C "$old/areas/lab" -c user.email=s@acme.test -c user.name=Sam commit -q -m "Lab note"
-old_state=$(cd "$old" && git status --porcelain && git rev-parse HEAD && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+mv "$co" "$work/co-new"
+git clone -q -b main "$work/origin.git" "$co"
+git -C "$co" remote set-url origin https://github.com/acme/acme-os.git
+git -C "$co" config user.email sam@acme.test
+git -C "$co" config user.name "Sam Member"
+# The v0 logs branch, pushed once (the old copy's origin/logs), then a logs worktree.
+git -C "$co" checkout -q --orphan logs
+git -C "$co" rm -rq --cached .
+git -C "$co" clean -fdqx
+printf '%s\n' "day one" > "$co/2026-10-01-sam.md"
+git -C "$co" add 2026-10-01-sam.md
+git -C "$co" commit -q -m "Log: day one"
+git -C "$co" update-ref refs/remotes/origin/logs HEAD
+git -C "$co" checkout -q main
+git -C "$co" worktree add -q "$co/memory/logs" logs
+printf '%s\n' "/memory/logs/" >> "$co/.git/info/exclude"
+# A log committed on the logs branch and never pushed, and one never committed.
+printf '%s\n' "day two" > "$co/memory/logs/2026-10-31-sam.md"
+git -C "$co/memory/logs" add 2026-10-31-sam.md
+git -C "$co/memory/logs" commit -q -m "Log: sam"
+printf '%s\n' "not saved" > "$co/memory/logs/2026-11-01-sam.md"
+# A side branch with a commit the host never got (listed once, under the company).
+git -C "$co" checkout -q -b price
+printf '%s\n' "prices" > "$co/prices.md"
+git -C "$co" add prices.md
+git -C "$co" commit -q -m "Pat: draft price list"
+git -C "$co" checkout -q main
+printf '%s\n' "never pushed" > "$co/draft.md"
+printf '%s\n' "edited here" >> "$co/company-profile.md"
+cp "$work/co-new/people/Ada Admin.md" "$co/people/same.md"
+cp "$work/co-new/people/Ada Admin.md" "$work/co-new/people/same.md"
+mkdir -p "$co/notes"
+printf '%s\n' "a local commit" > "$co/notes/local.md"
+git -C "$co" add notes/local.md
+git -C "$co" commit -q -m "Local note"
+mkdir -p "$co/areas/lab"
+git -C "$co/areas/lab" init -q -b main
+git -C "$co/areas/lab" remote add origin https://github.com/acme/acme-lab.git
+printf '%s\n' "lab" > "$co/areas/lab/lab.md"
+git -C "$co/areas/lab" add lab.md
+git -C "$co/areas/lab" -c user.email=s@acme.test -c user.name=Sam commit -q -m "Lab note"
+# The rename, then the new folder takes the usual name.
+mv "$co" "$old"
+mv "$work/co-new" "$co"
+git -C "$old/memory/logs" status >/dev/null 2>&1 && team_fail "B64 setup: the old logs link still works after the rename"
+old_snap() {
+  (cd "$old" && git status --porcelain && git rev-parse HEAD && git for-each-ref \
+    && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+}
+old_state=$(old_snap)
 join_run > "$work/old.out"
 grep -qx "old-folder: $old/draft.md is not on the host. Copy it into this folder before deleting the old folder." "$work/old.out" \
   || { cat "$work/old.out" >&2; team_fail "B63: join did not list the untracked file"; }
@@ -307,15 +341,36 @@ grep -qx "old-folder: $old/company-profile.md is not on the host. Copy it into t
 grep -q "same.md" "$work/old.out" && team_fail "B63: join listed a file the folder has with the same text"
 grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Local note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the local commit"
 grep -q "^old-folder: $old/areas/lab commit [0-9a-f]\{8\} \"Lab note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the area commit"
-grep -qx "old-folder: $old holds 4 items the host lacks (listed above). Copy them here first. Nothing was deleted." "$work/old.out" \
-  || team_fail "B63: join did not sum up the old folder"
-[ "$old_state" = "$(cd "$old" && git status --porcelain && git rev-parse HEAD && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)" ] \
-  || team_fail "B63: join changed the old folder"
+# B64: the logs are read through the old folder's own .git, after the rename.
+grep -qx "old-folder: $old/memory/logs/2026-11-01-sam.md is not on the host. Copy it into memory/logs/ here: sync sends it." "$work/old.out" \
+  || { cat "$work/old.out" >&2; team_fail "B64: join did not list the unsaved log in the renamed folder"; }
+grep -q "^old-folder: $old/memory/logs commit [0-9a-f]\{8\} \"Log: sam\" is not on the host. Copy the logs it changed into memory/logs/ here: sync sends them" "$work/old.out" \
+  || team_fail "B64: join did not list the unpushed log commit"
+# B65: the side-branch commit once, under the company; a log commit only under logs; no push.
+[ "$(grep -c 'Pat: draft price list' "$work/old.out")" = "1" ] || team_fail "B65: the side-branch commit is not listed exactly once"
+grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Pat: draft price list\"" "$work/old.out" || team_fail "B65: the side-branch commit is not under the company"
+grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Log: sam\"" "$work/old.out" && team_fail "B65: a log commit is listed under the company"
+grep -q '^old-folder:.*push' "$work/old.out" && team_fail "B65: join printed a push command"
+grep -qx "old-folder: $old holds 7 items the host lacks (listed above). Copy them here first. Nothing was deleted." "$work/old.out" \
+  || { cat "$work/old.out" >&2; team_fail "B63: join did not sum up the old folder"; }
+[ "$old_state" = "$(old_snap)" ] || team_fail "B63: join changed the old folder"
+[ ! -e "$co/.git/worktrees" ] || team_fail "B64: join wrote a worktree into the new folder"
 grep -q 'join: ok' "$work/old.out" || team_fail "B63: join did not finish"
+# B64: logs git cannot open: never "You may delete it".
+mv "$old/.git/worktrees/logs" "$work/wt-logs-aside"
+join_run > "$work/old3.out"
+grep -qx "old-folder: $old/memory/logs could not be checked (git cannot open it). Copy each log in it that memory/logs/ does not have into memory/logs/ by hand before deleting the old folder." "$work/old3.out" \
+  || { cat "$work/old3.out" >&2; team_fail "B64: no could-not-check line for the logs"; }
+grep -q 'You may delete it' "$work/old3.out" && team_fail "B64: said the old folder may go with its logs unchecked"
+grep -q "^old-folder: $old holds 5 items the host lacks (listed above), and some of it could not be checked. .*Do not delete it yet.$" "$work/old3.out" \
+  || team_fail "B64: no do-not-delete summary"
+mv "$work/wt-logs-aside" "$old/.git/worktrees/logs"
 # Nothing left: one line says so.
-rm -rf "$old/draft.md" "$old/areas"
+rm -rf "$old/draft.md" "$old/areas" "$old/memory/logs/2026-11-01-sam.md"
 git -C "$old" checkout -q -- company-profile.md
 git -C "$old" reset -q --hard origin/main
+git -C "$old" branch -q -D price
+git -C "$old" update-ref refs/remotes/origin/logs refs/heads/logs
 rm -f "$old/people/same.md"
 join_run > "$work/old2.out"
 grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old2.out" \

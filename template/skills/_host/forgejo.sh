@@ -740,6 +740,15 @@ cmd_archive() {
   host_need_name
   name=$POS1
   body=$(jq -nc '{archived:true}')
+  # Already archived is done (B66): a second remove must not stop here.
+  if ! fj_call GET "$(host_repo "$name")"; then
+    fj_offline
+  fi
+  fj_ok
+  if [ "$(printf '%s' "$FJ_BODY" | jq -r '.archived // false')" = "true" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, archived:true, already:true}'
+    return 0
+  fi
   if ! fj_call PATCH "$(host_repo "$name")" "$body"; then
     fj_offline
   fi
@@ -860,13 +869,24 @@ cmd_open_prs() {
 # The old v0 logs branch (B61): lift a protection rule on it, then delete it. Only logs.
 # A rule or branch already gone is fine.
 cmd_drop_logs() {
-  local name deleted=true
+  local name deleted=true again=""
   host_need_name
   name=$POS1
+  # A 404 below is proof only when the repo is there (Grok r5 P2): check it first.
+  if ! fj_call GET "$(host_repo "$name")"; then
+    fj_offline
+  fi
+  if [ "$FJ_HTTP" = "404" ]; then
+    host_die 3 "no repo ${OS_ORG}/${name} that this sign-in can see: check the name, then run drop-logs again"
+  fi
+  fj_ok
   if ! fj_call DELETE "$(host_repo "$name")/branch_protections/logs"; then
     fj_offline
   fi
-  [ "$FJ_HTTP" = "404" ] || fj_ok
+  if [ "$FJ_HTTP" != "404" ]; then
+    fj_ok
+    again=" The old protection on logs is already off: run skills/_host/host.sh drop-logs ${name} again."
+  fi
   # Forgejo answers a delete of a missing branch with 500, so look first.
   if ! fj_call GET "$(host_repo "$name")/branches/logs"; then
     fj_offline
@@ -876,9 +896,19 @@ cmd_drop_logs() {
   else
     fj_ok
     if ! fj_call DELETE "$(host_repo "$name")/branches/logs"; then
-      fj_offline
+      host_die 5 "host is offline: could not delete the logs branch on ${name}.${again}"
     fi
-    fj_ok
+    case "$FJ_HTTP" in
+      200|204) ;;
+      *) host_die 3 "could not delete the logs branch on ${name} (${FJ_HTTP}).${again}" ;;
+    esac
+    # Only a branch the host confirms is gone is done.
+    if ! fj_call GET "$(host_repo "$name")/branches/logs"; then
+      host_die 5 "host is offline: could not check that the logs branch is gone on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+    fi
+    if [ "$FJ_HTTP" != "404" ]; then
+      host_die 3 "the logs branch is still on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+    fi
   fi
   jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
 }

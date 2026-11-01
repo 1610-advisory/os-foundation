@@ -59,7 +59,23 @@ refresh_plan() {
     old=$(git -C "$dir" rev-parse -q --verify "${REFRESH_BASE}:${path}" 2>/dev/null || true)
     if [ "$old" = "$new" ]; then
       continue
-    elif [ -z "$old" ]; then
+    fi
+    case "$path" in
+      .github/scripts/stock-current.txt|.github/scripts/stock-hashes.txt)
+        # Generated lists, never "changed by the company" (round 6). A team's go on main
+        # with the check tools (checks-on-main, which keeps main's older entries); a solo
+        # folder takes this release's.
+        if [ "${REFRESH_TEAM:-0}" -ne 1 ]; then
+          if [ -n "$old" ]; then
+            printf '%s\n' "$path" >> "$out/replace"
+          else
+            printf '%s\n' "$path" >> "$out/add"
+          fi
+        fi
+        continue
+        ;;
+    esac
+    if [ -z "$old" ]; then
       printf '%s\n' "$path" >> "$out/add"
     elif refresh_known "$old" "$path"; then
       printf '%s\n' "$path" >> "$out/replace"
@@ -131,6 +147,10 @@ refresh_one() {
     fi
     rm -f "$err"
     REFRESH_BASE=origin/main
+    # The old v0 logs branch still on the host (round 6): the admin line names drop-logs.
+    if git -C "$dir" rev-parse -q --verify refs/remotes/origin/logs >/dev/null 2>&1; then
+      REFRESH_LOGS="${REFRESH_LOGS:+${REFRESH_LOGS}; }skills/_host/host.sh drop-logs $(basename "$(git -C "$dir" remote get-url origin)" .git)"
+    fi
   fi
   # Team: the checks job runs main's tools, so this release's tools and stock list go on
   # main first, by the upgrade's own path (protection lifted for that one push, then back
@@ -264,11 +284,15 @@ upgrade_refresh() {
     esac
   fi
   REFRESH_FAILED=0
+  REFRESH_LOGS=""
   refresh_one "$ROOT" root "the company folder"
   for area in "$ROOT"/areas/*; do
     [ -e "$area/.git" ] || continue
     refresh_one "$area" area "areas/$(basename "$area")"
   done
+  if [ -n "$REFRESH_LOGS" ] && [ "$REFRESH_TEAM" -eq 1 ]; then
+    printf 'admin: the old v0 logs branch is still on the host, so sync push keeps new logs in each folder (held). v0 protected it (no deletion), so a plain git push --delete fails. When every teammate has moved off their v0 folder (skills/upgrade/SKILL.md section 11), delete it with: %s\n' "$REFRESH_LOGS"
+  fi
   if [ "$REFRESH_FAILED" -ne 0 ]; then
     return 3
   fi

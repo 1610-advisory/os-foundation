@@ -961,12 +961,20 @@ cmd_cancel_invites() {
 }
 
 cmd_archive() {
-  local name body
+  local name body cur
   host_need_name
   name=$POS1
   body=$(jq -nc '{archived:true}')
   if host_dry; then
+    host_emit GET "$(host_repo "$name")"
     host_emit PATCH "$(host_repo "$name")" "$body"
+    return 0
+  fi
+  # Already archived is done (B66): GitHub refuses a PATCH on an archived repo (403,
+  # "Repository was archived so is read-only"), so a second remove must not ask again.
+  cur=$(host_gh_ok GET "$(host_repo "$name")")
+  if [ "$(printf '%s' "$cur" | jq -r '.archived // false')" = "true" ]; then
+    jq -nc --arg name "$name" '{ok:true, name:$name, archived:true, already:true}'
     return 0
   fi
   host_gh_ok PATCH "$(host_repo "$name")" "$body" >/dev/null
@@ -1028,31 +1036,58 @@ cmd_open_prs() {
 # teammate has moved: it lifts that classic rule and deletes the branch. It touches only
 # logs, never main. A rule or branch already gone is fine.
 cmd_drop_logs() {
-  local name errf rc deleted=true
+  local name errf rc deleted=true lifted=0 again=""
   host_need_name
   name=$POS1
   if host_dry; then
+    host_emit GET "$(host_repo "$name")"
     host_emit DELETE "$(host_repo "$name")/branches/logs/protection"
     host_emit DELETE "$(host_repo "$name")/git/refs/heads/logs"
+    host_emit GET "$(host_repo "$name")/git/ref/heads/logs"
     return 0
   fi
   errf=$(host_mktemp)
+  # A 404 on the calls below is not proof the branch is gone: the repo may be missing or
+  # out of reach. Check the repo first.
+  rc=0
+  host_gh_call GET "$(host_repo "$name")" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      host_die 3 "no repo ${OS_ORG}/${name} that this sign-in can see: check the name, then run drop-logs again"
+    fi
+    cat "$errf" >&2
+    host_die 3 "could not read the repo ${OS_ORG}/${name}: nothing was changed"
+  fi
   rc=0
   host_gh_call DELETE "$(host_repo "$name")/branches/logs/protection" >/dev/null 2>"$errf" || rc=$?
-  if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
+  if [ "$rc" -eq 0 ]; then
+    lifted=1
+    again=" The old protection on logs is already off: run skills/_host/host.sh drop-logs ${name} again."
+  elif ! grep -q 'HTTP 404' "$errf"; then
     cat "$errf" >&2
     host_die 3 "could not lift the old protection on ${name} logs: sign in as an org owner"
   fi
   rc=0
   host_gh_call DELETE "$(host_repo "$name")/git/refs/heads/logs" >/dev/null 2>"$errf" || rc=$?
   if [ "$rc" -ne 0 ]; then
-    if grep -qE 'HTTP 40[4]|HTTP 422' "$errf"; then
+    if grep -qE 'HTTP 404|HTTP 422' "$errf"; then
       deleted=false
     else
       cat "$errf" >&2
-      host_die 3 "could not delete the logs branch on ${name}"
+      host_die 3 "could not delete the logs branch on ${name}.${again}"
     fi
   fi
+  # Only a branch the host confirms is gone is done.
+  rc=0
+  host_gh_call GET "$(host_repo "$name")/git/ref/heads/logs" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    host_die 3 "the logs branch is still on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+  fi
+  if ! grep -q 'HTTP 404' "$errf"; then
+    cat "$errf" >&2
+    host_die 3 "could not check that the logs branch is gone on ${name}.${again:- Run skills/_host/host.sh drop-logs ${name} again.}"
+  fi
+  : "$lifted"
   jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
 }
 

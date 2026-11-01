@@ -254,7 +254,7 @@ git --git-dir "$work/git/acme2-os.git" rev-parse -q --verify "refs/tags/logs-arc
 git --git-dir "$work/git/acme2-marketing.git" rev-parse -q --verify "refs/tags/logs-archive-$(date +%Y-%m-%d)" >/dev/null \
   || team_fail "area logs tag not pushed"
 grep -q '^log-freeze: ' "$work/dry.out" || team_fail "no log-freeze line in the dry run"
-grep -q '^teammates: 1\. In the old folder, save the logs' "$work/run.out" || team_fail "no teammates steps"
+grep -q '^teammates: 1\. In the old folder, save the logs, before renaming it: .* Do the same in each areas/<name>/memory/logs\. After a rename git cannot open memory/logs' "$work/run.out" || team_fail "no teammates steps (B64: before the rename, areas too)"
 grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each folder (held)" "$work/run.out" || team_fail "no admin line for the old logs branch"
 # B61: v0 protected the logs branch, so the line gives host.sh drop-logs for each repo
 # whose host has it, never a plain push --delete.
