@@ -1,20 +1,21 @@
 #!/bin/bash
-# template/skills/upgrade/stock-hashes.txt lists every stock file upgrade.sh --refresh may
+# template/.github/scripts/stock-hashes.txt lists every stock file upgrade.sh --refresh may
 # replace: the git blob id and path of each file under template/skills/ and
 # template/.github/, in every commit of this repo's history that touched them, and in the
-# working tree. A company copy that matches one of these is exactly as shipped.
+# working tree. A company copy that matches one of these is exactly as shipped. It ships
+# with the check tools: the model review skips a file that is exactly a stock text.
 #   --write  rebuild the list from history (run it before a release)
 #   --check  fail when a stock file in the working tree is not in the list
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-LIST="$ROOT/template/skills/upgrade/stock-hashes.txt"
+LIST="$ROOT/template/.github/scripts/stock-hashes.txt"
 
 current() {
   (
     cd "$ROOT/template"
     find skills .github -type f | grep -v '/\.DS_Store$' | while IFS= read -r path; do
-      [ "$path" = "skills/upgrade/stock-hashes.txt" ] && continue
+      case "$path" in .github/scripts/stock-hashes.txt|skills/upgrade/stock-hashes.txt) continue ;; esac
       printf '%s %s\n' "$(git hash-object -- "$path")" "$path"
     done
   )
@@ -28,7 +29,7 @@ case "${1:-}" in
         git -C "$ROOT" ls-tree -r "$commit" -- template/skills template/.github
       done | awk '$2 == "blob" { sub("^template/", "", $4); print $3, $4 }'
       current
-    } | grep -v ' skills/upgrade/stock-hashes.txt$' | LC_ALL=C sort -u > "$tmp"
+    } | grep -v -e ' skills/upgrade/stock-hashes.txt$' -e ' .github/scripts/stock-hashes.txt$' | LC_ALL=C sort -u > "$tmp"
     {
       printf '%s\n' "# git blob id and path of every stock file the template has shipped"
       printf '%s\n' "# under skills/ and .github/. Written by tests/static/stock-hashes.sh --write."

@@ -656,7 +656,10 @@ class ToolsReleaseTests(unittest.TestCase):
 
         base = ROOT / "template" / ".github"
         files = [base / "workflows" / "checks.yml"] + sorted(
-            p for p in (base / "scripts").rglob("*") if p.is_file() and p.name != "tools-release"
+            p for p in (base / "scripts").rglob("*")
+            # The stock list changes with every stock file. It only grows, and the upgrade
+            # merges it into main whatever the release, so it needs no release of its own.
+            if p.is_file() and p.name not in ("tools-release", "stock-hashes.txt")
         )
         digest = hashlib.sha256()
         for p in files:
@@ -669,6 +672,46 @@ class ToolsReleaseTests(unittest.TestCase):
             (want_release, want_hash),
             "check tools changed: raise template/.github/scripts/tools-release, then update " + str(self.FIXTURE.name),
         )
+
+
+class ReviewDiffTests(unittest.TestCase):
+    """B57: the review leaves out a file exactly as a release shipped it, by the base list."""
+
+    def test_stock_text_is_left_out_and_a_changed_one_is_shown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q", "-b", "main")
+            (repo / "notes.md").write_text("start\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "start")
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True,
+                                  capture_output=True, check=True).stdout.strip()
+            skill = repo / "skills" / "lint"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("STOCK_TEXT\n")
+            (skill / "edited.md").write_text("COMPANY_EDIT\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "head")
+            def blob(path):
+                return subprocess.run(["git", "-C", str(repo), "rev-parse", f"HEAD:{path}"], text=True,
+                                      capture_output=True, check=True).stdout.strip()
+            hashes = Path(tmp) / "stock-hashes.txt"
+            # The stock list names SKILL.md's text. edited.md's text is listed at another path only.
+            hashes.write_text(f"# list\n{blob('skills/lint/SKILL.md')} skills/lint/SKILL.md\n"
+                              f"{blob('skills/lint/edited.md')} skills/other/edited.md\n")
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD", str(hashes)], cwd=repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("STOCK_TEXT", result.stdout)
+            self.assertIn("COMPANY_EDIT", result.stdout)
+            self.assertIn("# 1 file is left out", result.stdout)
+            # No list: everything is shown.
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD", str(Path(tmp) / "none")], cwd=repo)
+            self.assertIn("STOCK_TEXT", result.stdout)
+
+    def test_run_checks_reads_the_list_from_the_base_tools(self):
+        text = (SCRIPTS / "run-checks.sh").read_text()
+        self.assertIn('review-diff.sh" "$range" "${tools}/.github/scripts/stock-hashes.txt"', text)
 
 
 class BaseRulesTests(unittest.TestCase):
@@ -1183,7 +1226,7 @@ class OverrideHonourTests(unittest.TestCase):
         root, repo, base = self.root, self.repo, self.base
         scripts = root / "tools" / ".github" / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("run-checks.sh", "lib.sh", "override.sh"):
+        for name in ("run-checks.sh", "lib.sh", "override.sh", "review-diff.sh"):
             (scripts / name).write_text((SCRIPTS / name).read_text())
         (scripts / "tools").mkdir()
         (scripts / "tools" / "secret-scan.sh").write_text("exit 0\n")

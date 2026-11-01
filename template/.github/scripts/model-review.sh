@@ -250,6 +250,12 @@ load_review_settings() {
 
 load_review_settings
 
+# Before the fake too: a test sees the same limit a real review has.
+size=$(wc -c < "$diff_file" | tr -d ' ')
+if [ "$size" -gt 100000 ]; then
+  fail "model review failed: diff too large (${size} bytes, limit 100000); split the pull request or use /override <reason>"
+fi
+
 if [ -n "${OS_REVIEW_FAKE:-}" ]; then
   fake_review "$OS_REVIEW_FAKE"
 fi
@@ -269,10 +275,6 @@ if [ -z "${model:-}" ]; then
   model=$(default_model "$vendor")
 fi
 
-size=$(wc -c < "$diff_file" | tr -d ' ')
-if [ "$size" -gt 100000 ]; then
-  fail "model review failed: diff too large (${size} bytes, limit 100000); split the pull request or use /override <reason>"
-fi
 diff_cut=$diff_file
 
 prompt=$(ci_mktemp)

@@ -283,6 +283,7 @@ commit_rules_before_protect() {
   fi
   os_with_git_token git -C "$dir" fetch origin
   if rules_on_main "$dir"; then
+    propose_team_rules "$dir" "$msg"
     return 0
   fi
   os_git_commit "$dir" "$msg" "$@"
@@ -299,6 +300,54 @@ commit_rules_before_protect() {
   rm -f "$err"
   printf '%s\n' "main is protected and .github/CODEOWNERS, .gitea/CODEOWNERS, or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
   exit 2
+}
+
+# Main already has rules (a second run, or after an upgrade). Never push to main: the
+# rules files this run changed go up as one rules pull request, as sync propose does.
+# A CODEOWNERS line the company added on main stays, after the rules lines.
+# Notes (people pages, the profile) go up with the admin's next sync push.
+propose_team_rules() {
+  local dir=$1 msg=$2 f wt name pr number reuse branch="rules/${ADMIN}/team-on" changed=()
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+    [ -f "$dir/$f" ] || continue
+    git -C "$dir" show "origin/main:$f" 2>/dev/null \
+      | awk 'NR == FNR { if ($0 !~ /^#/ && NF) seen[$1] = 1; next }
+          /^#/ || NF == 0 || $1 == "*" || $1 == ".*" { next }
+          !($1 in seen) { print }' "$dir/$f" - > "$dir/$f.keep" || true
+    if grep -q '[^[:space:]]' "$dir/$f.keep"; then
+      { printf '\n%s\n' "# Kept from main."; cat "$dir/$f.keep"; } >> "$dir/$f"
+    fi
+    rm -f "$dir/$f.keep"
+  done
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS .github/review.conf review-rules.md; do
+    [ -f "$dir/$f" ] || continue
+    if git -C "$dir" cat-file -e "origin/main:$f" 2>/dev/null \
+      && [ "$(git -C "$dir" hash-object -- "$dir/$f")" = "$(git -C "$dir" rev-parse "origin/main:$f")" ]; then
+      continue
+    fi
+    changed+=("$f")
+  done
+  [ "${#changed[@]}" -gt 0 ] || return 0
+  name=$(basename "$(git -C "$dir" remote get-url origin)" .git)
+  # An earlier run pushed these same files: reuse its branch and pull request.
+  reuse=1
+  for f in "${changed[@]}"; do
+    [ "$(git -C "$dir" rev-parse -q --verify "origin/${branch}:$f" 2>/dev/null)" = "$(git -C "$dir" hash-object -- "$dir/$f")" ] || reuse=0
+  done
+  if [ "$reuse" -eq 0 ]; then
+    wt=$(os_branch_start "$dir")
+    for f in "${changed[@]}"; do
+      mkdir -p "$(dirname "$wt/$f")"
+      cp "$dir/$f" "$wt/$f"
+    done
+    os_git_commit "$wt" "$msg" "${changed[@]}" >/dev/null
+    os_branch_push "$dir" "$wt" "$branch"
+  fi
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "rules: ${msg}")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  [ -n "$number" ] || os_die 3 "could not open the rules pull request for ${name}: run team-on again"
+  printf 'rules-pr: %s %s (%s)\n' "$name" "$number" "${changed[*]}"
+  os_auto_merge_line "$name" "$number"
 }
 
 # A refused push is a host error: exit 3 with one plain line.

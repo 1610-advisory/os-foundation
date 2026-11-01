@@ -190,6 +190,206 @@ case "$(upgrade_uname)" in
     ;;
 esac
 
+REVIEW_VENDOR=""
+REVIEW_MODEL=""
+REVIEW_KIND=""
+if [ -n "$ANSWERS" ]; then
+  REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
+  REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
+  REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
+fi
+case "$REVIEW_VENDOR" in
+  ""|anthropic|openai|xai) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+esac
+if [ -z "$REVIEW_KIND" ]; then
+  if [ -n "$REVIEW_VENDOR" ]; then
+    REVIEW_KIND="second-vendor"
+  else
+    REVIEW_KIND="same-vendor"
+  fi
+fi
+
+author_env() {
+  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    "$@"
+}
+
+# The checks job copies its tools from main, never from the pull request head.
+# A v0 main has none, so an upgrade pull request could never pass its checks.
+# Like team-on: lift protection, push one commit with only the check files to main,
+# then protect with the v1 rules (this also replaces a v0 classic rule and turns on auto-merge).
+# The release of a set of check tools: digits in .github/scripts/tools-release.
+# Tools from before the marker are release 0.
+tools_release() {
+  local rel
+  rel=$(tr -cd '0-9' < "$1" 2>/dev/null || true)
+  printf '%s\n' "${rel:-0}"
+}
+
+# The union of two stock lists, the header first. Writes $3.
+stock_union() {
+  local new=$1 have=$2 out=$3
+  [ -f "$new" ] || return 0
+  { grep '^#' "$new" || true; { grep -hv '^#' "$new" "$have" || true; } | LC_ALL=C sort -u; } > "$out"
+}
+
+# Bytes of diff the model review reads for a range: review-diff.sh with main's stock list,
+# as the checks job measures it (B41, B57).
+review_size() {
+  local dir=$1 range=$2 hashes size
+  hashes=$(mktemp)
+  git -C "$dir" show "refs/remotes/origin/main:.github/scripts/stock-hashes.txt" > "$hashes" 2>/dev/null || : > "$hashes"
+  size=$(cd "$dir" && bash "$TEMPLATE/.github/scripts/review-diff.sh" "$range" "$hashes" | wc -c | tr -d ' ')
+  rm -f "$hashes"
+  printf '%s\n' "${size:-0}"
+}
+
+checks_on_main() {
+  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel
+  if ! os_with_git_token git -C "$dir" fetch origin; then
+    os_die 3 "could not fetch ${repo}"
+  fi
+  tmp=$(mktemp -d)
+  git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
+  if [ -f "$tmp/main/.github/workflows/checks.yml" ] \
+    && [ -f "$tmp/main/.github/scripts/checkout.sh" ] \
+    && [ -f "$tmp/main/.github/scripts/tools/secret-scan.sh" ] \
+    && [ -f "$tmp/main/.github/review.conf" ]; then
+    # main has check tools. The checks run them from main, so a fix in a newer release
+    # reaches the company only here. Never put older tools over newer ones.
+    main_rel=$(tools_release "$tmp/main/.github/scripts/tools-release")
+    new_rel=$(tools_release "$TEMPLATE/.github/scripts/tools-release")
+    cp "$tmp/main/.github/scripts/stock-hashes.txt" "$tmp/stock-main" 2>/dev/null || : > "$tmp/stock-main"
+    if [ "$main_rel" -lt "$new_rel" ]; then
+      cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
+      rm -rf "$tmp/main/.github/scripts"
+      cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
+    fi
+    # The stock list only grows: every text some release shipped. The model review leaves
+    # those files out, so this release's stock texts go on main whatever the tools release.
+    stock_union "$TEMPLATE/.github/scripts/stock-hashes.txt" "$tmp/stock-main" "$tmp/main/.github/scripts/stock-hashes.txt"
+    git -C "$tmp/main" add -A -- .github/workflows/checks.yml .github/scripts
+    if git -C "$tmp/main" diff --cached --quiet; then
+      if [ "$main_rel" -gt "$new_rel" ]; then
+        done_line="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
+      else
+        done_line="checks-on-main: ${repo} already"
+      fi
+    elif [ "$main_rel" -lt "$new_rel" ]; then
+      author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
+      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})"
+    else
+      author_env git -C "$tmp/main" commit -q -m "Upgrade: add stock texts to the review list on main"
+      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the review list"
+    fi
+    if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
+      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+      rm -rf "$tmp"
+      printf '%s\n' "$done_line"
+      reprotect "$repo"
+      printf 'protected: %s\n' "$repo"
+      return 0
+    fi
+  else
+    done_line="checks-on-main: ${repo}"
+    mkdir -p "$tmp/main/.github/workflows"
+    cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
+    rm -rf "$tmp/main/.github/scripts"
+    cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
+    if [ ! -f "$tmp/main/.github/review.conf" ]; then
+      printf 'vendor=%s\nmodel=%s\nkind=%s\n' "$REVIEW_VENDOR" "$REVIEW_MODEL" "$REVIEW_KIND" > "$tmp/main/.github/review.conf"
+    fi
+    # v0 owned every file ("* @admin"). v1 owns rules files only, so notes merge on green checks.
+    # Replace only that stock line. Every line the company added stays, after the rules lines,
+    # so it still wins where it did before (the last matching line wins).
+    owners=""
+    if [ -f "$tmp/main/.github/CODEOWNERS" ]; then
+      owners=$(awk '$1 == "*" { $1 = ""; sub(/^ /, ""); print; exit }' "$tmp/main/.github/CODEOWNERS")
+    fi
+    if [ -n "$owners" ]; then
+      first=${owners%% *}
+      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+        : > "$tmp/keep"
+        if [ -f "$tmp/main/$f" ]; then
+          awk '$1 == "*" || $1 == ".*" { next } { print }' "$tmp/main/$f" > "$tmp/keep"
+        fi
+        mv "$tmp/keep" "$tmp/keep-${f%%/*}"
+      done
+      os_codeowners "$tmp/main" "$owners" "$first"
+      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+        if grep -q '[^[:space:]]' "$tmp/keep-${f%%/*}"; then
+          { printf '\n%s\n' "# Kept from before the upgrade."; cat "$tmp/keep-${f%%/*}"; } >> "$tmp/main/$f"
+        fi
+        rm -f "$tmp/keep-${f%%/*}"
+      done
+      git -C "$tmp/main" add -- .github/CODEOWNERS .gitea/CODEOWNERS
+    fi
+    git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
+    author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
+  fi
+  # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
+  # refuse this push. From here until protect, every way out puts protection back
+  # (upgrade_on_exit covers a stop this function does not catch).
+  UNPROTECTED=$repo
+  os_host unprotect "$repo" >/dev/null
+  err=$(mktemp)
+  if ! os_with_git_token up_git_err "$err" -C "$tmp/main" push origin HEAD:refs/heads/main; then
+    cat "$err" >&2
+    git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+    rm -rf "$tmp"
+    reprotect "$repo"
+    if grep -qi 'workflow' "$err"; then
+      rm -f "$err"
+      os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
+    fi
+    rm -f "$err"
+    os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
+  fi
+  rm -f "$err"
+  git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+  os_with_git_token up_git_quiet -C "$dir" fetch origin || true
+  printf '%s\n' "$done_line"
+  reprotect "$repo"
+  printf 'protected: %s\n' "$repo"
+}
+
+# Protect main with the v1 rules. If that fails, say plainly that main is open.
+reprotect() {
+  local repo=$1
+  UNPROTECTED=""
+  if ! os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null; then
+    os_die 3 "PROTECTION IS OFF on ${repo}: run skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
+  fi
+}
+
+# Any exit between unprotect and protect (a host error, set -e) protects main again,
+# or prints that main is open.
+UNPROTECTED=""
+upgrade_on_exit() {
+  local rc=$? repo=$UNPROTECTED
+  # This trap replaces the one add-teammate/lib.sh set. The temp folder goes last: protect
+  # below still needs it.
+  if [ -z "$repo" ]; then
+    os_cleanup
+    return "$rc"
+  fi
+  UNPROTECTED=""
+  if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
+    printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
+  else
+    printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
+  fi
+  [ "$rc" -ne 0 ] || rc=3
+  os_cleanup
+  exit "$rc"
+}
+trap upgrade_on_exit EXIT
+
 main_link_mode() {
   git -C "$ROOT" ls-tree main -- "$1" 2>/dev/null | awk '{print $1}'
 }
@@ -1013,176 +1213,7 @@ if ! git filter-repo -h >/dev/null 2>&1; then
   os_die 3 "git filter-repo is not installed"
 fi
 
-author_env() {
-  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
-    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
-    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
-    "$@"
-}
 
-# The checks job copies its tools from main, never from the pull request head.
-# A v0 main has none, so an upgrade pull request could never pass its checks.
-# Like team-on: lift protection, push one commit with only the check files to main,
-# then protect with the v1 rules (this also replaces a v0 classic rule and turns on auto-merge).
-# The release of a set of check tools: digits in .github/scripts/tools-release.
-# Tools from before the marker are release 0.
-tools_release() {
-  local rel
-  rel=$(tr -cd '0-9' < "$1" 2>/dev/null || true)
-  printf '%s\n' "${rel:-0}"
-}
-
-checks_on_main() {
-  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel
-  if ! os_with_git_token git -C "$dir" fetch origin; then
-    os_die 3 "could not fetch ${repo}"
-  fi
-  tmp=$(mktemp -d)
-  git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
-  if [ -f "$tmp/main/.github/workflows/checks.yml" ] \
-    && [ -f "$tmp/main/.github/scripts/checkout.sh" ] \
-    && [ -f "$tmp/main/.github/scripts/tools/secret-scan.sh" ] \
-    && [ -f "$tmp/main/.github/review.conf" ]; then
-    # main has check tools. The checks run them from main, so a fix in a newer release
-    # reaches the company only here. Never put older tools over newer ones.
-    main_rel=$(tools_release "$tmp/main/.github/scripts/tools-release")
-    new_rel=$(tools_release "$TEMPLATE/.github/scripts/tools-release")
-    cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
-    rm -rf "$tmp/main/.github/scripts"
-    cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
-    git -C "$tmp/main" add -A -- .github/workflows/checks.yml .github/scripts
-    if git -C "$tmp/main" diff --cached --quiet; then
-      done_line="checks-on-main: ${repo} already"
-    elif [ "$main_rel" -ge "$new_rel" ]; then
-      done_line="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
-    else
-      author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
-      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})"
-    fi
-    if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
-      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-      rm -rf "$tmp"
-      printf '%s\n' "$done_line"
-      reprotect "$repo"
-      printf 'protected: %s\n' "$repo"
-      return 0
-    fi
-  else
-    done_line="checks-on-main: ${repo}"
-    mkdir -p "$tmp/main/.github/workflows"
-    cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
-    rm -rf "$tmp/main/.github/scripts"
-    cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
-    if [ ! -f "$tmp/main/.github/review.conf" ]; then
-      printf 'vendor=%s\nmodel=%s\nkind=%s\n' "$REVIEW_VENDOR" "$REVIEW_MODEL" "$REVIEW_KIND" > "$tmp/main/.github/review.conf"
-    fi
-    # v0 owned every file ("* @admin"). v1 owns rules files only, so notes merge on green checks.
-    # Replace only that stock line. Every line the company added stays, after the rules lines,
-    # so it still wins where it did before (the last matching line wins).
-    owners=""
-    if [ -f "$tmp/main/.github/CODEOWNERS" ]; then
-      owners=$(awk '$1 == "*" { $1 = ""; sub(/^ /, ""); print; exit }' "$tmp/main/.github/CODEOWNERS")
-    fi
-    if [ -n "$owners" ]; then
-      first=${owners%% *}
-      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
-        : > "$tmp/keep"
-        if [ -f "$tmp/main/$f" ]; then
-          awk '$1 == "*" || $1 == ".*" { next } { print }' "$tmp/main/$f" > "$tmp/keep"
-        fi
-        mv "$tmp/keep" "$tmp/keep-${f%%/*}"
-      done
-      os_codeowners "$tmp/main" "$owners" "$first"
-      for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
-        if grep -q '[^[:space:]]' "$tmp/keep-${f%%/*}"; then
-          { printf '\n%s\n' "# Kept from before the upgrade."; cat "$tmp/keep-${f%%/*}"; } >> "$tmp/main/$f"
-        fi
-        rm -f "$tmp/keep-${f%%/*}"
-      done
-      git -C "$tmp/main" add -- .github/CODEOWNERS .gitea/CODEOWNERS
-    fi
-    git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
-    author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
-  fi
-  # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
-  # refuse this push. From here until protect, every way out puts protection back
-  # (upgrade_on_exit covers a stop this function does not catch).
-  UNPROTECTED=$repo
-  os_host unprotect "$repo" >/dev/null
-  err=$(mktemp)
-  if ! os_with_git_token up_git_err "$err" -C "$tmp/main" push origin HEAD:refs/heads/main; then
-    cat "$err" >&2
-    git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-    rm -rf "$tmp"
-    reprotect "$repo"
-    if grep -qi 'workflow' "$err"; then
-      rm -f "$err"
-      os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
-    fi
-    rm -f "$err"
-    os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
-  fi
-  rm -f "$err"
-  git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
-  os_with_git_token up_git_quiet -C "$dir" fetch origin || true
-  printf '%s\n' "$done_line"
-  reprotect "$repo"
-  printf 'protected: %s\n' "$repo"
-}
-
-# Protect main with the v1 rules. If that fails, say plainly that main is open.
-reprotect() {
-  local repo=$1
-  UNPROTECTED=""
-  if ! os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null; then
-    os_die 3 "PROTECTION IS OFF on ${repo}: run skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
-  fi
-}
-
-# Any exit between unprotect and protect (a host error, set -e) protects main again,
-# or prints that main is open.
-UNPROTECTED=""
-upgrade_on_exit() {
-  local rc=$? repo=$UNPROTECTED
-  # This trap replaces the one add-teammate/lib.sh set. The temp folder goes last: protect
-  # below still needs it.
-  if [ -z "$repo" ]; then
-    os_cleanup
-    return "$rc"
-  fi
-  UNPROTECTED=""
-  if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
-    printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
-  else
-    printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
-  fi
-  [ "$rc" -ne 0 ] || rc=3
-  os_cleanup
-  exit "$rc"
-}
-trap upgrade_on_exit EXIT
-
-REVIEW_VENDOR=""
-REVIEW_MODEL=""
-REVIEW_KIND=""
-if [ -n "$ANSWERS" ]; then
-  REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
-  REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
-  REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
-fi
-case "$REVIEW_VENDOR" in
-  ""|anthropic|openai|xai) ;;
-  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
-esac
-if [ -z "$REVIEW_KIND" ]; then
-  if [ -n "$REVIEW_VENDOR" ]; then
-    REVIEW_KIND="second-vendor"
-  else
-    REVIEW_KIND="same-vendor"
-  fi
-fi
 
 if [ "$HOST_ON" -eq 1 ]; then
   case "$SLUG" in
@@ -1557,7 +1588,7 @@ if [ "$HOST_ON" -eq 1 ]; then
     review_base=$(git -C "$ROOT" merge-base refs/remotes/origin/main upgrade/v1 2>/dev/null || true)
     review_size=0
     if [ -n "$review_base" ]; then
-      review_size=$(git -C "$ROOT" diff --no-color "${review_base}..upgrade/v1" | wc -c | tr -d ' ')
+      review_size=$(review_size "$ROOT" "${review_base}..upgrade/v1")
     fi
     if [ "$review_size" -gt 100000 ]; then
       printf 'override: %s %s is too large for the model review (%s bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review\n' \

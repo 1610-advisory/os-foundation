@@ -70,6 +70,10 @@ case "$1" in
     # A host error part way, after the classic rule went (item 40).
     [ "${FAKE_UNPROTECT:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
     printf '%s\n' '{"ok":true}' ;;
+  # team-on after an upgrade (B53): the repos and teams are there.
+  repo-access) printf '%s\n' '{"access":"ok"}' ;;
+  team-repos) printf '%s\n' '{"repos":[]}' ;;
+  team-create|team-add|grant|create-repo) printf '%s\n' '{"ok":true}' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -171,11 +175,17 @@ done
 grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-main line"
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
-# B41: the stock skills put the company pull request over the model review's limit. The
-# run measures it the same way and gives the exact /override line.
-grep -q '^override: acme2-os 5 is too large for the model review ([0-9]* bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review$' "$work/run.out" \
-  || team_fail "B41: no override line for a large upgrade pull request"
-grep -q '^override: acme2-marketing' "$work/run.out" && team_fail "B41: override line for the small area pull request"
+# B41, B57: the stock skills put the company pull request over the model review's limit.
+# The review leaves out each file exactly as a release shipped it (main's stock list,
+# which the check tools brought), so it fits and needs no /override.
+bare="$work/git/acme2-os.git"
+git --git-dir "$bare" show main:.github/scripts/stock-hashes.txt > "$work/stock.txt"
+pr_base=$(git -C "$co" merge-base refs/remotes/origin/main upgrade/v1)
+whole=$(git -C "$co" diff --no-color "${pr_base}..upgrade/v1" | wc -c | tr -d ' ')
+[ "$whole" -gt 100000 ] || team_fail "B41: the fixture upgrade is small ($whole bytes); the check below proves nothing"
+review=$(cd "$co" && bash "$root/template/.github/scripts/review-diff.sh" "${pr_base}..upgrade/v1" "$work/stock.txt" | wc -c | tr -d ' ')
+[ "$review" -le 100000 ] || team_fail "B57: the review diff is still too large ($review bytes)"
+grep -q '^override: ' "$work/run.out" && team_fail "B57: override line for a pull request the review can read"
 
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
@@ -521,5 +531,104 @@ set -e
 [ "$rc" -eq 4 ] || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: exit $rc, want 4"; }
 grep -qx 'could not read the git token' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no token line"; }
 grep -qx 'upgrade stopped. Protection on acme8-os is back on.' "$work/b34-4.out" || { cat "$work/b34-4.out" >&2; team_fail "B34-HIDE: no protection line"; }
+
+# B41: a pull request still too large for the review after the stock files are left out
+# (here a long log the upgrade moves) gets the exact /override line.
+co11="$work/biglog"
+make_v0 "$co11" acme11-os
+awk 'BEGIN { for (i = 0; i < 3000; i++) printf "worked on the shop, line %d of a long day\n", i }' \
+  > "$co11/memory/logs/2026-10-02-ada.md"
+commit_all "$co11/memory/logs" "long log"
+git -C "$co11/memory/logs" push -q origin HEAD:logs
+"$upgrade" --root "$co11" --template "$root/template" --answers "$work/answers" > "$work/biglog.out" 2>&1 \
+  || { cat "$work/biglog.out" >&2; team_fail "B41: big log upgrade failed"; }
+grep -q '^override: acme11-os 5 is too large for the model review ([0-9]* bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review$' "$work/biglog.out" \
+  || { cat "$work/biglog.out" >&2; team_fail "B41: no override line for a large upgrade pull request"; }
+grep -q '^override: acme11-marketing' "$work/biglog.out" && team_fail "B41: override line for the small area pull request"
+
+# B53: after the upgrade merged, team-on names a director for an area. The rules are
+# already on main, so team-on opens a rules pull request with the CODEOWNERS it changed
+# (it never pushes to main). The company's own CODEOWNERS line stays.
+co10="$work/company10"
+make_v0 "$co10" acme10-os
+"$upgrade" --root "$co10" --template "$root/template" --answers "$work/answers" > "$work/b53-up.out" 2>&1 \
+  || { cat "$work/b53-up.out" >&2; team_fail "B53: upgrade failed"; }
+# The admin merges both upgrade pull requests (a merge commit), then pulls back to main.
+for pair in "$co10:upgrade/v1" "$co10/areas/marketing:upgrade/scripts"; do
+  d=${pair%%:*}
+  git -C "$d" fetch -q origin
+  git -C "$d" checkout -q "${pair#*:}"
+  GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
+    GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
+    git -C "$d" merge -q --no-edit origin/main
+  git -C "$d" push -q origin HEAD:main
+  git -C "$d" fetch -q origin
+  git -C "$d" checkout -q main
+  git -C "$d" reset -q --hard origin/main
+done
+# The clone URL team-on sets is <host_url>/<org>/<repo>.git: point it at the test repos.
+ln -s . "$work/git/acme"
+git init -q --bare "$work/git/acme10-user-ada.git"
+git init -q --bare "$work/git/acme10-user-bea.git"
+for d in "$co10" "$co10/areas/marketing"; do
+  git -C "$d" remote set-url origin "file://$work/git/acme/$(basename "$(git -C "$d" remote get-url origin)")"
+done
+at='@'
+cat > "$work/b53.answers" << EOF
+root=$co10
+host=github
+host_url=file://$work/git
+org=acme
+sync_engine=true
+company_name=Acme Co
+review_vendor=xai
+person.ada.name=Ada Admin
+person.ada.github=acme-admin
+person.ada.email=ada${at}acme.test
+person.ada.role=admin
+person.ada.areas=marketing
+person.bea.name=Bea Director
+person.bea.github=acme-bea
+person.bea.email=bea${at}acme.test
+person.bea.role=writer
+person.bea.areas=marketing
+area.marketing.director=bea
+EOF
+co_main=$(git --git-dir "$work/git/acme10-os.git" rev-parse main)
+area_main=$(git --git-dir "$work/git/acme10-marketing.git" rev-parse main)
+: > "$FAKE_HOST_LOG"
+set +e
+b53_env() {
+  HOME="$work/b53-home" XDG_CONFIG_HOME="$work/b53-home/.config" OS_JOBS_DIR="$work/b53-home/jobs" \
+    OS_PROFILE_SH="$co10/skills/_host/profile.sh" "$@"
+}
+mkdir -p "$work/b53-home"
+b53_env "$co10/skills/add-teammate/team-on.sh" --answers "$work/b53.answers" > "$work/b53.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$work/b53.out" >&2; team_fail "B53: team-on exit $rc"; }
+[ "$(git --git-dir "$work/git/acme10-os.git" rev-parse main)" = "$co_main" ] || team_fail "B53: team-on pushed to the company main"
+[ "$(git --git-dir "$work/git/acme10-marketing.git" rev-parse main)" = "$area_main" ] || team_fail "B53: team-on pushed to the area main"
+grep -q '^rules-pr: acme10-marketing 5 (.*\.github/CODEOWNERS' "$work/b53.out" || { cat "$work/b53.out" >&2; team_fail "B53: no area rules pull request"; }
+grep -q '^open-pr acme10-marketing ' "$FAKE_HOST_LOG" || team_fail "B53: no open-pr for the area"
+bare="$work/git/acme10-marketing.git"
+git --git-dir "$bare" show rules/ada/team-on:.github/CODEOWNERS | grep -qxF '**/AGENTS.md @acme-bea @acme-admin' \
+  || team_fail "B53: the area rules branch does not name the director"
+git --git-dir "$bare" show rules/ada/team-on:.gitea/CODEOWNERS | grep -q '@acme-bea$' || team_fail "B53: the Forgejo owners do not name the director"
+# Only rules files in that pull request.
+extra=$(git --git-dir "$bare" diff --name-only main rules/ada/team-on | grep -v -x -e .github/CODEOWNERS -e .gitea/CODEOWNERS \
+  -e .github/review.conf -e review-rules.md || true)
+[ -z "$extra" ] || team_fail "B53: the rules pull request has other files: $extra"
+# The company line on the company main stays in its rules pull request.
+if git --git-dir "$work/git/acme10-os.git" rev-parse -q --verify rules/ada/team-on >/dev/null; then
+  git --git-dir "$work/git/acme10-os.git" show rules/ada/team-on:.github/CODEOWNERS | grep -qx '/docs/legal/ @acme-counsel' \
+    || team_fail "B53: the company rules pull request dropped a company CODEOWNERS line"
+fi
+# A second run with nothing new opens nothing new and still pushes nothing to main.
+area_branch=$(git --git-dir "$bare" rev-parse rules/ada/team-on)
+b53_env "$co10/skills/add-teammate/team-on.sh" --answers "$work/b53.answers" > "$work/b53-2.out" 2>&1 \
+  || { cat "$work/b53-2.out" >&2; team_fail "B53: second team-on failed"; }
+[ "$(git --git-dir "$bare" rev-parse main)" = "$area_main" ] || team_fail "B53: second run pushed to the area main"
+[ "$(git --git-dir "$bare" rev-parse rules/ada/team-on)" = "$area_branch" ] || team_fail "B53: second run rebuilt the same rules"
 
 printf '%s\n' "PASS host-upgrade"

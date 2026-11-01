@@ -102,7 +102,7 @@ refresh_paths_args() {
 }
 
 refresh_one() {
-  local dir=$1 kind=$2 label=$3 plan n kept wt name branch pr number path
+  local dir=$1 kind=$2 label=$3 plan n kept wt name branch pr number path size
   plan=$(mktemp -d)
   REFRESH_BASE=main
   if [ "$HOST_ON" -eq 1 ]; then
@@ -113,6 +113,16 @@ refresh_one() {
       return 0
     fi
     REFRESH_BASE=origin/main
+  fi
+  # Team: the checks job runs main's tools, so this release's tools and stock list go on
+  # main first, by the upgrade's own path (protection lifted for that one push, then back
+  # on). The pull request is then judged by them, and only skills/ is left in it.
+  if [ "$REFRESH_TEAM" -eq 1 ]; then
+    if [ "$DRY" -eq 1 ]; then
+      printf 'change: checks-on-main %s\n' "$label"
+    else
+      checks_on_main "$dir" "$(basename "$(git -C "$dir" remote get-url origin)" .git)"
+    fi
   fi
   refresh_plan "$dir" "$kind" "$plan"
   while IFS= read -r path; do
@@ -169,6 +179,13 @@ refresh_one() {
     return 0
   fi
   printf 'opened: %s %s\n' "$name" "$number"
+  if [ "$REFRESH_TEAM" -eq 1 ]; then
+    size=$(review_size "$dir" "$(git -C "$dir" merge-base origin/main "origin/${branch}")..origin/${branch}")
+    if [ "$size" -gt 100000 ]; then
+      printf 'override: %s %s is too large for the model review (%s bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override refresh: stock skills, too large for the model review\n' \
+        "$name" "$number" "$size"
+    fi
+  fi
   os_auto_merge_line "$name" "$number"
   rm -rf "$plan"
 }
@@ -180,8 +197,8 @@ refresh_body() {
 
 upgrade_refresh() {
   local area cfg
-  REFRESH_HASHES="$TEMPLATE/skills/upgrade/stock-hashes.txt"
-  [ -f "$REFRESH_HASHES" ] || os_die 1 "this template has no skills/upgrade/stock-hashes.txt: use a newer os-foundation"
+  REFRESH_HASHES="$TEMPLATE/.github/scripts/stock-hashes.txt"
+  [ -f "$REFRESH_HASHES" ] || os_die 1 "this template has no .github/scripts/stock-hashes.txt: use a newer os-foundation"
   REFRESH_RELEASE=$(tr -d '[:space:]' < "$TEMPLATE/.github/scripts/tools-release" 2>/dev/null || true)
   [ -n "$REFRESH_RELEASE" ] || os_die 1 "this template has no .github/scripts/tools-release"
   cfg=$(os_config_dir "$SLUG")
@@ -190,6 +207,12 @@ upgrade_refresh() {
   case "$REFRESH_ME" in
     ''|*[!a-z0-9-]*) os_die 2 "refresh: who runs this? Write your slug in ${cfg}/me" ;;
   esac
+  REFRESH_TEAM=0
+  if [ "$HOST_ON" -eq 1 ]; then
+    case "$(os_fm_get "$ROOT/company-profile.md" level 2>/dev/null || true)" in
+      team|app) REFRESH_TEAM=1 ;;
+    esac
+  fi
   REFRESH_FAILED=0
   refresh_one "$ROOT" root "the company folder"
   for area in "$ROOT"/areas/*; do

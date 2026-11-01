@@ -6,7 +6,10 @@ import shutil
 import subprocess
 import tarfile
 import io
+import json
+import re
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -50,6 +53,19 @@ esac
 """
 
 
+def workflow_step(name):
+    """The run: body of one step of the checks workflow, as a script."""
+    lines = (TEMPLATE / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"      - name: {name}")
+    run_at = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    body = []
+    for line in lines[run_at + 1:]:
+        if line.startswith("      - name:") or line.startswith("      # "):
+            break
+        body.append(line[10:] if line.startswith(" " * 10) else line.strip())
+    return "\n".join(body) + "\n"
+
+
 class RefreshTests(unittest.TestCase):
     def setUp(self):
         if run(["git", "-C", str(ROOT), "rev-parse", "--verify", "-q", OLD_REF]).returncode != 0:
@@ -73,6 +89,14 @@ class RefreshTests(unittest.TestCase):
         text = text.replace("level: solo", "level: team").replace("host: none", "host: github")
         text = text.replace('org: ""', "org: acme-os-test")
         profile.write_text(text)
+        # Setup filled every other placeholder (lint fails on one).
+        for path in self.company.rglob("*.md"):
+            rel = path.relative_to(self.company).as_posix()
+            if path.is_symlink() or rel.startswith(("skills/", ".github/", ".agents/", ".claude/")):
+                continue
+            text = path.read_text()
+            if "{{" in text:
+                path.write_text(re.sub(r"\{\{[A-Z_]+\}\}", "Acme", text))
         # The company changed one stock skill, wrote one of its own, and still has a
         # stock file a later release dropped.
         ingest = self.company / "skills" / "ingest" / "SKILL.md"
@@ -163,6 +187,73 @@ class RefreshTests(unittest.TestCase):
         again = self.refresh()
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertIn("refresh: the company folder is current (1 kept)", again.stdout)
+
+    def test_refresh_pull_request_passes_the_checks_with_the_fake_review(self):
+        # B57: the stock skills alone are far over the review's limit. The refresh puts this
+        # release's tools and stock list on main first, so the review leaves the stock texts
+        # out and the pull request passes on its own, with no /override.
+        release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"(?m)^checks-on-main: acme-os")
+        self.assertNotIn("override:", result.stdout)
+        calls = self.log.read_text()
+        self.assertLess(calls.index("unprotect acme-os"), calls.index("protect acme-os --code-owners"))
+        self.assertLess(calls.index("protect acme-os --code-owners"), calls.index("open-pr acme-os"))
+        branch = f"rules/ada/refresh-{release}"
+        self.assertEqual(self.host_blob("main", ".github/scripts/stock-hashes.txt"),
+                         run(["git", "hash-object", str(TEMPLATE / ".github/scripts/stock-hashes.txt")],
+                             env=self.env).stdout.strip())
+        whole = run(["git", "--git-dir", str(self.bare), "diff", "main..." + branch], env=self.env).stdout
+        self.assertGreater(len(whole.encode()), 100000)
+        # The checks job, as the workflow runs it, on a runner with this pull request.
+        work = self.tmp / "work"
+        run(["git", "clone", "-q", "--no-checkout", str(self.bare), str(work)], env=self.env, check=True)
+        head = run(["git", "-C", str(work), "rev-parse", f"origin/{branch}"], env=self.env, check=True).stdout.strip()
+        base = run(["git", "-C", str(work), "rev-parse", "origin/main"], env=self.env, check=True).stdout.strip()
+        run(["git", "-C", str(work), "checkout", "-q", "--detach", head], env=self.env, check=True)
+        event = self.tmp / "event.json"
+        event.write_text(json.dumps({"pull_request": {
+            "number": 7, "title": "Refresh", "body": "Refresh of the stock skills.",
+            "head": {"ref": branch, "sha": head}, "base": {"ref": "main", "sha": base}}}))
+        verdicts = self.tmp / "verdicts.txt"
+        verdicts.write_text("* PASS\n")
+        bin_dir = self.tmp / "ci-bin"
+        bin_dir.mkdir()
+        (bin_dir / "curl").write_text(textwrap.dedent("""\
+            #!/bin/bash
+            cfg=$2
+            out=$(sed -n 's/^output = "\\(.*\\)"$/\\1/p' "$cfg")
+            data=$(sed -n 's/^data-binary = "@\\(.*\\)"$/\\1/p' "$cfg")
+            [ -z "$data" ] || cat "$data" >> "$FAKE_DIR/posted"
+            printf '%s' '{"id":1}' > "$out"
+            printf '201'
+            """))
+        (bin_dir / "curl").chmod(0o755)
+        (self.tmp / "runner").mkdir()
+        ci_env = dict(self.env)
+        ci_env.pop("OS_HOST_SH", None)
+        ci_env.update({
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "FAKE_DIR": str(self.tmp),
+            "JOB_TOKEN": "job-token-test-value",
+            "GITHUB_WORKSPACE": str(work),
+            "GITHUB_SERVER_URL": "http://forgejo.test",
+            "GITHUB_API_URL": "http://forgejo.test/api/v1",
+            "GITHUB_REPOSITORY": "acme/acme-os",
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_EVENT_PATH": str(event),
+            "RUNNER_TEMP": str(self.tmp / "runner"),
+            "OS_REVIEW_FAKE": str(verdicts),
+        })
+        for name in ("base tools", "run checks"):
+            script = self.tmp / f"{name.replace(' ', '-')}.sh"
+            script.write_text(workflow_step(name))
+            proc = run(["bash", str(script)], env=ci_env, cwd=work)
+            self.assertEqual(proc.returncode, 0, f"{name}:\n{proc.stdout}\n{proc.stderr}")
+        posted = (self.tmp / "posted").read_text()
+        self.assertIn("VERDICT: PASS", posted)
+        self.assertNotIn("too large", proc.stdout + proc.stderr)
 
     def test_solo_commits_on_main(self):
         # No host: everything at solo is a commit on main.

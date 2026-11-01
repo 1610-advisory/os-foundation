@@ -201,7 +201,8 @@ if [ -n "${GITHUB_EVENT_PATH:-}" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
   jq -r '.pull_request.title // empty' "$GITHUB_EVENT_PATH" > "$title_file"
   jq -r '.pull_request.body // empty' "$GITHUB_EVENT_PATH" > "$body_file"
 fi
-git diff --no-color "$range" > "$diff_file"
+# A file exactly as a release shipped it is left out. The stock list comes from the base.
+bash "$DIR/review-diff.sh" "$range" "${tools}/.github/scripts/stock-hashes.txt" > "$diff_file"
 
 review_rc=0
 out=$(ci_mktemp)
