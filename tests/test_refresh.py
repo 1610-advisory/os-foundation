@@ -201,9 +201,10 @@ class RefreshTests(unittest.TestCase):
         self.assertLess(calls.index("unprotect acme-os"), calls.index("protect acme-os --code-owners"))
         self.assertLess(calls.index("protect acme-os --code-owners"), calls.index("open-pr acme-os"))
         branch = f"rules/ada/refresh-{release}"
-        self.assertEqual(self.host_blob("main", ".github/scripts/stock-hashes.txt"),
-                         run(["git", "hash-object", str(TEMPLATE / ".github/scripts/stock-hashes.txt")],
-                             env=self.env).stdout.strip())
+        for name in ("stock-hashes.txt", "stock-current.txt"):
+            self.assertEqual(self.host_blob("main", ".github/scripts/" + name),
+                             run(["git", "hash-object", str(TEMPLATE / ".github/scripts" / name)],
+                                 env=self.env).stdout.strip())
         whole = run(["git", "--git-dir", str(self.bare), "diff", "main..." + branch], env=self.env).stdout
         self.assertGreater(len(whole.encode()), 100000)
         # The checks job, as the workflow runs it, on a runner with this pull request.

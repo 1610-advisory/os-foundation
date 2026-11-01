@@ -1300,6 +1300,77 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain").stdout, "?? mine.md\n")
         self.assertIn("could not take main", self.sync("status").stdout)
 
+    def test_a_failed_squash_heal_sets_nothing_aside(self):
+        # Grok r2 P2: the set-aside ran before the reset, so a failed reset left the file
+        # set aside and dropped while the line said nothing was changed.
+        bare = self.squashed_seat()
+        (self.company / "other.md").write_text("other mine\n")
+        result = self.sync("push", env=dict(self.env, OS_SYNC_SQUASH_FAIL="1"))
+        self.assertIn("Nothing was changed or pushed", result.stderr)
+        self.assertNotIn("set aside", result.stdout + result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other mine\n")
+        self.assertEqual((self.company / "mine.md").read_text(), "my next note\n")
+        self.assertNotIn("other.md", self.reapply_list())
+        self.assertEqual(sorted(self.git("status", "--porcelain").stdout.splitlines()),
+                         [" M other.md", "?? mine.md"])
+        self.assertEqual(list((self.home / ".config" / "acme-os" / "state").glob("squash.*")), [])
+
+    def test_a_squash_heal_sets_a_both_changed_file_aside_after_taking_main(self):
+        bare = self.squashed_seat()
+        (self.company / "other.md").write_text("other mine\n")
+        result = self.sync("pull", "--full")
+        self.assertIn("this copy now has main", result.stderr)
+        self.assertIn("other.md: changed on the host while you worked", result.stdout)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertIn("other.md", self.reapply_list())
+        held = json.loads((self.home / ".config" / "acme-os" / "state" / "held.json").read_text())
+        mine = [f["mine"] for f in held["files"] if f["path"] == "other.md"]
+        self.assertEqual(Path(mine[0]).read_text(), "other mine\n")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+
+    def test_a_seat_branch_left_after_a_squash_goes_at_the_next_push(self):
+        # Grok r2 P2: when the heal could not delete sync/<me>/<seat>, every later push was
+        # refused (not a fast-forward). Now the heal names it and the next push deletes it.
+        bare = self.squashed_seat()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\n"
+                        "while read old new ref; do\n"
+                        "  case $new in 0000000000000000000000000000000000000000)\n"
+                        "    if [ -f refuse-delete ]; then rm -f refuse-delete; echo refused >&2; exit 1; fi ;;\n"
+                        "  esac\n"
+                        "done\n")
+        hook.chmod(0o755)
+        (bare / "refuse-delete").write_text("")
+        old = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("pull", "--full")
+        self.assertIn("this copy now has main", result.stderr)
+        self.assertIn(f"could not delete the branch {SEAT_BRANCH} on the host", result.stderr)
+        self.assertFalse((bare / "refuse-delete").exists())
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, old)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+        # The new branch starts from main: the squashed commit is not on it.
+        self.assertNotEqual(run(["git", "--git-dir", str(bare), "merge-base", "--is-ancestor",
+                                 old.strip(), SEAT_REF], env=self.env).returncode, 0)
+
+    def test_a_seat_branch_with_work_main_lacks_is_never_deleted(self):
+        bare = self.squashed_seat()
+        # Someone put a commit on this computer's branch that main does not have.
+        other = self.tmp / "other-clone"
+        run(["git", "clone", "-q", "-b", SEAT_BRANCH, str(bare), str(other)], env=self.env, check=True)
+        (other / "extra.md").write_text("not on main\n")
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "-c", "user.name=x", "-c", "user.email=x@invalid",
+             "commit", "-q", "-m", "extra"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", SEAT_BRANCH], env=self.env, check=True)
+        tip = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        self.sync("pull", "--full")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, tip)
+
     def test_names_with_an_em_dash_or_an_emoji(self):
         # Grok r1 P1: diff --name-only quoted these, so a both-sides change was missed.
         dash, emoji = "Supplier call \u2014 notes.md", "Ideas \U0001F4A1.md"

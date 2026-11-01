@@ -1,17 +1,19 @@
 #!/bin/bash
 # Print the diff the model review reads for one range. Run inside the repo.
 #
-# A file whose text at the head is exactly a stock text some release shipped at that
-# path is left out: the line at the top says how many. The stock list is a file from the
-# base tools (main), never from the head, so a pull request cannot add to it. A match is
-# a git blob id and its path. upgrade.sh measures a pull request with this same script.
+# A file whose text at the head is exactly the stock text this release ships at that path
+# is left out: the line at the top says how many. The list is stock-current.txt from the
+# base tools (main), never from the head, so a pull request cannot add to it. An older
+# release's text is not in it: putting a file back to old text is a change, and is
+# reviewed. A match is a git blob id and its path. upgrade.sh measures a pull request with
+# this same script.
 set -euo pipefail
 
 usage() {
   cat << 'EOF'
-usage: review-diff.sh <base>..<head> <stock-hashes file>
+usage: review-diff.sh <base>..<head> <stock-current file>
 
-Print the diff for the model review. Files exactly as a release shipped them are left out.
+Print the diff for the model review. Files exactly as this release ships them are left out.
 EOF
 }
 
@@ -37,8 +39,8 @@ if [ -f "$hashes" ]; then
   done < <(git -c core.quotepath=false diff -z --name-only --no-renames --diff-filter=AM "$range")
 fi
 if [ "${#skip[@]}" -eq 1 ]; then
-  printf '%s\n' "# 1 file is left out: it is exactly as a release of the company OS shipped it."
+  printf '%s\n' "# 1 file is left out: it is exactly as this release of the company OS ships it."
 elif [ "${#skip[@]}" -gt 1 ]; then
-  printf '# %s files are left out: each is exactly as a release of the company OS shipped it.\n' "${#skip[@]}"
+  printf '# %s files are left out: each is exactly as this release of the company OS ships it.\n' "${#skip[@]}"
 fi
 git diff --no-color --no-renames "$range" -- . ${skip[@]+"${skip[@]}"}

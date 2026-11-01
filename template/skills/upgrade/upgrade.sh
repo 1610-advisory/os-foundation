@@ -237,12 +237,12 @@ stock_union() {
   { grep '^#' "$new" || true; { grep -hv '^#' "$new" "$have" || true; } | LC_ALL=C sort -u; } > "$out"
 }
 
-# Bytes of diff the model review reads for a range: review-diff.sh with main's stock list,
-# as the checks job measures it (B41, B57).
+# Bytes of diff the model review reads for a range: review-diff.sh with main's
+# stock-current.txt, as the checks job measures it (B41, B57).
 review_size() {
   local dir=$1 range=$2 hashes size
   hashes=$(mktemp)
-  git -C "$dir" show "refs/remotes/origin/main:.github/scripts/stock-hashes.txt" > "$hashes" 2>/dev/null || : > "$hashes"
+  git -C "$dir" show "refs/remotes/origin/main:.github/scripts/stock-current.txt" > "$hashes" 2>/dev/null || : > "$hashes"
   size=$(cd "$dir" && bash "$TEMPLATE/.github/scripts/review-diff.sh" "$range" "$hashes" | wc -c | tr -d ' ')
   rm -f "$hashes"
   printf '%s\n' "${size:-0}"
@@ -268,9 +268,13 @@ checks_on_main() {
       cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
       rm -rf "$tmp/main/.github/scripts"
       cp -R "$TEMPLATE/.github/scripts" "$tmp/main/.github/scripts"
+    elif [ "$main_rel" -eq "$new_rel" ]; then
+      # The model review leaves out only this release's stock texts. Same release: this
+      # upgrade's list is the one for the skills it brings.
+      cp "$TEMPLATE/.github/scripts/stock-current.txt" "$tmp/main/.github/scripts/stock-current.txt"
     fi
-    # The stock list only grows: every text some release shipped. The model review leaves
-    # those files out, so this release's stock texts go on main whatever the tools release.
+    # The stock list only grows: every text some release shipped. Refresh replaces only
+    # those, so this release's stock texts go on main whatever the tools release.
     stock_union "$TEMPLATE/.github/scripts/stock-hashes.txt" "$tmp/stock-main" "$tmp/main/.github/scripts/stock-hashes.txt"
     git -C "$tmp/main" add -A -- .github/workflows/checks.yml .github/scripts
     if git -C "$tmp/main" diff --cached --quiet; then
@@ -283,8 +287,8 @@ checks_on_main() {
       author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
       done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})"
     else
-      author_env git -C "$tmp/main" commit -q -m "Upgrade: add stock texts to the review list on main"
-      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the review list"
+      author_env git -C "$tmp/main" commit -q -m "Upgrade: add stock texts to the stock lists on main"
+      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the stock lists"
     fi
     if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
       git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true

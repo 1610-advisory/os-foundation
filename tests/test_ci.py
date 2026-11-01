@@ -657,9 +657,10 @@ class ToolsReleaseTests(unittest.TestCase):
         base = ROOT / "template" / ".github"
         files = [base / "workflows" / "checks.yml"] + sorted(
             p for p in (base / "scripts").rglob("*")
-            # The stock list changes with every stock file. It only grows, and the upgrade
-            # merges it into main whatever the release, so it needs no release of its own.
-            if p.is_file() and p.name not in ("tools-release", "stock-hashes.txt")
+            # The stock lists change with every stock file. The upgrade merges stock-hashes.txt
+            # into main whatever the release, and puts stock-current.txt on main at the same
+            # release, so they need no release of their own.
+            if p.is_file() and p.name not in ("tools-release", "stock-hashes.txt", "stock-current.txt")
         )
         digest = hashlib.sha256()
         for p in files:
@@ -675,7 +676,7 @@ class ToolsReleaseTests(unittest.TestCase):
 
 
 class ReviewDiffTests(unittest.TestCase):
-    """B57: the review leaves out a file exactly as a release shipped it, by the base list."""
+    """B57: the review leaves out a file exactly as this release ships it, by the base list."""
 
     def test_stock_text_is_left_out_and_a_changed_one_is_shown(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -696,7 +697,7 @@ class ReviewDiffTests(unittest.TestCase):
             def blob(path):
                 return subprocess.run(["git", "-C", str(repo), "rev-parse", f"HEAD:{path}"], text=True,
                                       capture_output=True, check=True).stdout.strip()
-            hashes = Path(tmp) / "stock-hashes.txt"
+            hashes = Path(tmp) / "stock-current.txt"
             # The stock list names SKILL.md's text. edited.md's text is listed at another path only.
             hashes.write_text(f"# list\n{blob('skills/lint/SKILL.md')} skills/lint/SKILL.md\n"
                               f"{blob('skills/lint/edited.md')} skills/other/edited.md\n")
@@ -711,7 +712,51 @@ class ReviewDiffTests(unittest.TestCase):
 
     def test_run_checks_reads_the_list_from_the_base_tools(self):
         text = (SCRIPTS / "run-checks.sh").read_text()
-        self.assertIn('review-diff.sh" "$range" "${tools}/.github/scripts/stock-hashes.txt"', text)
+        self.assertIn('review-diff.sh" "$range" "${tools}/.github/scripts/stock-current.txt"', text)
+
+    def test_putting_a_skill_back_to_an_older_release_text_is_reviewed(self):
+        # Round 3 P2: only this release's stock texts are left out. An older release's text
+        # is still in stock-hashes.txt (refresh may replace it), but it is a change here.
+        current = {}
+        for line in (SCRIPTS / "stock-current.txt").read_text().splitlines():
+            if not line.startswith("#"):
+                blob, path = line.split(" ", 1)
+                current[path] = blob
+        older = None
+        for line in (SCRIPTS / "stock-hashes.txt").read_text().splitlines():
+            if line.startswith("#"):
+                continue
+            blob, path = line.split(" ", 1)
+            if path.startswith("skills/") and path.endswith(".md") and path in current and current[path] != blob:
+                older = (path, blob)
+                break
+        self.assertIsNotNone(older, "no skill file with an older release text")
+        path, old_blob = older
+        def cat(blob):
+            return subprocess.run(["git", "-C", str(ROOT), "cat-file", "blob", blob],
+                                  capture_output=True, check=True).stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            (repo / path).parent.mkdir(parents=True)
+            git(repo, "init", "-q", "-b", "main")
+            (repo / path).write_bytes(cat(current[path]))
+            (repo / "notes.md").write_text("start\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "this release")
+            base = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True,
+                                  capture_output=True, check=True).stdout.strip()
+            (repo / path).write_bytes(cat(old_blob))
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "back to old text")
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD",
+                          str(SCRIPTS / "stock-current.txt")], cwd=repo)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"diff --git a/{path} b/{path}", result.stdout)
+            self.assertNotIn("left out", result.stdout)
+            # The whole history list would have hidden it.
+            result = run(["bash", str(SCRIPTS / "review-diff.sh"), f"{base}..HEAD",
+                          str(SCRIPTS / "stock-hashes.txt")], cwd=repo)
+            self.assertNotIn(f"diff --git a/{path}", result.stdout)
 
 
 class BaseRulesTests(unittest.TestCase):

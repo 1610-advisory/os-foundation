@@ -511,6 +511,7 @@ sync_push_commits() {
     return 1
   }
   sync_old_branch_retire "$repo" "$id" "$name_on_host" || return 1
+  sync_squashed_branch_drop "$repo" "$id" "$branch" || return 1
   set +e
   sync_push_ref "$repo" HEAD "refs/heads/${branch}" 0 >/dev/null 2>&1
   rc=$?
@@ -547,6 +548,25 @@ sync_push_commits() {
     return 1
   fi
   return 0
+}
+
+# A squash heal that could not delete this computer's branch on the host leaves it holding
+# the squashed commits, so this push would not fast-forward. When every file those commits
+# changed has the same text on main, main holds that work: delete the branch, then push.
+# Never forced. A branch with work main lacks stays, and the push stops as before.
+sync_squashed_branch_drop() {
+  local repo=$1 id=$2 branch=$3 ref
+  ref="refs/remotes/origin/${branch}"
+  git -C "$repo" rev-parse --verify --quiet "$ref" >/dev/null || return 0
+  ! git -C "$repo" merge-base --is-ancestor "$ref" HEAD || return 0
+  sync_files_on_main "$repo" "$ref" >/dev/null || return 0
+  if sync_git "$repo" push origin ":refs/heads/${branch}" >/dev/null 2>&1; then
+    git -C "$repo" update-ref -d "$ref" 2>/dev/null || true
+    sync_log "push ${id} deleted ${branch}: main already has its work"
+    return 0
+  fi
+  printf '%s\n' "${id}: could not delete the branch ${branch} on the host. It holds only work main already has. Nothing was sent." >&2
+  sync_apply_fail "$id" "could not delete ${branch} on the host"
 }
 
 # Moving from the old sync code (keep for one release, then delete). Git cannot keep a

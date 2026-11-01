@@ -182,10 +182,10 @@ grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-m
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
 # B41, B57: the stock skills put the company pull request over the model review's limit.
-# The review leaves out each file exactly as a release shipped it (main's stock list,
-# which the check tools brought), so it fits and needs no /override.
+# The review leaves out each file exactly as this release ships it (main's
+# stock-current.txt, which the check tools brought), so it fits and needs no /override.
 bare="$work/git/acme2-os.git"
-git --git-dir "$bare" show main:.github/scripts/stock-hashes.txt > "$work/stock.txt"
+git --git-dir "$bare" show main:.github/scripts/stock-current.txt > "$work/stock.txt"
 pr_base=$(git -C "$co" merge-base refs/remotes/origin/main upgrade/v1)
 whole=$(git -C "$co" diff --no-color "${pr_base}..upgrade/v1" | wc -c | tr -d ' ')
 [ "$whole" -gt 100000 ] || team_fail "B41: the fixture upgrade is small ($whole bytes); the check below proves nothing"
