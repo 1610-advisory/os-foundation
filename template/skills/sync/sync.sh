@@ -74,7 +74,9 @@ cmd_status() {
 sync_status_unpushed() {
   local repo=$1 id=$2 n
   n=$(git -C "$repo" rev-list --count --no-merges HEAD --not --remotes=origin 2>/dev/null || printf '0')
-  if [ "$n" != "0" ]; then
+  if [ "$n" = "1" ]; then
+    printf '%s\n' "${id}: 1 change here is not on the host yet"
+  elif [ "$n" != "0" ]; then
     printf '%s\n' "${id}: ${n} changes here are not on the host yet"
   fi
 }

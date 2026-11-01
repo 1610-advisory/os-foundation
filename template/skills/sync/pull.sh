@@ -526,16 +526,6 @@ sync_pull_fail() {
   fi
 }
 
-# A clean pull clears an error an earlier pull left. It never clears a push error.
-sync_pull_clear_error() {
-  local err
-  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
-  [ -f "${SYNC_HELD:-}" ] || return 0
-  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
-  case "$err" in
-    "pull failed for "*) sync_held_error "" ;;
-  esac
-}
 
 sync_pull_mark() {
   SYNC_PULL_DONE="${SYNC_PULL_DONE:-}|$1|"
@@ -1443,8 +1433,6 @@ cmd_pull() {
   else
     sync_pull_run_quick || rc=$?
   fi
-  if [ "$rc" -eq 0 ]; then
-    sync_pull_clear_error
-  fi
+  [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }

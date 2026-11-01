@@ -357,6 +357,15 @@ sync_held_error() {
   chmod 600 "$SYNC_HELD"
 }
 
+# A pull or push that went through for every repo clears the last error, whatever left
+# it. Never one this run set: a later repo's error stays.
+sync_clear_error() {
+  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
+  [ -f "${SYNC_HELD:-}" ] || return 0
+  [ -n "$(jq -r '.last_error // ""' "$SYNC_HELD")" ] || return 0
+  sync_held_error ""
+}
+
 # Push holds for one repo are worked out again each push. A re-apply hold stays until
 # the agent is done with it (re-apply.sh done).
 sync_held_replace() {

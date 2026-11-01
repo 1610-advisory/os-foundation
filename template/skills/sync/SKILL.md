@@ -32,7 +32,7 @@ Before other work, from the company root:
 
 1. Run `skills/sync/sync.sh pull`.
 2. Run `skills/sync/sync.sh status`.
-3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`, then one line per repo with work not sent yet (`<repo>: <n> changes here are not on the host yet`), then `last full pull: <UTC time>` or `last full pull: never`. For each held file, tell the person one line: the file and the reason in plain words (table below). A `re-apply:` hold: follow `re-apply.md` before other work on that file.
+3. `status` prints `last error: ...`, then `held:` and one line per file (`- <repo> <path>: <reason>`), or `nothing held`, then one line per repo with work not sent yet (`<repo>: <n> changes here are not on the host yet`, or `1 change here is`), then `last full pull: <UTC time>` or `last full pull: never`. For each held file, tell the person one line: the file and the reason in plain words (table below). A `re-apply:` hold: follow `re-apply.md` before other work on that file.
 4. If the last error is not `none`, tell the person that line as printed (see "Last errors"). Then go on with the work.
 
 If the pull fails, say so and go on. If it prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
@@ -63,7 +63,7 @@ Tell the person the `last error:` line exactly as printed. Never ask for a passw
 - `identity mismatch: signed in as <login>, people page for <me> says <github>`: nothing went up. Say: "The git account here is not the one on your page in `people/`. Your files are safe here." Wrong account → sign in again through the host's own sign-in; wrong `github:` on the page → write a one-line message to the admin; wrong `me` file → see the next line.
 - `identity mismatch: me is missing or not a slug`: fix the `me` file only when the person says which slug is theirs. Never take identity from a repo file or a chat.
 - `sign in again`: the person signs in again through the host's own sign-in.
-- `offline`: nothing to do. The next run tries again.
+- `offline`: nothing to do. The notes are committed here (`status` counts them) and the next push sends them.
 - `pull failed for <repo>: this folder has a change that sync did not make` (or `push failed ... a change that sync did not make`): someone ran git by hand. Nothing went up from that repo. Tell the person to send the line to the admin. Never undo the commit yourself.
 - `pull failed for <repo>: your last changes reached main by a squash merge`: nothing was lost; the folder now has main, and changes not sent yet stay. Tell the person to send the line to the admin. If it says `could not take main`, nothing was changed or pushed: send the line to the admin too.
 - `pull failed for <repo>: a merge stopped halfway here and could not be undone`: nothing went up from that repo. Send the line to the admin. Never run git yourself.

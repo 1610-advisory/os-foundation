@@ -15,7 +15,7 @@ skills/sync/sync.sh <command> [flags]
 | `pull [--full]` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. Plain `pull` asks the host first and pulls only the repos that changed. `--full` pulls every repo. Any other flag prints `unknown flag` and exits 1. On failure, leave that repo's working copy unchanged and write one line to the log. See "Pull". |
 | `push` | Nightly push. Identity check first. Then, in each repo: take the host's changes, secret scan, engine check, commit in the folder, push. Company and area repos go to `sync/<me>/<seat>` and that computer's standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
 | `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
-| `status` | Print the last error, held files, one line per repo with commits the host does not have yet (`<repo>: <n> changes here are not on the host yet`), and `last full pull: <time>`. The next session reads this. |
+| `status` | Print the last error, held files, one line per repo with commits the host does not have yet (`<repo>: <n> changes here are not on the host yet`, or `1 change here is`), and `last full pull: <time>`. The next session reads this. |
 | `re-apply [list \| done <repo> <path> \| ask <repo> <path> <question>]` | Files changed here and on the host before either merged. See "Changed under you" and `re-apply.md`. |
 | `seat` | Print this computer's seat id. Makes it on first use. `join` uses it. |
 | `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
@@ -55,7 +55,7 @@ A held file that no longer exists leaves the list at the start and end of each `
 
 ## Identity
 
-Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of the `people/*.md` page whose `slug:` is `me`. A mismatch pushes nothing. `status` says why.
+Before `push` or `propose`, `host.sh whoami` must equal the `github:` field of the `people/*.md` page whose `slug:` is `me`. A mismatch pushes nothing. `status` says why. When the host cannot be reached for that check (`whoami` exit 5), `push` still commits here, prints `offline: changes are saved here and go up with the next push`, and sends nothing (`push offline <repo> committed here, not sent` in the log); the last error is `offline`. The next push that can check sends those commits.
 
 ## Nightly push
 
@@ -71,7 +71,7 @@ For each repo:
 5. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
    - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` (company repo or area) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
    - An area's `drafts/` folder is shared copy in progress. Its files go to the area on the standing pull request, and everyone who reads the area sees them. A private draft goes in the person's workspace `drafts/`.
-6. The files that passed are committed on `main` in the folder: `git reset`, then `git add -A` of those paths only, so a file someone staged by hand is checked like any other. Held files stay as they are.
+6. The files that passed are committed on `main` in the folder: `git reset`, then `git add -A` of those paths only, so a file someone staged by hand is checked like any other. Held files stay as they are. The message is the engine's line for one file. For more, it is `Update <n> files`, then one line per file, `- <path>: <engine line>`. Then the `Sync-Seat:` trailer. The author is the person (git `user.name` and `user.email`, else the slug and the people page email).
 7. The commits `main` lacks are checked as a range, the same way a bot's are ("Bot run push": rules paths and a secret scan of every blob), then pushed with `git push origin main:refs/heads/sync/<me>/<seat>`. Never forced: the branch only grows, and a merged pull request leaves it an ancestor of `main`.
 8. The standing pull request `sync: <me> (<seat>)`, one per computer, with a body (`These are <me>'s notes from sync.`, then one line per file, then any `- re-apply question: ...` lines) between `<!-- sync:files -->` and `<!-- /sync:files -->`. On an open pull request it reads the body (`host.sh open-prs`) and replaces only that block: every other line a person wrote stays. An old body with no markers stays, with the block after it. If the open pull requests cannot be read, it gives `open-pr` no body, so the host keeps the one it has. Then `host.sh auto-merge` (a merge commit), then `pull`.
 9. The workspace repo pushes its commits to its own `main`, fast-forward only. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
@@ -150,7 +150,7 @@ Logs pushed to the old `logs` branch after the upgrade: a full pull (and any pul
 
 While the host still has a `logs` branch, `push` holds every changed file under `memory/logs/` (company and areas) with the reason `waits until the old logs branch is deleted on the host (skills/upgrade/SKILL.md section 11)`. A teammate's old clone ignores `memory/logs/`, and its first plain `git pull` would write over any log `main` has there. It asks the host with `ls-remote` on each push, even when this clone has no `logs` ref, because an old copy can push the branch back after the admin deleted it. Only "no such branch" lets logs go; offline counts as still there. A repo with no v0 history (no `logs` branch, no `logs-archive-*` tag, no `memory/logs-archive/`) asks nobody.
 
-A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. The next clean pull clears an error that a pull set. It never clears a push error. A good push clears only an error that a push set. It never clears a pull error.
+A failed pull also prints one plain line, `pull failed for <repo>: <reason and what to do>`, and sets `last_error` in `held.json`, so `sync.sh status` shows it. One line per repo; the first reason wins. A pull or push that goes through for every repo clears the last error, whatever left it (a push takes main first, so it is a good pull too). An error set in the same run stays.
 
 ### State file
 

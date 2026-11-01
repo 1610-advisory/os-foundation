@@ -318,7 +318,14 @@ else
     seat=$(OS_COMPANY_ROOT="$ROOT" bash "$sync_sh" seat) \
       || os_die 3 "could not make this computer's seat id: run join again"
     os_fm_set "$PAGE" terms_accepted "$(os_today)"
-    os_git_commit "$ROOT" "Join: accept terms
+    # The person is the author (B54), as in every sync commit: their git name and email,
+    # else their slug and the email on their people page.
+    join_name=$(git -C "$ROOT" config user.name || true)
+    join_email=$(git -C "$ROOT" config user.email || true)
+    [ -n "$join_name" ] || join_name=$ME
+    [ -n "$join_email" ] || join_email=$(os_fm_get "$PAGE" email 2>/dev/null || true)
+    [ -n "$join_email" ] || join_email="${ME}@invalid"
+    OS_GIT_NAME=$join_name OS_GIT_EMAIL=$join_email os_git_commit "$ROOT" "Join: accept terms
 
 ${ME} joined and accepted the terms on ${PAGE#"$ROOT"/}.
 

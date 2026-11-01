@@ -553,7 +553,10 @@ def fake_host(dir_path, login="acme-member-a"):
     dir_path.mkdir(parents=True, exist_ok=True)
     script = """#!/bin/bash
 case "$1" in
-  whoami) printf '%s\n' '{"login":"LOGIN"}' ;;
+  whoami)
+    # B55: the host API cannot be reached.
+    [ ! -f "HOSTDIR/offline" ] || exit 5
+    printf '%s\n' '{"login":"LOGIN"}' ;;
   get-token) printf '%s\n' local-token ;;
   open-pr)
     # Keep the body, so a test can read what the pull request says.
@@ -1108,6 +1111,33 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
 
+    def test_offline_push_commits_here_and_status_counts_it(self):
+        # B55: the host API is unreachable, so the identity check cannot run. The notes
+        # are still committed here; nothing goes to the host until a push that can check.
+        bare = self.seed_origin()
+        (self.host / "offline").write_text("")
+        (self.company / "notes.md").write_text("an offline note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("offline: changes are saved here", result.stderr)
+        self.assertIn("notes.md", self.git("show", "--name-only", "--format=", "HEAD").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        heads = run(["git", "--git-dir", str(bare), "for-each-ref", "--format=%(refname)", "refs/heads/sync"],
+                    env=self.env).stdout
+        self.assertEqual(heads, "")
+        self.assertIn("push offline root committed here, not sent", self.sync_log())
+        status = self.sync("status")
+        self.assertIn("root: 1 change here is not on the host yet", status.stdout)
+        self.assertIn("last error: offline", status.stdout)
+        # Back online: the same commit goes up, and the error clears.
+        (self.host / "offline").unlink()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("notes.md", self.tree(SEAT_REF))
+        status = self.sync("status")
+        self.assertNotIn("not on the host yet", status.stdout)
+        self.assertIn("last error: none", status.stdout)
+
     def test_a_deleted_held_file_leaves_the_list(self):
         # B26: status and push drop a held file that is gone, so no session reports it.
         self.seed_origin()
@@ -1194,7 +1224,7 @@ class SyncFixTests(unittest.TestCase):
         self.git("remote", "set-url", "origin", str(self.tmp / "gone.git"))
         (self.company / "a.md").write_text("a note\n")
         self.sync("push")
-        self.assertIn("root: 1 changes here are not on the host yet", self.sync("status").stdout)
+        self.assertIn("root: 1 change here is not on the host yet", self.sync("status").stdout)
 
     def test_a_squash_merge_is_refused_and_the_copy_takes_main(self):
         bare = self.seed_origin()
@@ -1459,6 +1489,32 @@ class SyncFixTests(unittest.TestCase):
             env=self.env, check=True)
         run(["git", "-C", str(hm), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
 
+    def test_join_commit_is_the_persons(self):
+        # B54: the terms commit names the person, not the OS.
+        bare, answers = self.join_ready()
+        for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            self.env.pop(key, None)
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        author = run(["git", "--git-dir", str(bare), "log", "-1", "--grep=^Join: accept terms",
+                      "--format=%an <%ae>|%s", SEAT_REF], env=self.env).stdout.strip()
+        self.assertEqual(author, "mia <mia.member@acme.test>|Join: accept terms")
+
+    def test_a_many_file_commit_names_every_file(self):
+        # B54: one commit for three files says so, and lists each file's line.
+        self.seed_origin()
+        for name in ("one.md", "two.md", "three.md"):
+            (self.company / name).write_text(f"a note in {name}\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = self.git("log", "-1", "--format=%B").stdout
+        n = len(re.findall(r"(?m)^- ", body))
+        self.assertGreaterEqual(n, 3)
+        self.assertEqual(body.splitlines()[0], f"Update {n} files")
+        for name in ("one.md", "two.md", "three.md"):
+            self.assertRegex(body, rf"(?m)^- {re.escape(name)}: update {re.escape(name)}$")
+        self.assertIn("Sync-Seat: " + SEAT, body)
+
     def test_join_then_push_before_pull(self):
         # B46: the terms pull request merged on the host, and the next push runs before
         # any pull. Push takes main first: nothing new goes up, nothing fails.
@@ -1529,21 +1585,25 @@ class SyncFixTests(unittest.TestCase):
         self.sync("pull", "--full")
         self.assertEqual(sorted(os.listdir(tmpdir)), [], "push or pull left temp files")
 
-    def test_a_push_clears_only_a_push_error(self):
-        # Round 3 (41): a good push never clears an error a pull left in another run.
+    def test_a_good_run_clears_the_last_error_but_never_its_own(self):
+        # Round 2 (last error kept): a pull or push that went through for every repo
+        # clears the last error, a pull's or a push's. Push takes main first, so a good
+        # push is a good pull too. An error this same run set stays.
         script = (
-            'source "$1/lib.sh"; source "$1/push.sh"; SYNC_HELD="$2"; '
-            'sync_mktemp() { mktemp; }; sync_push_clear_error; jq -r .last_error "$2"'
+            'source "$1/lib.sh"; SYNC_HELD="$2"; sync_mktemp() { mktemp; }; '
+            '[ -z "$3" ] || SYNC_RUN_ERROR=1; sync_clear_error; jq -r .last_error "$2"'
         )
         held = self.tmp / "held.json"
         pull_err = "pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."
-        for before, after in [
-            (pull_err, pull_err),
-            ("auto-merge is off on acme-os: pull request 1 is open but will not merge by itself", ""),
-            ("", ""),
+        for before, this_run, after in [
+            (pull_err, "", ""),
+            ("auto-merge is off on acme-os: pull request 1 is open but will not merge by itself", "", ""),
+            ("offline", "", ""),
+            ("", "", ""),
+            (pull_err, "1", pull_err),
         ]:
             held.write_text(json.dumps({"files": [], "last_error": before}))
-            out = run(["bash", "-c", script, "x", str(SYNC), str(held)], env=self.env)
+            out = run(["bash", "-c", script, "x", str(SYNC), str(held), this_run], env=self.env)
             self.assertEqual(out.returncode, 0, out.stderr)
             self.assertEqual(out.stdout.strip(), after)
 
@@ -1685,12 +1745,13 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("last error: none", self.sync("status").stdout)
 
-    def test_clean_pull_keeps_a_push_error(self):
+    def test_clean_pull_clears_a_push_error(self):
+        # Round 2: a pull that went through clears the last error, a push's too.
         self.seed_origin()
         script = 'source "$1/lib.sh"; sync_bind; sync_held_error "auto-merge is off on acme-os"'
         run(["bash", "-c", script, "x", str(SYNC)], env=self.env, cwd=self.company, check=True)
         self.assertEqual(self.sync("pull", "--full").returncode, 0)
-        self.assertIn("last error: auto-merge is off on acme-os", self.sync("status").stdout)
+        self.assertIn("last error: none", self.sync("status").stdout)
 
     def v0_clone_after_upgrade(self, archive=False):
         # v0: logs on branch logs, checked out at memory/logs/, ignored by main.

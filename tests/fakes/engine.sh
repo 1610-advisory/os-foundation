@@ -15,7 +15,8 @@ fi
 input=$(cat)
 decision=commit
 reason=ok
-file=$(printf '%s\n' "$input" | awk '/^FILE: / { print substr($0, 7); exit }')
+# The last FILE: line: the prompt above it shows the format with a FILE: line of its own.
+file=$(printf '%s\n' "$input" | awk '/^FILE: / { f = substr($0, 7) } END { print f }')
 message="update ${file}"
 if [ "${#message}" -gt 72 ]; then
   message=$(printf '%s' "$message" | cut -c 1-72)

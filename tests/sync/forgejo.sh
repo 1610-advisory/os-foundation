@@ -285,7 +285,7 @@ added=$((lines_after - lines_before))
 [ "$added" -eq 2 ] || fail "network failure wrote $added log lines"
 # The note is committed here and waits: status counts it.
 net_status=$(bash "$SYNC" status)
-printf '%s\n' "$net_status" | grep -qx 'root: 1 changes here are not on the host yet' || fail "status does not count the change"
+printf '%s\n' "$net_status" | grep -qx 'root: 1 change here is not on the host yet' || fail "status does not count the change"
 printf '%s\n' "PASS network"
 
 # --- identity mismatch ---

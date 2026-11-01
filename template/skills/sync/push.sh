@@ -112,10 +112,14 @@ sync_identity() {
     printf '%s\n' "sign in again" >&2
     return 1
   fi
+  # Offline (B55): the host cannot say who is signed in, but nothing goes to the host
+  # either. Commit here; sync_push_commits sends nothing until a push that can check.
   if [ "$rc" -eq 5 ]; then
+    SYNC_OFFLINE=1
     sync_held_error "offline"
-    sync_log "push fail identity offline"
-    return 1
+    sync_log "push offline identity: commit here only"
+    printf '%s\n' "offline: changes are saved here and go up with the next push" >&2
+    return 0
   fi
   if [ "$rc" -ne 0 ]; then
     sync_held_error "identity check failed"
@@ -362,6 +366,19 @@ sync_apply_fail() {
   return 1
 }
 
+# The message for one sync commit: the file's own line, or for many files "Update <n>
+# files" and one line per file under it, path first (B54). The two lists are parallel.
+sync_commit_text() {
+  local files=$1 messages=$2 n
+  n=$(grep -c . "$files" || true)
+  if [ "$n" -le 1 ]; then
+    head -n 1 "$messages" | cut -c 1-72
+    return 0
+  fi
+  printf 'Update %s files\n\n' "$n"
+  paste -d '\n' "$files" "$messages" | awk 'NR % 2 == 1 { p = $0; next } { print "- " p ": " $0 }'
+}
+
 # Commit the approved files in the folder itself. Only those paths: everything is unstaged
 # first, so a file someone staged by hand is never published (held files stay as they
 # are). Called from 'if !', so set -e does not stop this function. Check every step.
@@ -473,6 +490,10 @@ sync_push_commits() {
   local me seat branch name_on_host number pr_body block rc
   if [ -z "$(git -C "$repo" rev-list -n 1 origin/main..HEAD 2>/dev/null)" ]; then
     return 0
+  fi
+  if [ "${SYNC_OFFLINE:-0}" = "1" ]; then
+    sync_log "push offline ${id} committed here, not sent"
+    return 1
   fi
   sync_check_range "$repo" "$id" "origin/main..HEAD" || return 1
   if [ "$kind" = "workspace" ]; then
@@ -734,30 +755,16 @@ sync_push_one() {
   done < "$changed"
   sync_held_replace "$id" "$added"
   if [ -s "$commit_files" ]; then
-    if ! sync_commit_local "$repo" "$id" "$commit_files" "$(head -n 1 "$messages" | cut -c 1-72)"; then
+    if ! sync_commit_local "$repo" "$id" "$commit_files" "$(sync_commit_text "$commit_files" "$messages")"; then
       return 1
     fi
   fi
   sync_push_commits "$repo" "$id" "$kind" || return 1
-  sync_push_clear_error
   sync_log "push ok ${id}"
   if [ "$kind" != "workspace" ]; then
     sync_pull_one "$repo" "$id" || true
   fi
   return 0
-}
-
-# A good push clears an error an earlier push left. It never clears a pull error (a
-# clean pull clears that), and never an error an earlier repo set in this run.
-sync_push_clear_error() {
-  local err
-  [ -z "${SYNC_RUN_ERROR:-}" ] || return 0
-  [ -f "${SYNC_HELD:-}" ] || return 0
-  err=$(jq -r '.last_error // ""' "$SYNC_HELD")
-  case "$err" in
-    ""|"pull failed for "*) return 0 ;;
-  esac
-  sync_held_error ""
 }
 
 # Bot runs already committed on sync/<bot>. Push those commits as they are, after the
@@ -1009,6 +1016,7 @@ cmd_push() {
   sync_held_prune
   sync_each sync_push_one || rc=1
   sync_held_prune
+  [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }
 
