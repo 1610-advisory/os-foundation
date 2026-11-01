@@ -1315,7 +1315,7 @@ class SyncFixTests(unittest.TestCase):
         self.git("push", "-q", "origin", "main")
         (self.company / "a.md").write_text("a note\n")
         self.assertEqual(self.sync("push").returncode, 0)
-        self.dana_changes(bare, {"a.md": "a note\n"}, msg="Sync: notes\n\nSync-Seat: desk-7c7c")
+        self.dana_changes(bare, {"a.md": "a note\n"}, msg="Sync: notes\n\nSync-Seat: office-7c7c")
         result = self.sync("pull", "--full")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("squash", result.stdout + result.stderr)

@@ -681,6 +681,7 @@ c66f25c148edead40d0b0a4619d50d44fa409d42 skills/_host/README.md
 c76b4b81e8679f763ca7f7b5b941975b720d1207 .github/scripts/tools/host/forgejo.sh
 c76b4b81e8679f763ca7f7b5b941975b720d1207 skills/_host/forgejo.sh
 c7b914d7efc4dd061a63e2aab8cf6b3d9c5c378b .github/scripts/model-review.sh
+c7eba5aeec08582f75030361746df347451958e4 skills/add-teammate/join.sh
 c81199c50c4e133bb9a8d644d4fefe2ceba6b4eb skills/sync/jobs.sh
 c84e51e252a72ef2918828948a9d1be254358c35 skills/undo-run/CLI.md
 c8bc16c0f444e0fd8a3267bd8608ae749230a426 skills/write-skill/SKILL.md

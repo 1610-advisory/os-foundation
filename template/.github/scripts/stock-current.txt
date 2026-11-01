@@ -29,7 +29,6 @@
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
 29a10818c56d987b4904bdd4fc35e467884b6625 skills/app-setup/hosting-options.md
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
-2e0e27072f32b26fe0a4a7c3279cabdd4c705f20 skills/add-teammate/join.sh
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
 33f4a4137ee1038527c50a64baff5a6f5e77a191 .github/scripts/tools/add-teammate/lib.sh
 33f4a4137ee1038527c50a64baff5a6f5e77a191 skills/add-teammate/lib.sh
@@ -108,6 +107,7 @@ bd026314a50bf5a07d238044b2085bbf882211ad skills/upgrade/SKILL.md
 c3c950058944d6a45f266e78f299f6190520e02a skills/nightly-review/lib.sh
 c455395c6b356972d8543f90202d6fe7e2d4b990 skills/sync/helper.sh
 c4e1667c6f899b090774fa75c1fce82870b58d54 skills/sync/jobs/linux-admin.service
+c7eba5aeec08582f75030361746df347451958e4 skills/add-teammate/join.sh
 c8bc16c0f444e0fd8a3267bd8608ae749230a426 skills/write-skill/SKILL.md
 c8e0e9cb752300d12fbbd6bc3e0347c5d3b5e44b skills/add-area/templates/apps/AGENTS.md
 c95e6390bd839197cd230e8fcd005841bc2a4f89 skills/remove-teammate/remove.sh

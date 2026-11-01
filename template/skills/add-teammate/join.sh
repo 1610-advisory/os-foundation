@@ -502,8 +502,8 @@ old_refused() {
 # folder's copy) has no CR, CRLF line ends become LF. Not for a file with a NUL byte.
 old_mine_eol() {
   local mine=$1 other=$2 f
-  if [ ! -f "$other" ] || ! LC_ALL=C grep -q $'\r' "$mine" 2>/dev/null || LC_ALL=C grep -q $'\r' "$other" 2>/dev/null \
-    || [ "$(LC_ALL=C tr -cd '\000' < "$mine" | wc -c | tr -d ' ')" != "0" ]; then
+  # tr, not grep: a grep on Windows may drop CR before it matches.
+  if [ ! -f "$other" ] || ! old_has_byte '\r' "$mine" || old_has_byte '\r' "$other" || old_has_byte '\000' "$mine"; then
     printf '%s\n' "$mine"
     return 0
   fi
@@ -512,6 +512,11 @@ old_mine_eol() {
     return 0
   fi
   printf '%s\n' "$f"
+}
+
+# Does the file hold this byte (a tr escape: '\r', '\000')?
+old_has_byte() {
+  [ "$(LC_ALL=C tr -cd "$1" < "$2" 2>/dev/null | wc -c | tr -d ' ')" != "0" ]
 }
 
 # A path that is there but is not a plain file (a link, or a special file): never brought.

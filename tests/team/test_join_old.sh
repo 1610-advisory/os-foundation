@@ -21,6 +21,8 @@ out=$(mktemp -d)
 trap 'rm -rf "$work" "$out"' EXIT
 export GIT_AUTHOR_NAME="Ada Admin" GIT_AUTHOR_EMAIL="ada.admin@acme.test"
 export GIT_COMMITTER_NAME="Ada Admin" GIT_COMMITTER_EMAIL="ada.admin@acme.test"
+# tr, not grep: a grep on Windows may drop CR before it matches.
+has_cr() { [ "$(LC_ALL=C tr -cd '\r' < "$1" | wc -c | tr -d ' ')" != "0" ]; }
 windows=0
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) windows=1 ;;
@@ -82,7 +84,7 @@ git -C "$co" fetch -q origin logs:refs/remotes/origin/logs
 git -C "$co" branch -q logs origin/logs
 git -C "$co" worktree add -q "$co/memory/logs" logs
 printf '%s\n' "/memory/logs/" >> "$co/.git/info/exclude"
-LC_ALL=C grep -q $'\r' "$co/notes/plan.md" || team_fail "setup: the old folder's plan.md is not CRLF"
+has_cr "$co/notes/plan.md" || team_fail "setup: the old folder's plan.md is not CRLF"
 # 1. The person's edit, saved by a Windows editor (CRLF kept).
 printf '%s\r\n' "- sam: from the old folder" >> "$co/notes/plan.md"
 # 3. An unpushed commit adds a file, then it is deleted from the worktree.
@@ -150,7 +152,7 @@ grep -qx 'join: ok' "$out/join.out" || say "join did not finish"
 # 1. The set-aside base and the person's copy differ only by the one edit.
 hold="$work/home/.config/acme-os/state/reapply/root/notes/plan.md"
 [ -f "$hold" ] && [ -f "$hold.base" ] || say "1: plan.md was not set aside"
-LC_ALL=C grep -q $'\r' "$hold" && say "1: the set-aside copy still has CRLF line ends"
+has_cr "$hold" && say "1: the set-aside copy still has CRLF line ends"
 d=$(diff "$hold.base" "$hold" || true)
 if [ "$(grep -c '^[<>]' <<< "$d")" != "1" ] || ! grep -qx -- '> - sam: from the old folder' <<< "$d"; then
   printf '%s\n' "$d" >&2
