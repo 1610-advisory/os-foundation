@@ -154,7 +154,9 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
     printf '%s\n' "could not open a pull request for $(os_area_repo "$SLUG" "$a")" >&2
     exit 2
   fi
+  # B62: it changes CODEOWNERS. GitHub: merged by hand (like remove). Forgejo: auto-merge.
   area_lines="${area_lines}rules-pr: $(os_area_repo "$SLUG" "$a") ${area_number}
+$(os_owners_merge_line "$(os_area_repo "$SLUG" "$a")" "$area_number" CODEOWNERS "$HOST_KIND")
 $(os_override_line "$(os_area_repo "$SLUG" "$a")" "$area_number" "add-person: names ${PERSON} as the ${a} area director")
 "
 done

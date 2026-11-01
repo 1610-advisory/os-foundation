@@ -353,6 +353,25 @@ os_auto_merge_line() {
   rm -f "$err"
 }
 
+# A rules pull request that changes CODEOWNERS (add-person, remove). On GitHub a code
+# owner must approve it, so auto-merge would wait for ever: it is merged by hand. An
+# earlier run on the same branch may have turned auto-merge on, so turn it off first
+# (B38), and say "will not merge by itself" only when that is true. Forgejo: auto-merge.
+os_owners_merge_line() {
+  local repo=$1 number=$2 what=$3 host=$4 will
+  if [ "$host" != "github" ]; then
+    os_auto_merge_line "$repo" "$number"
+    return 0
+  fi
+  if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+    will='so it will not merge by itself.'
+  else
+    will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+  fi
+  printf 'merge-by-hand: %s %s: it changes %s, %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+    "$repo" "$number" "$what" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+}
+
 # B58: a product step's own rules pull request (upgrade, refresh, team-on, add-person,
 # remove) can fail the model review on a change its body explains. Say the way past
 # before anyone has to ask. Only the admin may use it; the check logs it.
@@ -669,9 +688,10 @@ os_at_users() {
   fi
 }
 
-# The owners named on the rule lines of CODEOWNERS files, one per line, sorted.
+# The owners named on the rule lines of CODEOWNERS files, one per line, sorted. A field
+# that starts with # begins a comment: the rest of the line is not an owner.
 os_owner_names() {
-  awk '/^#/ || NF < 2 { next } { for (i = 2; i <= NF; i++) print tolower($i) }' "$@" 2>/dev/null | LC_ALL=C sort -u
+  awk '/^#/ || NF < 2 { next } { for (i = 2; i <= NF && $i !~ /^#/; i++) print tolower($i) }' "$@" 2>/dev/null | LC_ALL=C sort -u
 }
 
 # Every rule line of the file names this owner.
@@ -680,12 +700,13 @@ os_owner_on_every_line() {
   [ -f "$file" ] || return 1
   awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" '
     /^#/ || NF == 0 { next }
-    { ok = 0; for (i = 2; i <= NF; i++) if (tolower($i) == who) ok = 1; if (!ok) bad = 1 }
+    { ok = 0; for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) == who) ok = 1; if (!ok) bad = 1 }
     END { exit bad ? 1 : 0 }' "$file"
 }
 
 # Take one owner off every rule line of a CODEOWNERS file. A line left with no owner
-# names the admin instead, so someone in the company can still approve it.
+# names the admin instead, so someone in the company can still approve it. The owners
+# stop at the first field that starts with #: a comment after them stays as it was.
 os_owner_drop() {
   local file=$1 who=$2 admin=$3 tmp
   [ -f "$file" ] || return 0
@@ -694,9 +715,11 @@ os_owner_drop() {
     /^#/ || NF < 2 { print; next }
     {
       out = $1; n = 0
-      for (i = 2; i <= NF; i++) if (tolower($i) != who) { out = out " " $i; n++ }
+      for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) != who) { out = out " " $i; n++ }
       # Never leave a line with no owner: with no admin known, the line stays as it was.
-      if (n == 0) out = (admin == "@") ? $0 : out " " admin
+      if (n == 0 && admin == "@") { print; next }
+      if (n == 0) out = out " " admin
+      for (; i <= NF; i++) out = out " " $i
       print out
     }' "$file" > "$tmp"
   cat "$tmp" > "$file"

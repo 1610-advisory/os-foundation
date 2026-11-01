@@ -54,7 +54,7 @@ areas: [lab]
 ---
 # Sam Member
 EOF2
-printf '%s\n' "# Rules files only." "**/AGENTS.md @acme-admin" "/docs/legal/ @Acme-Member-D" > "$co/.github/CODEOWNERS"
+printf '%s\n' "# Rules files only." "**/AGENTS.md @acme-admin" "/docs/legal/ @Acme-Member-D" '**/legal/ @acme-member-d # outside lawyer' > "$co/.github/CODEOWNERS"
 printf '%s\n' "# Rules files only." '^(.*/)?AGENTS\.md$ @acme-admin' '^docs/legal/.* @acme-member-d' > "$co/.gitea/CODEOWNERS"
 printf '%s\n' "/areas/" "/users/" > "$co/.gitignore"
 seed "$co" "$work/acme-os.git"
@@ -101,6 +101,9 @@ files=$(git --git-dir "$work/acme-os.git" diff --name-only main "$branch" | sort
 [ "$files" = ".gitea/CODEOWNERS .github/CODEOWNERS people/Sam Member.md " ] || team_fail "company offboard branch has: $files"
 git --git-dir "$work/acme-os.git" show "$branch:.github/CODEOWNERS" | grep -qxF '/docs/legal/ @acme-admin' \
   || team_fail "company: a line Sam owned alone does not name the admin"
+# Grok r5 P2: the owners stop at the first # field. The comment stays; no owner left: the admin.
+git --git-dir "$work/acme-os.git" show "$branch:.github/CODEOWNERS" | grep -qxF '**/legal/ @acme-admin # outside lawyer' \
+  || team_fail "r5 P2: the commented line lost its comment or did not name the admin"
 git --git-dir "$work/acme-os.git" show "$branch:.gitea/CODEOWNERS" | grep -qxF '^docs/legal/.* @acme-admin' \
   || team_fail "company Forgejo: a line Sam owned alone does not name the admin"
 git --git-dir "$work/acme-os.git" show "$branch:.github/CODEOWNERS" "$branch:.gitea/CODEOWNERS" | grep -qi 'acme-member-d' \
@@ -131,7 +134,45 @@ for r in acme-os acme-lab; do
   grep -q '^Offboard: sam left on 2026-10-28. sam (@acme-member-d) stops being a code owner' "$body" || { cat "$body" >&2; team_fail "$r: body lacks why"; }
   grep -q '^Code owners removed: @acme-member-d' "$body" || { cat "$body" >&2; team_fail "$r: body does not name who stops"; }
   grep -q 'stays a code owner of every line' "$body" || team_fail "$r: body does not say the admin stays"
+  grep -q 'lawyer\|outside\|Code owners added' "$body" && { cat "$body" >&2; team_fail "$r: body counts comment words as owners"; }
 done
 grep -q "^people: sam's page gets left: 2026-10-28.$" "${FAKE_LOG}.body.acme-os" || team_fail "company body lacks the page line"
+
+grep -qx 'remove: ok' "$work/rm.out" || team_fail "no remove: ok after every area was done"
+
+# B62: add-person naming an area director opens the area rules pull request. It changes
+# CODEOWNERS, so on GitHub auto-merge goes off and the line says merge it by hand.
+cat > "$work/add-answers" << EOF2
+root=$co
+person.lee.name=Lee Lab
+person.lee.github=acme-member-l
+person.lee.role=writer
+person.lee.areas=lab
+area.lab.director=lee
+EOF2
+: > "$FAKE_LOG"
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-answers" \
+  > "$work/add.out" 2> "$work/add.err" || { cat "$work/add.out" "$work/add.err" >&2; team_fail "B62: add-person exit"; }
+grep -qx 'rules-pr: acme-lab 4' "$work/add.out" || { cat "$work/add.out" >&2; team_fail "B62: no area rules-pr line"; }
+grep -q '^merge-by-hand: acme-lab 4: it changes CODEOWNERS, so it will not merge by itself.' "$work/add.out" \
+  || { cat "$work/add.out" >&2; team_fail "B62: no merge-by-hand line for the area rules pull request"; }
+grep -q '^auto-merge-off acme-lab 4' "$FAKE_LOG" || team_fail "B62: auto-merge not turned off on the area pull request"
+grep -q '^auto-merge acme-lab ' "$FAKE_LOG" && team_fail "B62: GitHub area rules pull request got auto-merge"
+grep -q '^override: acme-lab 4 if the model review fails it: ' "$work/add.out" || team_fail "B62: no area override line"
+rm -rf "$co/users/lee"
+
+# Grok r5 P3: an area remove cannot fetch is named, and the run is not reported as finished.
+git -C "$area" remote set-url origin "$work/missing-lab.git"
+set +e
+OS_HOST_SH="$work/bin/host.sh" "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person sam \
+  --date 2026-10-28 > "$work/rm2.out" 2> "$work/rm2.err"
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || { cat "$work/rm2.out" >&2; team_fail "r5 P3: remove exit 0 with an area it could not fetch"; }
+grep -q '^not finished: lab: could not fetch acme-lab, so its CODEOWNERS may still name sam' "$work/rm2.out" \
+  || { cat "$work/rm2.out" "$work/rm2.err" >&2; team_fail "r5 P3: no not-finished line for the area"; }
+grep -qx 'remove: not finished: lab. The steps above are done. Run remove again for the rest.' "$work/rm2.out" \
+  || team_fail "r5 P3: no last not-finished line"
+grep -qx 'remove: ok' "$work/rm2.out" && team_fail "r5 P3: remove: ok with an area not done"
 
 printf '%s\n' "PASS remove-owners"

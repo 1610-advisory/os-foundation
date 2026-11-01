@@ -251,6 +251,15 @@ function add_company(i,    ts) {
   if (rline[i] ~ /^\|/) tbl_open = 1
   block = block rline[i] "\n"
   is_company[i] = 1
+  note_company(rline[i])
+}
+
+# One company line, for the count and the kept list (the pull request body). Blank lines
+# are not counted, and only the company's own lines are: a stock v0 heading that comes
+# along with a block is not one.
+function note_company(line) {
+  if (line !~ /[^[:space:]]/) return
+  kept_body = kept_body line "\n"
   company_n++
 }
 
@@ -349,6 +358,7 @@ BEGIN {
   }
 
   company_n = 0
+  kept_body = ""
   spill_body = ""
   tail = ""
 
@@ -380,9 +390,10 @@ BEGIN {
     if (!in_base && s > 0) {
       # Company section, kept whole. Spill gets it once, via tail.
       block = "## " name "\n"
+      note_company("## " name)
       for (i = rsec_start[s]; i <= rsec_end[s]; i++) {
         block = block rline[i] "\n"
-        company_n++
+        note_company(rline[i])
       }
       tail_add(block)
       block = ""
@@ -550,6 +561,10 @@ BEGIN {
     printf "%s", spill_body > spill_path
     if (tail != "") printf "%s", tail > spill_path
     close(spill_path)
+  }
+  if (kept_path != "") {
+    printf "%s", kept_body > kept_path
+    close(kept_path)
   }
   printf "company-lines=%d\n", company_n
   printf "matched=%d\n", matched + 0

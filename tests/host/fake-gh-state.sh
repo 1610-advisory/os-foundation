@@ -104,6 +104,23 @@ case "$method $path" in
     fi
     refuse 404 "Branch not protected"
     ;;
+  "DELETE /repos/acme/acme-os/branches/logs/protection")
+    # B61: v0 Part A protected logs on paid plans (no deletion, admins included).
+    [ ! -f "$dir/logs-rule-denied" ] || refuse 403 "Must have admin rights to Repository."
+    if [ -f "$dir/logs-rule" ]; then
+      rm -f "$dir/logs-rule"
+      exit 0
+    fi
+    refuse 404 "Branch not protected"
+    ;;
+  "DELETE /repos/acme/acme-os/git/refs/heads/logs")
+    [ ! -f "$dir/logs-rule" ] || refuse 422 "Cannot delete this protected branch (GH006)"
+    if [ -f "$dir/logs" ]; then
+      rm -f "$dir/logs"
+      exit 0
+    fi
+    refuse 422 "Reference does not exist"
+    ;;
   "GET /repos/acme/acme-os/pulls?state=open&per_page=100&page=1")
     # B40 b: open-prs gives each body. A web edit has CR LF; no body is null.
     printf '%s\n' '[{"number":4,"head":{"ref":"sync/ada"},"body":"Ada: keep this.\r\n<!-- sync:files -->"},{"number":5,"head":{"ref":"rules/ada/x"},"body":null}]'

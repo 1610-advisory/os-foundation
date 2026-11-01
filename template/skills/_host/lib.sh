@@ -725,6 +725,7 @@ Verbs:
   auto-merge-off <name> <number>
   open-prs <name>
   close-pr <name> <number>
+  drop-logs <name>               (the old v0 logs branch: lift its rule, delete it)
   pr-status <name> <number>
   pr-comment <name> <number> --body-file <file>
   set-secret <name>              (value on stdin)

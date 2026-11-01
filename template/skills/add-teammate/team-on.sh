@@ -265,12 +265,17 @@ rules_on_main() {
     && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null
 }
 
+# A repo that does not exist yet is the expected case here (exit 2: not found), so its
+# "Not Found (HTTP 404)" lines are not shown. Any other error is.
 repo_exists() {
-  local rc
+  local rc err
+  err=$(mktemp)
   set +e
-  os_host repo-access "$1" >/dev/null
+  os_host repo-access "$1" >/dev/null 2>"$err"
   rc=$?
   set -e
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || cat "$err" >&2
+  rm -f "$err"
   [ "$rc" -eq 0 ]
 }
 

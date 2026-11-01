@@ -6,9 +6,10 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   cat << 'EOF'
-usage: rules-merge.sh --base <file> --real <file> --v1 <file> --scope <name> --out <file> [--values <file>] [--map <file>] [--plain <file>] [--spill <file>] [--score]
+usage: rules-merge.sh --base <file> --real <file> --v1 <file> --scope <name> --out <file> [--values <file>] [--map <file>] [--plain <file>] [--spill <file>] [--kept <file>] [--score]
 
-Prints company-lines and matched. Writes the merged file unless --score.
+Prints company-lines and matched. Writes the merged file unless --score. --kept writes
+the company lines it counted, one per line.
 EOF
 }
 
@@ -21,6 +22,7 @@ VALUES=""
 MAP="$DIR/rules-map.txt"
 PLAIN=""
 SPILL=""
+KEPT=""
 SCORE=0
 ROLE="company"
 LINK="company-rules.md"
@@ -65,6 +67,10 @@ while [ $# -gt 0 ]; do
       ;;
     --spill)
       SPILL=${2:-}
+      shift 2
+      ;;
+    --kept)
+      KEPT=${2:-}
       shift 2
       ;;
     --score)
@@ -121,6 +127,7 @@ awk -f "$DIR/rules-merge.awk" \
   -v out_path="$OUT" \
   -v plain_path="$PLAIN" \
   -v spill_path="$spill_tmp" \
+  -v kept_path="$KEPT" \
   -v scope="$SCOPE" \
   -v score_only="$score_flag"
 

@@ -251,12 +251,14 @@ review_size() {
 # B58: the model review reads review-rules.md from main, never from the pull request. A
 # main without one gets the release's file with the check tools, before any upgrade pull
 # request is opened, so the review judges that pull request by the release's rules. A
-# file main already has is never replaced. Prints " and review-rules.md" when it adds one.
+# file main already has is never replaced. Only the release's file goes on main this way:
+# a company's own review-rules.md in the folder goes up later as a normal rules pull
+# request, which the review judges. Prints " and review-rules.md" when it adds one.
 review_rules_on_main() {
-  local main=$1 src
+  local main=$1
   [ ! -e "$main/review-rules.md" ] || return 0
-  src=$(review_rules_source) || return 0
-  cp "$src" "$main/review-rules.md"
+  [ -f "$TEMPLATE/review-rules.md" ] || return 0
+  cp "$TEMPLATE/review-rules.md" "$main/review-rules.md"
   git -C "$main" add -- review-rules.md
   printf '%s\n' " and review-rules.md"
 }
@@ -558,19 +560,23 @@ fi
 [ "$V0_FOLDER" -eq 1 ] && printf '%s\n' "v0: logs-folder"
 
 # Teammates with an old logs branch: the company or an area has one, and a host.
+# LOGS_DIRS: the folders whose host has the old logs branch, for the admin's last step
+# (B61): that branch is still protected the v0 way, so the admin drops it by host.sh.
 TEAM_LOGS=0
+LOGS_DIRS=""
 if git -C "$ROOT" remote get-url origin >/dev/null 2>&1; then
   if [ "$V0_LOGS" -eq 1 ]; then
     TEAM_LOGS=1
-  else
-    for area in "$ROOT"/areas/*; do
-      [ -e "$area/.git" ] || continue
-      if git -C "$area" show-ref --quiet --verify refs/heads/logs \
-        || git -C "$area" show-ref --quiet --verify refs/remotes/origin/logs; then
-        TEAM_LOGS=1
-      fi
-    done
+    LOGS_DIRS="company"
   fi
+  for area in "$ROOT"/areas/*; do
+    [ -e "$area/.git" ] || continue
+    if git -C "$area" show-ref --quiet --verify refs/heads/logs \
+      || git -C "$area" show-ref --quiet --verify refs/remotes/origin/logs; then
+      TEAM_LOGS=1
+      LOGS_DIRS="${LOGS_DIRS:+${LOGS_DIRS} }$(basename "$area")"
+    fi
+  done
 fi
 if [ "$TEAM_LOGS" -eq 1 ]; then
   printf '%s\n' 'log-freeze: before the real run, every teammate saves their logs in each folder that has memory/logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push. Nobody writes a log until the upgrade pull requests merge.'
@@ -1659,12 +1665,30 @@ elif [ -d "$ROOT/areas" ]; then
 fi
 rm -f "$pr_body"
 
+# The admin's last step for the old logs branch (B61): one command per repo whose host
+# has it. With a host, host.sh drop-logs lifts the v0 rule and deletes the branch.
+logs_drop_commands() {
+  local d out=""
+  for d in $LOGS_DIRS; do
+    if [ "$HOST_ON" -eq 1 ] && [ "$d" = "company" ]; then
+      out="${out:+${out}; }skills/_host/host.sh drop-logs $(os_company_repo "$SLUG")"
+    elif [ "$HOST_ON" -eq 1 ]; then
+      out="${out:+${out}; }skills/_host/host.sh drop-logs $(os_area_repo "$SLUG" "$d")"
+    elif [ "$d" = "company" ]; then
+      out="${out:+${out}; }git push origin --delete logs (in the company folder)"
+    else
+      out="${out:+${out}; }git -C areas/${d} push origin --delete logs"
+    fi
+  done
+  printf '%s\n' "${out:-git push origin --delete logs}"
+}
+
 if [ "$TEAM_LOGS" -eq 1 ]; then
   printf '%s\n' "teammates: in an old (v0) copy of this folder, do not run git pull. It can write over logs there. Each teammate does this instead:"
   printf '%s\n' 'teammates: 1. In the old folder, save the logs: git -C memory/logs add -A, git -C memory/logs commit -m "Logs: before v1", git -C memory/logs pull --rebase, git -C memory/logs push.'
   printf '%s\n' "teammates: 2. After the upgrade pull requests merge and the admin runs add-teammate Part A again: rename the old folder, then join as a new teammate (add-teammate Part B; on Windows join.sh runs in Git Bash). The old logs are in memory/logs-archive/. Logs pushed after this run come in by the next full sync pull."
-  printf '%s\n' "teammates: 3. When the new folder has their logs, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3. Full steps: skills/upgrade/SKILL.md section 11."
-  printf '%s\n' "admin: until the old logs branch is gone, sync push keeps logs in each folder (held), so a plain pull on an old copy can write over nothing. When every teammate has moved, delete it: git push origin --delete logs, in the company folder and in each area that had one."
+  printf '%s\n' "teammates: 3. Before deleting the old folder, keep its work: join.sh lists each file and commit in it that the host does not have (old-folder: lines). Copy each one into the new folder. By hand: git status in the old folder (and in each area) lists changed files; git log --branches --not --remotes lists commits that never reached the host. When the new folder has their logs and that work, delete the old folder. A teammate who already has the v1 sync skill runs skills/sync/sync.sh pull in place of steps 1 to 3. Full steps: skills/upgrade/SKILL.md section 11."
+  printf '%s\n' "admin: until the old logs branch is gone, sync push keeps logs in each folder (held), so a plain pull on an old copy can write over nothing. v0 protected that branch (no deletion), so a plain git push --delete fails. When every teammate has moved, delete it with: $(logs_drop_commands)"
 fi
 
 # B52: the folder stays on its upgrade branch until the pull request merges. Sync's pull

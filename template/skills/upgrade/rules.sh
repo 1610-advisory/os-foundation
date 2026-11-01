@@ -279,7 +279,7 @@ rules_merge_one() {
   stats=$(bash "$DIR/rules-merge.sh" \
     --base "$base" --real "$real" --v1 "$v1" --scope "$scope" \
     --values "$tmp/values" --out "$tmp/out.md" --plain "$tmp/plain.md" \
-    --spill "$tmp/spill.md" --role "$role" --link "$link")
+    --spill "$tmp/spill.md" --kept "$tmp/kept.md" --role "$role" --link "$link")
   lines=$(printf '%s\n' "$stats" | awk -F= '$1=="company-lines"{print $2; exit}')
   chars=$(printf '%s\n' "$stats" | awk -F= '$1=="chars"{print $2; exit}')
   spill=$(printf '%s\n' "$stats" | awk -F= '$1=="spill"{print $2; exit}')
@@ -305,7 +305,7 @@ rules_merge_one() {
   fi
   if [ "$write" = "1" ]; then
     cp "$tmp/out.md" "$real"
-    rules_note_kept "$rel" "$tmp/plain.md" "$tmp/out.md" "$tmp/spill.md" "$spill" "$link"
+    rules_note_kept "$rel" "$tmp/kept.md" "$tmp/spill.md" "$spill" "$link"
     if [ "$spill" = "1" ]; then
       dest_spill="$(dirname "$real")/$link"
       if rules_spill_ours "$dest_spill"; then
@@ -324,15 +324,18 @@ rules_merge_one() {
 
 # Remember what the rules merge did, for its commit message and the pull request body
 # (B58): each merged file, each company line it kept, and each line it moved to the
-# spill file. A kept line is a line of the merged file that the release's own filled
-# text does not have.
+# spill file. The kept lines are the ones the merge counted (its --kept list), so the
+# body's count is the dry run's company-lines: blank lines and stock v0 lines are not
+# company lines. Lines that went to the spill file are listed as moved instead.
 rules_note_kept() {
-  local rel=$1 plain=$2 out=$3 spill_file=$4 spilled=$5 link=$6 line
+  local rel=$1 kept=$2 spill_file=$3 spilled=$4 link=$5 line
   [ -n "${RULES_KEPT:-}" ] || RULES_KEPT=$(mktemp)
   printf 'merged: %s\n' "$rel" >> "$RULES_KEPT"
-  { grep -vxF -f "$plain" "$out" || true; } | { grep '[^[:space:]]' || true; } | while IFS= read -r line; do
-    printf 'kept: %s: %s\n' "$rel" "$line"
-  done >> "$RULES_KEPT"
+  if [ "$spilled" != "1" ] && [ -f "$kept" ]; then
+    while IFS= read -r line; do
+      printf 'kept: %s: %s\n' "$rel" "$line"
+    done < "$kept" >> "$RULES_KEPT"
+  fi
   if [ "$spilled" = "1" ] && [ -f "$spill_file" ]; then
     { grep '[^[:space:]]' "$spill_file" || true; } | while IFS= read -r line; do
       printf 'moved: %s -> %s: %s\n' "$rel" "$link" "$line"

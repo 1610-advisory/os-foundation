@@ -1,0 +1,2 @@
+{"body":null,"method":"DELETE","path":"/repos/acme/acme-os/branches/logs/protection"}
+{"body":null,"method":"DELETE","path":"/repos/acme/acme-os/git/refs/heads/logs"}

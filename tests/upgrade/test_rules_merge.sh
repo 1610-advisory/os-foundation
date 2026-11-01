@@ -144,7 +144,7 @@ for heading, line in checks:
         raise SystemExit(line + " not in " + heading)
 print("lines-ok")
 PY
-git -C "$custom" log --format='%s' upgrade/v1^2 | grep -qx 'Upgrade: rules merge' || team_fail "rules commit is not separate"
+grep -qx 'Upgrade: rules merge' <<< "$(git -C "$custom" log --format='%s' upgrade/v1^2)" || team_fail "rules commit is not separate"
 old=$(git -C "$custom" rev-parse 'HEAD^1')
 git -C "$custom" revert -m 1 --no-edit HEAD >/dev/null
 [ "$(git -C "$custom" rev-parse HEAD:AGENTS.md)" = "$(git -C "$custom" rev-parse "$old:AGENTS.md")" ] || team_fail "revert did not restore AGENTS.md"
@@ -248,6 +248,34 @@ grep -q 'Marketing Toolkit' "$work/area-marketing-out.md" || team_fail "marketin
 grep -q 'Before building or hosting' "$work/area-apps-out.md" || team_fail "apps used the wrong template"
 grep -q 'Rules for numbers' "$work/area-finance-out.md" || team_fail "finance used the wrong template"
 grep -q 'Marketing Toolkit' "$work/area-_area-out.md" && team_fail "_area used the marketing template"
+
+# Round 5 (low): a company line under the v0 "### Folders" subheading (stock in v0, gone
+# in v1) brings that heading along, but the heading is not a company line: the count and
+# the kept list (the pull request body) name only the company's line.
+real="$work/area-folders.md"
+awk '{ print } /^- `data\/` / { print "- Acme marketing: one newsletter a month." }' \
+  "$root/template/skills/upgrade/v0/areas/marketing/AGENTS.md" > "$real"
+grep -q 'one newsletter' "$real" || team_fail "test setup: no line under ### Folders"
+"$merge" --base "$root/template/skills/upgrade/v0/areas/marketing/AGENTS.md" \
+  --real "$real" --v1 "$root/template/skills/add-area/templates/marketing/AGENTS.md" \
+  --scope area --values "$work/stock.values" --out "$work/area-folders-out.md" \
+  --kept "$work/area-folders.kept" --role area > "$work/area-folders.stats"
+grep -qx 'company-lines=1' "$work/area-folders.stats" || team_fail "r5: ### Folders counted: $(cat "$work/area-folders.stats")"
+[ "$(cat "$work/area-folders.kept")" = "- Acme marketing: one newsletter a month." ] \
+  || team_fail "r5: kept list is not just the company line: $(cat "$work/area-folders.kept")"
+grep -q 'one newsletter' "$work/area-folders-out.md" || team_fail "r5: lost the line under ### Folders"
+
+# Round 5 (low): a company section with blank lines counts its heading and its lines, not
+# the blanks, so the dry run's company-lines is the body's count.
+real="$work/house.md"
+cp "$root/template/skills/upgrade/v0/AGENTS.md" "$real"
+printf '\n%s\n\n%s\n%s\n\n' "## Acme house rules" "- Quote in pounds." "- No calls on Fridays." >> "$real"
+"$merge" --base "$root/template/skills/upgrade/v0/AGENTS.md" \
+  --real "$real" --v1 "$root/template/AGENTS.md" --scope company \
+  --values "$work/stock.values" --out "$work/house-out.md" --kept "$work/house.kept" --role company > "$work/house.stats"
+grep -qx 'company-lines=3' "$work/house.stats" || team_fail "r5: company section count: $(cat "$work/house.stats")"
+[ "$(wc -l < "$work/house.kept" | tr -d ' ')" = "3" ] || team_fail "r5: kept list: $(cat "$work/house.kept")"
+grep -qx '## Acme house rules' "$work/house.kept" || team_fail "r5: kept list lacks the section heading"
 
 # Best match picks the area kind, not always _area.
 # shellcheck disable=SC2034

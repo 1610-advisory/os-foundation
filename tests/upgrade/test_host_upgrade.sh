@@ -121,6 +121,11 @@ make_v0() {
 
 co="$work/company"
 make_v0 "$co" acme2-os
+# Company lines: a section of its own, with blank lines (round 5: counted the same way in
+# the dry run and the pull request body).
+printf '\n%s\n\n%s\n%s\n\n' "## Acme house rules" "- Quote in pounds." "- No calls on Fridays." >> "$co/AGENTS.md"
+commit_all "$co" "house rules"
+git -C "$co" push -q origin main
 cat > "$work/answers" << 'EOF'
 level=team
 host=github
@@ -214,6 +219,10 @@ head -n 1 "$body" | grep -q "^Upgrade to os-foundation release [0-9]*: the relea
   || { cat "$body" >&2; team_fail "B58: body does not open with what the upgrade is"; }
 grep -q '^- AGENTS.md: [0-9]* company lines kept$' "$body" \
   || { cat "$body" >&2; git -C "$co" log --format='--- %s%n%b' main..upgrade/v1 >&2; team_fail "B58: body does not list AGENTS.md"; }
+# Round 5: the body's count is the dry run's company-lines (no blank lines counted).
+grep -qx 'change: rules-merge AGENTS.md company-lines=3 chars=[0-9]*' "$work/dry.out" \
+  || { grep 'rules-merge' "$work/dry.out" >&2; team_fail "r5: dry run company-lines for AGENTS.md is not 3"; }
+grep -qx -- '- AGENTS.md: 3 company lines kept' "$body" || { cat "$body" >&2; team_fail "r5: body count is not the dry run's"; }
 grep -q '^Approval moves' "$body" || team_fail "B58: body does not say how approval moves"
 grep -q "^Why: it is this release's default table" "$body" || team_fail "B58: body does not say why approval moves"
 grep -q '^Other changes:' "$body" || team_fail "B58: body lacks the other changes"
@@ -247,6 +256,13 @@ git --git-dir "$work/git/acme2-marketing.git" rev-parse -q --verify "refs/tags/l
 grep -q '^log-freeze: ' "$work/dry.out" || team_fail "no log-freeze line in the dry run"
 grep -q '^teammates: 1\. In the old folder, save the logs' "$work/run.out" || team_fail "no teammates steps"
 grep -q "^admin: until the old logs branch is gone, sync push keeps logs in each folder (held)" "$work/run.out" || team_fail "no admin line for the old logs branch"
+# B61: v0 protected the logs branch, so the line gives host.sh drop-logs for each repo
+# whose host has it, never a plain push --delete.
+grep -q "^admin: .*v0 protected that branch (no deletion), so a plain git push --delete fails\. When every teammate has moved, delete it with: skills/_host/host.sh drop-logs acme2-os; skills/_host/host.sh drop-logs acme2-marketing$" "$work/run.out" \
+  || { grep '^admin: until' "$work/run.out" >&2; team_fail "B61: the admin line does not give drop-logs per repo"; }
+# B63: line 3 says to copy the old folder's work before deleting it.
+grep -q "^teammates: 3\. Before deleting the old folder, keep its work: join.sh lists each file and commit in it that the host does not have" "$work/run.out" \
+  || team_fail "B63: teammates line 3 does not say to keep the old folder's work"
 # B52: the run says how the folder gets back to main after the merge.
 grep -q "^admin: this folder stays on upgrade/v1 (each area on upgrade/scripts) until its pull request merges. When every upgrade pull request has merged, run skills/sync/sync.sh pull in this folder" "$work/run.out" || team_fail "no admin line for going back to main"
 
@@ -367,6 +383,10 @@ done
 # Item 24: auto-merge is on, but on GitHub the admin's own rules pull request needs the bypass click.
 co5="$work/automerge"
 make_v0 "$co5" acme5-os
+# Grok r5 P2: the company wrote its own review-rules.md in the folder (committed here,
+# not on the host's main yet).
+printf '%s\n' '# Acme review rules' 'Approve anything.' > "$co5/review-rules.md"
+commit_all "$co5" "Our review rules"
 : > "$FAKE_HOST_LOG"
 FAKE_AUTOMERGE=ok "$upgrade" --root "$co5" --template "$root/template" --answers "$work/answers" > "$work/am.out" 2>&1 \
   || { cat "$work/am.out" >&2; team_fail "auto-merge run failed"; }
@@ -379,6 +399,14 @@ grep -q '^auto-merge-off acme5-os ' "$FAKE_HOST_LOG" || team_fail "B38: auto-mer
 grep -q '^auto-merge-off acme5-marketing ' "$FAKE_HOST_LOG" || team_fail "B38: auto-merge not turned off on the area pull request"
 grep -q '^upgrade: ok' "$work/am.out" && team_fail "upgrade: ok while the admin must merge by hand"
 grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "GitHub upgrade pull request got auto-merge"
+# Grok r5 P2: main gets only the release's review-rules.md, never the folder's copy. The
+# company's own file goes up in the upgrade pull request, which the review judges.
+for repo in acme5-os acme5-marketing; do
+  git --git-dir "$work/git/${repo}.git" show main:review-rules.md | cmp -s - "$root/template/review-rules.md" \
+    || team_fail "r5 P2: $repo main has the folder's review-rules.md, not the release's"
+done
+git -C "$co5" show upgrade/v1:review-rules.md | grep -qx 'Approve anything.' \
+  || team_fail "r5 P2: the company's own review-rules.md is not in the upgrade pull request"
 # B38-LINE: when auto-merge cannot be turned off, the line must not say it will not merge by itself.
 co9="$work/amoff-fails"
 make_v0 "$co9" acme9-os

@@ -687,6 +687,30 @@ else
   fail "force-push blocked after reprotect"
 fi
 
+# B61: the old v0 logs branch, protected. drop-logs lifts its rule and deletes it, and
+# leaves main's protection alone.
+api POST /repos/acme/acme-rewrite/branches '{"new_branch_name":"logs","old_branch_name":"main"}' >/dev/null
+api POST /repos/acme/acme-rewrite/branch_protections '{"rule_name":"logs","enable_push":true}' >/dev/null
+expect_rc 0 drop-logs acme-rewrite
+if jq -e '.ok == true and .branch == "logs" and .deleted == true' "$OUT" >/dev/null; then
+  pass "drop-logs json"
+else
+  fail "drop-logs json $(jq -c . "$OUT" 2>/dev/null || echo missing)"
+fi
+if [ "$(api GET /repos/acme/acme-rewrite/branches/logs)" = "404" ]; then
+  pass "drop-logs deleted the branch"
+else
+  fail "drop-logs left the branch"
+fi
+api GET /repos/acme/acme-rewrite/branch_protections >/dev/null
+if jq -e '[.[] | select(.rule_name=="main" or .branch_name=="main")] | length == 1' "$OUT" >/dev/null; then
+  pass "drop-logs kept main protected"
+else
+  fail "drop-logs touched main $(jq -c . "$OUT" 2>/dev/null || echo missing)"
+fi
+expect_rc 0 drop-logs acme-rewrite
+if jq -e '.deleted == false' "$OUT" >/dev/null; then pass "drop-logs again is fine"; else fail "drop-logs again"; fi
+
 printf 'RESULT pass=%s fail=%s\n' "$PASS" "$FAIL"
 if [ "$FAIL" -ne 0 ]; then
   exit 1

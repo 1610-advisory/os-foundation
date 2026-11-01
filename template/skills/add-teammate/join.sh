@@ -343,4 +343,87 @@ Sync-Seat: ${seat}" "$PAGE" >/dev/null \
   fi
 fi
 
+# B63: an old (v0) copy renamed beside this folder may hold work the host never got.
+# List each item, one plain line, so the person copies it here before deleting that
+# folder. Read only: never fetch, write or delete there.
+old_same_repo() {
+  local dir=$1 repo=$2 url
+  url=$(git -C "$dir" remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]') || return 1
+  url=${url%/}
+  url=${url%.git}
+  case "$url" in
+    */"$(printf '%s' "${ORG}/${repo}" | tr '[:upper:]' '[:lower:]')"|*:"$(printf '%s' "${ORG}/${repo}" | tr '[:upper:]' '[:lower:]')") return 0 ;;
+  esac
+  return 1
+}
+
+old_report_repo() {
+  local old=$1 new=$2 label=$3 rel sha subject want have dest skip=0
+  dest="this folder"
+  [ "$new" = "$ROOT" ] || dest=${new#"$ROOT"/}
+  # Changed and untracked files whose text this folder does not have. With -z a rename
+  # or copy is followed by its old path as a record of its own: skip that one.
+  while IFS= read -r -d '' rel; do
+    if [ "$skip" -eq 1 ]; then
+      skip=0
+      continue
+    fi
+    case "$rel" in
+      R*|C*) skip=1 ;;
+    esac
+    rel=${rel:3}
+    [ -f "$old/$rel" ] || continue
+    if [ -f "$new/$rel" ]; then
+      want=$(git hash-object -- "$old/$rel" 2>/dev/null || true)
+      have=$(git hash-object -- "$new/$rel" 2>/dev/null || true)
+      [ "$want" != "$have" ] || continue
+    fi
+    printf 'old-folder: %s/%s is not on the host. Copy it into %s before deleting the old folder.\n' "$label" "$rel" "$dest"
+    OLD_N=$((OLD_N + 1))
+  done < <(git --no-optional-locks -C "$old" -c core.quotepath=false status --porcelain -z --untracked-files=all 2>/dev/null || true)
+  # Commits on any local branch that this folder (a fresh clone of the host) does not have.
+  while IFS=' ' read -r sha subject; do
+    [ -n "$sha" ] || continue
+    git -C "$new" cat-file -e "${sha}^{commit}" 2>/dev/null && continue
+    printf 'old-folder: %s commit %s "%s" is not on the host. Copy its changes into this folder (git -C %s show %s).\n' \
+      "$label" "${sha:0:8}" "$subject" "$old" "${sha:0:8}"
+    OLD_N=$((OLD_N + 1))
+  done < <(git -C "$old" log --branches --not --remotes --format='%H %s' 2>/dev/null || true)
+  # The old logs folder: a log not committed, or committed and never pushed.
+  if [ -e "$old/memory/logs/.git" ]; then
+    while IFS= read -r -d '' rel; do
+      printf 'old-folder: %s/memory/logs/%s is not on the host. Copy it into memory/logs-archive/ here.\n' "$label" "${rel:3}"
+      OLD_N=$((OLD_N + 1))
+    done < <(git --no-optional-locks -C "$old/memory/logs" -c core.quotepath=false status --porcelain -z --untracked-files=all 2>/dev/null || true)
+    while IFS=' ' read -r sha subject; do
+      [ -n "$sha" ] || continue
+      printf 'old-folder: %s/memory/logs commit %s "%s" is not on the host. Push it from there: git -C %s/memory/logs push.\n' \
+        "$label" "${sha:0:8}" "$subject" "$old"
+      OLD_N=$((OLD_N + 1))
+    done < <(git -C "$old/memory/logs" log --branches --not --remotes --format='%H %s' 2>/dev/null || true)
+  fi
+}
+
+old_folder_report() {
+  local cand area
+  for cand in "$(dirname "$ROOT")"/*; do
+    [ -d "$cand" ] && [ -e "$cand/.git" ] || continue
+    [ "$(cd "$cand" && pwd)" != "$ROOT" ] || continue
+    old_same_repo "$cand" "$(os_company_repo "$SLUG")" || continue
+    OLD_N=0
+    old_report_repo "$cand" "$ROOT" "$cand"
+    for area in "$cand"/areas/*; do
+      [ -e "$area/.git" ] || continue
+      old_same_repo "$area" "$(os_area_repo "$SLUG" "$(basename "$area")")" || continue
+      old_report_repo "$area" "$ROOT/areas/$(basename "$area")" "$area"
+    done
+    if [ "$OLD_N" -eq 0 ]; then
+      printf 'old-folder: %s has nothing the host lacks. You may delete it.\n' "$cand"
+    else
+      printf 'old-folder: %s holds %s items the host lacks (listed above). Copy them here first. Nothing was deleted.\n' "$cand" "$OLD_N"
+    fi
+  done
+}
+old_folder_report || true
+
 printf '%s\n' "join: ok"

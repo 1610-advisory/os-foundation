@@ -42,6 +42,7 @@ VERBS = [
     "auto-merge-off",
     "open-prs",
     "close-pr",
+    "drop-logs",
     "pr-status",
     "pr-comment",
     "set-secret",
@@ -239,6 +240,7 @@ class GithubDryRunTests(unittest.TestCase):
             ("auto-merge-off.jsonl", ["auto-merge-off", "acme-os", "12"], None),
             ("open-prs.jsonl", ["open-prs", "acme-os"], None),
             ("close-pr.jsonl", ["close-pr", "acme-os", "12"], None),
+            ("drop-logs.jsonl", ["drop-logs", "acme-os"], None),
             ("pr-status.jsonl", ["pr-status", "acme-os", "12"], None),
             ("pr-comment.jsonl", ["pr-comment", "acme-os", "12", "--body-file", str(BODY)], None),
             ("set-secret.jsonl", ["set-secret", "OS_REVIEW_KEY"], secret),
@@ -438,6 +440,31 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("could not remove the old classic rule on acme-os main: sign in as an org owner", proc.stderr)
         self.assertNotIn("rulesets", " ".join(self.calls()))
+
+    def test_drop_logs_lifts_the_v0_rule_then_deletes_the_branch(self):
+        # B61: a plain push --delete fails with GH006 while the v0 rule is on.
+        self.flag("logs-rule")
+        self.flag("logs")
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "branch": "logs", "deleted": True})
+        writes = self.writes()
+        self.assertIn("--method DELETE /repos/acme/acme-os/branches/logs/protection", writes[0])
+        self.assertIn("--method DELETE /repos/acme/acme-os/git/refs/heads/logs", writes[1])
+        self.assertFalse(any("branches/main" in w for w in writes))
+        # A second run: rule and branch already gone, still fine.
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["deleted"], False)
+
+    def test_drop_logs_stops_when_the_rule_stays(self):
+        self.flag("logs-rule")
+        self.flag("logs-rule-denied")
+        self.flag("logs")
+        proc = run(["drop-logs", "acme-os"], self.env)
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertIn("could not lift the old protection on acme-os logs: sign in as an org owner", proc.stderr)
+        self.assertTrue((self.dir / "logs").exists())
 
     def test_auto_merge_off_checks_the_outcome(self):
         # Round 4 (B38-GQL): off only when a second read shows no auto-merge.

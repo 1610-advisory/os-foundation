@@ -277,6 +277,51 @@ git --git-dir "$work/origin.git" log -1 --format=%B "sync/sam/$seat" | grep -qx 
   || team_fail "the folder's main is not what went up"
 git -C "$co" show-ref --verify --quiet refs/heads/sync/sam && team_fail "join made a local sync branch"
 
+# B63: an old copy renamed beside the folder. Join lists each file and commit in it that
+# the host lacks, one line each, and never changes or deletes it.
+old="$work/co-old"
+git clone -q -b main "$work/origin.git" "$old"
+git -C "$old" remote set-url origin https://github.com/acme/acme-os.git
+git -C "$old" config user.email sam@acme.test
+git -C "$old" config user.name "Sam Member"
+printf '%s\n' "never pushed" > "$old/draft.md"
+printf '%s\n' "edited here" >> "$old/company-profile.md"
+cp "$co/people/Ada Admin.md" "$old/people/same.md"
+cp "$co/people/Ada Admin.md" "$co/people/same.md"
+mkdir -p "$old/notes"
+printf '%s\n' "a local commit" > "$old/notes/local.md"
+git -C "$old" add notes/local.md
+git -C "$old" commit -q -m "Local note"
+mkdir -p "$old/areas/lab"
+git -C "$old/areas/lab" init -q -b main
+git -C "$old/areas/lab" remote add origin https://github.com/acme/acme-lab.git
+printf '%s\n' "lab" > "$old/areas/lab/lab.md"
+git -C "$old/areas/lab" add lab.md
+git -C "$old/areas/lab" -c user.email=s@acme.test -c user.name=Sam commit -q -m "Lab note"
+old_state=$(cd "$old" && git status --porcelain && git rev-parse HEAD && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)
+join_run > "$work/old.out"
+grep -qx "old-folder: $old/draft.md is not on the host. Copy it into this folder before deleting the old folder." "$work/old.out" \
+  || { cat "$work/old.out" >&2; team_fail "B63: join did not list the untracked file"; }
+grep -qx "old-folder: $old/company-profile.md is not on the host. Copy it into this folder before deleting the old folder." "$work/old.out" \
+  || team_fail "B63: join did not list the changed file"
+grep -q "same.md" "$work/old.out" && team_fail "B63: join listed a file the folder has with the same text"
+grep -q "^old-folder: $old commit [0-9a-f]\{8\} \"Local note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the local commit"
+grep -q "^old-folder: $old/areas/lab commit [0-9a-f]\{8\} \"Lab note\" is not on the host" "$work/old.out" || team_fail "B63: join did not list the area commit"
+grep -qx "old-folder: $old holds 4 items the host lacks (listed above). Copy them here first. Nothing was deleted." "$work/old.out" \
+  || team_fail "B63: join did not sum up the old folder"
+[ "$old_state" = "$(cd "$old" && git status --porcelain && git rev-parse HEAD && find . -path ./.git -prune -o -type f -print0 | sort -z | xargs -0 cksum)" ] \
+  || team_fail "B63: join changed the old folder"
+grep -q 'join: ok' "$work/old.out" || team_fail "B63: join did not finish"
+# Nothing left: one line says so.
+rm -rf "$old/draft.md" "$old/areas"
+git -C "$old" checkout -q -- company-profile.md
+git -C "$old" reset -q --hard origin/main
+rm -f "$old/people/same.md"
+join_run > "$work/old2.out"
+grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old2.out" \
+  || { cat "$work/old2.out" >&2; team_fail "B63: a clean old folder was not called clean"; }
+rm -rf "$old" "$co/people/same.md"
+
 # Item 11 (a): claude is in ~/.local/bin but not on PATH. Join says so, gives the step,
 # and stops before the jobs. A PATH with no claude on it, even when this computer has one.
 nocl="$work/nocl"

@@ -50,6 +50,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `auto-merge-off <name> <number>` | Turn auto-merge off. A pull request with none is already off: `{"auto_merge":"off"}`. GitHub reads the pull request, then turns it off by GraphQL. Forgejo cancels the scheduled merge. |
 | `open-prs <name>` | Open pull requests: `{"prs":[{"number":n,"head":"<branch>","body":"<text>"}]}`. |
 | `close-pr <name> <number>` | Close a pull request without merging it. |
+| `drop-logs <name>` | The old v0 `logs` branch: lift the classic protection v0 put on it, then delete it. Only `logs`, never `main`. A rule or branch already gone is fine (`deleted:false`). For the admin, once every teammate has moved (upgrade `SKILL.md` section 11, step 7). |
 | `pr-status <name> <number>` | `{"state","merged","checks":[{"name","state"}],"approved"}`. GitHub reads the checks through the GraphQL `statusCheckRollup`, which a fine-grained token can read (Commit statuses and Actions read). REST check-runs is the fallback. States are lower case. |
 | `pr-comment <name> <number> --body-file <file>` | Comment on the pull request |
 | `set-secret <name>` | Set an org Actions secret. The value is on stdin. |

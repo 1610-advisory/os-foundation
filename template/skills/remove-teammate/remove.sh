@@ -364,17 +364,9 @@ offboard_body() {
 # How one offboard pull request merges. One that changes rules files (bots/, CODEOWNERS)
 # is the admin's own: on GitHub the admin merges it by hand. Anything else merges by itself.
 offboard_merge_line() {
-  local repo=$1 number=$2 what=$3 will
+  local repo=$1 number=$2 what=$3
   if [ -n "$what" ] && [ "$HOST_KIND" = "github" ]; then
-    # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
-    # Say "will not merge by itself" only when that is true.
-    if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
-      will='so it will not merge by itself.'
-    else
-      will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
-    fi
-    printf 'merge-by-hand: %s %s: it changes %s, %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
-      "$repo" "$number" "$what" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+    os_owners_merge_line "$repo" "$number" "$what" github
   elif os_host_try auto-merge "$repo" "$number" >/dev/null; then
     # Like propose: the pull request merges by itself when its checks pass.
     printf '%s\n' "auto-merge: on"
@@ -449,12 +441,23 @@ if [ -n "$number" ]; then
 fi
 
 # Each area repo where the person is a code owner: its own rules pull request (R6).
+# An area this run could not reach is named, and the run does not end "remove: ok".
+UNFINISHED=""
 if [ -n "$GH" ]; then
   for area in $AREAS; do
     adir="$ROOT/areas/$area"
     [ -e "$adir/.git" ] || continue
-    os_with_git_token git -C "$adir" fetch origin || continue
-    awt=$(os_branch_start "$adir") || continue
+    if ! os_with_git_token git -C "$adir" fetch origin; then
+      printf 'not finished: %s: could not fetch %s, so its CODEOWNERS may still name %s. Run remove again when the host is reachable.\n' \
+        "$area" "$(os_area_repo "$SLUG" "$area")" "$PERSON"
+      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
+      continue
+    fi
+    if ! awt=$(os_branch_start "$adir"); then
+      printf 'not finished: %s: could not start a branch from main. Run remove again.\n' "$area"
+      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
+      continue
+    fi
     if ! offboard_owners "$awt"; then
       git -C "$adir" worktree remove --force "$awt" >/dev/null 2>&1 || true
       rm -rf "$(dirname "$awt")"
@@ -475,6 +478,8 @@ if [ -n "$GH" ]; then
     anum=$(printf '%s' "$pr" | jq -r '.number // empty')
     if [ -z "$anum" ]; then
       printf 'could not open the offboard pull request for %s: run remove again\n' "$arepo" >&2
+      printf 'not finished: %s: no offboard pull request on %s.\n' "$area" "$arepo"
+      UNFINISHED="${UNFINISHED:+${UNFINISHED} }${area}"
       continue
     fi
     printf 'rules-pr: %s %s (%s)\n' "$arepo" "$anum" "${apaths[*]}"
@@ -508,4 +513,8 @@ else
   printf '%s\n' "seat: none listed"
 fi
 
+if [ -n "$UNFINISHED" ]; then
+  printf 'remove: not finished: %s. The steps above are done. Run remove again for the rest.\n' "$UNFINISHED"
+  exit 3
+fi
 printf '%s\n' "remove: ok"
