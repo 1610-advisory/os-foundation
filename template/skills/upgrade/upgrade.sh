@@ -248,8 +248,21 @@ review_size() {
   printf '%s\n' "${size:-0}"
 }
 
+# B58: the model review reads review-rules.md from main, never from the pull request. A
+# main without one gets the release's file with the check tools, before any upgrade pull
+# request is opened, so the review judges that pull request by the release's rules. A
+# file main already has is never replaced. Prints " and review-rules.md" when it adds one.
+review_rules_on_main() {
+  local main=$1 src
+  [ ! -e "$main/review-rules.md" ] || return 0
+  src=$(review_rules_source) || return 0
+  cp "$src" "$main/review-rules.md"
+  git -C "$main" add -- review-rules.md
+  printf '%s\n' " and review-rules.md"
+}
+
 checks_on_main() {
-  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel
+  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel rules_added
   if ! os_with_git_token git -C "$dir" fetch origin; then
     os_die 3 "could not fetch ${repo}"
   fi
@@ -277,7 +290,11 @@ checks_on_main() {
     # those, so this release's stock texts go on main whatever the tools release.
     stock_union "$TEMPLATE/.github/scripts/stock-hashes.txt" "$tmp/stock-main" "$tmp/main/.github/scripts/stock-hashes.txt"
     git -C "$tmp/main" add -A -- .github/workflows/checks.yml .github/scripts
-    if git -C "$tmp/main" diff --cached --quiet; then
+    rules_added=$(review_rules_on_main "$tmp/main")
+    if [ -n "$rules_added" ] && git -C "$tmp/main" diff --cached --quiet -- .github; then
+      author_env git -C "$tmp/main" commit -q -m "Upgrade: review-rules.md on main"
+      done_line="checks-on-main: ${repo} added review-rules.md to main"
+    elif git -C "$tmp/main" diff --cached --quiet; then
       if [ "$main_rel" -gt "$new_rel" ]; then
         done_line="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
       else
@@ -285,10 +302,10 @@ checks_on_main() {
       fi
     elif [ "$main_rel" -lt "$new_rel" ]; then
       author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
-      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})"
+      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})${rules_added}"
     else
       author_env git -C "$tmp/main" commit -q -m "Upgrade: add stock texts to the stock lists on main"
-      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the stock lists"
+      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the stock lists${rules_added}"
     fi
     if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
       git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
@@ -299,7 +316,6 @@ checks_on_main() {
       return 0
     fi
   else
-    done_line="checks-on-main: ${repo}"
     mkdir -p "$tmp/main/.github/workflows"
     cp "$TEMPLATE/.github/workflows/checks.yml" "$tmp/main/.github/workflows/checks.yml"
     rm -rf "$tmp/main/.github/scripts"
@@ -333,6 +349,8 @@ checks_on_main() {
       git -C "$tmp/main" add -- .github/CODEOWNERS .gitea/CODEOWNERS
     fi
     git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
+    rules_added=$(review_rules_on_main "$tmp/main")
+    done_line="checks-on-main: ${repo}${rules_added:+ (with review-rules.md)}"
     author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
   fi
   # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
@@ -1238,6 +1256,11 @@ if [ "$TEAM_ON" -eq 1 ]; then
     [ -e "$area/.git" ] || continue
     checks_on_main "$area" "$(os_area_repo "$SLUG" "$(basename "$area")")"
   done
+  # Main now has the check tools and review-rules.md. The company upgrade branch starts
+  # from it, so its pull request holds the upgrade and not what checks-on-main put on main.
+  if [ "$(git -C "$ROOT" symbolic-ref --short -q HEAD || true)" = "main" ]; then
+    git -C "$ROOT" merge -q --ff-only refs/remotes/origin/main >/dev/null 2>&1 || true
+  fi
 fi
 
 # Save logs, drop the worktree, tag the old tip.
@@ -1259,7 +1282,7 @@ rules_plan_company 1
 rules_maybe_attrs "$ROOT" "" 1 ""
 rules_stage_rules "$ROOT"
 if ! git -C "$ROOT" diff --cached --quiet; then
-  rules_commit_msg "$ROOT" "Upgrade: rules merge"
+  rules_commit_merge "$ROOT" ""
 fi
 
 if [ "$V0_LOGS" -eq 1 ]; then
@@ -1399,7 +1422,13 @@ area_logs_merge() {
 # Pull requests that will not merge by themselves. upgrade: ok only when there are none.
 HAND=""
 pr_merge_path() {
-  local repo=$1 number=$2
+  local repo=$1 number=$2 too_large=${3:-0}
+  # B58: the review reads the rules merge now. If it fails on a change the body explains,
+  # the admin needs the way past before asking. A pull request too large to read already
+  # has its own override line.
+  if [ "$TEAM_ON" -eq 1 ] && [ "$too_large" -eq 0 ]; then
+    os_override_line "$repo" "$number" "v1 upgrade: the release's rules text, with the company's own lines kept"
+  fi
   if [ "$TEAM_ON" -ne 1 ]; then
     # Solo: no protection and no auto-merge. The person merges.
     HAND="${HAND:+${HAND}, }${repo} ${number}"
@@ -1415,7 +1444,7 @@ pr_merge_path() {
     else
       will='auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
     fi
-    printf 'merge-by-hand: %s %s: %s When its checks are green, the admin opens it and merges it. When the admin is the only code owner, a plain merge works. %s\n' \
+    printf 'merge-by-hand: %s %s: %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), the admin opens it and merges it. When the admin is the only code owner, a plain merge works. %s\n' \
       "$repo" "$number" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
     HAND="${HAND:+${HAND}, }${repo} ${number}"
     return 0
@@ -1476,7 +1505,7 @@ push_area_scripts() {
     rules_one_area "$area" 1
     rules_stage_rules "$area"
     if ! git -C "$area" diff --cached --quiet; then
-      rules_commit_msg "$area" "Upgrade: rules merge"
+      rules_commit_merge "$area" "areas/$(basename "$area")/"
     fi
     fix_skill_links "$area" 1
     ensure_spill_owners "$area"
@@ -1597,6 +1626,7 @@ if [ "$HOST_ON" -eq 1 ]; then
   # The model review reads at most 100000 bytes of diff, measured as model-review.sh does
   # (B41). The stock skills make this one bigger. The way through is /override, which
   # still runs lint and the secret scan.
+  too_large=0
   if [ "$TEAM_ON" -eq 1 ]; then
     review_base=$(git -C "$ROOT" merge-base refs/remotes/origin/main upgrade/v1 2>/dev/null || true)
     review_size=0
@@ -1604,11 +1634,12 @@ if [ "$HOST_ON" -eq 1 ]; then
       review_size=$(review_size "$ROOT" "${review_base}..upgrade/v1")
     fi
     if [ "$review_size" -gt 100000 ]; then
+      too_large=1
       printf 'override: %s %s is too large for the model review (%s bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review\n' \
         "$(os_company_repo "$SLUG")" "$number" "$review_size"
     fi
   fi
-  pr_merge_path "$(os_company_repo "$SLUG")" "$number"
+  pr_merge_path "$(os_company_repo "$SLUG")" "$number" "$too_large"
 elif [ -d "$ROOT/areas" ]; then
   # No host: still merge area rules on upgrade/scripts so the folder gets v1 rules.
   for area in "$ROOT"/areas/*; do
@@ -1622,7 +1653,7 @@ elif [ -d "$ROOT/areas" ]; then
     fix_skill_links "$area" 1
     ensure_spill_owners "$area"
     if ! git -C "$area" diff --cached --quiet; then
-      rules_commit_msg "$area" "Upgrade: rules merge"
+      rules_commit_merge "$area" "areas/$(basename "$area")/"
     fi
   done
 fi
@@ -1644,7 +1675,7 @@ fi
 
 if [ -n "$HAND" ]; then
   if [ "$TEAM_ON" -eq 1 ] && [ "$UP_HOST" = "github" ]; then
-    printf '%s\n' 'admin, on GitHub: wait for the green checks. Open each pull request and merge it. When you are the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+    printf '%s\n' 'admin, on GitHub: wait until the checks pass (when the model review fails one, see its override: line). Open each pull request and merge it. When you are the only code owner, a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
   fi
   printf 'upgrade: open pull requests: %s. Merge each one when its checks pass.\n' "$HAND"
 else

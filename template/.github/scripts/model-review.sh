@@ -384,8 +384,11 @@ fi
 # so people can see what it found (B36).
 if printf '%s\n' "$text" | grep -q '^FINDING:'; then
   write_out "$text"
-  printf '\n%s\n' "model review failed: the review reported a finding" >> "$out_file"
-  printf '%s\n\n%s\n' "$text" "model review failed: the review reported a finding" >&2
+  # B58: the admin's own rules pull request (upgrade, refresh, team-on, add-person,
+  # remove) can fail here on a change its body explains. Name the way past, as the size
+  # failure does. Only the admin may use it; the check logs it.
+  printf '\n%s\n' "model review failed: the review reported a finding. If the change is only what the pull request body says, the admin may comment /override <reason>" >> "$out_file"
+  printf '%s\n\n%s\n' "$text" "model review failed: the review reported a finding. If the change is only what the pull request body says, the admin may comment /override <reason>" >&2
   exit 1
 fi
 verdict=$(last_verdict "$text")

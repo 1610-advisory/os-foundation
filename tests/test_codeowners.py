@@ -35,18 +35,23 @@ class CodeownersTests(unittest.TestCase):
             root / ".gitea" / "CODEOWNERS"
         ).read_text(encoding="utf-8")
 
-    def test_area_forgejo_names_only_the_director(self):
-        github, forgejo = self.write("@acme-director @acme-admin", "@acme-director")
+    def test_area_both_files_name_the_same_owners(self):
+        """B60: the area .gitea file names the director and the admin, like .github."""
+        github, forgejo = self.write("@acme-director @acme-admin")
         self.assertIn("**/skills/ @acme-director @acme-admin\n", github)
         self.assertIn("**/.github/ @acme-director @acme-admin\n", github)
         self.assertIn("**/.gitea/ @acme-director @acme-admin\n", github)
-        self.assertIn("^(.*/)?skills/.* @acme-director\n", forgejo)
-        self.assertIn("^(.*/)?CODEOWNERS$ @acme-director\n", forgejo)
-        self.assertIn("^(.*/)?\\.forgejo/.* @acme-director\n", forgejo)
-        self.assertIn("^(.*/)?\\.claude/.* @acme-director\n", forgejo)
+        self.assertIn("^(.*/)?skills/.* @acme-director @acme-admin\n", forgejo)
+        self.assertIn("^(.*/)?CODEOWNERS$ @acme-director @acme-admin\n", forgejo)
+        self.assertIn("^(.*/)?\\.forgejo/.* @acme-director @acme-admin\n", forgejo)
+        self.assertIn("^(.*/)?\\.claude/.* @acme-director @acme-admin\n", forgejo)
         self.assertIn("**/CODEOWNERS @acme-director @acme-admin\n", github)
         self.assertIn("**/.claude/ @acme-director @acme-admin\n", github)
-        self.assertNotIn("@acme-admin", forgejo)
+
+        def owners(text):
+            return {line.split(" ", 1)[1] for line in text.splitlines() if line and not line.startswith("#")}
+
+        self.assertEqual(owners(github), owners(forgejo))
         self.assertNotIn("/skills/", forgejo)
         self.assertNotIn("^skills/", github)
 

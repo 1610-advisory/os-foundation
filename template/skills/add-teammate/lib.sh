@@ -353,6 +353,15 @@ os_auto_merge_line() {
   rm -f "$err"
 }
 
+# B58: a product step's own rules pull request (upgrade, refresh, team-on, add-person,
+# remove) can fail the model review on a change its body explains. Say the way past
+# before anyone has to ask. Only the admin may use it; the check logs it.
+os_override_line() {
+  local repo=$1 number=$2 reason=$3
+  printf 'override: %s %s if the model review fails it: read the finding. If the change is only what the pull request body says, the admin comments on it: /override %s\n' \
+    "$repo" "$number" "$reason"
+}
+
 os_config_dir() {
   local slug=$1
   printf '%s/%s-os' "${XDG_CONFIG_HOME:-$HOME/.config}" "$slug"
@@ -660,14 +669,67 @@ os_at_users() {
   fi
 }
 
-# Forgejo names one owner. An area names the director, or the admin if there is none.
-os_forgejo_owner() {
-  local admin=$1 director=$2
-  if [ -z "$director" ] || [ "$director" = "$admin" ]; then
-    printf '@%s' "$admin"
-  else
-    printf '@%s' "$director"
+# The owners named on the rule lines of CODEOWNERS files, one per line, sorted.
+os_owner_names() {
+  awk '/^#/ || NF < 2 { next } { for (i = 2; i <= NF; i++) print tolower($i) }' "$@" 2>/dev/null | LC_ALL=C sort -u
+}
+
+# Every rule line of the file names this owner.
+os_owner_on_every_line() {
+  local file=$1 who=$2
+  [ -f "$file" ] || return 1
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" '
+    /^#/ || NF == 0 { next }
+    { ok = 0; for (i = 2; i <= NF; i++) if (tolower($i) == who) ok = 1; if (!ok) bad = 1 }
+    END { exit bad ? 1 : 0 }' "$file"
+}
+
+# Take one owner off every rule line of a CODEOWNERS file. A line left with no owner
+# names the admin instead, so someone in the company can still approve it.
+os_owner_drop() {
+  local file=$1 who=$2 admin=$3 tmp
+  [ -f "$file" ] || return 0
+  tmp=$(mktemp)
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" -v admin="@$admin" '
+    /^#/ || NF < 2 { print; next }
+    {
+      out = $1; n = 0
+      for (i = 2; i <= NF; i++) if (tolower($i) != who) { out = out " " $i; n++ }
+      # Never leave a line with no owner: with no admin known, the line stays as it was.
+      if (n == 0) out = (admin == "@") ? $0 : out " " admin
+      print out
+    }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+# The body of a rules pull request that changes CODEOWNERS (B60): why, who becomes or
+# stops being a code owner, and that the admin stays on every line, so the model review
+# can check the change against it. Compares the folder's files with origin/main's.
+os_owners_body() {
+  local dir=$1 why=$2 admin=$3 before after added removed
+  before=$(mktemp)
+  after=$(mktemp)
+  { git -C "$dir" show origin/main:.github/CODEOWNERS 2>/dev/null || true; } | os_owner_names > "$before"
+  os_owner_names "$dir/.github/CODEOWNERS" > "$after"
+  added=$(comm -13 "$before" "$after" | paste -sd ' ' -)
+  removed=$(comm -23 "$before" "$after" | paste -sd ' ' -)
+  printf '%s\n' "$why"
+  printf '\n'
+  [ -z "$added" ] || printf 'Code owners added: %s\n' "$added"
+  [ -z "$removed" ] || printf 'Code owners removed: %s\n' "$removed"
+  if [ -n "$admin" ] && os_owner_on_every_line "$dir/.github/CODEOWNERS" "$admin" \
+    && os_owner_on_every_line "$dir/.gitea/CODEOWNERS" "$admin"; then
+    printf 'The admin (@%s) stays a code owner of every line.\n' "$admin"
   fi
+  if [ -f "$dir/.gitea/CODEOWNERS" ] \
+    && [ "$(os_owner_names "$dir/.github/CODEOWNERS")" = "$(os_owner_names "$dir/.gitea/CODEOWNERS")" ]; then
+    printf '%s\n' "\`.github/CODEOWNERS\` (GitHub) and \`.gitea/CODEOWNERS\` (Forgejo) name the same owners."
+  fi
+  if grep -qx '# Kept from main.' "$dir/.github/CODEOWNERS" 2>/dev/null; then
+    printf '%s\n' "Lines main already had are kept, under \"# Kept from main.\"."
+  fi
+  rm -f "$before" "$after"
 }
 
 os_fill_placeholders() {

@@ -101,17 +101,35 @@ refresh_paths_args() {
   cat "$1/add" "$1/replace" "$1/remove"
 }
 
+# Why a fetch failed, in one plain line (B59). Only a network error is "could not reach".
+refresh_fetch_fail() {
+  local label=$1 err=$2 first
+  first=$({ grep -m 1 -E '^(fatal|error):' "$err" || head -n 1 "$err"; } | sed 's#://[^/@]*@#://#g')
+  if grep -qiE 'could not resolve host|failed to connect|couldn.t connect|connection (timed out|refused)|network is unreachable|operation timed out' "$err"; then
+    printf 'refresh: could not reach the host for %s. Nothing was changed there.\n' "$label"
+  elif grep -qiE 'authentication failed|permission denied|could not read username|returned error: 40[13]|repository not found|not found' "$err"; then
+    printf 'refresh: the host refused the sign-in or the repo for %s (git: %s). Nothing was changed there.\n' "$label" "$first"
+  else
+    printf 'refresh: the host answered, but the fetch for %s failed (git: %s). Nothing was changed there.\n' "$label" "$first"
+  fi
+}
+
 refresh_one() {
-  local dir=$1 kind=$2 label=$3 plan n kept wt name branch pr number path size
+  local dir=$1 kind=$2 label=$3 plan n kept wt name branch pr number path size err
   plan=$(mktemp -d)
   REFRESH_BASE=main
   if [ "$HOST_ON" -eq 1 ]; then
-    if ! os_with_git_token up_git_quiet -C "$dir" fetch -q origin; then
-      printf 'refresh: could not reach the host for %s. Nothing was changed there.\n' "$label"
+    # --prune: a branch the host deleted (an old sync/<me> beside sync/<me>/<seat>) would
+    # otherwise stop the fetch (B59).
+    err=$(mktemp)
+    if ! os_with_git_token up_git_err "$err" -C "$dir" fetch -q --prune origin; then
+      refresh_fetch_fail "$label" "$err"
+      rm -f "$err"
       REFRESH_FAILED=1
       rm -rf "$plan"
       return 0
     fi
+    rm -f "$err"
     REFRESH_BASE=origin/main
   fi
   # Team: the checks job runs main's tools, so this release's tools and stock list go on
@@ -179,15 +197,47 @@ refresh_one() {
     return 0
   fi
   printf 'opened: %s %s\n' "$name" "$number"
+  refresh_close_older "$name" "$number" "$branch"
   if [ "$REFRESH_TEAM" -eq 1 ]; then
     size=$(review_size "$dir" "$(git -C "$dir" merge-base origin/main "origin/${branch}")..origin/${branch}")
     if [ "$size" -gt 100000 ]; then
       printf 'override: %s %s is too large for the model review (%s bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override refresh: stock skills, too large for the model review\n' \
         "$name" "$number" "$size"
+    else
+      os_override_line "$name" "$number" "refresh: the release's stock skills and checks"
     fi
   fi
   os_auto_merge_line "$name" "$number"
   rm -rf "$plan"
+}
+
+# This person's refresh pull request for an older release, still open, is replaced by the
+# new one: close it, with a comment that names the new one. Another person's is left.
+refresh_close_older() {
+  local name=$1 number=$2 branch=$3 prs n head rel body prefix
+  prefix=${branch%refresh-*}refresh-
+  prs=$(os_host_try open-prs "$name" 2>/dev/null) || return 0
+  printf '%s' "$prs" | jq -r '(.prs // [])[] | "\(.number) \(.head)"' | while read -r n head; do
+    case "$head" in
+      "$prefix"*) ;;
+      *) continue ;;
+    esac
+    [ "$head" != "$branch" ] && [ "$n" != "$number" ] || continue
+    rel=${head#"$prefix"}
+    case "$rel" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    [ "$rel" -lt "$REFRESH_RELEASE" ] || continue
+    body=$(mktemp)
+    printf 'Replaced by #%s (release %s). Closed by upgrade.sh --refresh.\n' "$number" "$REFRESH_RELEASE" > "$body"
+    os_host_try pr-comment "$name" "$n" --body-file "$body" >/dev/null 2>&1 || true
+    rm -f "$body"
+    if os_host_try close-pr "$name" "$n" >/dev/null 2>&1; then
+      printf 'closed: %s %s (refresh for release %s; replaced by %s)\n' "$name" "$n" "$rel" "$number"
+    else
+      printf 'could not close %s %s (an older refresh): close it by hand\n' "$name" "$n"
+    fi
+  done
 }
 
 # The body says what changed, in one line, for the review.

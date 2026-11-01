@@ -1138,6 +1138,52 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("not on the host yet", status.stdout)
         self.assertIn("last error: none", status.stdout)
 
+    def test_offline_push_is_one_line_for_the_push_and_one_for_the_pull(self):
+        # Round 4: offline, push prints one line for the push and one for the pull, not
+        # one line per repo.
+        self.seed_origin()
+        area = self.company / "areas" / "lab"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "README.md").write_text("lab\n")
+        run(["git", "-C", str(area), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        for repo in (self.company, area):
+            run(["git", "-C", str(repo), "remote", "remove", "origin"], env=self.env, check=False)
+            run(["git", "-C", str(repo), "remote", "add", "origin", str(self.tmp / "gone.git")],
+                env=self.env, check=True)
+        (self.host / "offline").write_text("")
+        (self.company / "notes.md").write_text("an offline note\n")
+        result = self.sync("push")
+        lines = [line for line in result.stderr.splitlines() if line.strip()]
+        offline = [line for line in lines if line.startswith("offline:")]
+        pulls = [line for line in lines if line.startswith("pull failed for")]
+        self.assertEqual(len(offline), 1, result.stderr)
+        self.assertEqual(len(pulls), 1, result.stderr)
+        self.assertIn("root", pulls[0])
+        self.assertIn("area:lab", pulls[0])
+
+    def test_engine_without_network_keeps_the_notes_out_and_says_offline(self):
+        # Round 4: the push check's engine has no network. Nothing is committed (fail
+        # closed), nothing is held, and the line says the notes go up when online.
+        self.seed_origin()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        (self.company / "notes.md").write_text("ENGINE-OFFLINE a note\n")
+        result = self.sync("push")
+        self.assertIn("offline: these notes stay here and go up when you are online", result.stderr)
+        self.assertNotIn("engine check failed", result.stdout + result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), head)
+        self.assertTrue((self.company / "notes.md").exists())
+        self.assertIn("?? notes.md", self.git("status", "--porcelain").stdout)
+        status = self.sync("status")
+        self.assertNotIn("notes.md", status.stdout)
+        self.assertIn("last error: offline", status.stdout)
+        # Online again: the same notes are checked and go up.
+        (self.company / "notes.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("notes.md", self.tree(SEAT_REF))
+
     def test_a_deleted_held_file_leaves_the_list(self):
         # B26: status and push drop a held file that is gone, so no session reports it.
         self.seed_origin()

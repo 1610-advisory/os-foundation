@@ -56,6 +56,12 @@ case "$1" in
   secret-exists) printf '%s\n' '{"exists":true}' ;;
   open-pr)
     [ "${FAKE_OPENPR:-ok}" = "ok" ] || { printf '%s\n' "host error" >&2; exit 3; }
+    # B58: keep each pull request body, for the checks below.
+    repo=$2
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--body-file" ] && cp "$2" "${FAKE_HOST_LOG}.body.${repo}"
+      shift
+    done
     printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
   auto-merge-off)
     [ "${FAKE_AMOFF:-ok}" = "ok" ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
@@ -173,12 +179,16 @@ for repo in acme2-os acme2-marketing; do
       "$(printf '%s\n' "$owners_main" | grep -n -F '**/AGENTS.md ' | cut -d: -f1)" ] || team_fail "company line is not after the rules lines"
   fi
   # Only check files: no company content on main.
-  changed=$(git --git-dir "$bare" diff --name-only main~1 main | grep -v '^\.github/' | grep -v '^\.gitea/' || true)
+  # B58: the release's review-rules.md goes on main first, so the review judges the
+  # upgrade pull request with rules that know it. checkout.sh copies it from main.
+  git --git-dir "$bare" show main:review-rules.md | cmp -s - "$root/template/review-rules.md" \
+    || team_fail "B58: $repo main lacks the release's review-rules.md before the pull request"
+  changed=$(git --git-dir "$bare" diff --name-only main~1 main | grep -v '^\.github/' | grep -v '^\.gitea/' | grep -vx 'review-rules.md' || true)
   [ -z "$changed" ] || team_fail "$repo check-tools commit touched $changed"
   order=$(grep -n -E "^(unprotect|protect|open-pr) ${repo} " "$FAKE_HOST_LOG" | cut -d' ' -f1 | tr -d '0-9:' | tr '\n' ' ')
   [ "$order" = "unprotect protect open-pr " ] || team_fail "$repo host order was: $order"
 done
-grep -qx 'checks-on-main: acme2-os' "$work/run.out" || team_fail "no checks-on-main line"
+grep -qx 'checks-on-main: acme2-os (with review-rules.md)' "$work/run.out" || team_fail "no checks-on-main line (with review-rules.md)"
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
 grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
 # B41, B57: the stock skills put the company pull request over the model review's limit.
@@ -191,7 +201,21 @@ whole=$(git -C "$co" diff --no-color "${pr_base}..upgrade/v1" | wc -c | tr -d ' 
 [ "$whole" -gt 100000 ] || team_fail "B41: the fixture upgrade is small ($whole bytes); the check below proves nothing"
 review=$(cd "$co" && bash "$root/template/.github/scripts/review-diff.sh" "${pr_base}..upgrade/v1" "$work/stock.txt" | wc -c | tr -d ' ')
 [ "$review" -le 100000 ] || team_fail "B57: the review diff is still too large ($review bytes)"
-grep -q '^override: ' "$work/run.out" && team_fail "B57: override line for a pull request the review can read"
+grep -q '^override: .* too large for the model review' "$work/run.out" && team_fail "B57: too-large override line for a pull request the review can read"
+# B58 (c): each upgrade pull request gets the exact /override comment for a failed review.
+for r in acme2-os acme2-marketing; do
+  grep -qx "override: $r 5 if the model review fails it: read the finding. If the change is only what the pull request body says, the admin comments on it: /override v1 upgrade: the release's rules text, with the company's own lines kept" "$work/run.out" \
+    || team_fail "B58: no override line for $r"
+done
+# B58 (a): the body says what the upgrade is, lists the company lines kept, and how approval moves.
+body="${FAKE_HOST_LOG}.body.acme2-os"
+[ -f "$body" ] || team_fail "B58: no body for the company pull request"
+head -n 1 "$body" | grep -q "^Upgrade to os-foundation release [0-9]*: the release's rules text, with the company's own lines kept (listed)\.$" \
+  || { cat "$body" >&2; team_fail "B58: body does not open with what the upgrade is"; }
+grep -q '^- AGENTS.md: [0-9]* company lines kept$' "$body" || team_fail "B58: body does not list AGENTS.md"
+grep -q '^Approval moves' "$body" || team_fail "B58: body does not say how approval moves"
+grep -q "^Why: it is this release's default table" "$body" || team_fail "B58: body does not say why approval moves"
+grep -q '^Other changes:' "$body" || team_fail "B58: body lacks the other changes"
 
 # Round 3 (39): on GitHub the upgrade pull requests merge by the admin's bypass click, so
 # they never get auto-merge (that hides the bypass box). Never "upgrade: ok" with one open.
@@ -359,7 +383,7 @@ co9="$work/amoff-fails"
 make_v0 "$co9" acme9-os
 FAKE_AUTOMERGE=ok FAKE_AMOFF=fail "$upgrade" --root "$co9" --template "$root/template" --answers "$work/answers" > "$work/amoff.out" 2>&1 \
   || { cat "$work/amoff.out" >&2; team_fail "auto-merge-off failure run failed"; }
-grep -q '^merge-by-hand: acme9-os 5: auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first. When its checks are green' "$work/amoff.out" \
+grep -q '^merge-by-hand: acme9-os 5: auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first. When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), the admin opens it and merges it.' "$work/amoff.out" \
   || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
 grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 
@@ -550,7 +574,7 @@ git -C "$co11/memory/logs" push -q origin HEAD:logs
   || { cat "$work/biglog.out" >&2; team_fail "B41: big log upgrade failed"; }
 grep -q '^override: acme11-os 5 is too large for the model review ([0-9]* bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override v1 upgrade: stock skills, too large for the model review$' "$work/biglog.out" \
   || { cat "$work/biglog.out" >&2; team_fail "B41: no override line for a large upgrade pull request"; }
-grep -q '^override: acme11-marketing' "$work/biglog.out" && team_fail "B41: override line for the small area pull request"
+grep -q '^override: acme11-marketing .* too large' "$work/biglog.out" && team_fail "B41: override line for the small area pull request"
 
 # B53: after the upgrade merged, team-on names a director for an area. The rules are
 # already on main, so team-on opens a rules pull request with the CODEOWNERS it changed
@@ -620,7 +644,22 @@ grep -q '^open-pr acme10-marketing ' "$FAKE_HOST_LOG" || team_fail "B53: no open
 bare="$work/git/acme10-marketing.git"
 git --git-dir "$bare" show rules/ada/team-on:.github/CODEOWNERS | grep -qxF '**/AGENTS.md @acme-bea @acme-admin' \
   || team_fail "B53: the area rules branch does not name the director"
-git --git-dir "$bare" show rules/ada/team-on:.gitea/CODEOWNERS | grep -q '@acme-bea$' || team_fail "B53: the Forgejo owners do not name the director"
+git --git-dir "$bare" show rules/ada/team-on:.gitea/CODEOWNERS | grep -q ' @acme-bea @acme-admin$' || team_fail "B60: the Forgejo owners do not name the director and the admin"
+# B60: both files name the same owners, and the admin is on every rules line.
+gh_owners=$(git --git-dir "$bare" show rules/ada/team-on:.github/CODEOWNERS | grep -v -e '^#' -e '^$' | sed 's/^[^ ]* //' | sort -u)
+fj_owners=$(git --git-dir "$bare" show rules/ada/team-on:.gitea/CODEOWNERS | grep -v -e '^#' -e '^$' | sed 's/^[^ ]* //' | sort -u)
+[ "$gh_owners" = "$fj_owners" ] || team_fail "B60: .github and .gitea CODEOWNERS name different owners"
+git --git-dir "$bare" show rules/ada/team-on:.github/CODEOWNERS | grep -v -e '^#' -e '^$' | grep -v -q '@acme-admin' \
+  && team_fail "B60: a rules line without the admin"
+# B60: the team-on rules pull request body says what changes and why.
+body="${FAKE_HOST_LOG}.body.acme10-marketing"
+[ -f "$body" ] || team_fail "B60: no body for the area rules pull request"
+grep -q '^team-on: names the area director as a code owner of the marketing area rules. The admin stays a code owner.$' "$body" \
+  || { cat "$body" >&2; team_fail "B60: body lacks why"; }
+grep -q '^Code owners added: @acme-bea' "$body" || { cat "$body" >&2; team_fail "B60: body does not name the new owner"; }
+grep -q 'stays a code owner of every line' "$body" || team_fail "B60: body does not say the admin stays"
+grep -q '^override: acme10-marketing 5 if the model review fails it: .*/override team-on: ' "$work/b53.out" \
+  || team_fail "B58: team-on printed no override line"
 # Only rules files in that pull request.
 extra=$(git --git-dir "$bare" diff --name-only main rules/ada/team-on | grep -v -x -e .github/CODEOWNERS -e .gitea/CODEOWNERS \
   -e .github/review.conf -e review-rules.md || true)

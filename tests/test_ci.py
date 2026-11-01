@@ -1158,6 +1158,9 @@ class ReviewParseTests(unittest.TestCase):
         self.assertIn("the review reported a finding", result.stderr)
         out = self.out.read_text(encoding="utf-8")
         self.assertIn("the review reported a finding", out)
+        # B58 (c): the failure names the override the admin may post.
+        self.assertIn("the admin may comment /override <reason>", result.stderr)
+        self.assertIn("the admin may comment /override <reason>", out)
         # B36: the comment keeps what the review found.
         self.assertIn("FINDING: 1 a.md:1 Bad.", out)
         self.assertIn("FINDING: 1 a.md:1 Bad.", result.stderr)

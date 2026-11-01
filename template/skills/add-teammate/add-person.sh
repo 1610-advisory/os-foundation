@@ -125,6 +125,7 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   fi
 done
 
+area_lines=""
 for a in $(printf '%s' "$areas" | tr ',' ' '); do
   a=$(os_trim "$a")
   [ -n "$a" ] || continue
@@ -136,19 +137,26 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   abranch="rules/${ADMIN}/add-${PERSON}"
   os_with_git_token git -C "$ROOT/areas/$a" fetch origin
   wt=$(os_branch_start "$ROOT/areas/$a") || exit 3
-  os_codeowners "$wt" "$(os_at_users "$ADMIN_GH" "$gh")" "$(os_forgejo_owner "$ADMIN_GH" "$gh")"
+  # The same owners in both files (B60): the director and the admin.
+  os_codeowners "$wt" "$(os_at_users "$ADMIN_GH" "$gh")"
   os_git_commit "$wt" "Rules: director for ${a}" .github/CODEOWNERS .gitea/CODEOWNERS
+  abody=$(mktemp)
+  os_owners_body "$wt" "add-person: names ${PERSON} as a code owner of the ${a} area rules, as the area director. The admin stays a code owner." "$ADMIN_GH" > "$abody"
   os_branch_push "$ROOT/areas/$a" "$wt" "$abranch"
   os_back_to_main "$ROOT/areas/$a"
   set +e
-  pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}")
+  pr=$(os_host open-pr "$(os_area_repo "$SLUG" "$a")" --head "$abranch" --base main --title "Rules: add ${PERSON}" --body-file "$abody")
   pr_rc=$?
   set -e
+  rm -f "$abody"
   area_number=$(printf '%s' "$pr" | jq -r '.number // empty' 2>/dev/null || true)
   if [ "$pr_rc" -ne 0 ] || [ -z "$area_number" ]; then
     printf '%s\n' "could not open a pull request for $(os_area_repo "$SLUG" "$a")" >&2
     exit 2
   fi
+  area_lines="${area_lines}rules-pr: $(os_area_repo "$SLUG" "$a") ${area_number}
+$(os_override_line "$(os_area_repo "$SLUG" "$a")" "$area_number" "add-person: names ${PERSON} as the ${a} area director")
+"
 done
 
 printf 'add-person: ok\n'
@@ -157,5 +165,7 @@ printf 'workspace: %s\n' "$(os_user_repo "$SLUG" "$PERSON")"
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
   printf '%s\n' "$merge_line"
+  os_override_line "$COMPANY_REPO" "$number" "add-person: ${PERSON}'s people page"
 fi
+printf '%s' "$area_lines"
 os_hand_off "$PERSON" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$PERSON")" "$HOST_KIND" "$HOST_URL"

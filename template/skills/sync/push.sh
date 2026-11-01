@@ -116,9 +116,10 @@ sync_identity() {
   # either. Commit here; sync_push_commits sends nothing until a push that can check.
   if [ "$rc" -eq 5 ]; then
     SYNC_OFFLINE=1
+    # The line waits for the end of the run: one line for the push, not one per step.
+    SYNC_OFFLINE_SAY="offline: changes are saved here and go up with the next push"
     sync_held_error "offline"
     sync_log "push offline identity: commit here only"
-    printf '%s\n' "offline: changes are saved here and go up with the next push" >&2
     return 0
   fi
   if [ "$rc" -ne 0 ]; then
@@ -195,6 +196,7 @@ sync_engine_one() {
     if [ "$elapsed" -ge "$limit" ]; then
       kill "$pid" 2>/dev/null || true
       wait "$pid" 2>/dev/null || true
+      [ "${SYNC_OFFLINE:-0}" != "1" ] || return 6
       return 124
     fi
     sleep 1
@@ -204,7 +206,13 @@ sync_engine_one() {
   wait "$pid"
   rc=$?
   set -e
-  [ "$rc" -eq 0 ] || return "$rc"
+  if [ "$rc" -ne 0 ]; then
+    # No network for the engine: 6, so push can say "offline", not "engine check failed".
+    if grep -qiE 'could not resolve|getaddrinfo|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ENETUNREACH|network is unreachable|connection (error|refused|timed out)|failed to connect|unable to connect|offline' "$err"; then
+      return 6
+    fi
+    return "$rc"
+  fi
   n=$(awk 'NF { c++ } END { print c + 0 }' "$out")
   [ "$n" = "1" ] || return 2
   line=$(awk 'NF { print; exit }' "$out")
@@ -745,6 +753,16 @@ sync_push_one() {
     eng=$(sync_engine_one "$kind" "$path" "$diff")
     rc=$?
     set -e
+    if [ "$rc" -eq 6 ] || { [ "$rc" -ne 0 ] && [ "${SYNC_OFFLINE:-0}" = "1" ]; }; then
+      # No network: the check cannot run, so nothing is committed (fail closed). Nothing
+      # was judged either, so these files are not held: they stay here as they are and go
+      # up at the next online push. Holds found before this file stay.
+      sync_held_replace "$id" "$added"
+      SYNC_OFFLINE_SAY="offline: these notes stay here and go up when you are online"
+      [ "${SYNC_OFFLINE:-0}" = "1" ] || sync_held_error "offline: the push check could not reach its engine"
+      sync_log "push offline ${id} engine not reachable: notes wait here"
+      return 1
+    fi
     if [ "$rc" -ne 0 ]; then
       : > "$added"
       while IFS= read -r path; do
@@ -1027,7 +1045,8 @@ sync_push_bot() {
 cmd_push() {
   sync_lock
   if [ -n "${OS_BOT:-}" ]; then
-    sync_push_bot || return 1
+    sync_push_bot || { sync_unreached_flush; return 1; }
+    sync_unreached_flush
     return 0
   fi
   sync_identity || return 1
@@ -1036,6 +1055,9 @@ cmd_push() {
   sync_held_prune
   sync_each sync_push_one || rc=1
   sync_held_prune
+  # One line for the push, then one for the pull (not one per repo).
+  [ -z "${SYNC_OFFLINE_SAY:-}" ] || printf '%s\n' "$SYNC_OFFLINE_SAY" >&2
+  sync_unreached_flush
   [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }

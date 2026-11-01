@@ -580,12 +580,25 @@ sync_pull_fail() {
   # One line per repo. The first reason is the one to act on.
   [ "${SYNC_PULL_FAILED:-}" != "$id" ] || return 0
   SYNC_PULL_FAILED=$id
-  printf 'pull failed for %s: %s\n' "$id" "$plain" >&2
+  if [ "$reason" = "could not reach origin" ]; then
+    # Every repo fails the same way when the host is down: one line at the end names them.
+    SYNC_UNREACHED="${SYNC_UNREACHED:+${SYNC_UNREACHED}, }${id}"
+    SYNC_UNREACHED_PLAIN=$plain
+  else
+    printf 'pull failed for %s: %s\n' "$id" "$plain" >&2
+  fi
   if [ -z "${SYNC_RUN_ERROR:-}" ]; then
     sync_held_error "pull failed for ${id}: ${plain}"
   fi
 }
 
+
+# The one line for every repo the host could not be reached for.
+sync_unreached_flush() {
+  [ -n "${SYNC_UNREACHED:-}" ] || return 0
+  printf 'pull failed for %s: %s\n' "$SYNC_UNREACHED" "$SYNC_UNREACHED_PLAIN" >&2
+  SYNC_UNREACHED=""
+}
 
 sync_pull_mark() {
   SYNC_PULL_DONE="${SYNC_PULL_DONE:-}|$1|"
@@ -1503,6 +1516,7 @@ cmd_pull() {
   else
     sync_pull_run_quick || rc=$?
   fi
+  sync_unreached_flush
   [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"
 }

@@ -245,7 +245,9 @@ while IFS= read -r area; do
       cp "$rules_src" "$ROOT/areas/$area/review-rules.md"
     fi
   fi
-  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")" "$(os_forgejo_owner "$ADMIN_GH" "$director_gh")"
+  # The same owners in both files (B60). On Forgejo every name on a line must approve, so
+  # an area rules change there needs the director and the admin.
+  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
@@ -307,7 +309,7 @@ commit_rules_before_protect() {
 # A CODEOWNERS line the company added on main stays, after the rules lines.
 # Notes (people pages, the profile) go up with the admin's next sync push.
 propose_team_rules() {
-  local dir=$1 msg=$2 f wt name pr number reuse branch="rules/${ADMIN}/team-on" changed=()
+  local dir=$1 msg=$2 f wt name pr number reuse body branch="rules/${ADMIN}/team-on" changed=()
   for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
     [ -f "$dir/$f" ] || continue
     git -C "$dir" show "origin/main:$f" 2>/dev/null \
@@ -343,11 +345,32 @@ propose_team_rules() {
     os_git_commit "$wt" "$msg" "${changed[@]}" >/dev/null
     os_branch_push "$dir" "$wt" "$branch"
   fi
-  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "rules: ${msg}")
+  body=$(mktemp)
+  team_rules_body "$dir" "${changed[@]}" > "$body"
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "rules: ${msg}" --body-file "$body")
+  rm -f "$body"
   number=$(printf '%s' "$pr" | jq -r '.number // empty')
   [ -n "$number" ] || os_die 3 "could not open the rules pull request for ${name}: run team-on again"
   printf 'rules-pr: %s %s (%s)\n' "$name" "$number" "${changed[*]}"
   os_auto_merge_line "$name" "$number"
+  os_override_line "$name" "$number" "team-on: the code owners and review rules the body lists"
+}
+
+# What team-on's rules pull request changes, and why (B60).
+team_rules_body() {
+  local dir=$1 why f
+  shift
+  case "$dir" in
+    */areas/*) why="team-on: names the area director as a code owner of the $(basename "$dir") area rules. The admin stays a code owner." ;;
+    *) why="team-on: sets the code owners of the company rules files for the team." ;;
+  esac
+  os_owners_body "$dir" "$why" "$ADMIN_GH"
+  for f in "$@"; do
+    case "$f" in
+      review-rules.md) printf '%s\n' "review-rules.md: the release's review rules. The model review reads them from main." ;;
+      .github/review.conf) printf '%s\n' ".github/review.conf: which model reviews this repo's pull requests." ;;
+    esac
+  done
 }
 
 # A refused push is a host error: exit 3 with one plain line.

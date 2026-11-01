@@ -22,6 +22,13 @@ Check only the lines the diff adds or changes. Each check below is a finding whe
 
 Anything else you notice (style, wording, a better way) is a note. A note never fails the review.
 
+## Pull requests from the admin's own steps
+
+These come from a product step, not from a person's edit. Judge them by this section, and by checks 1 to 5 as usual.
+
+- **Upgrade and refresh.** Title `Upgrade to v1`, `Upgrade: check scripts` or `Refresh stock skills and checks (<release>)`. The pull request sets rules files to this release's text and puts the company's own lines back. Its body lists each rules file and each company line it kept. Those listed changes are explained (check 6). An `AGENTS.md` approval table set to this release's default is not a loosening (check 4). The default company table: Auto (notes, logs, links: nobody before, the nightly review after); Agent decides and logs (soft delete, move with link rewrite, edits to more than 20 files); Ask (area rules files: the area director); Ask (company-root rules files and permissions: the admin). The default area table adds no rows (`(none yet)`) and says the company table applies. Still a finding: a change the body does not list, a table looser than this default, or an approver removed.
+- **Code owners.** Title `rules: Team: area rules`, `Rules: add <person>`, `People: add <person>` or `Offboard: <person>`. The body says who becomes or stops being a code owner, and why. A `CODEOWNERS` change the body explains is not scope creep (check 6). It is not a loosening (check 4) while the admin stays an owner of every line. Still a finding: the admin taken off a line, or a line left with no owner.
+
 ## Output
 
 Write plain text, in this order:

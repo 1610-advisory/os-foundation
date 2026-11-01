@@ -1170,8 +1170,8 @@ fi
 repo="ci-checks-${stamp}"
 
 # Area rules PR. Owners are os_codeowners output, not a hand-written file.
-# Forgejo names only the director. A member's skill change is blocked until
-# that director approves, then it merges. GitHub still names both.
+# Both files name the director and the admin. On Forgejo a member's skill
+# change waits for the director, then for the admin, then merges.
 own_repo="ci-own-${stamp}"
 EXTRA_REPOS="${EXTRA_REPOS} ${own_repo}"
 src="$work/own"
@@ -1189,10 +1189,10 @@ printf '%s\n' '# Sample' > "$src/skills/sample/SKILL.md"
 . "$root/template/skills/add-teammate/lib.sh"
 # The lib sets its own EXIT trap. Run both.
 trap 'cleanup; os_cleanup' EXIT
-os_codeowners "$src" "$(os_at_users acme-admin acme-director)" "$(os_forgejo_owner acme-admin acme-director)"
+# B60: both files name the same owners, the director and the admin.
+os_codeowners "$src" "$(os_at_users acme-admin acme-director)"
 if [ -f "$src/CODEOWNERS" ] || [ ! -f "$src/.gitea/CODEOWNERS" ] \
-  || ! grep -F -x -q '^(.*/)?skills/.* @acme-director' "$src/.gitea/CODEOWNERS" \
-  || grep -q acme-admin "$src/.gitea/CODEOWNERS" \
+  || ! grep -F -x -q '^(.*/)?skills/.* @acme-director @acme-admin' "$src/.gitea/CODEOWNERS" \
   || ! grep -F -q '/.gitea/ @acme-director @acme-admin' "$src/.github/CODEOWNERS"; then
   fail "area rules uses product owners"
 else
@@ -1246,17 +1246,19 @@ else
       osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
       own_reviewers=$(jq -r '[.requested_reviewers[]?.login] | join(" ")' "$OSF_HTTP_BODY" 2>/dev/null || true)
       osf_api_discard
-      if printf '%s' "$own_reviewers" | grep -q acme-director; then
+      if printf '%s' "$own_reviewers" | grep -q acme-director \
+        && printf '%s' "$own_reviewers" | grep -q acme-admin; then
         break
       fi
       own_i=$((own_i + 1))
       sleep 1
     done
+    # Forgejo waits for every name on the line: both are asked.
     if printf '%s' "$own_reviewers" | grep -q acme-director \
-      && ! printf '%s' "$own_reviewers" | grep -q acme-admin; then
-      pass "area rules requests director"
+      && printf '%s' "$own_reviewers" | grep -q acme-admin; then
+      pass "area rules requests director and admin"
     else
-      fail "area rules requests director"
+      fail "area rules requests director and admin"
     fi
     if [ "$own_checks" -eq 1 ]; then
       as_user "$admin"
@@ -1277,11 +1279,26 @@ else
       osf_api "$director" POST "/api/v1/repos/acme/${repo}/pulls/${own_pr}/reviews" "$own_body"
       own_approve=$OSF_HTTP_CODE
       osf_api_discard
-      rm -f "$own_body"
       if [ "$own_approve" != "200" ] && [ "$own_approve" != "201" ]; then
-        fail "area rules merges after director"
+        rm -f "$own_body"
+        fail "area rules merges after director and admin"
       else
+        # The director alone is not enough: the admin's request still blocks it.
         as_user "$admin"
+        "$work/host/host.sh" auto-merge "$repo" "$own_pr" >>"$log" 2>&1 || true
+        sleep 5
+        osf_api "$admin" GET "/api/v1/repos/acme/${repo}/pulls/${own_pr}"
+        own_merged=$(jq -r '.merged' "$OSF_HTTP_BODY")
+        osf_api_discard
+        if [ "$own_merged" != "true" ]; then
+          pass "area rules waits for the admin after the director"
+        else
+          fail "area rules waits for the admin after the director"
+        fi
+        osf_api "$admin" POST "/api/v1/repos/acme/${repo}/pulls/${own_pr}/reviews" "$own_body"
+        own_approve=$OSF_HTTP_CODE
+        osf_api_discard
+        rm -f "$own_body"
         "$work/host/host.sh" auto-merge "$repo" "$own_pr" >>"$log" 2>&1 || true
         own_i=0
         own_merged=false
@@ -1296,14 +1313,14 @@ else
           sleep 3
         done
         if [ "$own_merged" = "true" ]; then
-          pass "area rules merges after director"
+          pass "area rules merges after director and admin"
         else
-          fail "area rules merges after director"
+          fail "area rules merges after director and admin (admin review HTTP ${own_approve})"
         fi
       fi
     else
       fail "area rules blocked"
-      fail "area rules merges after director"
+      fail "area rules merges after director and admin"
     fi
   fi
 fi

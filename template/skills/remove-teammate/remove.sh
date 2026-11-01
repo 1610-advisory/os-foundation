@@ -332,6 +332,58 @@ for dir in "$ROOT" $(for area in $AREAS; do printf '%s\n' "$ROOT/areas/${area}";
     done
 done
 
+# Take the person off every CODEOWNERS line in a worktree on origin/main. Returns 1 when
+# they are on none (nothing to change).
+offboard_owners() {
+  local dir=$1 f hit=1
+  [ -n "$GH" ] || return 1
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+    [ -f "$dir/$f" ] || continue
+    os_owner_names "$dir/$f" | grep -Fxq -- "$(printf '%s' "@$GH" | tr '[:upper:]' '[:lower:]')" || continue
+    os_owner_drop "$dir/$f" "$GH" "$ADMIN_GH"
+    hit=0
+  done
+  return "$hit"
+}
+
+# What the offboard pull request changes, and why.
+offboard_body() {
+  local dir=$1 bots=$2 owners=$3
+  if [ "$owners" -eq 1 ]; then
+    os_owners_body "$dir" "Offboard: ${PERSON} left on ${WHEN}. ${PERSON} (@${GH}) stops being a code owner; a line they owned alone now names the admin." "$ADMIN_GH"
+  else
+    printf 'Offboard: %s left on %s.\n' "$PERSON" "$WHEN"
+  fi
+  if [ -d "$dir/people" ] && [ -n "$(os_person_file "$dir" "$PERSON" 2>/dev/null || true)" ]; then
+    printf '%s\n' "people: ${PERSON}'s page gets left: ${WHEN}."
+  fi
+  [ "$bots" -eq 0 ] || printf '%s\n' "bots: each bot ${PERSON} owned now has owner: ${NEW_OWNER}."
+}
+
+# How one offboard pull request merges. One that changes rules files (bots/, CODEOWNERS)
+# is the admin's own: on GitHub the admin merges it by hand. Anything else merges by itself.
+offboard_merge_line() {
+  local repo=$1 number=$2 what=$3 will
+  if [ -n "$what" ] && [ "$HOST_KIND" = "github" ]; then
+    # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
+    # Say "will not merge by itself" only when that is true.
+    if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+      will='so it will not merge by itself.'
+    else
+      will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+    fi
+    printf 'merge-by-hand: %s %s: it changes %s, %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+      "$repo" "$number" "$what" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+  elif os_host_try auto-merge "$repo" "$number" >/dev/null; then
+    # Like propose: the pull request merges by itself when its checks pass.
+    printf '%s\n' "auto-merge: on"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$repo" "$number" "$repo"
+  fi
+  os_override_line "$repo" "$number" "remove: offboard ${PERSON} as the body says"
+}
+
 ADMIN=$(os_admin_slug_from_pages "$ROOT" || true)
 if [ "$ADMIN" = "$PERSON" ]; then
   ADMIN=$NEW_OWNER
@@ -359,11 +411,26 @@ if [ -d "$wt/bots" ]; then
   done
 fi
 
+# The person stops being a code owner (R6). A line they owned alone names the admin.
+ADMIN_GH=""
+admin_page=$(os_person_file "$ROOT" "$ADMIN" 2>/dev/null || true)
+[ -z "$admin_page" ] || ADMIN_GH=$(os_fm_get "$admin_page" github 2>/dev/null || true)
+owners=0
+if offboard_owners "$wt"; then
+  owners=1
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+    [ ! -f "$wt/$f" ] || paths+=("$wt/$f")
+  done
+fi
+
 os_git_commit "$wt" "Offboard: ${PERSON}" "${paths[@]}"
+body=$(mktemp)
+offboard_body "$wt" "$moved" "$owners" > "$body"
 os_branch_push "$ROOT" "$wt" "$branch"
 # The change is on the host. Leave the admin's folder on main, so pull fast-forwards.
 os_back_to_main "$ROOT"
-pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}")
+pr=$(os_host open-pr "$COMPANY_REPO" --head "$branch" --base main --title "Offboard: ${PERSON}" --body-file "$body")
+rm -f "$body"
 number=$(printf '%s' "$pr" | jq -r '.number // empty')
 
 printf 'left: %s\n' "$WHEN"
@@ -374,24 +441,44 @@ else
 fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
-  if [ "$moved" -eq 1 ] && [ "$HOST_KIND" = "github" ]; then
-    # A BOT.md is a rules file, and the admin is the author. The admin merges it by hand.
-    # An earlier run on the same branch may have turned auto-merge on: turn it off (B38).
-    # Say "will not merge by itself" only when that is true.
-    if os_host_try auto-merge-off "$COMPANY_REPO" "$number" >/dev/null 2>&1; then
-      will='so it will not merge by itself.'
-    else
-      will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+  what=""
+  [ "$moved" -eq 0 ] || what="bots/"
+  [ "$owners" -eq 0 ] || what="${what:+${what} and }CODEOWNERS"
+  offboard_merge_line "$COMPANY_REPO" "$number" "$what"
+fi
+
+# Each area repo where the person is a code owner: its own rules pull request (R6).
+if [ -n "$GH" ]; then
+  for area in $AREAS; do
+    adir="$ROOT/areas/$area"
+    [ -e "$adir/.git" ] || continue
+    os_with_git_token git -C "$adir" fetch origin || continue
+    awt=$(os_branch_start "$adir") || continue
+    if ! offboard_owners "$awt"; then
+      git -C "$adir" worktree remove --force "$awt" >/dev/null 2>&1 || true
+      rm -rf "$(dirname "$awt")"
+      continue
     fi
-    printf 'merge-by-hand: %s %s: it changes bots/, %s Wait for the green checks. Open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
-      "$COMPANY_REPO" "$number" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
-  elif os_host_try auto-merge "$COMPANY_REPO" "$number" >/dev/null; then
-    # Like propose: the pull request merges by itself when its checks pass.
-    printf '%s\n' "auto-merge: on"
-  else
-    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
-      "$COMPANY_REPO" "$number" "$COMPANY_REPO"
-  fi
+    apaths=()
+    for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+      [ ! -f "$awt/$f" ] || apaths+=("$f")
+    done
+    os_git_commit "$awt" "Offboard: ${PERSON}" "${apaths[@]}"
+    body=$(mktemp)
+    offboard_body "$awt" 0 1 > "$body"
+    os_branch_push "$adir" "$awt" "$branch"
+    os_back_to_main "$adir"
+    arepo=$(os_area_repo "$SLUG" "$area")
+    pr=$(os_host open-pr "$arepo" --head "$branch" --base main --title "Offboard: ${PERSON}" --body-file "$body")
+    rm -f "$body"
+    anum=$(printf '%s' "$pr" | jq -r '.number // empty')
+    if [ -z "$anum" ]; then
+      printf 'could not open the offboard pull request for %s: run remove again\n' "$arepo" >&2
+      continue
+    fi
+    printf 'rules-pr: %s %s (%s)\n' "$arepo" "$anum" "${apaths[*]}"
+    offboard_merge_line "$arepo" "$anum" CODEOWNERS
+  done
 fi
 printf '%s\n' "phi: app-level-not-in-v1"
 

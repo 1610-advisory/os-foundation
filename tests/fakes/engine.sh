@@ -7,7 +7,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 Usage: engine.sh
 
 Reads the push-check prompt on stdin. Prints one JSON line.
-Markers in the diff: ENGINE-FAIL, PERSONAL-FACT, PRIVATE-QUOTE, COMPANY-FACT, HOLD-ME, WORKSPACE-ME.
+Markers in the diff: ENGINE-FAIL, ENGINE-OFFLINE, PERSONAL-FACT, PRIVATE-QUOTE, COMPANY-FACT, HOLD-ME, WORKSPACE-ME.
 EOF
   exit 0
 fi
@@ -22,6 +22,10 @@ if [ "${#message}" -gt 72 ]; then
   message=$(printf '%s' "$message" | cut -c 1-72)
 fi
 
+if printf '%s\n' "$input" | grep -q 'ENGINE-OFFLINE'; then
+  printf '%s\n' "request failed: getaddrinfo ENOTFOUND api.example.test" >&2
+  exit 1
+fi
 if printf '%s\n' "$input" | grep -q 'ENGINE-FAIL'; then
   printf '%s\n' "engine failed" >&2
   exit 1

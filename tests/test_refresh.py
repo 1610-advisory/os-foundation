@@ -47,6 +47,7 @@ case "$1" in
   whoami) printf '%s\\n' '{"login":"acme-admin"}' ;;
   get-token) printf '%s\\n' local-token ;;
   open-pr) printf '%s\\n' '{"number":7,"url":"http://example.test/7"}' ;;
+  open-prs) if [ -n "${FAKE_OPEN_PRS:-}" ]; then cat "$FAKE_OPEN_PRS"; else printf '%s\\n' '{"prs":[]}'; fi ;;
   auto-merge) printf '%s\\n' '{"ok":true}' ;;
   *) printf '%s\\n' '{"ok":true}' ;;
 esac
@@ -196,7 +197,10 @@ class RefreshTests(unittest.TestCase):
         result = self.refresh()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stdout, r"(?m)^checks-on-main: acme-os")
-        self.assertNotIn("override:", result.stdout)
+        self.assertNotIn("too large for the model review", result.stdout)
+        # B58: the step still prints the exact comment for a review that fails it.
+        self.assertIn("override: acme-os 7 if the model review fails it: read the finding. If the change is only "
+                      "what the pull request body says, the admin comments on it: /override", result.stdout)
         calls = self.log.read_text()
         self.assertLess(calls.index("unprotect acme-os"), calls.index("protect acme-os --code-owners"))
         self.assertLess(calls.index("protect acme-os --code-owners"), calls.index("open-pr acme-os"))
@@ -255,6 +259,47 @@ class RefreshTests(unittest.TestCase):
         posted = (self.tmp / "posted").read_text()
         self.assertIn("VERDICT: PASS", posted)
         self.assertNotIn("too large", proc.stdout + proc.stderr)
+
+    def test_refresh_closes_its_own_older_refresh_pull_request(self):
+        """Round 4: an open refresh for an older release is closed, with a comment naming the new one."""
+        release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
+        older = str(int(release) - 1)
+        prs = self.tmp / "prs.json"
+        prs.write_text(json.dumps({"prs": [
+            {"number": 3, "head": f"rules/ada/refresh-{older}", "body": ""},
+            {"number": 4, "head": f"rules/bea/refresh-{older}", "body": ""},
+            {"number": 5, "head": "sync/ada/laptop", "body": ""},
+        ]}))
+        self.env["FAKE_OPEN_PRS"] = str(prs)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"closed: acme-os 3 (refresh for release {older}; replaced by 7)", result.stdout)
+        calls = self.log.read_text().splitlines()
+        self.assertIn("pr-comment acme-os 3 --body-file", "\n".join(calls))
+        self.assertIn("close-pr acme-os 3", calls)
+        # Only the admin's own refresh goes: not another person's, not a sync pull request.
+        self.assertNotIn("close-pr acme-os 4", calls)
+        self.assertNotIn("close-pr acme-os 5", calls)
+
+    def test_refresh_fetch_prunes_a_stale_ref(self):
+        """B59: an old sync/<me> ref beside sync/<me>/<seat> on the host does not stop the fetch."""
+        run(["git", "-C", str(self.company), "update-ref", "refs/remotes/origin/sync/ada", "HEAD"],
+            env=self.env, check=True)
+        run(["git", "--git-dir", str(self.bare), "update-ref", "refs/heads/sync/ada/laptop", "main"],
+            env=self.env, check=True)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("refresh: could not reach", result.stdout)
+        self.assertIn("opened: acme-os 7", result.stdout)
+
+    def test_refresh_fetch_error_says_what_the_host_answered(self):
+        """B59: a fetch the host answered is not 'could not reach'."""
+        run(["git", "-C", str(self.company), "remote", "set-url", "origin", str(self.tmp / "no-such-repo.git")],
+            env=self.env, check=True)
+        result = self.refresh()
+        self.assertNotIn("could not reach", result.stdout)
+        self.assertRegex(result.stdout, r"refresh: the host (answered, but the fetch for the company folder failed|"
+                                        r"refused the sign-in or the repo for the company folder) \(git: ")
 
     def test_solo_commits_on_main(self):
         # No host: everything at solo is a commit on main.
