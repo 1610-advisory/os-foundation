@@ -429,8 +429,12 @@ printf '%s\n' "stashed edit" >> "$old/notes/local.md"
 git -C "$old" stash -q
 join_run > "$work/old5.out"
 grep -q "^old-folder: $old has 1 stashed changes the host lacks" "$work/old5.out" || { cat "$work/old5.out" >&2; team_fail "Grok r6: the stash is not listed"; }
-[ "$(grep -c 'stashed changes' "$work/old5.out")" = "1" ] || team_fail "Grok r6: the shared stash is listed more than once"
+[ "$(grep -c 'stashed changes the host lacks' "$work/old5.out")" = "1" ] || team_fail "Grok r6: the shared stash is listed more than once"
 grep -q 'You may delete it' "$work/old5.out" && team_fail "Grok r6: said the old folder may go with a stash in it"
+# r8: the closing line says the stash is only in the old folder, never delete after re-apply.
+grep -qx "old-folder: $old held 1 items the host lacks (listed above). join copied or set aside the files for the agent. Its stashed changes are still only in the old folder: redo each one here first (git -C $old stash show -p). Nothing was deleted. Do not delete it yet." "$work/old5.out" \
+  || { cat "$work/old5.out" >&2; team_fail "r8: the closing line does not keep the stash"; }
+grep -q 'Delete the old folder only after' "$work/old5.out" && team_fail "r8: the closing line allows a delete with a stash in the old folder"
 git -C "$old" stash drop -q
 # Grok r6 detached HEAD: a commit made while detached in the logs folder is listed.
 git --git-dir "$old/.git/worktrees/logs" --work-tree "$old/memory/logs" checkout -q --detach

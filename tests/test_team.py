@@ -45,6 +45,9 @@ class TeamScripts(unittest.TestCase):
     def test_stage(self):
         run_script("test_stage.sh")
 
+    def test_join_old(self):
+        run_script("test_join_old.sh")
+
     def test_forgejo(self):
         run_script("test_forgejo.sh")
 

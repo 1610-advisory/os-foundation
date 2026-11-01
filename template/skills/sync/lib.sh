@@ -178,24 +178,59 @@ sync_find_root() {
 
 # B70: a job that launchd starts (or an app opened from Finder) gets PATH
 # /usr/bin:/bin:/usr/sbin:/sbin. Homebrew git, jq and gh, and the claude CLI, live in other
-# folders. Add each one that exists and is missing.
+# folders. Each one that exists goes before the bare system folders, as brew shellenv puts
+# them (r8): /usr/bin/git is only Apple's stand-in when the command line tools are missing.
 sync_path_add() {
-  local d
+  local d e want="" head="" tail="" add="" sys=0
   for d in "$@"; do
     [ -n "$d" ] && [ -d "$d" ] || continue
-    case ":${PATH}:" in
+    case ":${want}:" in
       *":${d}:"*) continue ;;
     esac
-    PATH="${PATH:+${PATH}:}${d}"
+    want="${want:+${want}:}${d}"
   done
+  [ -n "$want" ] || return 0
+  while IFS= read -r -d : e; do
+    if [ "$sys" -eq 0 ]; then
+      case "$e" in
+        /usr/bin|/bin|/usr/sbin|/sbin) sys=1 ;;
+      esac
+    fi
+    if [ "$sys" -eq 0 ]; then
+      head="${head:+${head}:}${e}"
+    else
+      case ":${want}:" in
+        *":${e}:"*) continue ;;
+      esac
+      tail="${tail:+${tail}:}${e}"
+    fi
+  done < <(printf '%s:' "${PATH:-}")
+  while IFS= read -r -d : d; do
+    case ":${head}:" in
+      *":${d}:"*) continue ;;
+    esac
+    add="${add:+${add}:}${d}"
+  done < <(printf '%s:' "$want")
+  PATH=$head
+  [ -z "$add" ] || PATH="${PATH:+${PATH}:}${add}"
+  [ -z "$tail" ] || PATH="${PATH:+${PATH}:}${tail}"
   export PATH
 }
 
-# A tool sync needs and cannot find: say which, never "could not reach the host".
+# A tool sync needs and cannot find: say which, never "could not reach the host". git that
+# is only the macOS stand-in (xcrun: no command line tools) is not installed either (r8).
 sync_need() {
-  local t
+  local t out
   for t in "$@"; do
     command -v "$t" >/dev/null 2>&1 || sync_die 1 "${t} not found: install it, or run join again"
+    [ "$t" = "git" ] || continue
+    if ! out=$(git --version 2>&1); then
+      case "$out" in
+        *"xcrun: error"*|*"invalid active developer path"*|*"CommandLineTools"*)
+          sync_die 1 "git not installed: install the Xcode command line tools, or run join again" ;;
+        *) sync_die 1 "git does not run ($(printf '%s' "$out" | head -n 1)): install it, or run join again" ;;
+      esac
+    fi
   done
 }
 

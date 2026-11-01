@@ -10,6 +10,7 @@ on:
       - template/.gitattributes
       - .gitattributes
       - tests/windows/**
+      - tests/team/test_join_old.sh
       - .github/workflows/windows.yml
 
 permissions:

@@ -205,6 +205,19 @@ try {
     exit 1
   }
 
+  # r8: join and an old v0 folder cloned with Git for Windows' own core.autocrlf=true. The
+  # base set aside and the person's copy differ only by the one edit.
+  $joinTest = (Join-Path $repo 'tests\team\test_join_old.sh') -replace '\\', '/'
+  $joinOutFile = Join-Path $script:work 'join-old-out.txt'
+  $joinErrFile = Join-Path $script:work 'join-old-err.txt'
+  & $bash $joinTest > $joinOutFile 2> $joinErrFile
+  $joinCode = $LASTEXITCODE
+  $joinOut = ''
+  if (Test-Path -LiteralPath $joinOutFile) { $joinOut = [System.IO.File]::ReadAllText($joinOutFile) }
+  if (Test-Path -LiteralPath $joinErrFile) { Get-Content -LiteralPath $joinErrFile | Out-Host }
+  Write-Output $joinOut
+  if ($joinCode -eq 0 -and $joinOut -match '(?m)^PASS\r?$') { Pass 'join-crlf' } else { Fail 'join-crlf' "exit $joinCode" }
+
   $seed = Join-Path $script:work 'seed'
   Copy-Tree (Join-Path $repo 'template') $seed
   Remove-LinkPath $seed '.agents/skills'

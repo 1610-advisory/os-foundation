@@ -139,6 +139,8 @@ cmd_set_aside() {
   local id dir path mine basef base=none key ledger
   [ $# -eq 4 ] || sync_die 1 "usage: sync.sh set-aside <repo> <path> <mine-file|-> <base-file|->"
   id=$1 path=$2 mine=$3 basef=$4
+  # The hold copy goes to state/reapply/<repo>/<path>: never a path that leaves it (r8).
+  ! sync_propose_bad_path "$path" || sync_die 1 "bad path: $(printf '%s' "$path" | tr '\n\t' '??')"
   dir=$(sync_repo_dir "$id") || sync_die 1 "no repo ${id} here"
   [ -d "$dir/.git" ] || [ -f "$dir/.git" ] || sync_die 1 "no repo ${id} here"
   sync_lock

@@ -2025,6 +2025,53 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(need.returncode, 1)
         self.assertIn("no-such-tool-b70 not found: install it, or run join again", need.stderr)
 
+    def test_found_tool_dirs_go_before_the_system_dirs(self):
+        # r8: /usr/bin/git is Apple's stand-in when the command line tools are missing. The
+        # tool dirs go before the bare system dirs, as brew shellenv puts them, so the real
+        # git is the one used. With only the stand-in, sync says git is not installed.
+        self.seed_origin()
+        bindir = self.home / ".local" / "bin"
+        bindir.mkdir(parents=True)
+        mark = self.home / "git-used"
+        real_git = shutil.which("git")
+        (bindir / "git").write_text('#!/bin/bash\n: > "%s"\nexec "%s" "$@"\n' % (mark, real_git))
+        (bindir / "git").chmod(0o755)
+        found = shutil.which("jq")
+        if found:
+            (bindir / "jq").symlink_to(found)
+        env = self.env.copy()
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        pull = self.sync("pull", env=env)
+        self.assertEqual(pull.returncode, 0, pull.stdout + pull.stderr)
+        # The git sync used came from a tool dir (Homebrew's, or ~/.local/bin), not /usr/bin.
+        which = run(
+            ["bash", "-c", 'source "$1/lib.sh"; sync_path_add /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; '
+             'command -v git', "x", str(SYNC)],
+            env=env,
+        )
+        self.assertNotEqual(which.stdout.strip(), "/usr/bin/git")
+        self.assertTrue(mark.exists() or not which.stdout.startswith(str(bindir)))
+        order = run(
+            ["bash", "-c", 'source "$1/lib.sh"; sync_path_add "$2"; printf "%s" "$PATH"', "x", str(SYNC), str(bindir)],
+            env=env,
+        )
+        self.assertEqual(order.stdout, "%s:/usr/bin:/bin:/usr/sbin:/sbin" % bindir)
+        # Only the stand-in: one plain line, never "could not reach the host".
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        (shim / "git").write_text(
+            "#!/bin/bash\n"
+            "echo 'xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), "
+            "missing xcrun at: /Library/Developer/CommandLineTools/usr/bin/xcrun' >&2\nexit 1\n"
+        )
+        (shim / "git").chmod(0o755)
+        (bindir / "git").unlink()
+        env["PATH"] = "%s:/usr/bin:/bin:/usr/sbin:/sbin" % shim
+        pull = self.sync("pull", env=env)
+        self.assertNotEqual(pull.returncode, 0)
+        self.assertIn("git not installed: install the Xcode command line tools, or run join again", pull.stderr)
+        self.assertNotIn("could not reach the host", pull.stdout + pull.stderr)
+
     def test_catch_up_logs_are_never_held_as_workspace_only(self):
         # B68: the catch-up writes old-branch logs into memory/logs-archive/ and says the
         # next push sends them. Rule 5 is a path rule there too, so a model that calls one
