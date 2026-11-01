@@ -1031,6 +1031,9 @@ if [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; then
   if [ -f "$ROOT/AGENTS.md" ]; then
     printf '%s\n' "change: tier-table"
   fi
+  if [ ! -e "$ROOT/review-rules.md" ] && [ -f "$TEMPLATE/review-rules.md" ]; then
+    printf '%s\n' "change: review-rules.md (new: the model review reads it from main)"
+  fi
 fi
 
 if [ -f "$ROOT/app-link.json" ] || [ "${OS_APP_LINK:-}" = "1" ]; then
@@ -1517,7 +1520,13 @@ push_area_scripts() {
 
 stage_upgrade() {
   local path
-  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md .gitattributes; do
+  # B56: the model review reads review-rules.md from main. A v0 company has none.
+  # A file the company already has is never replaced.
+  if { [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; } \
+    && [ ! -e "$ROOT/review-rules.md" ] && [ -f "$TEMPLATE/review-rules.md" ]; then
+    cp "$TEMPLATE/review-rules.md" "$ROOT/review-rules.md"
+  fi
+  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md review-rules.md .gitattributes; do
     if [ -e "$ROOT/$path" ]; then
       git -C "$ROOT" add -- "$path"
     fi

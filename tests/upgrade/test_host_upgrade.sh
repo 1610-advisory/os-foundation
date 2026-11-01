@@ -148,6 +148,12 @@ git -C "$co" show upgrade/v1:company-profile.md | grep -qx 'company_slug: acme2'
 git -C "$co" show upgrade/v1:company-profile.md | grep -qx 'host: github' || team_fail "host not written"
 grep -q '^open-pr acme2-os ' "$FAKE_HOST_LOG" || team_fail "company pull request went to the wrong repo"
 
+# B56: the company gets review-rules.md with the upgrade, so main has it after the merge.
+git -C "$co" cat-file -e upgrade/v1:review-rules.md || team_fail "B56: upgrade/v1 has no review-rules.md"
+[ "$(git -C "$co" rev-parse upgrade/v1:review-rules.md)" = "$(git hash-object "$root/template/review-rules.md")" ] \
+  || team_fail "B56: review-rules.md is not the template's"
+grep -qx 'change: review-rules.md (new: the model review reads it from main)' "$work/dry.out" || team_fail "B56: dry run does not plan review-rules.md"
+
 # B10: the check tools are on main before any pull request, then protect.
 for repo in acme2-os acme2-marketing; do
   bare="$work/git/${repo}.git"

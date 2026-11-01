@@ -169,6 +169,7 @@
 337d3259b3c439cf47f57a9af532206db2d9fb53 skills/upgrade/SKILL.md
 33b7b4b8d3b708c8a5a2fd2359e3ff750a620de5 .github/scripts/tools/host/forgejo.sh
 33b7b4b8d3b708c8a5a2fd2359e3ff750a620de5 skills/_host/forgejo.sh
+33c8180d38a7bf1fb53477d40e88cb00b3175a6f skills/upgrade/CLI.md
 344b3e75425b0e98e3050becf93e589cdc1e6045 skills/remove-leak/SKILL.md
 349a6e1c5f4cc53b85a5f0e87f5de1849fb85787 skills/add-teammate/CLI.md
 350553cdae55dc015ec80d415cf85a3bdfe774ef skills/upgrade/SKILL.md
@@ -616,6 +617,7 @@ cd5c7ba33d127d4a06632bb923b2ad614d7a6bf3 skills/reports/report-prompt.md
 cda8df86021d29216b141ef5b66136a33e3b7a4f skills/add-area/templates/apps/AGENTS.md
 cdb803e742953157275ddd9d9acbe5f3df16b56e skills/_host/lib.sh
 cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/personas.md
+d0707840a3af7a47910d5a1e5623ad02ea990a4a skills/upgrade/upgrade.sh
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d1181398ce778e7b50aa08fed44647db48eb9ec8 .github/scripts/tools/add-teammate/lib.sh
 d1181398ce778e7b50aa08fed44647db48eb9ec8 skills/add-teammate/lib.sh

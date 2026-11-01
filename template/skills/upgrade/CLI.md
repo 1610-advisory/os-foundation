@@ -161,6 +161,7 @@ change: links
 change: logs-history
 change: level-block
 change: tier-table
+change: review-rules.md (new: the model review reads it from main)
 change: rules-merge <path> company-lines=<n> chars=<m>
 change: rules-spill <path> -> company-rules.md
 todo: AGENTS.md is <m> characters, over the 9,000 it sets for itself. Move ...
