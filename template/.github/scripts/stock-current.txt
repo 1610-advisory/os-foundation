@@ -1,6 +1,5 @@
 # git blob id and path of each stock file this release ships under skills/
 # and .github/. Written by tests/static/stock-hashes.sh --write.
-0121939d394f255c58ff9bf284409c146a21b9f6 .github/scripts/tools/host/lib.sh
 019d4bf075a3b472504ed54c8b97d08739bc8d97 .github/scripts/run-checks.sh
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
@@ -26,7 +25,6 @@
 1cfe11ac35d3a08e791b7fb5aab045bcadb4a009 .github/scripts/model-review.sh
 215e0a6369659b47d22d218325922ac276701f07 skills/add-teammate/workspace/memory/logs/README.md
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
-270074a990f057a703858f9596e5a26a7d0f5935 .github/scripts/tools/host/github.sh
 29a10818c56d987b4904bdd4fc35e467884b6625 skills/app-setup/hosting-options.md
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
@@ -39,6 +37,7 @@
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 4383e46fa3bbc01bdd0f7355d55b017e3ed70b00 skills/add-teammate/team-on.sh
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
+45ab60bf57b14f47f85232db1153bfc5592386fa .github/scripts/tools/host/github.sh
 45ab60bf57b14f47f85232db1153bfc5592386fa skills/_host/github.sh
 4a113c3778f079a4a43cf8b22e551bf20368b304 skills/add-bot/templates/BOT.md
 4b8e866b3381e2ea7a3264f0a606d41de7172c1e skills/remove-teammate/SKILL.md
@@ -65,6 +64,7 @@
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 7565326fbcf69ba95ecf44c13c8f19b9a8a5c62d skills/upgrade/refresh.sh
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
+7930978d3e41cdb0bda3ad92b811b92ab1679828 .github/scripts/tools/host/lib.sh
 7930978d3e41cdb0bda3ad92b811b92ab1679828 skills/_host/lib.sh
 7b00ed77448037a79be829918d389910be02f360 skills/undo-run/undo-run.sh
 7b4d16bf4ef2f76ce92bbf7fd48cfdda73527a60 skills/add-bot/run.sh
@@ -108,7 +108,6 @@ c0c1336cd777e0417760e158bce8f393950b8c4e skills/reports/run.sh
 c3c950058944d6a45f266e78f299f6190520e02a skills/nightly-review/lib.sh
 c455395c6b356972d8543f90202d6fe7e2d4b990 skills/sync/helper.sh
 c4cb42cbf747cec8049a6b73988878356630137d skills/sync/jobs.sh
-c76b4b81e8679f763ca7f7b5b941975b720d1207 .github/scripts/tools/host/forgejo.sh
 c8bc16c0f444e0fd8a3267bd8608ae749230a426 skills/write-skill/SKILL.md
 c8e0e9cb752300d12fbbd6bc3e0347c5d3b5e44b skills/add-area/templates/apps/AGENTS.md
 c9d0144d44b4e0ce39304bc001a9bc10d961be40 .github/scripts/tools/host/host.sh
@@ -151,6 +150,7 @@ f4b4c4509a56e398d76fba8a943bcca2daaaa78e skills/add-area/templates/apps/apps.md
 f53decd53c24b9c02d6606dbd1cf87c0f280e1e3 skills/upgrade/v0-hashes.txt
 f76d8c9c79e968c1c61268401c41f3f34e45ab7e skills/sync/jobs/windows-daily.xml
 f8b197c9b6cf53be765b9a1b44d21caa71c3a389 skills/skill-creator/assets/eval_review.html
+f964e7477cff8a70a91a431de28c81b787d13856 .github/scripts/tools/host/forgejo.sh
 f964e7477cff8a70a91a431de28c81b787d13856 skills/_host/forgejo.sh
 fb356d77a9423b020ed117b9e2cb20720ccb4d9b skills/sync/reapply.sh
 fc1d44a9896c18eb8072f0083fcfb77a6c2ca7e2 skills/skill-creator/FOUNDATION.md

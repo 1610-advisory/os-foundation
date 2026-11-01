@@ -857,6 +857,32 @@ cmd_open_prs() {
   jq -nc --argjson prs "$all" '{prs:$prs}'
 }
 
+# The old v0 logs branch (B61): lift a protection rule on it, then delete it. Only logs.
+# A rule or branch already gone is fine.
+cmd_drop_logs() {
+  local name deleted=true
+  host_need_name
+  name=$POS1
+  if ! fj_call DELETE "$(host_repo "$name")/branch_protections/logs"; then
+    fj_offline
+  fi
+  [ "$FJ_HTTP" = "404" ] || fj_ok
+  # Forgejo answers a delete of a missing branch with 500, so look first.
+  if ! fj_call GET "$(host_repo "$name")/branches/logs"; then
+    fj_offline
+  fi
+  if [ "$FJ_HTTP" = "404" ]; then
+    deleted=false
+  else
+    fj_ok
+    if ! fj_call DELETE "$(host_repo "$name")/branches/logs"; then
+      fj_offline
+    fi
+    fj_ok
+  fi
+  jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
+}
+
 cmd_close_pr() {
   local body
   host_need_number
@@ -1049,6 +1075,7 @@ case "$VERB" in
   auto-merge-off) cmd_auto_merge_off ;;
   open-prs) cmd_open_prs ;;
   close-pr) cmd_close_pr ;;
+  drop-logs) cmd_drop_logs ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

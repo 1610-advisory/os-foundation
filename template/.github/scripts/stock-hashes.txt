@@ -237,6 +237,7 @@
 4467feda5dc98b517966fd689f41633d74727524 skills/add-area/templates/finance/AGENTS.md
 448d0719e3d34e04785ff97a2b5194bd294ca4cc .github/scripts/set-status.sh
 453b042fe5975dc6b3f8e86c62fb7f00dc7d2558 skills/lint/SKILL.md
+45ab60bf57b14f47f85232db1153bfc5592386fa .github/scripts/tools/host/github.sh
 45ab60bf57b14f47f85232db1153bfc5592386fa skills/_host/github.sh
 47326fb46e748df273fa7dbc5a14ca060e2fa833 .github/scripts/run-checks.sh
 473df61fd731784ed7dec671d246f3fef0fa8a89 .github/scripts/tools-release
@@ -412,6 +413,7 @@
 76270484e9daca3550d968d7f5872251cea6b697 skills/undo-run/CLI.md
 778d9b8d1f13814530b01ddefb1bee63a741075b skills/sync/CLI.md
 77ba52e81560072638c10e34206e7b71f394b446 skills/add-teammate/lib.sh
+7930978d3e41cdb0bda3ad92b811b92ab1679828 .github/scripts/tools/host/lib.sh
 7930978d3e41cdb0bda3ad92b811b92ab1679828 skills/_host/lib.sh
 7954fa5b5d80bb0426325caf2d2882a0a0c08b8c skills/add-bot/CLI.md
 799811054872472566af3a416885c9acc18dd79d skills/add-area/templates/_area/.gitignore
@@ -811,6 +813,7 @@ f8ca63cc9a5a7139a70dbb5d495512d37126e681 skills/add-bot/templates/BOT.md
 f8e4bbbe218c0a71e067a82655dbeb877420d85d skills/_host/lib.sh
 f946f1f3a585729355ec9aaab0783703bce9e336 .github/scripts/tools/host/lib.sh
 f946f1f3a585729355ec9aaab0783703bce9e336 skills/_host/lib.sh
+f964e7477cff8a70a91a431de28c81b787d13856 .github/scripts/tools/host/forgejo.sh
 f964e7477cff8a70a91a431de28c81b787d13856 skills/_host/forgejo.sh
 f9acd9371baf49598f5b28459908a635cbdc0cff skills/_host/README.md
 f9b2b6213cdd05f3c7627db3a000d0baa354ba9c skills/sync/CLI.md

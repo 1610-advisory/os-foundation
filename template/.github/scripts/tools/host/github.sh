@@ -1023,6 +1023,39 @@ cmd_open_prs() {
   printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref, body:(.body // "")}]}'
 }
 
+# The old v0 logs branch (B61). v0 Part A protected it on paid plans (no deletion, admins
+# included), so a plain git push --delete fails with GH006. The admin runs this once every
+# teammate has moved: it lifts that classic rule and deletes the branch. It touches only
+# logs, never main. A rule or branch already gone is fine.
+cmd_drop_logs() {
+  local name errf rc deleted=true
+  host_need_name
+  name=$POS1
+  if host_dry; then
+    host_emit DELETE "$(host_repo "$name")/branches/logs/protection"
+    host_emit DELETE "$(host_repo "$name")/git/refs/heads/logs"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  rc=0
+  host_gh_call DELETE "$(host_repo "$name")/branches/logs/protection" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -ne 0 ] && ! grep -q 'HTTP 404' "$errf"; then
+    cat "$errf" >&2
+    host_die 3 "could not lift the old protection on ${name} logs: sign in as an org owner"
+  fi
+  rc=0
+  host_gh_call DELETE "$(host_repo "$name")/git/refs/heads/logs" >/dev/null 2>"$errf" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if grep -qE 'HTTP 40[4]|HTTP 422' "$errf"; then
+      deleted=false
+    else
+      cat "$errf" >&2
+      host_die 3 "could not delete the logs branch on ${name}"
+    fi
+  fi
+  jq -nc --arg name "$name" --argjson deleted "$deleted" '{ok:true, name:$name, branch:"logs", deleted:$deleted}'
+}
+
 cmd_close_pr() {
   local body
   host_need_number
@@ -1354,6 +1387,7 @@ case "$VERB" in
   auto-merge-off) cmd_auto_merge_off ;;
   open-prs) cmd_open_prs ;;
   close-pr) cmd_close_pr ;;
+  drop-logs) cmd_drop_logs ;;
   pr-status) cmd_pr_status ;;
   pr-comment) cmd_pr_comment ;;
   set-secret) cmd_set_secret ;;

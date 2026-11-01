@@ -46,6 +46,14 @@ areas: [marketing, sales]
 EOF
 printf '%s\n' "areas/" > "$co/.gitignore"
 git -C "$co/areas/marketing" init -q -b main
+# The area has a host copy, so remove can reach it (round 5: an area it cannot fetch
+# leaves the run not finished).
+printf '%s\n' "# Marketing" > "$co/areas/marketing/AGENTS.md"
+git -C "$co/areas/marketing" add -A
+git -C "$co/areas/marketing" -c user.name=t -c user.email=t@example.test commit -q -m seed
+git init -q --bare "$work/marketing.git"
+git -C "$co/areas/marketing" remote add origin "$work/marketing.git"
+git -C "$co/areas/marketing" push -q origin main
 git -C "$co" init -q -b main
 git -C "$co" add -A
 git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m seed
