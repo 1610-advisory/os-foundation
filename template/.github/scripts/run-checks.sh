@@ -78,6 +78,7 @@ post_comment() {
   fi
 }
 
+GATES_LINE=""
 run_gates() {
   local range="${base}..${head}" scan_rc=0 lint_rc=0 scan lint
   scan="${tools}/.github/scripts/tools/secret-scan.sh"
@@ -111,7 +112,10 @@ run_gates() {
     fi
   else
     ci_summary_add "lint skipped: .github/scripts/tools/lint.sh is missing"
+    GATES_LINE="secret scan: pass, lint: skipped"
+    return 0
   fi
+  GATES_LINE="secret scan: pass, lint: pass"
   return 0
 }
 
@@ -230,7 +234,10 @@ if [ ! -s "$out" ] && [ "$review_rc" -ne 0 ]; then
 fi
 
 ci_summary_add "$(cat "$out")"
-post_comment "$out"
+# The comment shows the gates too: the override line names them (v1.0.2).
+comment=$(ci_mktemp)
+{ printf '%s\n\n' "$GATES_LINE"; cat "$out"; } > "$comment"
+post_comment "$comment"
 if [ "$review_rc" -ne 0 ]; then
   # An /override may have come in while the review ran.
   if override_for_head; then

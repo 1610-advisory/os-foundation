@@ -2,6 +2,22 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.2 — 2026-11-02
+
+Five small fixes from the first team upgrade on v1.0.1.
+
+- **Setting the review key never shows it.** At a terminal, `host.sh set-secret` asks `OS_REVIEW_KEY:` and reads with no echo, so the key is not on screen or in scrollback. A pipe still works. An empty value stops with one line. The `review-command:` line and add-teammate A3 give the same command, with the host and org in front.
+- **`me` is the person signed in here.** `team-on` writes the config `me` file for the person whose login this computer signs in as, not always the admin. Another org owner, such as an outside advisor, can run it. When no person matches, it writes no `me` and says how to fix it, so `sync push` does not stop with `identity mismatch`.
+- **A v0 job title is kept.** v0 people pages used `role:` for the job title. `team-on` and `add-person` move it to `job_title:` before they set the OS role.
+- **An org invite is named.** On GitHub, adding someone outside the org to a team sends them an org invite. `team-on` and `add-person` say so in one `invite:` line. `join` stops while the person's invite is still open and gives the link that accepts it.
+- **The check comment shows the gates.** The pull request comment starts with `secret scan: pass, lint: pass` above the model review.
+- **Host calls work in Git Bash on Windows.** Git Bash turned a GitHub API path such as `/repos/...` into a Windows folder path, so `join`, the push sign-in check and most host steps failed on Windows. No path starts with `/` any more.
+- **A failed sign-in check says why.** When `sync.sh push` cannot check who is signed in, it prints `push: identity check failed: <what the host said>`, with any token hidden. `status` and the sync log keep it.
+- **Push prints the pull request link.** `sync.sh push` prints `pr: <url>` once when it opens or updates this computer's pull request. The job log keeps it too.
+- **A traced run never shows the key.** Under `bash -x`, or xtrace passed down from the parent shell, `set-secret` no longer prints the value in the trace.
+- **A failed invite check does not stop join.** When `join` cannot check the org invite, it says why in one `invite:` line, gives the link and goes on. It still stops only while the invite is open.
+- **A fenced review answer is read.** Some small review models wrap their whole answer in a code fence, or write `**VERDICT: PASS**`. The check read the closing fence as the last line and failed with `no verdict`. It now drops the outer fence and reads the bold or dotted verdict. When there is still no verdict, the comment and the job log show the first 40 lines of what the model said, with the key hidden.
+
 ## v1.0.1 — 2026-11-01
 
 A small release: one more review vendor.

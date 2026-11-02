@@ -1252,7 +1252,7 @@ if [ "$HOST_ON" -eq 1 ]; then
   esac
 fi
 if [ "$TEAM_ON" -eq 1 ]; then
-  printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+  os_review_command "$UP_HOST" "$UP_ORG" "$UP_HOST_URL"
   if [ "$(os_review_state)" != "key-set" ]; then
     printf '%s\n' "no review key yet: the checks fail until the admin runs the review command above"
   fi
@@ -1322,9 +1322,9 @@ if [ -n "$ANSWERS" ]; then
   ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
   RUNNER=$(os_answer_or runner "$ANSWERS" "")
 fi
-[ -n "${OS_VER:-}" ] || OS_VER="v1.0.1"
+[ -n "${OS_VER:-}" ] || OS_VER="v1.0.2"
 case "$OS_VER" in
-  *'{{'*) OS_VER="v1.0.1" ;;
+  *'{{'*) OS_VER="v1.0.2" ;;
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"

@@ -666,6 +666,31 @@ cmd_org_membership() {
   esac
 }
 
+# The signed-in person's own membership of the org. Forgejo adds a member at once, with
+# no invite: active or none.
+cmd_my_membership() {
+  local login
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  if ! fj_call GET "/user"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200) ;;
+    *) fj_fail ;;
+  esac
+  login=$(printf '%s' "$FJ_BODY" | jq -r '.login // empty')
+  [ -n "$login" ] || host_die 4 "no login"
+  if ! fj_call GET "/orgs/${OS_ORG}/members/${login}"; then
+    fj_offline
+  fi
+  case "$FJ_HTTP" in
+    200|204) jq -nc '{state:"active"}' ;;
+    404) jq -nc '{state:"none"}' ;;
+    *) fj_fail ;;
+  esac
+}
+
 # The repos a team grants. A missing team: exists false, no repos.
 cmd_team_repos() {
   local team page=1 n all='[]'
@@ -999,11 +1024,15 @@ cmd_set_secret() {
   esac
   name=$POS1
   secret_file=$(host_mktemp)
-  cat > "$secret_file"
+  host_read_secret "$secret_file" "$name"
+  # The body holds the value: no xtrace while it is in a variable or an argument.
+  host_xtrace_off
   body=$(jq -nc --rawfile data "$secret_file" '{data:$data}')
   if ! fj_call PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body" "$secret_file"; then
     host_die 5 "host is offline"
   fi
+  body=""
+  host_xtrace_restore
   case "$FJ_HTTP" in
     201|204) jq -nc --arg name "$name" '{ok:true, name:$name}' ;;
     *) fj_fail "$secret_file" ;;
@@ -1097,6 +1126,7 @@ case "$VERB" in
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
   org-membership) cmd_org_membership ;;
+  my-membership) cmd_my_membership ;;
   invites) cmd_invites ;;
   cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;

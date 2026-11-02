@@ -41,10 +41,10 @@ Ask, one at a time:
 
 No key at all: say plainly: "No review key: every pull request fails the model review until you add one." Nothing merges until then.
 
-**The admin sets the key, never you.** Best before `team-on.sh` runs. On GitHub the admin's sign-in needs `admin:org` for this (A2 item 4). In their own terminal window, in the company folder, they run this line. It runs `skills/_host/host.sh set-secret OS_REVIEW_KEY` and hides the key. Fill `<host>` and `<org>` (Forgejo: add `OS_HOST_URL=<url>`):
+**The admin sets the key, never you.** Best before `team-on.sh` runs. On GitHub the admin's sign-in needs `admin:org` for this (A2 item 4). In their own terminal window, in the company folder, they run this line. Fill `<host>` and `<org>` (Forgejo: add `OS_HOST_URL=<url>`). It asks `OS_REVIEW_KEY:` and does not show what they type. `team-on.sh` and `upgrade` print the same line, filled in, as `review-command:`.
 
 ```
-printf 'Review key: '; read -rs k; echo; printf '%s' "$k" | OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY; unset k
+OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY
 ```
 
 Never run it for them, ask for the key in the chat, or read it back.
@@ -60,6 +60,8 @@ Never run it for them, ask for the key in the chat, or read it back.
    - `This GitHub org is on the Free plan...`: it stopped before any change. Team setup protects private repos with rulesets, and GitHub Free has none. The admin moves the org to GitHub Team, then run it again. There is no Free-plan team mode. Solo works on any plan.
    - `the gh sign-in needs admin:org and workflow`: it stopped before any change. The admin runs `gh auth refresh -s admin:org,workflow`, then run it again.
    - `push refused for <repo>: the sign-in cannot write workflow files`: same fix, then run it again. The second run pushes the repo it left empty before it protects it.
+   - `invite: <login> is not an org member; adding them to <team> sends an org invite ...`: GitHub only. Tell the admin that person gets an org invite email, and must accept it before they join. No new seat if they already use one as a collaborator.
+   - `me: this computer signs in as <login>, which is no person in the answers ...`: the person running it (for example an outside advisor who is an org owner) is not in the answers. Add them as a person and run it again, or write the config `me` file by hand. Until then `sync push` stops with `identity mismatch`.
 4. If it stops with an error, tell the admin the exact message. Fix the cause it names (if it names `sync.sh propose`, propose those files), then run it again once. A second run changes nothing already done. If it stops again, stop. Do not say the team level is on.
 5. **The library.** Only if `library/.git` exists on this computer: run step 3 of "Make it" in `library/README.md` now. That makes a private `{{COMPANY_SLUG}}-library` repo, grants it to admins only, and runs the access gate. Push only when every teammate's output is exactly `{"access":"none"}`. Any other output or any error: push nothing, stop, and tell the admin. The rest of the team level still stands.
 
@@ -76,7 +78,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message.
+Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message. If it printed an `invite:` line (GitHub, a person outside the org), tell the admin: the person accepts the org invite before they join.
 
 If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 
@@ -98,7 +100,7 @@ A new area later: run `add-area`.
    - Say plainly: the Claude desktop app alone is not enough. Its own Claude Code is not on `PATH` and is not signed in outside the app. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The installer puts it in `%USERPROFILE%\.local\bin` and may not add that folder to `PATH`. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
    - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
    - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
-3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites.
+3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites, the org invite first (`https://github.com/orgs/<org>/invitation`). Join checks it and stops with that link while the org invite is still open. If the check itself fails, join says so in one `invite:` line with the link, and goes on.
 
 ### B2. Folder and clone
 
@@ -144,7 +146,7 @@ One line each:
 - **Who they are.** `~/.config/{{COMPANY_SLUG}}-os/me` names them. The nightly push checks it against their git sign-in.
 - **OS jobs.** Pull every 15 minutes, push at about 2 am. Notes go up by themselves. A held file stays here; the next session says why. Windows: they are Task Scheduler tasks named `osfoundation-<company slug>-pull`, `-push` and `-helper`, run through Git Bash with no window (`skills/sync/SKILL.md`, "Windows").
 - **Profile.** `users/<slug>/profile/PROFILE.md` holds their voice and preferences. Claude Code, Codex, Pi (and Cursor, with a rules file) load it in every session, read-only. Their AI keeps it current.
-- **Terms.** `terms: proposed`: their yes goes on their people page by pull request.
+- **Terms.** `terms: proposed`: their yes goes on their people page by pull request. Join's push prints that pull request's link (`pr: <url>`). Each later `sync.sh push` prints its link the same way.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
 
 ## Rules for this skill

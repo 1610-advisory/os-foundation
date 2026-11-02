@@ -304,6 +304,20 @@ sync_bind() {
   fi
 }
 
+# One line of a host's error text, safe to show and keep: the first line that is not
+# blank, tokens and Authorization values masked, at most 200 characters (B75).
+sync_error_line() {
+  local file=$1 a b
+  # Prefixes are split so the source file does not contain a live prefix.
+  a=$(printf '%s%s' g h)
+  b=$(printf '%s%s_' github_ pat)
+  sed -n '/[^[:space:]]/{p;q;}' "$file" | tr -d '\r' | sed -E \
+    -e "s/${a}[pousr]_[A-Za-z0-9_]{10,}/[redacted]/g" \
+    -e "s/${b}[A-Za-z0-9_]{10,}/[redacted]/g" \
+    -e 's/(Authorization:[[:space:]]*)[A-Za-z]+[[:space:]]+[^[:space:]]+/\1[redacted]/g' \
+    -e 's/(token[=:][[:space:]]*)[^[:space:]&]+/\1[redacted]/g' | cut -c 1-200
+}
+
 sync_log() {
   printf '%s %s\n' "$(sync_now)" "$*" >> "$SYNC_LOG"
 }

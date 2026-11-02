@@ -48,7 +48,7 @@ One line each:
 - Access is gone now.
 - The workspace is archived. Only you can read it.
 - `people/` is marked. Bots have a new owner (name them). Give the `pr:` link.
-- **Rotate the review key.** Anyone who could push a branch could read it. Make a new key at the vendor, set it with `skills/_host/host.sh set-secret OS_REVIEW_KEY` (the hidden-input line in `add-teammate` A3), then delete the old key.
+- **Rotate the review key.** Anyone who could push a branch could read it. Make a new key at the vendor, set it with `skills/_host/host.sh set-secret OS_REVIEW_KEY` (the line in `add-teammate` A3; it hides the key), then delete the old key.
 - **Remove these vendor seats now.** Read the printed list. The admin removes each seat in that vendor's admin page. This is the only lever on vendor memory and chat history. What a vendor keeps after that is the vendor's rule.
 - **Their computer.** The device helper deletes the company folder by itself. Explain the signal below.
 

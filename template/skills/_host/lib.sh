@@ -437,6 +437,43 @@ host_read_body_file() {
   printf '%s' "${raw%$'\n'}"
 }
 
+# set-secret reads the value into FILE. At a terminal it asks "<NAME>: " on stderr and
+# reads with no echo, so the value never shows on screen or in scrollback. From a pipe
+# it reads stdin as before. An empty value stops with one line.
+# xtrace (bash -x, or SHELLOPTS=xtrace from the parent) prints each command with its
+# values. Turn it off while a secret is in a variable, then turn it back on.
+host_xtrace_off() {
+  case $- in
+    *x*) set +x; HOST_XTRACE=1 ;;
+    *) HOST_XTRACE="" ;;
+  esac
+}
+
+host_xtrace_restore() {
+  if [ -n "${HOST_XTRACE-}" ]; then
+    HOST_XTRACE=""
+    set -x
+  fi
+}
+
+host_read_secret() {
+  local file=$1 name=$2 value=""
+  host_xtrace_off
+  if [ -t 0 ]; then
+    # -p prints the prompt after echo is off, so nothing typed early is shown.
+    IFS= read -rs -p "${name}: " value || true
+    printf '\n' >&2
+    printf '%s' "$value" > "$file"
+    value=""
+  else
+    cat > "$file"
+  fi
+  if [ -z "$(tr -d ' \t\r\n' < "$file")" ]; then
+    host_die 1 "${name} is empty: nothing was set"
+  fi
+  host_xtrace_restore
+}
+
 host_check_lines() {
   local default=$1
   if [ -z "$CHECKS" ]; then
@@ -717,6 +754,7 @@ Verbs:
   revoke <name> <user|team:<team>>
   org-remove <user>
   org-membership <user>
+  my-membership
   invites <user> [<repo>]
   cancel-invites <user> [<repo>]
   archive-repo <name>
