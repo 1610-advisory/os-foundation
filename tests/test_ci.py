@@ -144,7 +144,7 @@ class ModelReviewTests(unittest.TestCase):
         self.diff.write_text("ok\n", encoding="utf-8")
         result = self.review({"OS_REVIEW_KEY": KEY}, cwd=self.root)
         self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("model review failed: vendor must be anthropic, openai, or xai", result.stderr)
+        self.assertIn("model review failed: vendor must be anthropic, openai, xai, or openrouter", result.stderr)
 
     def test_conf_same_vendor_label(self):
         conf_dir = self.root / ".github"
@@ -285,6 +285,118 @@ class ReviewErrorTests(unittest.TestCase):
         cfg = (self.root / "cfg").read_text(encoding="utf-8")
         self.assertIn(f'header = "Authorization: Bearer {KEY}"\n', cfg)
         self.assertNotIn("\r", cfg)
+
+
+class ReviewOpenRouterTests(unittest.TestCase):
+    """v1.0.1: vendor=openrouter against a local stub HTTP server. The real curl runs;
+    a wrapper only swaps https://openrouter.ai for the stub, so the path is the script's own."""
+
+    def setUp(self):
+        import http.server
+        import shutil
+        import threading
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        for name, text in (("rules.md", "Review rules.\n"), ("title", "t\n"), ("body", "b\n"), ("diff", "ok\n")):
+            (self.root / name).write_text(text, encoding="utf-8")
+        self.seen = []
+        self.answer = (200, {})
+        test = self
+
+        class Stub(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                test.seen.append((self.path, self.headers.get("Authorization"), json.loads(body)))
+                code, reply = test.answer
+                data = json.dumps(reply).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        real = shutil.which("curl")
+        self.assertIsNotNone(real)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        wrap = self.bin / "curl"
+        wrap.write_text(textwrap.dedent(f"""\
+            #!/bin/bash
+            # Only the vendor host changes. Anything else is a test failure.
+            cfg=$2
+            grep -qx 'url = "https://openrouter.ai/api/v1/chat/completions"' "$cfg" || {{ echo "wrong url" >&2; exit 99; }}
+            sed 's#https://openrouter.ai#http://127.0.0.1:{self.server.server_address[1]}#' "$cfg" > "$cfg.stub"
+            exec {real} --config "$cfg.stub"
+            """), encoding="utf-8")
+        wrap.chmod(0o755)
+
+    def review(self, model=""):
+        env = {
+            "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+            "OS_REVIEW_KEY": KEY,
+            "OS_REVIEW_VENDOR": "openrouter",
+        }
+        if model:
+            env["OS_REVIEW_MODEL"] = model
+        return run(
+            ["bash", str(SCRIPTS / "model-review.sh"), "--rules", str(self.root / "rules.md"),
+             "--title-file", str(self.root / "title"), "--body-file", str(self.root / "body"),
+             "--diff-file", str(self.root / "diff"), "--out", str(self.root / "out")],
+            env=env,
+        )
+
+    def reply(self, content):
+        return (200, {"id": "gen-1", "choices": [{"message": {"role": "assistant", "content": content}}]})
+
+    def test_pass_uses_the_path_bearer_and_default_model(self):
+        self.answer = self.reply("SUMMARY: ok\nVERDICT: PASS")
+        result = self.review()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.seen), 1)
+        path, auth, body = self.seen[0]
+        self.assertEqual(path, "/api/v1/chat/completions")
+        self.assertEqual(auth, "Bearer " + KEY)
+        self.assertEqual(body["model"], "openai/gpt-4o-mini")
+        self.assertEqual(body["messages"][0]["role"], "user")
+        self.assertIn("Review rules.", body["messages"][0]["content"])
+        self.assertNotIn("max_tokens", body)
+        self.assertTrue((self.root / "out").read_text(encoding="utf-8").rstrip().endswith("VERDICT: PASS"))
+        self.assertNotIn(KEY, result.stdout + result.stderr)
+
+    def test_fail_verdict_and_named_model(self):
+        self.answer = self.reply("SUMMARY: a price in a note\nVERDICT: FAIL")
+        result = self.review(model="anthropic/claude-haiku-4.5")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.seen[0][2]["model"], "anthropic/claude-haiku-4.5")
+        self.assertIn("VERDICT: FAIL", (self.root / "out").read_text(encoding="utf-8"))
+
+    def test_error_shape_names_the_message_never_the_key(self):
+        # OpenRouter's error shape: {"error": {"code", "message", "metadata"}}.
+        self.answer = (401, {"error": {"code": 401, "message": "Invalid key " + KEY[:5] + "****" + KEY[-3:] + " or " + KEY,
+                                       "metadata": {"key": KEY}}})
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("the review API returned HTTP 401: Invalid key [key] or [key]", result.stderr)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        for text in (result.stdout, result.stderr, out):
+            self.assertNotIn(KEY, text)
+            self.assertNotIn(KEY[:5] + "****", text)
+
+    def test_ok_status_with_an_error_body_says_why(self):
+        self.answer = (200, {"error": {"code": 502, "message": "Provider returned error for " + KEY}})
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("model review failed: no verdict: Provider returned error for [key]", result.stderr)
+        self.assertNotIn(KEY, result.stdout + result.stderr)
 
 
 class ReviewRetryTests(unittest.TestCase):

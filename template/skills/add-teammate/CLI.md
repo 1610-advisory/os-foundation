@@ -50,9 +50,9 @@ One `key=value` per line. Blank lines and lines starting with `#` are ignored. S
 | `person.<slug>.areas` | Comma list of area slugs. |
 | `person.<slug>.manager` | Optional slug. Used later if this person leaves. |
 | `area.<area>.director` | Person slug. Default: the admin. |
-| `review_vendor` | `anthropic`, `openai`, or `xai`. Optional. |
+| `review_vendor` | `anthropic`, `openai`, `xai`, or `openrouter`. Optional. |
 | `review_kind` | `second-vendor` or `same-vendor`. Default: `second-vendor` when a vendor is set, otherwise `same-vendor`. |
-| `review_model` | Optional model id. Blank means the vendor default. |
+| `review_model` | Optional model id. Blank means the vendor default (`openrouter`: `openai/gpt-4o-mini`). OpenRouter ids are `<maker>/<model>`. |
 
 There is no review-key key. The key never goes in this file and never goes in chat.
 

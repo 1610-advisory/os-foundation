@@ -3,7 +3,7 @@
 # The 1610 review App is not in v1. There is no code path for it.
 #
 # The vendor, model and kind come from .github/review.conf.
-# vendor=anthropic|openai|xai, model= (blank uses the vendor default),
+# vendor=anthropic|openai|xai|openrouter, model= (blank uses the vendor default),
 # kind=second-vendor|same-vendor. OS_REVIEW_VENDOR, OS_REVIEW_MODEL and
 # OS_REVIEW_KIND override the file. A missing file or a bad vendor fails
 # the check. kind=same-vendor adds "weaker review: same vendor".
@@ -172,6 +172,7 @@ vendor_url() {
     anthropic) printf '%s\n' "https://api.anthropic.com/v1/messages" ;;
     openai) printf '%s\n' "https://api.openai.com/v1/chat/completions" ;;
     xai) printf '%s\n' "https://api.x.ai/v1/chat/completions" ;;
+    openrouter) printf '%s\n' "https://openrouter.ai/api/v1/chat/completions" ;;
     *) return 1 ;;
   esac
 }
@@ -181,6 +182,8 @@ default_model() {
     anthropic) printf '%s\n' "claude-haiku-4-5" ;;
     openai) printf '%s\n' "gpt-4o-mini" ;;
     xai) printf '%s\n' "grok-4" ;;
+    # OpenRouter ids are <maker>/<model>.
+    openrouter) printf '%s\n' "openai/gpt-4o-mini" ;;
     *) return 1 ;;
   esac
 }
@@ -243,8 +246,8 @@ load_review_settings() {
     fail "model review failed: .github/review.conf is missing"
   fi
   case "$vendor" in
-    anthropic|openai|xai) ;;
-    *) fail "model review failed: vendor must be anthropic, openai, or xai" ;;
+    anthropic|openai|xai|openrouter) ;;
+    *) fail "model review failed: vendor must be anthropic, openai, xai, or openrouter" ;;
   esac
 }
 
@@ -378,6 +381,10 @@ case "$vendor" in
   *) text=$(jq -r '.choices[0].message.content // empty' "$resp") ;;
 esac
 if [ -z "$text" ]; then
+  reason=$(vendor_error "$resp")
+  if [ -n "$reason" ]; then
+    fail "model review failed: no verdict: ${reason}"
+  fi
   fail "model review failed: no verdict"
 fi
 # A finding fails the review. Keep the review's own text in the comment and the job log,
