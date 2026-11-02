@@ -111,6 +111,56 @@ write_out() {
   printf '%s\n' "$text" >> "$out_file"
 }
 
+# B77: some models wrap the whole answer in a code fence, or bold the verdict.
+# When the first and the last non-blank lines are both fences (``` with an optional
+# language word), drop those two lines. Then, only on the last non-blank line,
+# **VERDICT: PASS** or VERDICT: PASS. becomes VERDICT: PASS (FAIL the same way).
+# Everything else stays as it was, so text after the verdict still fails.
+tidy_answer() {
+  printf '%s\n' "$1" | awk '
+    { a[NR] = $0 }
+    END {
+      fence = "^[ \t\r]*```[A-Za-z0-9_+.-]*[ \t\r]*$"
+      f = 0
+      l = 0
+      for (i = 1; i <= NR; i++) if (a[i] ~ /[^ \t\r]/) { if (!f) f = i; l = i }
+      if (f && l > f && a[f] ~ fence && a[l] ~ fence) { drop[f] = 1; drop[l] = 1 }
+      v = 0
+      for (i = 1; i <= NR; i++) if (!(i in drop) && a[i] ~ /[^ \t\r]/) v = i
+      if (v) {
+        line = a[v]
+        sub(/^[ \t\r]+/, "", line)
+        sub(/[ \t\r]+$/, "", line)
+        if (line ~ /^\*\*VERDICT: (PASS|FAIL)\.?\*\*$/ || line ~ /^VERDICT: (PASS|FAIL)\.$/) {
+          sub(/^\*\*/, "", line)
+          sub(/\*\*$/, "", line)
+          sub(/\.$/, "", line)
+          a[v] = line
+        }
+      }
+      for (i = 1; i <= NR; i++) if (!(i in drop)) print a[i]
+    }'
+}
+
+# The model's own text, at most 40 lines, with the key and any masked key hidden.
+shown_text() {
+  local text=$1
+  if [ -n "${OS_REVIEW_KEY:-}" ]; then
+    text=${text//"$OS_REVIEW_KEY"/[key]}
+  fi
+  printf '%s\n' "$text" | head -n 40 | sed -E 's/[A-Za-z0-9_.-]*[*]{3,}[A-Za-z0-9_.-]*/[key]/g'
+}
+
+# No verdict: show what the model said in the comment and the job log (B77).
+fail_no_verdict() {
+  local text=$1 msg="model review failed: no verdict" shown
+  shown=$(shown_text "$text")
+  write_out "$shown"
+  printf '\n%s\n' "$msg" >> "$out_file"
+  printf '%s\n\n%s\n' "$shown" "$msg" >&2
+  exit 1
+}
+
 last_verdict() {
   local text=$1 line
   line=$(printf '%s\n' "$text" | sed '/^[[:space:]]*$/d' | tail -n 1)
@@ -387,6 +437,7 @@ if [ -z "$text" ]; then
   fi
   fail "model review failed: no verdict"
 fi
+text=$(tidy_answer "$text")
 # A finding fails the review. Keep the review's own text in the comment and the job log,
 # so people can see what it found (B36).
 if printf '%s\n' "$text" | grep -q '^FINDING:'; then
@@ -401,7 +452,7 @@ fi
 verdict=$(last_verdict "$text")
 case "$verdict" in
   "VERDICT: PASS"|"VERDICT: FAIL") ;;
-  *) fail "model review failed: no verdict" ;;
+  *) fail_no_verdict "$text" ;;
 esac
 text_file=$(ci_mktemp)
 printf '%s\n' "$text" > "$text_file"

@@ -102,7 +102,6 @@ b871f150afd6bb9cb54b8a99ea80f872b35aa5ef skills/reports/SKILL.md
 b89f5a956f0239d84883fe990a22d3b378ad36eb skills/add-teammate/join.sh
 b8ee77f582dbcbf65e165c06d8751a3c045a1dba skills/add-area/templates/apps/.gitignore
 b90465f17dc008baaa5d5cf7c40a815baccc42f4 skills/remove-teammate/CLI.md
-b937da4a3753dd80d805265995468d66432fea62 .github/scripts/model-review.sh
 ba3c993b9d2e7bad4ee66000c4020907ec19a0be skills/sync/jobs/macos-interval.plist
 ba72de631c66316e8e60ca307fb28040e672d661 skills/add-teammate/workspace/AGENTS.md
 be7c5a45f0c46268cd25bbd69eddcab048f7f74c skills/upgrade/CLI.md
@@ -116,6 +115,7 @@ c9d0144d44b4e0ce39304bc001a9bc10d961be40 .github/scripts/tools/host/host.sh
 c9d0144d44b4e0ce39304bc001a9bc10d961be40 skills/_host/host.sh
 c9ef6d90d5a141ba381bfa2940acf910ecfab3f8 skills/upgrade/rules-map.txt
 cb6d2eb96650bbb9ddd2c6cf68c71972abb4ae3a skills/add-bot/lib.sh
+cbe76d2ec59430756edfb0d6b9ec634a1bbe4df0 .github/scripts/model-review.sh
 cbec3862012bd1315b2daaecc166ff09217870ab skills/add-area/templates/finance/AGENTS.md
 cc3d1de9072ee6e23794df57c986aaa11d1c5d40 skills/add-bot/git-guard.sh
 cef5f3520dfba76ef94e4cfba7c2b8861ac93bba .github/scripts/tools/host/github.sh

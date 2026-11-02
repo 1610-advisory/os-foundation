@@ -734,6 +734,7 @@ cb07b083a1adf1a9514c0a9a43165fe130a5fb9c skills/remove-teammate/CLI.md
 cb17432dab3f75073f0463f8fd68f0f20d628883 skills/remove-teammate/CLI.md
 cb6d2eb96650bbb9ddd2c6cf68c71972abb4ae3a skills/add-bot/lib.sh
 cb94c297b75283efaeb2d2d29dafbd168e5515eb skills/_host/README.md
+cbe76d2ec59430756edfb0d6b9ec634a1bbe4df0 .github/scripts/model-review.sh
 cbec3862012bd1315b2daaecc166ff09217870ab skills/add-area/templates/finance/AGENTS.md
 cc3d1de9072ee6e23794df57c986aaa11d1c5d40 skills/add-bot/git-guard.sh
 ccd1e3b23242bc24ac43d9649bc140e1f4112b47 skills/_host/README.md

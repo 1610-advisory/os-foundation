@@ -391,6 +391,61 @@ class ReviewOpenRouterTests(unittest.TestCase):
             self.assertNotIn(KEY, text)
             self.assertNotIn(KEY[:5] + "****", text)
 
+    # B77: a small model wrapped the whole answer in a code fence; the closing fence
+    # was read as the verdict line.
+    def test_fenced_pass_is_a_pass(self):
+        self.answer = self.reply("```\nSUMMARY: Docs only. Safe. No findings noted.\nVERDICT: PASS\n```")
+        result = self.review()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertTrue(out.rstrip().endswith("VERDICT: PASS"), out)
+        self.assertNotIn("```", out)
+
+    def test_fenced_fail_with_a_language_word_is_a_fail(self):
+        self.answer = self.reply("\n```text\nSUMMARY: a price in a note\nVERDICT: FAIL\n```\n")
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertIn("SUMMARY: a price in a note", out)
+        self.assertTrue(out.rstrip().endswith("VERDICT: FAIL"), out)
+        self.assertNotIn("no verdict", result.stderr)
+
+    def test_bold_or_dotted_verdict_is_read(self):
+        for line, code in (("**VERDICT: PASS**", 0), ("VERDICT: PASS.", 0), ("**VERDICT: FAIL**", 1)):
+            self.answer = self.reply("SUMMARY: ok\n" + line)
+            result = self.review()
+            self.assertEqual(result.returncode, code, line + ": " + result.stderr)
+            self.assertNotIn("no verdict", result.stderr, line)
+
+    def test_no_verdict_shows_the_model_text(self):
+        said = "I could not decide about this change.\nIt uses the key " + KEY + " here."
+        self.answer = self.reply(said)
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        for text in (result.stderr, out):
+            self.assertIn("I could not decide about this change.", text)
+            self.assertIn("It uses the key [key] here.", text)
+            self.assertTrue(text.rstrip().endswith("model review failed: no verdict"), text)
+            self.assertNotIn(KEY, text)
+        # At most 40 lines of the model's text.
+        self.answer = self.reply("\n".join(f"line {i}" for i in range(1, 61)))
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertIn("line 40\n", out)
+        self.assertNotIn("line 41", out)
+
+    def test_text_after_the_verdict_still_fails(self):
+        # A fence in the middle, with text after the verdict: no outer fence to drop.
+        for said in ("SUMMARY: ok\nVERDICT: PASS\n```\nmore notes\n```",
+                     "```\nSUMMARY: ok\nVERDICT: PASS\nmore notes\n```",
+                     "SUMMARY: ok\nVERDICT: PASS\nmore notes"):
+            self.answer = self.reply(said)
+            result = self.review()
+            self.assertEqual(result.returncode, 1, said)
+            self.assertIn("model review failed:", result.stderr, said)
+
     def test_ok_status_with_an_error_body_says_why(self):
         self.answer = (200, {"error": {"code": 502, "message": "Provider returned error for " + KEY}})
         result = self.review()

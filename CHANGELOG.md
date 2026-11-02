@@ -16,6 +16,7 @@ Five small fixes from the first team upgrade on v1.0.1.
 - **Push prints the pull request link.** `sync.sh push` prints `pr: <url>` once when it opens or updates this computer's pull request. The job log keeps it too.
 - **A traced run never shows the key.** Under `bash -x`, or xtrace passed down from the parent shell, `set-secret` no longer prints the value in the trace.
 - **A failed invite check does not stop join.** When `join` cannot check the org invite, it says why in one `invite:` line, gives the link and goes on. It still stops only while the invite is open.
+- **A fenced review answer is read.** Some small review models wrap their whole answer in a code fence, or write `**VERDICT: PASS**`. The check read the closing fence as the last line and failed with `no verdict`. It now drops the outer fence and reads the bold or dotted verdict. When there is still no verdict, the comment and the job log show the first 40 lines of what the model said, with the key hidden.
 
 ## v1.0.1 — 2026-11-01
 
