@@ -14,6 +14,8 @@ Five small fixes from the first team upgrade on v1.0.1.
 - **Host calls work in Git Bash on Windows.** Git Bash turned a GitHub API path such as `/repos/...` into a Windows folder path, so `join`, the push sign-in check and most host steps failed on Windows. No path starts with `/` any more.
 - **A failed sign-in check says why.** When `sync.sh push` cannot check who is signed in, it prints `push: identity check failed: <what the host said>`, with any token hidden. `status` and the sync log keep it.
 - **Push prints the pull request link.** `sync.sh push` prints `pr: <url>` once when it opens or updates this computer's pull request. The job log keeps it too.
+- **A traced run never shows the key.** Under `bash -x`, or xtrace passed down from the parent shell, `set-secret` no longer prints the value in the trace.
+- **A failed invite check does not stop join.** When `join` cannot check the org invite, it says why in one `invite:` line, gives the link and goes on. It still stops only while the invite is open.
 
 ## v1.0.1 — 2026-11-01
 

@@ -100,7 +100,7 @@ A new area later: run `add-area`.
    - Say plainly: the Claude desktop app alone is not enough. Its own Claude Code is not on `PATH` and is not signed in outside the app. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The installer puts it in `%USERPROFILE%\.local\bin` and may not add that folder to `PATH`. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
    - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
    - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
-3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites, the org invite first (`https://github.com/orgs/<org>/invitation`). Join checks it and stops with that link while the org invite is still open.
+3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites, the org invite first (`https://github.com/orgs/<org>/invitation`). Join checks it and stops with that link while the org invite is still open. If the check itself fails, join says so in one `invite:` line with the link, and goes on.
 
 ### B2. Folder and clone
 

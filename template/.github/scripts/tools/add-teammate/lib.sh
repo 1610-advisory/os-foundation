@@ -316,6 +316,19 @@ os_find_host() {
 
 # Run host.sh. Stdout is the JSON. Stderr is passed through.
 # Exit code is the host exit code. Never puts a secret in argv.
+# The first non-blank line of an error file, with tokens masked, at most 200 characters.
+# Prefixes are built at runtime so the source has no live token prefix.
+os_error_line() {
+  local file=$1 a b
+  a=$(printf '%s%s' g h)
+  b=$(printf '%s%s_' github_ pat)
+  sed -n '/[^[:space:]]/{p;q;}' "$file" | tr -d '\r' | sed -E \
+    -e "s/${a}[pousr]_[A-Za-z0-9_]{10,}/[redacted]/g" \
+    -e "s/${b}[A-Za-z0-9_]{10,}/[redacted]/g" \
+    -e 's/(Authorization:[[:space:]]*)[A-Za-z]+[[:space:]]+[^[:space:]]+/\1[redacted]/g' \
+    -e 's/(token[=:][[:space:]]*)[^[:space:]&]+/\1[redacted]/g' | cut -c 1-200
+}
+
 os_host() {
   [ -n "${OS_HOST_BIN:-}" ] || os_die 3 "host.sh is missing"
   [ -x "$OS_HOST_BIN" ] || chmod +x "$OS_HOST_BIN" 2>/dev/null || true

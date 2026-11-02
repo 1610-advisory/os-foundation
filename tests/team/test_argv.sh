@@ -79,6 +79,10 @@ case "$1" in
     esac
     ;;
   my-membership)
+    if [ -n "${OS_FAKE_MY_FAIL:-}" ]; then
+      printf '%s\n' "$OS_FAKE_MY_FAIL" >&2
+      exit 3
+    fi
     printf '{"state":"%s"}\n' "${OS_FAKE_MY_STATE:-active}"
     ;;
   repo-access)
@@ -384,5 +388,17 @@ set -e
 [ "$jrc" -eq 2 ] || team_fail "join with a pending invite exit was $jrc: $jout"
 printf '%s\n' "$jout" | grep -qx 'invite: accept the org invite first: https://github.com/orgs/acme/invitation, then run join again' \
   || team_fail "join pending line: $jout"
+# A failed check (a token without org read gets a 403) never stops join: one line, then on.
+tok=$(printf '%s%s_%s' g hp abcdefghijklmnopqrstuvwxyz0123)
+set +e
+jout=$(OS_FAKE_MY_FAIL="gh: Resource not accessible by integration (HTTP 403) token ${tok}" \
+  "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>&1)
+set -e
+printf '%s\n' "$jout" | grep -qx 'invite: could not check your org invite (gh: Resource not accessible by integration (HTTP 403) token \[redacted\]); if GitHub sent you an invite, accept it at https://github.com/orgs/acme/invitation' \
+  || team_fail "join failed-check line: $jout"
+printf '%s\n' "$jout" | grep -q "$tok" && team_fail "join printed the token"
+printf '%s\n' "$jout" | grep -q 'accept the org invite first' && team_fail "a failed check stopped join"
+printf '%s\n' "$jout" | sed -n '/could not check your org invite/,$p' | sed -n '2p' | grep -q . \
+  || team_fail "join did not go on after a failed check: $jout"
 
 printf '%s\n' "PASS argv"

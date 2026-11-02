@@ -1025,10 +1025,14 @@ cmd_set_secret() {
   name=$POS1
   secret_file=$(host_mktemp)
   host_read_secret "$secret_file" "$name"
+  # The body holds the value: no xtrace while it is in a variable or an argument.
+  host_xtrace_off
   body=$(jq -nc --rawfile data "$secret_file" '{data:$data}')
   if ! fj_call PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body" "$secret_file"; then
     host_die 5 "host is offline"
   fi
+  body=""
+  host_xtrace_restore
   case "$FJ_HTTP" in
     201|204) jq -nc --arg name "$name" '{ok:true, name:$name}' ;;
     *) fj_fail "$secret_file" ;;

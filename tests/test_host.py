@@ -967,6 +967,9 @@ class SetSecretPromptTests(unittest.TestCase):
 
         read_for(10, b"OS_REVIEW_KEY: ")
         self.assertIn(b"OS_REVIEW_KEY: ", seen)
+        # Type as a person does, a moment after the prompt. bash turns echo off only
+        # once the prompt has been read off the terminal (TCSADRAIN).
+        read_for(1.0)
         os.write(fd, secret.encode() + b"\r")
         read_for(10)
         done, status = os.waitpid(pid, os.WNOHANG)
@@ -990,6 +993,92 @@ class SetSecretPromptTests(unittest.TestCase):
         self.assertEqual(empty.returncode, 1)
         self.assertEqual(empty.stderr, "OS_REVIEW_KEY is empty: nothing was set\n")
         self.assertFalse(self.got.exists())
+
+    def _pty_run(self, argv, env, secret):
+        import pty
+        import select
+        import time
+
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve(argv[0], argv, env)
+        seen = b""
+        sent = False
+        prompted = None
+        end = time.time() + 15
+        while time.time() < end:
+            ready, _, _ = select.select([fd], [], [], 0.1)
+            if ready:
+                try:
+                    chunk = os.read(fd, 1024)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                seen += chunk
+            if prompted is None and b"OS_REVIEW_KEY: " in seen:
+                prompted = time.time()
+            # Type a moment after the prompt, as a person does (see the test above).
+            if not sent and prompted is not None and time.time() - prompted >= 1.0:
+                os.write(fd, secret.encode() + b"\r")
+                sent = True
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if not done:
+            os.kill(pid, 9)
+            _, status = os.waitpid(pid, 0)
+        os.close(fd)
+        return sent, os.waitstatus_to_exitcode(status), seen
+
+    def test_xtrace_never_prints_the_value(self):
+        # Round 3, P2: under bash -x or an inherited SHELLOPTS=xtrace, the value
+        # was traced by printf '%s' "$value" (and by the Forgejo body).
+        secret = "xtrace-secret-value-77"
+        traced = dict(self.env, SHELLOPTS="xtrace")
+        # A pipe, with xtrace inherited by host.sh and the adapter.
+        piped = run(["set-secret", "OS_REVIEW_KEY"], traced, stdin=secret)
+        self.assertEqual(piped.returncode, 0, piped.stderr)
+        self.assertIn("+ ", piped.stderr, "xtrace was not on")
+        self.assertNotIn(secret, piped.stdout + piped.stderr)
+        self.assertEqual(self.got.read_text(), secret)
+        self.got.unlink()
+        # A terminal, with bash -x on the adapter itself.
+        env = os.environ.copy()
+        env.update(self.env)
+        sent, code, seen = self._pty_run(
+            ["/bin/bash", "-x", str(LIB / "github.sh"), "set-secret", "OS_REVIEW_KEY"], env, secret)
+        self.assertTrue(sent, seen)
+        self.assertEqual(code, 0, seen)
+        self.assertIn(b"+ ", seen, "xtrace was not on")
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        # A terminal through host.sh, with xtrace inherited.
+        self.got.unlink()
+        env["SHELLOPTS"] = "xtrace"
+        sent, code, seen = self._pty_run([str(HOST), "set-secret", "OS_REVIEW_KEY"], env, secret)
+        self.assertTrue(sent, seen)
+        self.assertEqual(code, 0, seen)
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        # Forgejo puts the value in a request body: that is not traced either.
+        curl = self.root / "curl"
+        curl.write_text(
+            "#!/bin/bash\n"
+            "cfg=\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  if [ \"$1\" = \"--config\" ]; then cfg=$2; shift 2; continue; fi\n"
+            "  shift\n"
+            "done\n"
+            "data=$(sed -n 's/^data-binary = \"@\\(.*\\)\"/\\1/p' \"$cfg\")\n"
+            "[ -z \"$data\" ] || cp \"$data\" \"$FAKE_GH_STDIN.body\"\n"
+            "printf '%s' 201\n"
+        )
+        curl.chmod(0o755)
+        fj = dict(traced, OS_HOST="forgejo", OS_HOST_URL="http://127.0.0.1:9", FORGEJO_TOKEN="fj-not-a-real-token")
+        forgejo = run(["set-secret", "OS_REVIEW_KEY"], fj, stdin=secret)
+        self.assertEqual(forgejo.returncode, 0, forgejo.stderr)
+        self.assertIn("+ ", forgejo.stderr, "xtrace was not on")
+        self.assertNotIn(secret, forgejo.stdout + forgejo.stderr)
+        self.assertEqual(json.loads((self.root / "gh-stdin.body").read_text()), {"data": secret})
 
 
 class GhApiPathTests(unittest.TestCase):
