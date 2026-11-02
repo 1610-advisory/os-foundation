@@ -437,6 +437,25 @@ host_read_body_file() {
   printf '%s' "${raw%$'\n'}"
 }
 
+# set-secret reads the value into FILE. At a terminal it asks "<NAME>: " on stderr and
+# reads with no echo, so the value never shows on screen or in scrollback. From a pipe
+# it reads stdin as before. An empty value stops with one line.
+host_read_secret() {
+  local file=$1 name=$2 value=""
+  if [ -t 0 ]; then
+    printf '%s: ' "$name" >&2
+    IFS= read -rs value || true
+    printf '\n' >&2
+    printf '%s' "$value" > "$file"
+    value=""
+  else
+    cat > "$file"
+  fi
+  if [ -z "$(tr -d ' \t\r\n' < "$file")" ]; then
+    host_die 1 "${name} is empty: nothing was set"
+  fi
+}
+
 host_check_lines() {
   local default=$1
   if [ -z "$CHECKS" ]; then
@@ -717,6 +736,7 @@ Verbs:
   revoke <name> <user|team:<team>>
   org-remove <user>
   org-membership <user>
+  my-membership
   invites <user> [<repo>]
   cancel-invites <user> [<repo>]
   archive-repo <name>

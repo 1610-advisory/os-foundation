@@ -1252,7 +1252,7 @@ if [ "$HOST_ON" -eq 1 ]; then
   esac
 fi
 if [ "$TEAM_ON" -eq 1 ]; then
-  printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+  os_review_command "$UP_HOST" "$UP_ORG" "$UP_HOST_URL"
   if [ "$(os_review_state)" != "key-set" ]; then
     printf '%s\n' "no review key yet: the checks fail until the admin runs the review command above"
   fi

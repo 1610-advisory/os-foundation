@@ -1382,7 +1382,7 @@ class OverrideHonourTests(unittest.TestCase):
         self.HEAD = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
         self.repo = repo
 
-    def run_checks(self, comments):
+    def run_checks(self, comments, review=None, lint=False):
         root, repo, base = self.root, self.repo, self.base
         scripts = root / "tools" / ".github" / "scripts"
         scripts.mkdir(parents=True)
@@ -1390,9 +1390,22 @@ class OverrideHonourTests(unittest.TestCase):
             (scripts / name).write_text((SCRIPTS / name).read_text())
         (scripts / "tools").mkdir()
         (scripts / "tools" / "secret-scan.sh").write_text("exit 0\n")
+        if lint:
+            (scripts / "tools" / "lint.sh").write_text("exit 0\n")
+        # The host layer: pr-comment keeps the body it was given.
+        (scripts / "tools" / "host").mkdir()
+        (scripts / "tools" / "host" / "host.sh").write_text(
+            'while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$FAKE_POSTED"; shift; done\n')
         (root / "comments.json").write_text(json.dumps(comments), encoding="utf-8")
         (scripts / "host-read.sh").write_text('cat "$FAKE_COMMENTS"\n')
-        (scripts / "model-review.sh").write_text('echo REVIEW_RAN >&2\nexit 1\n')
+        if review is None:
+            (scripts / "model-review.sh").write_text('echo REVIEW_RAN >&2\nexit 1\n')
+        else:
+            (root / "review.txt").write_text(review + "\n", encoding="utf-8")
+            (scripts / "model-review.sh").write_text(
+                'while [ $# -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done\n'
+                f'cp "{root / "review.txt"}" "$out"\n'
+                + ('exit 0\n' if review.endswith("PASS") else 'exit 1\n'))
         (root / "tools" / "review-rules.md").write_text("rules\n")
         state = root / "runner" / "os-ci"
         state.mkdir(parents=True)
@@ -1407,6 +1420,7 @@ class OverrideHonourTests(unittest.TestCase):
             env={
                 "RUNNER_TEMP": str(root / "runner"),
                 "FAKE_COMMENTS": str(root / "comments.json"),
+                "FAKE_POSTED": str(root / "posted.md"),
                 "JOB_TOKEN": KEY,
                 "GITHUB_REPOSITORY": "acme/acme-os",
                 "GITHUB_SERVER_URL": "https://github.com",
@@ -1416,6 +1430,20 @@ class OverrideHonourTests(unittest.TestCase):
 
     def line(self, user="acme-admin", head=None):
         return f"override by {user} for {head or self.HEAD}: too large\n"
+
+    def test_comment_shows_the_gates_above_the_review(self):
+        # v1.0.2: the override line names lint and the secret scan, so the comment says
+        # how they went, above the model review's own text.
+        result = self.run_checks([], review="SUMMARY: ok\nVERDICT: PASS", lint=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        posted = (self.root / "posted.md").read_text(encoding="utf-8")
+        self.assertEqual(posted, "secret scan: pass, lint: pass\n\nSUMMARY: ok\nVERDICT: PASS\n")
+
+    def test_comment_says_lint_was_skipped(self):
+        result = self.run_checks([], review="SUMMARY: a price\nVERDICT: FAIL")
+        self.assertEqual(result.returncode, 1)
+        posted = (self.root / "posted.md").read_text(encoding="utf-8")
+        self.assertTrue(posted.startswith("secret scan: pass, lint: skipped\n\nSUMMARY: a price"), posted)
 
     def test_bot_line_and_owner_comment_pass_without_a_review(self):
         result = self.run_checks([

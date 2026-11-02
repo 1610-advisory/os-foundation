@@ -322,6 +322,26 @@ os_host() {
   "$OS_HOST_BIN" "$@"
 }
 
+# Add LOGIN to TEAM. On GitHub a person who is not an org member (an outside
+# collaborator) gets an org invite from that add: say so once per person (v1.0.2).
+# Forgejo adds the user straight away, with no invite.
+os_team_add() {
+  local team=$1 login=$2 seen state
+  if [ "${OS_HOST:-}" = "github" ] && [ -n "$login" ]; then
+    seen="$OS_RUN_TMP/invite-checked"
+    if ! grep -qxF -- "$login" "$seen" 2>/dev/null; then
+      printf '%s\n' "$login" >> "$seen"
+      state=$(os_host org-membership "$login" 2>/dev/null | jq -r '.state // empty' 2>/dev/null || true)
+      case "$state" in
+        none|pending)
+          printf '%s\n' "invite: ${login} is not an org member; adding them to ${team} sends an org invite (no new seat if they already use one as a collaborator). They accept it before join."
+          ;;
+      esac
+    fi
+  fi
+  os_host team-add "$team" "$login" >/dev/null
+}
+
 os_host_try() {
   local rc
   set +e
@@ -811,7 +831,7 @@ os_write_workspace() {
 
 os_write_person_page() {
   local root=$1 slug=$2 name=$3 github=$4 email=$5 role=$6 areas=$7 manager=$8
-  local page dir area_yaml a first
+  local page dir area_yaml a first old_role
   dir="$root/people"
   mkdir -p "$dir"
   page="$dir/${name}.md"
@@ -830,6 +850,18 @@ os_write_person_page() {
   done
   area_yaml="${area_yaml}]"
   if [ -f "$page" ]; then
+    # A v0 page used role: for the job title ("President"). Keep it as job_title:
+    # (only when that is still blank), then role: takes the OS role (v1.0.2).
+    old_role=$(os_fm_get "$page" role 2>/dev/null || true)
+    case "$old_role" in
+      ""|admin|director|writer) ;;
+      *)
+        if [ -z "$(os_fm_get "$page" job_title 2>/dev/null || true)" ]; then
+          old_role=$(printf '%s' "$old_role" | sed 's/\\/\\\\/g; s/"/\\"/g')
+          os_fm_set "$page" job_title "\"${old_role}\""
+        fi
+        ;;
+    esac
     os_fm_set "$page" slug "$slug"
     os_fm_set "$page" github "$github"
     os_fm_set "$page" email "$(os_yaml_quote "$email")"
@@ -865,6 +897,27 @@ terms_accepted: ""
 EOF
   fi
   printf '%s\n' "$page"
+}
+
+# The one safe way to set the review key: host.sh asks for it and hides it (v1.0.2).
+# The host and org go in front, so it works before team-on writes them to the profile.
+os_review_command() {
+  local host=$1 org=$2 url=${3:-} env
+  env="OS_HOST=${host} OS_ORG=${org}"
+  [ "$host" != "forgejo" ] || [ -z "$url" ] || env="${env} OS_HOST_URL=${url}"
+  printf '%s\n' "review-command: ${env} skills/_host/host.sh set-secret OS_REVIEW_KEY (it asks for the key and does not show it)"
+}
+
+# The person in the answers whose github (or Forgejo login) is LOGIN. Empty when none is.
+os_me_for_login() {
+  local answers=$1 login=$2 s
+  [ -n "$login" ] || return 0
+  os_person_slugs "$answers" | while IFS= read -r s; do
+    if [ "$(os_answer_or "person.${s}.github" "$answers" "")" = "$login" ]; then
+      printf '%s\n' "$s"
+      break
+    fi
+  done
 }
 
 os_review_state() {

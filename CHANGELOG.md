@@ -2,6 +2,16 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.2 — unreleased
+
+Five small fixes from the first team upgrade on v1.0.1.
+
+- **Setting the review key never shows it.** At a terminal, `host.sh set-secret` asks `OS_REVIEW_KEY:` and reads with no echo, so the key is not on screen or in scrollback. A pipe still works. An empty value stops with one line. The `review-command:` line and add-teammate A3 give the same command, with the host and org in front.
+- **`me` is the person signed in here.** `team-on` writes the config `me` file for the person whose login this computer signs in as, not always the admin. Another org owner, such as an outside advisor, can run it. When no person matches, it writes no `me` and says how to fix it, so `sync push` does not stop with `identity mismatch`.
+- **A v0 job title is kept.** v0 people pages used `role:` for the job title. `team-on` and `add-person` move it to `job_title:` before they set the OS role.
+- **An org invite is named.** On GitHub, adding someone outside the org to a team sends them an org invite. `team-on` and `add-person` say so in one `invite:` line. `join` stops while the person's invite is still open and gives the link that accepts it.
+- **The check comment shows the gates.** The pull request comment starts with `secret scan: pass, lint: pass` above the model review.
+
 ## v1.0.1 — 2026-11-01
 
 A small release: one more review vendor.

@@ -851,6 +851,32 @@ cmd_org_membership() {
   printf '%s' "$out" | jq -c --arg user "$user" '{user:$user, state:(.state // "unknown"), role:(.role // "")}'
 }
 
+# The signed-in person's own membership of the org. Unlike org-membership, this works
+# while their invite is still open: pending (v1.0.2).
+cmd_my_membership() {
+  local errf rc out
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  if host_dry; then
+    host_emit GET "/user/memberships/orgs/${OS_ORG}"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  set +e
+  out=$(host_gh_call GET "/user/memberships/orgs/${OS_ORG}" 2>"$errf")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      jq -nc '{state:"none"}'
+      return 0
+    fi
+    cat "$errf" >&2
+    exit "$rc"
+  fi
+  printf '%s' "$out" | jq -c '{state:(.state // "unknown"), role:(.role // "")}'
+}
+
 # The repos a team grants. A missing team: exists false, no repos.
 cmd_team_repos() {
   local team slug errf rc all
@@ -1285,7 +1311,7 @@ cmd_set_secret() {
   esac
   name=$POS1
   secret_file=$(host_mktemp)
-  cat > "$secret_file"
+  host_read_secret "$secret_file" "$name"
   if host_dry; then
     body=$(jq -nc '{encrypted_value:"<redacted>", key_id:"<public-key>", visibility:"all"}')
     host_emit PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body"
@@ -1414,6 +1440,7 @@ case "$VERB" in
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
   org-membership) cmd_org_membership ;;
+  my-membership) cmd_my_membership ;;
   invites) cmd_invites ;;
   cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;

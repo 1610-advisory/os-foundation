@@ -50,9 +50,9 @@ case "$1" in
     ;;
   whoami)
     if [ -n "${OS_FAKE_SCOPES:-}" ]; then
-      printf '{"login":"ada","scopes":%s}\n' "$OS_FAKE_SCOPES"
+      printf '{"login":"%s","scopes":%s}\n' "${OS_FAKE_LOGIN:-ada}" "$OS_FAKE_SCOPES"
     else
-      printf '%s\n' '{"login":"ada"}'
+      printf '{"login":"%s"}\n' "${OS_FAKE_LOGIN:-ada}"
     fi
     ;;
   plan-check)
@@ -71,6 +71,15 @@ case "$1" in
     ;;
   open-pr)
     printf '%s\n' '{"number":1,"url":"http://example.test/pr/1"}'
+    ;;
+  org-membership)
+    case "$2" in
+      outside*) printf '{"user":"%s","state":"none"}\n' "$2" ;;
+      *) printf '{"user":"%s","state":"active","role":"member"}\n' "$2" ;;
+    esac
+    ;;
+  my-membership)
+    printf '{"state":"%s"}\n' "${OS_FAKE_MY_STATE:-active}"
     ;;
   repo-access)
     if [ "${OS_REPO_EXISTS:-}" = "1" ]; then
@@ -165,7 +174,7 @@ set +e
 out=$(PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --answers "$answers" 2>"$work/err")
 rc=$?
 set -e
-printf '%s\n' "$out" | grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' || team_fail "missing review command"
+printf '%s\n' "$out" | grep -q 'review-command: OS_HOST=[a-z]* OS_ORG=[^ ]* .*skills/_host/host.sh set-secret OS_REVIEW_KEY' || team_fail "missing review command"
 # B24: a new company's teams carry its slug.
 printf '%s\n' "$out" | grep -qx 'teams: team-company, team-area-marketing' || team_fail "team-on did not make slug teams"
 grep -qx 'team-company' "$OS_ARGV_LOG" || team_fail "team-on did not create team-company"
@@ -188,6 +197,17 @@ grep -q 'review_key' "$answers" && team_fail "answers file must not hold a revie
 # Round 5: a repo not there yet is expected before each create: no raw 404 lines.
 grep -q 'Not Found (HTTP 404)\|not found or no access' "$work/err" && { cat "$work/err" >&2; team_fail "r5: team-on showed the expected 404 lines"; }
 [ "$(git -C "$company" remote get-url origin)" = "http://127.0.0.1:9/acme/team-os.git" ] || team_fail "create path left the wrong company origin"
+# v1.0.2: me is the person this computer signs in as. The stub signs in as "ada",
+# which is no person's github here (ada's is acme-admin): no me file, one line.
+[ ! -e "$HOME/.config/team-os/me" ] || team_fail "me was written for a login that matches no one"
+printf '%s\n' "$out" | grep -qx "me: this computer signs in as ada, which is no person in the answers; add yourself as a person, or write $HOME/.config/team-os/me by hand" \
+  || team_fail "no me line for an unknown login"
+# Two admins: the second one runs it (an outside advisor who is an org owner).
+two="$work/answers-two"
+{ cat "$answers"; printf '%s\n' "person.bo.name=Bo Advisor" "person.bo.github=acme-advisor" "person.bo.role=admin" "person.bo.areas=marketing"; } > "$two"
+[ "$(os_me_for_login "$two" acme-advisor)" = "bo" ] || team_fail "me for the second admin"
+[ "$(os_me_for_login "$two" acme-admin)" = "ada" ] || team_fail "me for the first admin"
+[ -z "$(os_me_for_login "$two" someone-else)" ] || team_fail "me for no one"
 [ "$(git -C "$company/areas/marketing" remote get-url origin)" = "http://127.0.0.1:9/acme/team-marketing.git" ] || team_fail "create path left the wrong area origin"
 [ "$(git -C "$company/users/ada" remote get-url origin)" = "http://127.0.0.1:9/acme/team-user-ada.git" ] || team_fail "create path left the wrong workspace origin"
 
@@ -221,7 +241,7 @@ git -C "$company/areas/marketing" remote remove origin
 git -C "$company/users/ada" remote remove origin
 : > "$OS_ARGV_LOG"
 set +e
-out=$(OS_REPO_EXISTS=1 PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --answers "$answers2" 2>"$work/err2")
+out=$(OS_FAKE_LOGIN=acme-admin OS_REPO_EXISTS=1 PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --answers "$answers2" 2>"$work/err2")
 rc=$?
 set -e
 [ "$rc" -eq 0 ] || {
@@ -236,6 +256,7 @@ fi
 [ "$(git -C "$company/areas/marketing" remote get-url origin)" = "file://${work}/git/acme/team-marketing.git" ] || team_fail "existing path left the wrong area origin"
 [ "$(git -C "$company/users/ada" remote get-url origin)" = "file://${work}/git/acme/team-user-ada.git" ] || team_fail "existing path left the wrong workspace origin"
 git -C "$company" rev-parse --verify --quiet origin/main >/dev/null || team_fail "existing path did not fetch origin/main"
+[ "$(tr -d '[:space:]' < "$HOME/.config/team-os/me")" = "ada" ] || team_fail "me is not the signed-in person"
 git -C "$company" update-ref -d refs/remotes/origin/main
 git -C "$company/areas/marketing" update-ref -d refs/remotes/origin/main
 git -C "$company/users/ada" update-ref -d refs/remotes/origin/main
@@ -324,5 +345,44 @@ case "$line" in
   *"Host: github.com/acme."*) ;;
   *) team_fail "github hand-off host line: $line" ;;
 esac
+
+# v1.0.2: a v0 people page used role: for the job title. It moves to job_title:, and
+# role: takes the OS role. A second run changes nothing.
+v0="$work/v0"
+mkdir -p "$v0/people"
+printf '%s\n' '---' 'type: person' 'summary: ""' 'role: "President"' 'email: ""' '---' '' '# Ada Admin' '' 'Runs the shop.' > "$v0/people/Ada Admin.md"
+os_write_person_page "$v0" ada "Ada Admin" acme-admin "ada@example.test" admin marketing "" >/dev/null
+page="$v0/people/Ada Admin.md"
+grep -qx 'role: admin' "$page" || team_fail "v0 page role: $(grep '^role:' "$page")"
+grep -qx 'job_title: "President"' "$page" || team_fail "v0 job title not kept: $(cat "$page")"
+grep -qx 'Runs the shop.' "$page" || team_fail "v0 page body changed"
+cp "$page" "$work/v0-first"
+os_write_person_page "$v0" ada "Ada Admin" acme-admin "ada@example.test" admin marketing "" >/dev/null
+cmp -s "$work/v0-first" "$page" || team_fail "second run changed the v0 page"
+# A job title already there is never written over.
+printf '%s\n' '---' 'type: person' 'job_title: "Owner"' 'role: "CEO"' '---' > "$v0/people/Bo Advisor.md"
+os_write_person_page "$v0" bo "Bo Advisor" acme-advisor "bo@example.test" admin marketing "" >/dev/null
+grep -qx 'job_title: "Owner"' "$v0/people/Bo Advisor.md" || team_fail "an existing job title was written over"
+grep -qx 'role: admin' "$v0/people/Bo Advisor.md" || team_fail "bo role"
+
+# v1.0.2: a team add for someone who is not an org member sends a GitHub org invite.
+# Say so once per person; a member gets no line; Forgejo has no invites.
+invite_out=$(OS_HOST=github; os_team_add team-company outside-carl; os_team_add team-area-marketing outside-carl; os_team_add team-company acme-admin)
+[ "$invite_out" = "invite: outside-carl is not an org member; adding them to team-company sends an org invite (no new seat if they already use one as a collaborator). They accept it before join." ] \
+  || team_fail "invite line: $invite_out"
+[ "$(grep -c '^team-add$' "$OS_ARGV_LOG")" -ge 3 ] || team_fail "os_team_add did not add"
+[ -z "$(OS_HOST=forgejo; os_team_add team-company outside-dee)" ] || team_fail "forgejo printed an invite line"
+# join stops while the person's own invite is still open, and names the page.
+jc="$work/join-company"
+mkdir -p "$jc"
+printf '%s\n' '---' 'company_slug: team' 'level: team' 'host: github' 'host_url: ""' 'org: acme' '---' > "$jc/company-profile.md"
+printf '%s\n' "root=$jc" "me=carl" > "$work/join-answers"
+set +e
+jout=$(OS_FAKE_MY_STATE=pending "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>&1)
+jrc=$?
+set -e
+[ "$jrc" -eq 2 ] || team_fail "join with a pending invite exit was $jrc: $jout"
+printf '%s\n' "$jout" | grep -qx 'invite: accept the org invite first: https://github.com/orgs/acme/invitation, then run join again' \
+  || team_fail "join pending line: $jout"
 
 printf '%s\n' "PASS argv"

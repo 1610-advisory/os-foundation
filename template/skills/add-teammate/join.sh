@@ -77,6 +77,17 @@ export OS_PROFILE="$ROOT/company-profile.md"
 printf '%s\n' "company-clone: done"
 printf '%s\n' "me: $ME"
 
+# GitHub: a team add sent this person an org invite. Until they accept it, the team's
+# repos stay closed to them. Stop with the page that accepts it (v1.0.2).
+if [ "$HOST_KIND" = "github" ]; then
+  member=$(os_host my-membership 2>/dev/null | jq -r '.state // empty' 2>/dev/null || true)
+  if [ "$member" = "pending" ]; then
+    invite_host=${HOST_URL#*://}
+    invite_host=${invite_host%%/*}
+    os_die 2 "invite: accept the org invite first: https://${invite_host:-github.com}/orgs/${ORG}/invitation, then run join again"
+  fi
+fi
+
 # A v0 clone that pulled the upgrade: memory/logs is still a worktree of branch logs
 # while main tracks memory/logs/. Move it out without losing a log (v0logs.sh).
 # shellcheck disable=SC1091

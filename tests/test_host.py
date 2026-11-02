@@ -34,6 +34,7 @@ VERBS = [
     "revoke",
     "org-remove",
     "org-membership",
+    "my-membership",
     "invites",
     "cancel-invites",
     "archive-repo",
@@ -228,6 +229,7 @@ class GithubDryRunTests(unittest.TestCase):
             ("revoke-team.jsonl", ["revoke", "acme-os", "team:writers"], None),
             ("org-remove.jsonl", ["org-remove", "ada"], None),
             ("org-membership.jsonl", ["org-membership", "ada"], None),
+            ("my-membership.jsonl", ["my-membership"], None),
             ("invites.jsonl", ["invites", "ada"], None),
             ("cancel-invites-repo.jsonl", ["cancel-invites", "ada", "acme-os"], None),
             ("archive-repo.jsonl", ["archive-repo", "acme-os"], None),
@@ -914,6 +916,80 @@ class TokenAndUsageTests(unittest.TestCase):
             self.assertNotIn(secret, argv)
             self.assertNotIn(token, argv)
 
+
+
+class SetSecretPromptTests(unittest.TestCase):
+    """v1.0.2: set-secret at a terminal asks with no echo; a pipe still works; empty fails."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.got = self.root / "gh-stdin"
+        gh = self.root / "gh"
+        gh.write_text('#!/bin/sh\ncat > "$FAKE_GH_STDIN"\nprintf \'%s\\n\' "$*" > "$FAKE_GH_STDIN.argv"\n')
+        gh.chmod(0o755)
+        self.env = {
+            "OS_HOST": "github", "OS_ORG": "acme", "OS_HOST_URL": "", "OS_SLUG": "acme",
+            "OS_PROFILE": str(COMPANY), "HOST_DRY_RUN": "",
+            "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
+            "FAKE_GH_STDIN": str(self.got),
+        }
+
+    def test_terminal_prompt_hides_the_value(self):
+        import pty
+        import select
+        import time
+
+        secret = "typed-secret-value-42"
+        env = os.environ.copy()
+        env.update(self.env)
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve(str(HOST), [str(HOST), "set-secret", "OS_REVIEW_KEY"], env)
+        seen = b""
+
+        def read_for(seconds, until=None):
+            nonlocal seen
+            end = time.time() + seconds
+            while time.time() < end:
+                ready, _, _ = select.select([fd], [], [], 0.1)
+                if ready:
+                    try:
+                        chunk = os.read(fd, 1024)
+                    except OSError:
+                        return
+                    if not chunk:
+                        return
+                    seen += chunk
+                    if until and until in seen:
+                        return
+
+        read_for(10, b"OS_REVIEW_KEY: ")
+        self.assertIn(b"OS_REVIEW_KEY: ", seen)
+        os.write(fd, secret.encode() + b"\r")
+        read_for(10)
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if not done:
+            os.kill(pid, 9)
+            _, status = os.waitpid(pid, 0)
+        os.close(fd)
+        self.assertNotEqual(done, 0, "set-secret did not finish after the value and Enter: " + repr(seen))
+        self.assertEqual(os.waitstatus_to_exitcode(status), 0, seen)
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        self.assertIn("secret set OS_REVIEW_KEY --org acme", (self.root / "gh-stdin.argv").read_text())
+
+    def test_pipe_still_works_and_empty_fails(self):
+        piped = run(["set-secret", "OS_REVIEW_KEY"], self.env, stdin="piped-value")
+        self.assertEqual(piped.returncode, 0, piped.stderr)
+        self.assertEqual(self.got.read_text(), "piped-value")
+        self.assertNotIn("piped-value", piped.stdout + piped.stderr)
+        self.got.unlink()
+        empty = run(["set-secret", "OS_REVIEW_KEY"], self.env, stdin=" \n")
+        self.assertEqual(empty.returncode, 1)
+        self.assertEqual(empty.stderr, "OS_REVIEW_KEY is empty: nothing was set\n")
+        self.assertFalse(self.got.exists())
 
 if __name__ == "__main__":
     unittest.main()

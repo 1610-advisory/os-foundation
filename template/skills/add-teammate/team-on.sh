@@ -16,9 +16,9 @@ That pull request also adds review-rules.md when main lacks it.
 If origin is missing, it adds the host clone URL and fetches. If origin is set
 but origin/main is missing, it fetches again. It does not push to main.
 The review key is not an answers-file key. The script prints one command
-for the admin to run in their own terminal:
+for the admin to run in their own terminal. It asks for the key and hides it:
 
-  skills/_host/host.sh set-secret OS_REVIEW_KEY
+  OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY
 
 See CLI.md for answers keys and exit codes.
 EOF
@@ -134,7 +134,7 @@ ADMIN_GH=$(os_answer_or "person.${ADMIN}.github" "$ANSWERS" "")
 [ -n "$ADMIN_GH" ] || os_die 2 "admin github username is required"
 
 # Review key never enters this process. Print the command, then check existence only.
-printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+os_review_command "$HOST_KIND" "$ORG" "$HOST_URL"
 REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
 REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
 REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
@@ -629,12 +629,12 @@ while IFS= read -r slug; do
   [ -n "$slug" ] || continue
   gh=$(os_answer_or "person.${slug}.github" "$ANSWERS" "")
   areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
-  os_host team-add "$(os_team_company)" "$gh" >/dev/null
+  os_team_add "$(os_team_company)" "$gh"
   a=""
   while IFS= read -r a || [ -n "$a" ]; do
     [ -n "$a" ] || continue
     os_host team-create "$(os_team_area "$a")" >/dev/null
-    os_host team-add "$(os_team_area "$a")" "$gh" >/dev/null
+    os_team_add "$(os_team_area "$a")" "$gh"
     os_host grant "$(os_area_repo "$SLUG" "$a")" "team:$(os_team_area "$a")" write >/dev/null
     os_host grant "$(os_area_repo "$SLUG" "$a")" "$gh" write >/dev/null
   done << AREAS
@@ -651,15 +651,28 @@ while IFS= read -r area; do
   [ -n "$area" ] || continue
   director=$(os_answer_or "area.${area}.director" "$ANSWERS" "$ADMIN")
   director_gh=$(os_answer_or "person.${director}.github" "$ANSWERS" "$ADMIN_GH")
-  os_host team-add "$(os_team_area "$area")" "$director_gh" >/dev/null
+  os_team_add "$(os_team_area "$area")" "$director_gh"
 done << EOF
 $(os_areas_on_disk "$ROOT")
 EOF
 
 cfg=$(os_config_dir "$SLUG")
 mkdir -p "$cfg"
-printf '%s\n' "$ADMIN" > "$cfg/me"
-chmod 600 "$cfg/me"
+# me is the person this computer signs in as, not always the admin: another org owner
+# (an outside advisor) may run team-on. sync push checks the same login (v1.0.2).
+login=""
+if [ -n "${who:-}" ]; then
+  login=$(printf '%s' "$who" | jq -r '.login // empty' 2>/dev/null || true)
+else
+  login=$(os_host whoami 2>/dev/null | jq -r '.login // empty' 2>/dev/null || true)
+fi
+me=$(os_me_for_login "$ANSWERS" "$login")
+if [ -n "$me" ]; then
+  printf '%s\n' "$me" > "$cfg/me"
+  chmod 600 "$cfg/me"
+else
+  printf '%s\n' "me: this computer signs in as ${login:-unknown}, which is no person in the answers; add yourself as a person, or write ${cfg}/me by hand"
+fi
 
 if [ -x "$ROOT/skills/sync/sync.sh" ]; then
   OS_COMPANY_ROOT="$ROOT" OS_JOBS_DIR="${OS_JOBS_DIR:-}" "$ROOT/skills/sync/sync.sh" install-jobs --admin

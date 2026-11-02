@@ -58,13 +58,13 @@ There is no review-key key. The key never goes in this file and never goes in ch
 
 ### Review key
 
-The script prints one command, and only that command, for the admin to run in their own terminal from the company root:
+The script prints one command, and only that command, for the admin to run in their own terminal from the company root (Forgejo adds `OS_HOST_URL=<url>`):
 
 ```
-skills/_host/host.sh set-secret OS_REVIEW_KEY
+OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY
 ```
 
-The value is typed at a hidden prompt and stays on stdin of that command. `team-on.sh` does not read it, does not store it, and does not pass it to a child.
+At a terminal, `set-secret` asks `OS_REVIEW_KEY: ` on stderr and reads with no echo, so the key never shows or stays in scrollback. From a pipe it reads stdin. An empty value stops with `OS_REVIEW_KEY is empty: nothing was set`. The value stays on stdin of that command. `team-on.sh` does not read it, does not store it, and does not pass it to a child.
 
 Then `team-on.sh` checks only that the secret exists:
 
@@ -96,7 +96,7 @@ kind=second-vendor
 
 1. Refuses a company folder in a synced folder. The message names the reason: iCloud Drive, iCloud Desktop, iCloud Documents, a cloud storage folder, Dropbox (any suffix), OneDrive, Google Drive, or a Google Drive volume.
 2. Sets `level: team` and writes `host`, `host_url`, `org`, `sync_engine`, `runner`, and `review` in `company-profile.md`.
-3. Writes `people/<Name>.md` with `slug`, `github`, `email`, `role`, `areas`, and `manager` when set.
+3. Writes `people/<Name>.md` with `slug`, `github`, `email`, `role`, `areas`, and `manager` when set. A v0 page used `role:` for the job title ("President"): when its `role:` is not `admin`, `director` or `writer`, that value moves to `job_title:` (only when `job_title:` is blank), then `role:` takes the OS role.
 4. Writes `CODEOWNERS` for rules paths only. It writes both `.github/CODEOWNERS` (GitHub globs) and `.gitea/CODEOWNERS` (Forgejo regular expressions). GitHub reads the first. Forgejo reads the second, not `.github/CODEOWNERS`. A file the host ignores does no harm. The company repo names the admin in both files. An area `.github/CODEOWNERS` names the director and the admin. An area `.gitea/CODEOWNERS` names the same owners: the director and the admin (B60). Forgejo asks every name on a line for a review and waits for each, so on Forgejo an area rules change needs both the director's and the admin's approval (a person's own change needs the other one). That is stricter than GitHub, where one owner's approval is enough.
 5. Copies `.github/` workflows and scripts from the company root into each area repo when that folder exists, then writes the area `CODEOWNERS` files. If the area has no `review-rules.md`, it copies the company file. It does not replace an existing one. The area director owns that file after the copy.
 6. Puts both `CODEOWNERS` files and `review.conf` on `main` before protection. If the repo already exists and is not protected, it pushes them. If `main` is already protected and any of those files is missing, it stops and names `sync.sh propose`. If `main` already has all three (a second run, or after an upgrade) and this run changed a rules file (`CODEOWNERS`, `review.conf`, `review-rules.md`; for example a new area director), it never pushes to main: it puts those files on `rules/<admin>/team-on` (built in a temporary worktree on `origin/main`) and opens one rules pull request, as `sync.sh propose` does. Its body says what changes and why: who becomes a code owner (for an area: the director, as area director), that the admin stays a code owner of every line, that both files name the same owners, and each other file (`review-rules.md`, `review.conf`). It prints `rules-pr: <repo> <n> (<files>)`, the auto-merge line, and `override: <repo> <n> if the model review fails it: ... /override team-on: ...`. A `CODEOWNERS` line the company added on main stays, after the rules lines. A second run with the same files reuses that branch and pull request. Notes it wrote (people pages, the profile) go up with the admin's next sync push. If an area main already has those files but no check tools, a second run opens a pull request on `team/scripts-tools`. That pull request also adds `review-rules.md` when main lacks it. If the tools are already on main and `review-rules.md` is still missing, it opens a pull request on `team/review-rules`. It does not push to main.
@@ -126,7 +126,7 @@ kind=second-vendor
 ```
 team-on: ok
 level: team
-review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY
+review-command: OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY (it asks for the key and does not show it)
 no review key: every pull request fails the model review until you add one
 repo: <slug>-os
 repo: <slug>-<area>
@@ -140,10 +140,16 @@ On github.com the host part is `github.com/<org>`, for example `Host: github.com
 
 ```
 first push: <slug>-os
+invite: <login> is not an org member; adding them to <team> sends an org invite (no new seat if they already use one as a collaborator). They accept it before join.
+me: this computer signs in as <login>, which is no person in the answers; add yourself as a person, or write <config>/me by hand
 could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)
 ```
 
 A missing key prints the no-review-key sentence. A same-vendor key prints `weaker review: same vendor`.
+
+`invite:` (GitHub only, once per person): before the first team add, `host.sh org-membership <login>` says the person is not an org member (`none` or `pending`). GitHub then sends an org invite. Forgejo adds people at once and has no invites. `add-person.sh` prints the same line.
+
+`me` (v1.0.2): the config `me` file names the person in the answers whose `github` (or Forgejo login) is this computer's sign-in (`host.sh whoami`), not always the admin. Another org owner, such as an outside advisor, may run team-on. When no person matches, it writes no `me` and prints the `me:` line; `sync push` would stop with `identity mismatch` until it is fixed.
 
 ## join.sh
 
@@ -176,7 +182,7 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 ### What it does
 
 1. Refuses a synced folder.
-2. If `company-profile.md` is already in `root`, the company clone is done.
+2. If `company-profile.md` is already in `root`, the company clone is done. GitHub: it runs `host.sh my-membership`. While the person's org invite is still open (`pending`), it stops with exit 2: `invite: accept the org invite first: https://github.com/orgs/<org>/invitation, then run join again`.
    - A v0 clone that already pulled the upgrade can still have `memory/logs/` as a worktree of branch `logs`. Join moves it out the way `sync.sh pull` does (sync `CLI.md`): it pushes log commits the host lacks, removes the worktree, and keeps every log file as a local change. It prints `v0-logs: moved, <n> files kept as local changes`. When a file changed here and on the old branch, the old text goes beside it as `<name>.old-branch.md`, with one more `v0-logs:` line. A file in `memory/logs-archive/` with a change not committed stays as it is: the old folder's copy goes beside it, with one more `v0-logs:` line. If a kept file cannot be put back, the old folder goes back as it was and join exits 3; the next join starts over. If that fails, join exits 3 with one line. A failure before the removal removes nothing. A later one names the folder that holds a full copy.
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
 4. Clones `users/<me>/` from `<slug>-user-<me>`. A missing workspace is an error: `your workspace <repo> is not reachable: ask the admin`. Join exits non-zero.
@@ -219,7 +225,7 @@ add-person.sh --answers <file>
 add-person.sh --help
 ```
 
-Same person steps as `team-on.sh` for one person, on a team that is already on. It does not change `level`. It does not print the review-key command.
+Same person steps as `team-on.sh` for one person, on a team that is already on. It does not change `level`. It does not print the review-key command. On GitHub it prints the `invite:` line when the person is not an org member.
 
 The people-page commit goes by pull request, because `main` is already protected. It builds the branch in a temporary worktree on `origin/main` (as join does), never over the admin's folder, where notes from a sync push may sit untracked. The director's area branch is built the same way. The admin's folder stays on `main` and gets the new page with the next pull once that pull request merges: a copy left in the folder would go up with the admin's own sync pull request. A second run rebuilds the branch from `origin/main`, replaces it on the host, and opens the pull request if none is open. It turns on auto-merge right after it opens the pull request, before the workspace, like `join`, so the pull request merges by itself when its checks pass (`auto-merge: on`). If the checks are already green, GitHub will not wait: the host merges it at once (`merged: <repo> <n> (its checks were already green)`), or prints `pull request <n> is green: merge it`. If the host refuses, it prints one line that auto-merge is off and what the admin runs. The workspace repo is created the same way, including `CLAUDE.md` when the workspace template has it.
 
