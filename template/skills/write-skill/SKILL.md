@@ -14,7 +14,7 @@ Use this flow to turn a repeated explanation into a reusable way of working. Ant
    - Company-wide skills contain no restricted area facts. Use synthetic examples or a specifically approved example.
 3. **Use the creator.** Locate the company root from its rules. Read `skills/skill-creator/FOUNDATION.md`, then `skills/skill-creator/SKILL.md`. Follow its intent, draft and human-review process. Check capabilities and get approval before dependency installs, external model calls, delegation or paid evaluations. Keep test work in the relevant private workspace, not shared company knowledge.
 4. **Make it findable.** Set `name` to the directory name. Give the description concrete trigger phrases. Add a row to the Skills table in the appropriate `AGENTS.md`.
-5. **Review and save.** Show the person the draft and any checks actually run; distinguish local checks from unrun model tests. Fix their corrections. Follow the company rules: admin commits, other teammates open a pull request; log in the relevant area.
+5. **Review and save.** Show the person the draft and any checks actually run; distinguish local checks from unrun model tests. Fix their corrections. Save it the way `AGENTS.md` section 7 says (solo: commit; team: `skills/sync/sync.sh propose`). Log in the relevant area.
 6. **Keep it current.** Update the same skill when the person corrects the process. Preserve its existing name unless they request a rename.
 
 Something that would help other businesses? Offer `suggest`; do not share the company's version automatically.

@@ -1,0 +1,978 @@
+#!/bin/bash
+# Shared helpers for the team scripts. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
+# Bash 3.2. No token, key, or secret is passed in a child's arguments.
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  printf '%s\n' "Source this file. Do not run it." >&2
+  exit 1
+fi
+
+os_die() {
+  local code=$1
+  shift
+  printf '%s\n' "$*" >&2
+  exit "$code"
+}
+
+# One temp folder per run: every mktemp in these scripts, and in the scripts they start,
+# lands in it, and the EXIT trap removes it. A folder that must outlive a failure (the
+# old logs copy) uses OS_KEEP_TMP, outside it.
+OS_KEEP_TMP=${OS_KEEP_TMP:-${TMPDIR:-/tmp}}
+export OS_KEEP_TMP
+# A second source in the same shell keeps the first folder.
+if [ -z "${OS_RUN_TMP:-}" ] || [ ! -d "$OS_RUN_TMP" ]; then
+  OS_RUN_TMP=$(command mktemp -d "${OS_KEEP_TMP%/}/os-team.XXXXXX") || os_die 1 "could not make a temp folder: check the free disk space"
+  chmod 700 "$OS_RUN_TMP"
+  export TMPDIR="$OS_RUN_TMP"
+fi
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+os_cleanup() {
+  rm -rf "$OS_RUN_TMP"
+}
+trap os_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+os_have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+os_need() {
+  local cmd
+  for cmd in "$@"; do
+    os_have "$cmd" || os_die 3 "$cmd is not installed"
+  done
+}
+
+os_today() {
+  local n=${OS_NOW:-}
+  if [ -n "$n" ]; then
+    printf '%.10s\n' "$n"
+    return 0
+  fi
+  date +%Y-%m-%d
+}
+
+os_stamp() {
+  date +%Y%m%d%H%M%S
+}
+
+os_trim() {
+  local s=$1
+  s=${s#"${s%%[![:space:]]*}"}
+  s=${s%"${s##*[![:space:]]}"}
+  printf '%s' "$s"
+}
+
+os_unquote() {
+  local s=$1
+  if [ "${#s}" -ge 2 ]; then
+    case "$s" in
+      \"*\") s=${s#\"}; s=${s%\"} ;;
+      \'*\') s=${s#\'}; s=${s%\'} ;;
+    esac
+  fi
+  printf '%s' "$s"
+}
+
+os_yaml_quote() {
+  local s=$1
+  case "$s" in
+    ""|*[!A-Za-z0-9._/-]*)
+      s=$(printf '%s' "$s" | sed 's/\\/\\\\/g; s/"/\\"/g')
+      printf '"%s"' "$s"
+      ;;
+    *)
+      printf '%s' "$s"
+      ;;
+  esac
+}
+
+# Answers file: key=value, first = splits, # comments ignored.
+os_answer() {
+  local key=$1 file=$2 line k v
+  [ -n "${file:-}" ] || return 2
+  [ -f "$file" ] || return 2
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in
+      ""|\#*) continue ;;
+    esac
+    k=${line%%=*}
+    v=${line#*=}
+    if [ "$k" = "$key" ]; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done < "$file"
+  return 2
+}
+
+os_answer_or() {
+  local key=$1 file=$2 fallback=$3 val
+  if val=$(os_answer "$key" "$file"); then
+    printf '%s' "$val"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
+os_person_slugs() {
+  local file=$1 line slug
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    case "$line" in
+      ""|\#*) continue ;;
+      person.*) ;;
+      *) continue ;;
+    esac
+    slug=${line#person.}
+    slug=${slug%%.*}
+    case "$slug" in
+      ""|*[!A-Za-z0-9_-]*) continue ;;
+    esac
+    printf '%s\n' "$slug"
+  done < "$file" | awk '!seen[$0]++'
+}
+
+os_synced_reason() {
+  local path=$1 home base
+  [ -d "$path" ] || return 1
+  path=$(cd "$path" && pwd -P)
+  case "$path" in
+    /Volumes/GoogleDrive*) printf '%s\n' "Google Drive volume"; return 0 ;;
+  esac
+  home=${HOME:-}
+  [ -n "$home" ] || return 1
+  base=$(cd "$home" && pwd -P)
+  case "$path" in
+    "$base/Library/Mobile Documents"|"$base/Library/Mobile Documents"/*)
+      printf '%s\n' "iCloud Drive"
+      return 0
+      ;;
+    "$base/Library/CloudStorage"|"$base/Library/CloudStorage"/*)
+      printf '%s\n' "a cloud storage folder"
+      return 0
+      ;;
+    "$base"/Dropbox*)
+      printf '%s\n' "Dropbox"
+      return 0
+      ;;
+    "$base"/OneDrive*)
+      printf '%s\n' "OneDrive"
+      return 0
+      ;;
+    "$base/Google Drive"|"$base/Google Drive"/*)
+      printf '%s\n' "Google Drive"
+      return 0
+      ;;
+  esac
+  if [ -d "$base/Library/Mobile Documents/com~apple~CloudDocs/Desktop" ]; then
+    case "$path" in
+      "$base/Desktop"|"$base/Desktop"/*)
+        printf '%s\n' "iCloud Desktop"
+        return 0
+        ;;
+      "$base/Documents"|"$base/Documents"/*)
+        printf '%s\n' "iCloud Documents"
+        return 0
+        ;;
+    esac
+  fi
+  return 1
+}
+
+os_refuse_synced() {
+  local path=$1 reason
+  if reason=$(os_synced_reason "$path"); then
+    os_die 2 "refusing a company folder in a synced folder: ${reason}"
+  fi
+}
+
+os_fm_get() {
+  local file=$1 key=$2
+  [ -f "$file" ] || return 2
+  awk -v key="$key" '
+    function strip(s) {
+      gsub(/\r/, "", s)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+      return s
+    }
+    function unquote(s) {
+      if (s ~ /^".*"$/ || s ~ /^'\''.*'\''$/) {
+        return substr(s, 2, length(s) - 2)
+      }
+      return s
+    }
+    BEGIN { fm = 0; n = 0; found = 0 }
+    {
+      gsub(/\r/, "", $0)
+    }
+    /^---[[:space:]]*$/ {
+      n++
+      if (n == 1) { fm = 1; next }
+      exit
+    }
+    fm != 1 { next }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      line = strip($0)
+      if (line !~ /^[^:]+:/) { next }
+      k = line
+      sub(/:.*/, "", k)
+      k = strip(k)
+      if (k != key) { next }
+      found = 1
+      val = line
+      sub(/^[^:]*:[[:space:]]*/, "", val)
+      val = strip(val)
+      if (val !~ /^["'\''].*["'\'']$/) {
+        sub(/[[:space:]]+#.*$/, "", val)
+        val = strip(val)
+      }
+      print unquote(val)
+      exit
+    }
+    END { if (!found) exit 2 }
+  ' "$file"
+}
+
+os_fm_set() {
+  local file=$1 key=$2 value=$3 tmp
+  tmp=$(mktemp)
+  awk -v key="$key" -v value="$value" '
+    BEGIN { fm = 0; n = 0; done = 0 }
+    {
+      line = $0
+      gsub(/\r/, "", line)
+    }
+    n == 0 && line ~ /^---[[:space:]]*$/ {
+      fm = 1
+      n = 1
+      print line
+      next
+    }
+    fm == 1 && line ~ /^---[[:space:]]*$/ {
+      if (!done) {
+        printf "%s: %s\n", key, value
+      }
+      fm = 0
+      print line
+      next
+    }
+    fm == 1 {
+      k = line
+      sub(/:.*/, "", k)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
+      if (k == key) {
+        printf "%s: %s\n", key, value
+        done = 1
+        next
+      }
+    }
+    { print line }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+os_company_name() {
+  local file=$1 line
+  line=$(grep -m 1 '^# ' "$file" 2>/dev/null || true)
+  line=${line#\# }
+  line=$(os_trim "$line")
+  printf '%s' "$line"
+}
+
+os_find_host() {
+  local root=$1 script_dir=$2
+  if [ -n "${OS_HOST_SH:-}" ] && [ -f "$OS_HOST_SH" ]; then
+    printf '%s\n' "$OS_HOST_SH"
+    return 0
+  fi
+  if [ -f "$root/skills/_host/host.sh" ]; then
+    printf '%s\n' "$root/skills/_host/host.sh"
+    return 0
+  fi
+  if [ -n "$script_dir" ] && [ -f "$script_dir/../_host/host.sh" ]; then
+    printf '%s\n' "$script_dir/../_host/host.sh"
+    return 0
+  fi
+  return 1
+}
+
+# Run host.sh. Stdout is the JSON. Stderr is passed through.
+# Exit code is the host exit code. Never puts a secret in argv.
+os_host() {
+  [ -n "${OS_HOST_BIN:-}" ] || os_die 3 "host.sh is missing"
+  [ -x "$OS_HOST_BIN" ] || chmod +x "$OS_HOST_BIN" 2>/dev/null || true
+  "$OS_HOST_BIN" "$@"
+}
+
+os_host_try() {
+  local rc
+  set +e
+  os_host "$@"
+  rc=$?
+  set -e
+  return "$rc"
+}
+
+# Turn on auto-merge and print one line. A green pull request is merged at once (B45).
+os_auto_merge_line() {
+  local repo=$1 number=$2 out err
+  err=$(mktemp)
+  if out=$(os_host_try auto-merge "$repo" "$number" 2>"$err"); then
+    rm -f "$err"
+    if [ "$(printf '%s' "$out" | jq -r '.merge // empty' 2>/dev/null)" = "merged" ]; then
+      printf 'merged: %s %s (its checks were already green)\n' "$repo" "$number"
+    else
+      printf '%s\n' "auto-merge: on"
+    fi
+    return 0
+  fi
+  if grep -q 'is green: merge it' "$err"; then
+    printf 'pull request %s is green: merge it\n' "$number"
+  else
+    printf 'auto-merge is off on %s: pull request %s stays open until someone merges it. Ask the admin to run skills/_host/host.sh protect %s --code-owners --approvals 0\n' \
+      "$repo" "$number" "$repo"
+  fi
+  rm -f "$err"
+}
+
+# A rules pull request that changes CODEOWNERS (add-person, remove). On GitHub a code
+# owner must approve it, so auto-merge would wait for ever: it is merged by hand. An
+# earlier run on the same branch may have turned auto-merge on, so turn it off first
+# (B38), and say "will not merge by itself" only when that is true. Forgejo: auto-merge.
+os_owners_merge_line() {
+  local repo=$1 number=$2 what=$3 host=$4 will
+  if [ "$host" != "github" ]; then
+    os_auto_merge_line "$repo" "$number"
+    return 0
+  fi
+  if os_host_try auto-merge-off "$repo" "$number" >/dev/null 2>&1; then
+    will='so it will not merge by itself.'
+  else
+    will='but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.'
+  fi
+  printf 'merge-by-hand: %s %s: it changes %s, %s When lint and the secret scan pass and the model review passes (or the admin overrides it, see the override: line), open the pull request and merge it. When the admin is the only code owner, a plain merge works. %s\n' \
+    "$repo" "$number" "$what" "$will" 'If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge".'
+}
+
+# B58: a product step's own rules pull request (upgrade, refresh, team-on, add-person,
+# remove) can fail the model review on a change its body explains. Say the way past
+# before anyone has to ask. Only the admin may use it; the check logs it.
+os_override_line() {
+  local repo=$1 number=$2 reason=$3
+  printf 'override: %s %s if the model review fails it: read the finding. If the change is only what the pull request body says, the admin comments on it: /override %s\n' \
+    "$repo" "$number" "$reason"
+}
+
+os_config_dir() {
+  local slug=$1
+  printf '%s/%s-os' "${XDG_CONFIG_HOME:-$HOME/.config}" "$slug"
+}
+
+os_company_repo() {
+  printf '%s-os' "$1"
+}
+
+os_area_repo() {
+  printf '%s-%s' "$1" "$2"
+}
+
+os_user_repo() {
+  printf '%s-user-%s' "$1" "$2"
+}
+
+# Team names. A new company gets <slug>-company and <slug>-area-<a>, so two companies in
+# one org never share a team. A v1 company whose plain team "company" already grants its
+# repo keeps the plain names. Call os_team_names <slug> once, before the names are used.
+OS_TEAM_PREFIX=""
+os_team_names() {
+  local slug=$1 out
+  if ! out=$(os_host team-repos company); then
+    os_die 3 "could not read the teams on the host"
+  fi
+  if printf '%s' "$out" | jq -e --arg r "$(os_company_repo "$slug")" '(.repos // []) | index($r) != null' >/dev/null; then
+    OS_TEAM_PREFIX=""
+  else
+    OS_TEAM_PREFIX="${slug}-"
+  fi
+}
+
+os_team_company() {
+  printf '%scompany' "$OS_TEAM_PREFIX"
+}
+
+os_team_area() {
+  printf '%sarea-%s' "$OS_TEAM_PREFIX" "$1"
+}
+
+# Refuse a team that already grants a repo it should not: <team> may grant only <repo>.
+# Another company's repo there means people of both reach both.
+os_team_guard() {
+  local team=$1 repo=$2 out other
+  if ! out=$(os_host team-repos "$team"); then
+    os_die 3 "could not read team ${team} on the host"
+  fi
+  other=$(printf '%s' "$out" | jq -r --arg r "$repo" '[(.repos // [])[] | select(. != $r)] | join(", ")')
+  if [ -n "$other" ]; then
+    os_die 2 "team ${team} already grants ${other}. It may grant only ${repo}. Two companies must not share a team: their people would reach each other's repos. Use one org per company, or take those repos off team ${team} on the host. Then run this again."
+  fi
+}
+
+os_clone_url() {
+  local host=$1 host_url=$2 org=$3 name=$4 base
+  case "$host" in
+    github)
+      if [ -n "$host_url" ]; then
+        base=${host_url%/}
+      else
+        base="https://github.com"
+      fi
+      ;;
+    forgejo)
+      [ -n "$host_url" ] || os_die 1 "host_url is not set"
+      base=${host_url%/}
+      ;;
+    *)
+      os_die 1 "host is not supported"
+      ;;
+  esac
+  case "$base" in
+    *'@'*) os_die 3 "refusing a credential in a clone URL" ;;
+  esac
+  printf '%s/%s/%s.git' "$base" "$org" "$name"
+}
+
+# Run a command with git credentials in the environment, not in argv.
+# Token is read from host.sh get-token into a mode-600 file, then into the env.
+os_with_git_token() {
+  local token_file ask user_json user rc was_e
+  token_file=$(mktemp)
+  ask="$OS_RUN_TMP/askpass"
+  chmod 600 "$token_file"
+  if ! os_host get-token > "$token_file"; then
+    rm -f "$token_file"
+    os_die 4 "could not read the git token"
+  fi
+  # Drop a trailing newline. The value stays in the file.
+  if [ -s "$token_file" ]; then
+    user_json=$(os_host whoami)
+    user=$(printf '%s' "$user_json" | jq -r '.login // empty')
+  fi
+  if [ -z "${user:-}" ]; then
+    user=${OS_ORG:-git}
+  fi
+  if [ ! -s "$ask" ]; then
+    cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "${OS_GIT_USER}" ;;
+  *) printf '%s\n' "${OS_GIT_TOKEN}" ;;
+esac
+EOF
+    chmod 700 "$ask"
+  fi
+  if [ "${1:-}" = "git" ]; then
+    shift
+    set -- git -c credential.helper= "$@"
+  fi
+  case $- in
+    *e*) was_e=1 ;;
+    *) was_e=0 ;;
+  esac
+  set +e
+  # shellcheck disable=SC2091
+  OS_GIT_USER="$user" \
+    OS_GIT_TOKEN="$(tr -d '\r\n' < "$token_file")" \
+    GIT_ASKPASS="$ask" \
+    GIT_TERMINAL_PROMPT=0 \
+    "$@"
+  rc=$?
+  if [ "$was_e" -eq 1 ]; then
+    set -e
+  fi
+  rm -f "$token_file"
+  return "$rc"
+}
+
+# After a push of the caller's own branch: go back to main so pull fast-forwards. A
+# refused checkout (a local change in the way) never stops the run: the change is on the
+# host, and the pull request still opens.
+os_back_to_main() {
+  local dir=$1
+  git -C "$dir" checkout -q main 2>/dev/null && return 0
+  git -C "$dir" checkout -q -b main origin/main 2>/dev/null && return 0
+  printf 'main: could not go back to main (a local change is in the way). The change is pushed. Run git checkout main when your work is saved.\n' >&2
+  return 0
+}
+
+# Build a rules/* branch in a temporary worktree on origin/main, never over the folder:
+# after a sync push, the person's notes sit untracked there while origin/main has them,
+# so a checkout would stop (B47). Prints the worktree. Call os_branch_push when done.
+os_branch_start() {
+  local dir=$1 tw
+  tw=$(mktemp -d)
+  if ! git -C "$dir" worktree add -q --detach "$tw/b" origin/main >/dev/null 2>&1; then
+    rm -rf "$tw"
+    os_die 3 "could not prepare the change in ${dir}: run this again"
+  fi
+  printf '%s\n' "$tw/b"
+}
+
+# Push the worktree's commit to the branch (the script's own: a retry replaces it), set
+# origin/<branch> to it, and remove the worktree.
+os_branch_push() {
+  local dir=$1 wt=$2 branch=$3 rc=0
+  os_with_git_token git -C "$wt" push -q --force origin "HEAD:refs/heads/${branch}" || rc=$?
+  [ "$rc" -ne 0 ] || git -C "$wt" update-ref "refs/remotes/origin/${branch}" HEAD
+  git -C "$dir" worktree remove --force "$wt" >/dev/null 2>&1 || true
+  rm -rf "$(dirname "$wt")"
+  [ "$rc" -eq 0 ] || os_die 3 "could not push ${branch}: check the sign-in, then run this again"
+}
+
+# Commit only the paths the caller changed. Never "git add -A" in a shared root:
+# untracked or held files (a held secret, a private note) would go up past the scan.
+os_git_commit() {
+  local dir=$1 msg=$2 p
+  shift 2
+  [ $# -gt 0 ] || os_die 1 "os_git_commit: name the paths to commit"
+  (
+    cd "$dir" || exit 1
+    for p in "$@"; do
+      # A path that is gone and was never tracked has nothing to stage.
+      if [ -e "$p" ] || [ -L "$p" ] || git ls-files --error-unmatch -- "$p" >/dev/null 2>&1; then
+        git add -A -- "$p"
+      fi
+    done
+    if git diff --cached --quiet; then
+      exit 0
+    fi
+    GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+      GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+      GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+      GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+      git commit -m "$msg"
+  )
+}
+
+os_origin_exists() {
+  local dir=$1
+  git -C "$dir" rev-parse --verify origin/main >/dev/null 2>&1
+}
+
+# Point origin at the host clone URL. Never pushes.
+# fetch_if_added=1: the repo already exists. Fetch when origin was missing,
+# and again when a failed fetch left no origin/main.
+os_ensure_origin() {
+  local dir="$1" name="$2" host="$3" host_url="$4" org="$5" fetch_if_added="$6"
+  local url had=0 got current=""
+  url=$(os_clone_url "$host" "$host_url" "$org" "$name")
+  current=$(git -C "$dir" remote get-url origin 2>/dev/null || true)
+  if [ -n "$current" ]; then
+    had=1
+    if [ "$current" != "$url" ]; then
+      git -C "$dir" remote set-url origin "$url"
+    fi
+  else
+    git -C "$dir" remote add origin "$url"
+  fi
+  if [ "$fetch_if_added" = "1" ]; then
+    if [ "$had" -eq 0 ] || ! git -C "$dir" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+      if ! os_with_git_token git -C "$dir" fetch origin; then
+        os_die 3 "could not fetch origin for $name"
+      fi
+    fi
+  fi
+  got=$(git -C "$dir" remote get-url origin)
+  if [ "$got" != "$url" ]; then
+    os_die 3 "origin for $name is not the host clone URL"
+  fi
+}
+
+os_person_file() {
+  local root=$1 slug=$2 f got
+  [ -d "$root/people" ] || return 1
+  for f in "$root"/people/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      */README.md) continue ;;
+    esac
+    got=$(os_fm_get "$f" slug 2>/dev/null || true)
+    if [ "$got" = "$slug" ]; then
+      printf '%s\n' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+os_areas_on_disk() {
+  local root=$1 d base
+  [ -d "$root/areas" ] || return 0
+  for d in "$root"/areas/*; do
+    [ -d "$d" ] || continue
+    [ -e "$d/.git" ] || continue
+    base=$(basename "$d")
+    case "$base" in
+      .*) continue ;;
+    esac
+    printf '%s\n' "$base"
+  done
+}
+
+# Write both owner files. GitHub reads .github/CODEOWNERS (globs).
+# Forgejo reads .gitea/CODEOWNERS (regular expressions), not .github/CODEOWNERS.
+# A file the host ignores is harmless. One writer covers both hosts.
+# The third argument is the Forgejo owner list. Omit it to use the GitHub list.
+# An area passes only the director there. Forgejo waits for every name on the line.
+os_codeowners() {
+  local root=$1 github_users=$2 forgejo_users=${3:-}
+  if [ -z "$forgejo_users" ]; then
+    forgejo_users=$github_users
+  fi
+  mkdir -p "$root/.github" "$root/.gitea"
+  {
+    printf '%s\n' "# Rules files only. Notes have no code owner."
+    printf '%s\n' "**/AGENTS.md $github_users"
+    printf '%s\n' "**/CLAUDE.md $github_users"
+    printf '%s\n' "**/company-rules.md $github_users"
+    printf '%s\n' "**/area-rules.md $github_users"
+    printf '%s\n' "**/review-rules.md $github_users"
+    printf '%s\n' "**/skills/ $github_users"
+    printf '%s\n' "/bots/*/BOT.md $github_users"
+    printf '%s\n' "**/CODEOWNERS $github_users"
+    printf '%s\n' "**/.github/ $github_users"
+    printf '%s\n' "**/.gitea/ $github_users"
+    printf '%s\n' "**/.forgejo/ $github_users"
+    printf '%s\n' "**/.claude/ $github_users"
+  } > "$root/.github/CODEOWNERS"
+  {
+    printf '%s\n' "# Rules files only. Notes have no code owner."
+    printf '%s %s\n' '^(.*/)?AGENTS\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CLAUDE\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?company-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?area-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?review-rules\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?skills/.*' "$forgejo_users"
+    printf '%s %s\n' '^bots/[^/]+/BOT\.md$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?CODEOWNERS$' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.github/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.gitea/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.forgejo/.*' "$forgejo_users"
+    printf '%s %s\n' '^(.*/)?\.claude/.*' "$forgejo_users"
+  } > "$root/.gitea/CODEOWNERS"
+}
+
+os_at_users() {
+  local admin=$1 director=$2
+  if [ -z "$director" ] || [ "$director" = "$admin" ]; then
+    printf '@%s' "$admin"
+  else
+    printf '@%s @%s' "$director" "$admin"
+  fi
+}
+
+# The owners named on the rule lines of CODEOWNERS files, one per line, sorted. A field
+# that starts with # begins a comment: the rest of the line is not an owner.
+os_owner_names() {
+  awk '/^#/ || NF < 2 { next } { for (i = 2; i <= NF && $i !~ /^#/; i++) print tolower($i) }' "$@" 2>/dev/null | LC_ALL=C sort -u
+}
+
+# Every rule line of the file names this owner.
+os_owner_on_every_line() {
+  local file=$1 who=$2
+  [ -f "$file" ] || return 1
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" '
+    /^#/ || NF == 0 { next }
+    { ok = 0; for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) == who) ok = 1; if (!ok) bad = 1 }
+    END { exit bad ? 1 : 0 }' "$file"
+}
+
+# Take one owner off every rule line of a CODEOWNERS file. A line left with no owner
+# names the admin instead, so someone in the company can still approve it. The owners
+# stop at the first field that starts with #: a comment after them stays as it was.
+os_owner_drop() {
+  local file=$1 who=$2 admin=$3 tmp
+  [ -f "$file" ] || return 0
+  tmp=$(mktemp)
+  awk -v who="$(printf '%s' "@$who" | tr '[:upper:]' '[:lower:]')" -v admin="@$admin" '
+    /^#/ || NF < 2 { print; next }
+    {
+      out = $1; n = 0
+      for (i = 2; i <= NF && $i !~ /^#/; i++) if (tolower($i) != who) { out = out " " $i; n++ }
+      # Never leave a line with no owner: with no admin known, the line stays as it was.
+      if (n == 0 && admin == "@") { print; next }
+      if (n == 0) out = out " " admin
+      for (; i <= NF; i++) out = out " " $i
+      print out
+    }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+# The body of a rules pull request that changes CODEOWNERS (B60): why, who becomes or
+# stops being a code owner, and that the admin stays on every line, so the model review
+# can check the change against it. Compares the folder's files with origin/main's.
+os_owners_body() {
+  local dir=$1 why=$2 admin=$3 before after added removed
+  before=$(mktemp)
+  after=$(mktemp)
+  { git -C "$dir" show origin/main:.github/CODEOWNERS 2>/dev/null || true; } | os_owner_names > "$before"
+  os_owner_names "$dir/.github/CODEOWNERS" > "$after"
+  added=$(comm -13 "$before" "$after" | paste -sd ' ' -)
+  removed=$(comm -23 "$before" "$after" | paste -sd ' ' -)
+  printf '%s\n' "$why"
+  printf '\n'
+  [ -z "$added" ] || printf 'Code owners added: %s\n' "$added"
+  [ -z "$removed" ] || printf 'Code owners removed: %s\n' "$removed"
+  if [ -n "$admin" ] && os_owner_on_every_line "$dir/.github/CODEOWNERS" "$admin" \
+    && os_owner_on_every_line "$dir/.gitea/CODEOWNERS" "$admin"; then
+    printf 'The admin (@%s) stays a code owner of every line.\n' "$admin"
+  fi
+  if [ -f "$dir/.gitea/CODEOWNERS" ] \
+    && [ "$(os_owner_names "$dir/.github/CODEOWNERS")" = "$(os_owner_names "$dir/.gitea/CODEOWNERS")" ]; then
+    printf '%s\n' "\`.github/CODEOWNERS\` (GitHub) and \`.gitea/CODEOWNERS\` (Forgejo) name the same owners."
+  fi
+  if grep -qx '# Kept from main.' "$dir/.github/CODEOWNERS" 2>/dev/null; then
+    printf '%s\n' "Lines main already had are kept, under \"# Kept from main.\"."
+  fi
+  rm -f "$before" "$after"
+}
+
+os_fill_placeholders() {
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 f ob cb today
+  # Split the braces. A line that holds both pairs looks like a placeholder.
+  ob='{{'
+  cb='}}'
+  today=$(date +%Y-%m-%d)
+  # Text files only. Do not print file contents.
+  find "$dest" -type f | while IFS= read -r f; do
+    case "$f" in
+      *.png|*.jpg|*.gif|*.webp|*.pdf) continue ;;
+    esac
+    sed -i '' \
+      -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
+      -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
+      -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
+      -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
+      "$f" 2>/dev/null || \
+    sed -i \
+      -e "s/${ob}PERSON_SLUG${cb}/${slug}/g" \
+      -e "s/${ob}PERSON${cb}/${name}/g" \
+      -e "s/${ob}FULL_NAME${cb}/${name}/g" \
+      -e "s/${ob}DATE${cb}/${today}/g" \
+      -e "s/${ob}COMPANY_SLUG${cb}/${company_slug}/g" \
+      -e "s/${ob}COMPANY_NAME${cb}/${company_name}/g" \
+      "$f"
+  done
+}
+
+os_write_workspace() {
+  local dest=$1 slug=$2 name=$3 company_slug=$4 company_name=$5 template=$6
+  mkdir -p "$dest"
+  if [ -d "$template" ]; then
+    cp -R "$template/." "$dest/"
+    os_fill_placeholders "$dest" "$slug" "$name" "$company_slug" "$company_name"
+    printf '%s\n' "workspace-template: copied"
+  else
+    mkdir -p "$dest/profile" "$dest/skills" "$dest/drafts" "$dest/memory/logs"
+    printf '%s\n' "# Workspace" > "$dest/AGENTS.md"
+    printf '%s\n' "# Profile" > "$dest/profile/PROFILE.md"
+    printf '%s\n' "Skills for this person." > "$dest/skills/README.md"
+    printf '%s\n' "Drafts stay here until you share them." > "$dest/drafts/README.md"
+    printf '%s\n' "One log file per day." > "$dest/memory/logs/README.md"
+    printf '%s\n' "workspace-template: fallback"
+  fi
+  if [ ! -d "$dest/.git" ]; then
+    git -C "$dest" init -q
+    git -C "$dest" checkout -q -b main 2>/dev/null || git -C "$dest" symbolic-ref HEAD refs/heads/main
+    # A new folder this script just filled: everything in it is the start.
+    os_git_commit "$dest" "Workspace: start" .
+  fi
+}
+
+os_write_person_page() {
+  local root=$1 slug=$2 name=$3 github=$4 email=$5 role=$6 areas=$7 manager=$8
+  local page dir area_yaml a first
+  dir="$root/people"
+  mkdir -p "$dir"
+  page="$dir/${name}.md"
+  area_yaml="["
+  first=1
+  # shellcheck disable=SC2086
+  for a in $(printf '%s' "$areas" | tr ',' ' '); do
+    a=$(os_trim "$a")
+    [ -n "$a" ] || continue
+    if [ "$first" -eq 1 ]; then
+      area_yaml="${area_yaml}${a}"
+      first=0
+    else
+      area_yaml="${area_yaml}, ${a}"
+    fi
+  done
+  area_yaml="${area_yaml}]"
+  if [ -f "$page" ]; then
+    os_fm_set "$page" slug "$slug"
+    os_fm_set "$page" github "$github"
+    os_fm_set "$page" email "$(os_yaml_quote "$email")"
+    os_fm_set "$page" role "$role"
+    os_fm_set "$page" areas "$area_yaml"
+    if [ -n "$manager" ]; then
+      os_fm_set "$page" manager "$manager"
+    fi
+  else
+    cat > "$page" << EOF
+---
+type: person
+summary: ""
+job_title: ""
+company: ""
+related: []
+slug: ${slug}
+github: ${github}
+email: $(os_yaml_quote "$email")
+role: ${role}
+areas: ${area_yaml}
+kernel_id: ""
+left: ""
+manager: ${manager}
+terms_accepted: ""
+---
+
+# ${name}
+
+## Who they are
+
+## Notes
+EOF
+  fi
+  printf '%s\n' "$page"
+}
+
+os_review_state() {
+  local out rc
+  set +e
+  out=$(os_host secret-exists OS_REVIEW_KEY 2>/dev/null)
+  rc=$?
+  set -e
+  # 4: the sign-in may not read org secrets. The key may be there.
+  if [ "$rc" -eq 4 ]; then
+    printf '%s\n' "denied"
+    return 0
+  fi
+  if [ "$rc" -ne 0 ]; then
+    printf '%s\n' "unchecked"
+    return 0
+  fi
+  if printf '%s' "$out" | jq -e '.exists == true' >/dev/null 2>&1; then
+    printf '%s\n' "key-set"
+    return 0
+  fi
+  printf '%s\n' "weaker"
+}
+
+os_repo_url() {
+  local host=$1 host_url=$2 org=$3 name=$4 base
+  case "$host" in
+    github)
+      if [ -n "$host_url" ]; then
+        base=${host_url%/}
+      else
+        base="https://github.com"
+      fi
+      ;;
+    *)
+      base=${host_url%/}
+      ;;
+  esac
+  printf '%s/%s/%s' "$base" "$org" "$name"
+}
+
+os_hand_off() {
+  local slug=$1 name=$2 org=$3 company_repo=$4 areas=$5 ws=$6 host=$7 host_url=$8
+  local company_url ws_url host_line
+  company_url=$(os_repo_url "$host" "$host_url" "$org" "$company_repo")
+  ws_url=$(os_repo_url "$host" "$host_url" "$org" "$ws")
+  # github.com has no host_url. Name the host and org instead: github.com/<org>.
+  host_line=$host_url
+  if [ "$host" = "github" ]; then
+    host_line=${host_url:-https://github.com}
+    host_line=${host_line#https://}
+    host_line=${host_line#http://}
+    host_line="${host_line%/}/${org}"
+  fi
+  printf 'hand-off: %s\n' "$slug"
+  printf 'Hand-off for %s. Company repo: %s. Host: %s. Areas: %s. Workspace: %s. Clone the company repo with your own sign-in, then run skills/add-teammate/join.sh from inside that clone.\n' \
+    "$name" "$company_url" "$host_line" "$areas" "$ws_url"
+}
+
+os_split_areas() {
+  local a
+  # A trailing newline is required. read drops a last line that has none.
+  printf '%s\n' "$1" | tr ',' '\n' | while IFS= read -r a || [ -n "$a" ]; do
+    a=$(os_trim "$a")
+    [ -n "$a" ] || continue
+    printf '%s\n' "$a"
+  done
+}
+
+os_admin_slug_from_pages() {
+  local root=$1 f role left slug
+  for f in "$root"/people/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      */README.md) continue ;;
+    esac
+    role=$(os_fm_get "$f" role 2>/dev/null || true)
+    left=$(os_fm_get "$f" left 2>/dev/null || true)
+    slug=$(os_fm_get "$f" slug 2>/dev/null || true)
+    if [ "$role" = "admin" ] && [ -z "$left" ] && [ -n "$slug" ]; then
+      printf '%s\n' "$slug"
+      return 0
+    fi
+  done
+  return 1
+}
+
+os_count_admins() {
+  local root=$1 f role left n=0
+  for f in "$root"/people/*.md; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      */README.md) continue ;;
+    esac
+    role=$(os_fm_get "$f" role 2>/dev/null || true)
+    left=$(os_fm_get "$f" left 2>/dev/null || true)
+    if [ "$role" = "admin" ] && [ -z "$left" ]; then
+      n=$((n + 1))
+    fi
+  done
+  printf '%s\n' "$n"
+}
+
+os_epoch() {
+  local d=$1 s
+  if s=$(date -j -f "%Y-%m-%d" "$d" "+%s" 2>/dev/null); then
+    printf '%s' "$s"
+    return 0
+  fi
+  date -d "$d" "+%s"
+}

@@ -1,0 +1,682 @@
+#!/bin/bash
+# Turn a solo company folder into a team. Admin's computer. Bash 3.2.
+set -euo pipefail
+
+DIR=$(cd "$(dirname "$0")" && pwd)
+# shellcheck disable=SC1091
+. "$DIR/lib.sh"
+
+usage() {
+  cat << 'EOF'
+usage: team-on.sh --answers <file>
+
+Turn solo into team in one run. A second run does not push to main.
+If an area main has no check tools, the second run opens a pull request.
+That pull request also adds review-rules.md when main lacks it.
+If origin is missing, it adds the host clone URL and fetches. If origin is set
+but origin/main is missing, it fetches again. It does not push to main.
+The review key is not an answers-file key. The script prints one command
+for the admin to run in their own terminal:
+
+  skills/_host/host.sh set-secret OS_REVIEW_KEY
+
+See CLI.md for answers keys and exit codes.
+EOF
+}
+
+ANSWERS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --answers)
+      [ $# -ge 2 ] || os_die 1 "missing answers file"
+      ANSWERS=$2
+      shift 2
+      ;;
+    *)
+      os_die 1 "unknown argument: $1"
+      ;;
+  esac
+done
+
+[ -n "$ANSWERS" ] || os_die 1 "pass --answers <file>"
+[ -f "$ANSWERS" ] || os_die 1 "answers file is missing"
+
+os_need git jq
+
+ROOT=$(os_answer_or root "$ANSWERS" "$(pwd)")
+[ -d "$ROOT" ] || os_die 2 "company folder is missing"
+ROOT=$(cd "$ROOT" && pwd)
+os_refuse_synced "$ROOT"
+[ -f "$ROOT/company-profile.md" ] || os_die 2 "company-profile.md is missing"
+
+HOST_KIND=$(os_answer_or host "$ANSWERS" "")
+HOST_URL=$(os_answer_or host_url "$ANSWERS" "")
+ORG=$(os_answer_or org "$ANSWERS" "")
+ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
+RUNNER=$(os_answer_or runner "$ANSWERS" "ubuntu-latest")
+[ -n "$HOST_KIND" ] || os_die 2 "host is required"
+[ -n "$ORG" ] || os_die 2 "org is required"
+[ -n "$ENGINE" ] || os_die 2 "sync_engine is required"
+
+SLUG=$(os_fm_get "$ROOT/company-profile.md" company_slug 2>/dev/null || true)
+case "$SLUG" in
+  ""|*'{{'*)
+    SLUG=$(os_answer_or company_slug "$ANSWERS" "")
+    ;;
+esac
+case "$SLUG" in
+  ""|*'{{'*) os_die 2 "company_slug is not set" ;;
+esac
+
+COMPANY_NAME=$(os_answer_or company_name "$ANSWERS" "")
+if [ -z "$COMPANY_NAME" ]; then
+  COMPANY_NAME=$(os_company_name "$ROOT/company-profile.md")
+fi
+case "$COMPANY_NAME" in
+  ""|*'{{'*) COMPANY_NAME="Company" ;;
+esac
+
+if ! OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
+  os_die 3 "host.sh is missing"
+fi
+export OS_HOST_BIN OS_ORG="$ORG" OS_HOST="$HOST_KIND" OS_HOST_URL="$HOST_URL" OS_SLUG="$SLUG"
+export OS_PROFILE="$ROOT/company-profile.md"
+
+# gh sign-in: org secrets and teams need admin:org, workflow files need workflow.
+# A fine-grained token sends no scope list. Its permissions are checked by the calls.
+if [ "$HOST_KIND" = "github" ]; then
+  set +e
+  who=$(os_host whoami)
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || os_die 4 "could not read the gh sign-in: run gh auth login"
+  missing=$(printf '%s' "$who" | jq -r 'if (.scopes | type) == "array" then (["admin:org","workflow"] - .scopes) | join(",") else "" end')
+  if [ -n "$missing" ]; then
+    os_die 4 "the gh sign-in needs admin:org and workflow: run gh auth refresh -s admin:org,workflow"
+  fi
+  # A Free org cannot protect private repos. host.sh prints the plain line. Stop before any write.
+  set +e
+  os_host plan-check >/dev/null
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || exit "$rc"
+fi
+
+# Teams. A new company gets team names with its slug. A team that already grants another
+# company's repo is never reused: stop before any write.
+os_team_names "$SLUG"
+os_team_guard "$(os_team_company)" "$(os_company_repo "$SLUG")"
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  os_team_guard "$(os_team_area "$area")" "$(os_area_repo "$SLUG" "$area")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
+ADMIN=$(os_answer_or admin_slug "$ANSWERS" "")
+if [ -z "$ADMIN" ]; then
+  ADMIN=$(os_person_slugs "$ANSWERS" | while IFS= read -r s; do
+    role=$(os_answer_or "person.${s}.role" "$ANSWERS" "")
+    if [ "$role" = "admin" ]; then
+      printf '%s\n' "$s"
+      break
+    fi
+  done)
+fi
+[ -n "$ADMIN" ] || os_die 2 "name an admin"
+
+ADMIN_GH=$(os_answer_or "person.${ADMIN}.github" "$ANSWERS" "")
+[ -n "$ADMIN_GH" ] || os_die 2 "admin github username is required"
+
+# Review key never enters this process. Print the command, then check existence only.
+printf '%s\n' "review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY"
+REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
+REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
+REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
+case "$REVIEW_VENDOR" in
+  ""|anthropic|openai|xai) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+esac
+case "$REVIEW_KIND" in
+  "")
+    if [ -n "$REVIEW_VENDOR" ]; then
+      REVIEW_KIND=second-vendor
+    else
+      REVIEW_KIND=same-vendor
+    fi
+    ;;
+  second-vendor|same-vendor) ;;
+  *) os_die 2 "review_kind must be second-vendor or same-vendor" ;;
+esac
+REVIEW=$(os_review_state)
+case "$REVIEW" in
+  key-set)
+    if [ "$REVIEW_KIND" = "same-vendor" ]; then
+      printf '%s\n' "weaker review: same vendor"
+    else
+      printf '%s\n' "review: second-vendor"
+    fi
+    ;;
+  denied)
+    if [ "$HOST_KIND" = "github" ]; then
+      printf '%s\n' "could not check the review key: sign in as an org owner (gh auth refresh -s admin:org)"
+    else
+      printf '%s\n' "could not check the review key: sign in as an org owner"
+    fi
+    ;;
+  *)
+    printf '%s\n' "no review key: every pull request fails the model review until you add one"
+    ;;
+esac
+# The company-root files team-on writes. Only these go in the "Team: turn on" commit.
+ROOT_PATHS=(company-profile.md .github .gitea privacy.md)
+mkdir -p "$ROOT/.github"
+cat > "$ROOT/.github/review.conf" << EOF
+vendor=${REVIEW_VENDOR}
+model=${REVIEW_MODEL}
+kind=${REVIEW_KIND}
+EOF
+
+os_fm_set "$ROOT/company-profile.md" company_slug "$SLUG"
+os_fm_set "$ROOT/company-profile.md" level "team"
+os_fm_set "$ROOT/company-profile.md" host "$HOST_KIND"
+os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "$HOST_URL")"
+os_fm_set "$ROOT/company-profile.md" org "$ORG"
+os_fm_set "$ROOT/company-profile.md" sync_engine "$(os_yaml_quote "$ENGINE")"
+os_fm_set "$ROOT/company-profile.md" runner "$RUNNER"
+
+# People pages.
+slug=""
+while IFS= read -r slug; do
+  [ -n "$slug" ] || continue
+  name=$(os_answer_or "person.${slug}.name" "$ANSWERS" "")
+  gh=$(os_answer_or "person.${slug}.github" "$ANSWERS" "")
+  email=$(os_answer_or "person.${slug}.email" "$ANSWERS" "")
+  role=$(os_answer_or "person.${slug}.role" "$ANSWERS" "")
+  areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
+  manager=$(os_answer_or "person.${slug}.manager" "$ANSWERS" "")
+  [ -n "$name" ] || os_die 2 "person ${slug} needs a name"
+  [ -n "$gh" ] || os_die 2 "person ${slug} needs a github username"
+  [ -n "$role" ] || os_die 2 "person ${slug} needs a role"
+  ROOT_PATHS+=("$(os_write_person_page "$ROOT" "$slug" "$name" "$gh" "$email" "$role" "$areas" "$manager")")
+done << EOF
+$(os_person_slugs "$ANSWERS")
+EOF
+
+COMPANY_REPO=$(os_company_repo "$SLUG")
+os_codeowners "$ROOT" "$(os_at_users "$ADMIN_GH" "$ADMIN_GH")"
+
+# Area CODEOWNERS and a copy of .github when the company root has one.
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  director=$(os_answer_or "area.${area}.director" "$ANSWERS" "$ADMIN")
+  director_gh=$(os_answer_or "person.${director}.github" "$ANSWERS" "$ADMIN_GH")
+  if [ -d "$ROOT/.github" ]; then
+    mkdir -p "$ROOT/areas/$area/.github"
+    # Copy workflows and scripts. CODEOWNERS is rewritten below.
+    if [ -d "$ROOT/.github/workflows" ]; then
+      mkdir -p "$ROOT/areas/$area/.github/workflows"
+      cp -R "$ROOT/.github/workflows/." "$ROOT/areas/$area/.github/workflows/"
+    fi
+    if [ -d "$ROOT/.github/scripts" ]; then
+      mkdir -p "$ROOT/areas/$area/.github/scripts"
+      # Includes scripts/tools/, so the area check does not need skills/.
+      cp -R "$ROOT/.github/scripts/." "$ROOT/areas/$area/.github/scripts/"
+    fi
+    if [ -f "$ROOT/.github/review.conf" ]; then
+      cp "$ROOT/.github/review.conf" "$ROOT/areas/$area/.github/review.conf"
+    fi
+  fi
+  # The area director owns this file after the first copy. Never replace it.
+  if [ ! -f "$ROOT/areas/$area/review-rules.md" ]; then
+    rules_src=""
+    if [ -f "$ROOT/review-rules.md" ]; then
+      rules_src="$ROOT/review-rules.md"
+    elif [ -f "$DIR/../../review-rules.md" ]; then
+      rules_src="$DIR/../../review-rules.md"
+    fi
+    if [ -n "$rules_src" ]; then
+      cp "$rules_src" "$ROOT/areas/$area/review-rules.md"
+    fi
+  fi
+  # The same owners in both files (B60). On Forgejo every name on a line must approve, so
+  # an area rules change there needs the director and the admin.
+  os_codeowners "$ROOT/areas/$area" "$(os_at_users "$ADMIN_GH" "$director_gh")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
+if [ -x "$ROOT/skills/privacy/privacy.sh" ]; then
+  "$ROOT/skills/privacy/privacy.sh" --root "$ROOT"
+else
+  printf '%s\n' "privacy: skills/privacy/privacy.sh is not here yet"
+fi
+
+rules_on_main() {
+  local dir=$1
+  git -C "$dir" cat-file -e origin/main:.github/CODEOWNERS 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.gitea/CODEOWNERS 2>/dev/null \
+    && git -C "$dir" cat-file -e origin/main:.github/review.conf 2>/dev/null
+}
+
+# A repo that does not exist yet is the expected case here (exit 2: not found), so its
+# "Not Found (HTTP 404)" lines are not shown. Any other error is.
+repo_exists() {
+  local rc err
+  err=$(mktemp)
+  set +e
+  os_host repo-access "$1" >/dev/null 2>"$err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || cat "$err" >&2
+  rm -f "$err"
+  [ "$rc" -eq 0 ]
+}
+
+# Rules files must be on main before protect. Never push to a protected main.
+# The paths after msg are the files team-on wrote in that repo. Nothing else is staged.
+commit_rules_before_protect() {
+  local dir=$1 msg=$2
+  shift 2
+  if ! os_origin_exists "$dir"; then
+    os_git_commit "$dir" "$msg" "$@"
+    return 0
+  fi
+  os_with_git_token git -C "$dir" fetch origin
+  if rules_on_main "$dir"; then
+    propose_team_rules "$dir" "$msg"
+    return 0
+  fi
+  os_git_commit "$dir" "$msg" "$@"
+  local err
+  err=$(mktemp)
+  if os_with_git_token git -C "$dir" push origin HEAD:main 2>"$err"; then
+    rm -f "$err"
+    return 0
+  fi
+  cat "$err" >&2
+  if grep -qi 'workflow' "$err"; then
+    push_refused "$(basename "$dir")" "$err"
+  fi
+  rm -f "$err"
+  printf '%s\n' "main is protected and .github/CODEOWNERS, .gitea/CODEOWNERS, or review.conf is missing. Propose them with skills/sync/sync.sh propose." >&2
+  exit 2
+}
+
+# Main already has rules (a second run, or after an upgrade). Never push to main: the
+# rules files this run changed go up as one rules pull request, as sync propose does.
+# A CODEOWNERS line the company added on main stays, after the rules lines.
+# Notes (people pages, the profile) go up with the admin's next sync push.
+propose_team_rules() {
+  local dir=$1 msg=$2 f wt name pr number reuse body branch="rules/${ADMIN}/team-on" changed=()
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS; do
+    [ -f "$dir/$f" ] || continue
+    git -C "$dir" show "origin/main:$f" 2>/dev/null \
+      | awk 'NR == FNR { if ($0 !~ /^#/ && NF) seen[$1] = 1; next }
+          /^#/ || NF == 0 || $1 == "*" || $1 == ".*" { next }
+          !($1 in seen) { print }' "$dir/$f" - > "$dir/$f.keep" || true
+    if grep -q '[^[:space:]]' "$dir/$f.keep"; then
+      { printf '\n%s\n' "# Kept from main."; cat "$dir/$f.keep"; } >> "$dir/$f"
+    fi
+    rm -f "$dir/$f.keep"
+  done
+  for f in .github/CODEOWNERS .gitea/CODEOWNERS .github/review.conf review-rules.md; do
+    [ -f "$dir/$f" ] || continue
+    if git -C "$dir" cat-file -e "origin/main:$f" 2>/dev/null \
+      && [ "$(git -C "$dir" hash-object -- "$dir/$f")" = "$(git -C "$dir" rev-parse "origin/main:$f")" ]; then
+      continue
+    fi
+    changed+=("$f")
+  done
+  [ "${#changed[@]}" -gt 0 ] || return 0
+  name=$(basename "$(git -C "$dir" remote get-url origin)" .git)
+  # An earlier run pushed these same files: reuse its branch and pull request.
+  reuse=1
+  for f in "${changed[@]}"; do
+    [ "$(git -C "$dir" rev-parse -q --verify "origin/${branch}:$f" 2>/dev/null)" = "$(git -C "$dir" hash-object -- "$dir/$f")" ] || reuse=0
+  done
+  if [ "$reuse" -eq 0 ]; then
+    wt=$(os_branch_start "$dir")
+    for f in "${changed[@]}"; do
+      mkdir -p "$(dirname "$wt/$f")"
+      cp "$dir/$f" "$wt/$f"
+    done
+    os_git_commit "$wt" "$msg" "${changed[@]}" >/dev/null
+    os_branch_push "$dir" "$wt" "$branch"
+  fi
+  body=$(mktemp)
+  team_rules_body "$dir" "${changed[@]}" > "$body"
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "rules: ${msg}" --body-file "$body")
+  rm -f "$body"
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  [ -n "$number" ] || os_die 3 "could not open the rules pull request for ${name}: run team-on again"
+  printf 'rules-pr: %s %s (%s)\n' "$name" "$number" "${changed[*]}"
+  os_auto_merge_line "$name" "$number"
+  os_override_line "$name" "$number" "team-on: the code owners and review rules the body lists"
+}
+
+# What team-on's rules pull request changes, and why (B60).
+team_rules_body() {
+  local dir=$1 why f
+  shift
+  case "$dir" in
+    */areas/*) why="team-on: names the area director as a code owner of the $(basename "$dir") area rules. The admin stays a code owner." ;;
+    *) why="team-on: sets the code owners of the company rules files for the team." ;;
+  esac
+  os_owners_body "$dir" "$why" "$ADMIN_GH"
+  for f in "$@"; do
+    case "$f" in
+      review-rules.md) printf '%s\n' "review-rules.md: the release's review rules. The model review reads them from main." ;;
+      .github/review.conf) printf '%s\n' ".github/review.conf: which model reviews this repo's pull requests." ;;
+    esac
+  done
+}
+
+# A refused push is a host error: exit 3 with one plain line.
+push_refused() {
+  local name=$1 err=$2
+  if grep -qi 'workflow' "$err"; then
+    rm -f "$err"
+    os_die 3 "push refused for ${name}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow"
+  fi
+  rm -f "$err"
+  os_die 3 "push refused for ${name}: see the git message above, then run team-on again"
+}
+
+# A repo an earlier run made can be empty: its first push failed.
+# Push it now. Lift any protection first: protect runs again below.
+first_push_if_empty() {
+  local dir=$1 name=$2 err ref=HEAD
+  if os_origin_exists "$dir"; then
+    return 0
+  fi
+  os_host unprotect "$name" >/dev/null
+  if git -C "$dir" show-ref --verify --quiet refs/heads/main; then
+    ref=refs/heads/main
+  fi
+  err=$(mktemp)
+  if ! os_with_git_token git -C "$dir" push origin "${ref}:refs/heads/main" 2>"$err" \
+    || ! os_with_git_token git -C "$dir" push --all origin 2>>"$err" \
+    || ! os_with_git_token git -C "$dir" push --tags origin 2>>"$err"; then
+    cat "$err" >&2
+    push_refused "$name" "$err"
+  fi
+  rm -f "$err"
+  printf 'first push: %s\n' "$name"
+}
+
+push_new_repo() {
+  local name=$1 source=$2 existed=0
+  if repo_exists "$name"; then
+    existed=1
+  else
+    os_host create-repo "$name" --private --source "$source" --push >/dev/null
+  fi
+  # Existing repo: add a missing origin and fetch. Push to main only when it is empty.
+  os_ensure_origin "$source" "$name" "$HOST_KIND" "$HOST_URL" "$ORG" "$existed"
+  if [ "$existed" -eq 1 ]; then
+    first_push_if_empty "$source" "$name"
+  fi
+  printf 'repo: %s\n' "$name"
+}
+
+# Stage review-rules.md when origin/main lacks it. Never overwrites a file
+# already on this commit or in the work tree. The area director owns it.
+stage_missing_review_rules() {
+  local dir=$1 src=""
+  if git -C "$dir" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+    return 0
+  fi
+  if git -C "$dir" cat-file -e "HEAD:review-rules.md" 2>/dev/null; then
+    return 0
+  fi
+  if [ ! -f "$dir/review-rules.md" ]; then
+    if [ -f "$ROOT/review-rules.md" ]; then
+      src="$ROOT/review-rules.md"
+    elif [ -f "$DIR/../../review-rules.md" ]; then
+      src="$DIR/../../review-rules.md"
+    else
+      return 0
+    fi
+    cp "$src" "$dir/review-rules.md"
+  fi
+  git -C "$dir" add -- review-rules.md
+}
+
+commit_staged() {
+  local dir=$1 msg=$2
+  if git -C "$dir" diff --cached --quiet; then
+    return 1
+  fi
+  GIT_AUTHOR_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_AUTHOR_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    GIT_COMMITTER_NAME="${OS_GIT_NAME:-Company OS}" \
+    GIT_COMMITTER_EMAIL="${OS_GIT_EMAIL:-os@localhost}" \
+    git -C "$dir" commit -q -m "$msg"
+}
+
+# Never pushes to main. Main may be protected.
+push_tools_branch() {
+  local dir=$1 name=$2 branch=$3
+  if ! os_with_git_token git -C "$dir" push origin "HEAD:${branch}"; then
+    printf '%s\n' "could not push ${branch} for ${name}" >&2
+    exit 2
+  fi
+}
+
+open_rules_pr() {
+  local name=$1 branch=$2 pr number
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "Team: add review rules")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    printf '%s\n' "could not open a pull request for ${name}" >&2
+    exit 2
+  fi
+  printf 'pr: %s %s\n' "$name" "$number"
+}
+
+# Tools may already be on main. A missing review-rules.md still needs a pull
+# request. The checks job can pass from the default shipped with the scripts.
+propose_missing_review_rules() {
+  local dir=$1 name=$2 branch="team/review-rules"
+  if git -C "$dir" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
+    return 0
+  fi
+  if ! git -C "$dir" cat-file -e "origin/${branch}:review-rules.md" 2>/dev/null; then
+    git -C "$dir" checkout -q -f -B "$branch" origin/main
+    stage_missing_review_rules "$dir"
+    if ! git -C "$dir" diff --cached --quiet; then
+      commit_staged "$dir" "Team: add review rules"
+      push_tools_branch "$dir" "$name" "$branch"
+    fi
+  fi
+  open_rules_pr "$name" "$branch"
+}
+
+open_tools_pr() {
+  local name=$1 branch=$2 pr number
+  pr=$(os_host open-pr "$name" --head "$branch" --base main --title "Team: add check tools")
+  number=$(printf '%s' "$pr" | jq -r '.number // empty')
+  if [ -z "$number" ]; then
+    printf '%s\n' "could not open a pull request for ${name}" >&2
+    exit 2
+  fi
+  printf 'pr: %s %s\n' "$name" "$number"
+}
+
+# An area that already has rules on main never gets a second push to main.
+# If that main has no check tools, commit them on a branch and open a pull request.
+# The same branch gets review-rules.md when main lacks it.
+propose_missing_tools() {
+  local dir=$1 name=$2 src branch
+  if ! os_origin_exists "$dir"; then
+    return 0
+  fi
+  os_with_git_token git -C "$dir" fetch origin
+  if git -C "$dir" cat-file -e "origin/main:.github/scripts/tools/secret-scan.sh" 2>/dev/null; then
+    propose_missing_review_rules "$dir" "$name"
+    return 0
+  fi
+  branch="team/scripts-tools"
+  if git -C "$dir" cat-file -e "origin/${branch}:.github/scripts/tools/secret-scan.sh" 2>/dev/null; then
+    if ! git -C "$dir" cat-file -e "origin/main:review-rules.md" 2>/dev/null \
+      && ! git -C "$dir" cat-file -e "origin/${branch}:review-rules.md" 2>/dev/null; then
+      git -C "$dir" checkout -q -f -B "$branch" "origin/${branch}"
+      stage_missing_review_rules "$dir"
+      if ! git -C "$dir" diff --cached --quiet; then
+        commit_staged "$dir" "Team: add review rules"
+        push_tools_branch "$dir" "$name" "$branch"
+      fi
+    fi
+    open_tools_pr "$name" "$branch"
+    return 0
+  fi
+  if [ -d "$ROOT/.github/scripts/tools" ]; then
+    src="$ROOT/.github/scripts"
+  else
+    src="$DIR/../../.github/scripts"
+  fi
+  [ -d "$src/tools" ] || os_die 3 "check tools are missing from the template"
+  git -C "$dir" checkout -q -f -B "$branch" origin/main
+  mkdir -p "$dir/.github"
+  rm -rf "$dir/.github/scripts"
+  cp -R "$src" "$dir/.github/scripts"
+  stage_missing_review_rules "$dir"
+  git -C "$dir" add -- .github/scripts
+  if git -C "$dir" diff --cached --quiet; then
+    return 0
+  fi
+  commit_staged "$dir" "Team: add check tools"
+  push_tools_branch "$dir" "$name" "$branch"
+  open_tools_pr "$name" "$branch"
+}
+
+commit_rules_before_protect "$ROOT" "Team: turn on" "${ROOT_PATHS[@]}"
+push_new_repo "$COMPANY_REPO" "$ROOT"
+
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  commit_rules_before_protect "$ROOT/areas/$area" "Team: area rules" .github .gitea review-rules.md
+  push_new_repo "$(os_area_repo "$SLUG" "$area")" "$ROOT/areas/$area"
+  propose_missing_tools "$ROOT/areas/$area" "$(os_area_repo "$SLUG" "$area")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
+# Workspaces. Copy the template as a whole, including CLAUDE.md when present.
+WS_TEMPLATE="$DIR/workspace"
+slug=""
+while IFS= read -r slug; do
+  [ -n "$slug" ] || continue
+  name=$(os_answer_or "person.${slug}.name" "$ANSWERS" "$slug")
+  ws_dir="$ROOT/users/$slug"
+  if [ ! -d "$ws_dir/.git" ]; then
+    os_write_workspace "$ws_dir" "$slug" "$name" "$SLUG" "$COMPANY_NAME" "$WS_TEMPLATE"
+  fi
+  ws_name=$(os_user_repo "$SLUG" "$slug")
+  ws_existed=0
+  if repo_exists "$ws_name"; then
+    ws_existed=1
+  else
+    os_host create-repo "$ws_name" --private --source "$ws_dir" --push >/dev/null
+  fi
+  os_ensure_origin "$ws_dir" "$ws_name" "$HOST_KIND" "$HOST_URL" "$ORG" "$ws_existed"
+  if [ "$ws_existed" -eq 1 ]; then
+    first_push_if_empty "$ws_dir" "$ws_name"
+  fi
+  printf 'workspace: %s\n' "$ws_name"
+done << EOF
+$(os_person_slugs "$ANSWERS")
+EOF
+
+# Protect after the initial push. Every repo above has a main by now. Not the workspace repos.
+os_host protect "$COMPANY_REPO" --code-owners --approvals 0 >/dev/null
+printf 'protected: %s\n' "$COMPANY_REPO"
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  os_host protect "$(os_area_repo "$SLUG" "$area")" --code-owners --approvals 0 >/dev/null
+  printf 'protected: %s\n' "$(os_area_repo "$SLUG" "$area")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
+# Teams and grants.
+os_host team-create "$(os_team_company)" >/dev/null
+os_host grant "$COMPANY_REPO" "team:$(os_team_company)" write >/dev/null
+teams=$(os_team_company)
+
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  os_host team-create "$(os_team_area "$area")" >/dev/null
+  os_host grant "$(os_area_repo "$SLUG" "$area")" "team:$(os_team_area "$area")" write >/dev/null
+  teams="${teams}, $(os_team_area "$area")"
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+printf 'teams: %s\n' "$teams"
+
+slug=""
+while IFS= read -r slug; do
+  [ -n "$slug" ] || continue
+  gh=$(os_answer_or "person.${slug}.github" "$ANSWERS" "")
+  areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
+  os_host team-add "$(os_team_company)" "$gh" >/dev/null
+  a=""
+  while IFS= read -r a || [ -n "$a" ]; do
+    [ -n "$a" ] || continue
+    os_host team-create "$(os_team_area "$a")" >/dev/null
+    os_host team-add "$(os_team_area "$a")" "$gh" >/dev/null
+    os_host grant "$(os_area_repo "$SLUG" "$a")" "team:$(os_team_area "$a")" write >/dev/null
+    os_host grant "$(os_area_repo "$SLUG" "$a")" "$gh" write >/dev/null
+  done << AREAS
+$(os_split_areas "$areas")
+AREAS
+  os_host grant "$(os_user_repo "$SLUG" "$slug")" "$gh" write >/dev/null
+done << EOF
+$(os_person_slugs "$ANSWERS")
+EOF
+
+# Directors who are not already listed on the area still approve, so they join the team.
+area=""
+while IFS= read -r area; do
+  [ -n "$area" ] || continue
+  director=$(os_answer_or "area.${area}.director" "$ANSWERS" "$ADMIN")
+  director_gh=$(os_answer_or "person.${director}.github" "$ANSWERS" "$ADMIN_GH")
+  os_host team-add "$(os_team_area "$area")" "$director_gh" >/dev/null
+done << EOF
+$(os_areas_on_disk "$ROOT")
+EOF
+
+cfg=$(os_config_dir "$SLUG")
+mkdir -p "$cfg"
+printf '%s\n' "$ADMIN" > "$cfg/me"
+chmod 600 "$cfg/me"
+
+if [ -x "$ROOT/skills/sync/sync.sh" ]; then
+  OS_COMPANY_ROOT="$ROOT" OS_JOBS_DIR="${OS_JOBS_DIR:-}" "$ROOT/skills/sync/sync.sh" install-jobs --admin
+else
+  printf '%s\n' "sync-jobs: skills/sync/sync.sh is not here yet"
+fi
+
+slug=""
+while IFS= read -r slug; do
+  [ -n "$slug" ] || continue
+  [ "$slug" = "$ADMIN" ] && continue
+  name=$(os_answer_or "person.${slug}.name" "$ANSWERS" "$slug")
+  areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
+  os_hand_off "$slug" "$name" "$ORG" "$COMPANY_REPO" "$areas" "$(os_user_repo "$SLUG" "$slug")" "$HOST_KIND" "$HOST_URL"
+done << EOF
+$(os_person_slugs "$ANSWERS")
+EOF
+
+printf '%s\n' "team-on: ok"
+printf '%s\n' "level: team"

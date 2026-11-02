@@ -1,0 +1,266 @@
+#!/bin/bash
+# Shared helpers for the check scripts. Source this file. Do not run it.
+# The mktemp function below wraps the system one. Calls with no arguments are on purpose.
+# shellcheck disable=SC2119,SC2120
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    printf '%s\n' "Source this file from the check scripts. Do not run it."
+    exit 0
+  fi
+  printf '%s\n' "Source this file from the check scripts. Do not run it." >&2
+  exit 1
+fi
+
+ci_die() {
+  local code=$1
+  shift
+  printf '%s\n' "$*" >&2
+  exit "$code"
+}
+
+ci_tmp_files=""
+# ci_mktemp runs in $( ), so the list above never reaches this shell. Every temp file goes
+# in one folder made here instead, and ci_cleanup (the entry script's EXIT trap) removes it.
+# A runner that is not thrown away after each job keeps a clean temp folder.
+# A second source in the same shell keeps the first folder.
+if [ -z "${ci_run_tmp:-}" ] || [ ! -d "$ci_run_tmp" ]; then
+  ci_run_tmp=$(command mktemp -d "${TMPDIR:-/tmp}/os-check.XXXXXX") || ci_die 1 "could not make a temp folder"
+  chmod 700 "$ci_run_tmp"
+  export TMPDIR="$ci_run_tmp"
+fi
+# A stopped job exits through the entry script's EXIT trap, so the folder goes too.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# macOS mktemp ignores TMPDIR. With no template, make the file in TMPDIR (the run folder).
+mktemp() {
+  if [ $# -eq 0 ]; then
+    command mktemp "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  elif [ $# -eq 1 ] && [ "$1" = "-d" ]; then
+    command mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX"
+  else
+    command mktemp "$@"
+  fi
+}
+
+ci_mktemp() {
+  local f
+  f=$(mktemp)
+  chmod 600 "$f"
+  ci_tmp_files="${ci_tmp_files} ${f}"
+  printf '%s\n' "$f"
+}
+
+ci_cleanup() {
+  local f
+  # shellcheck disable=SC2086
+  for f in $ci_tmp_files; do
+    rm -f "$f"
+  done
+  ci_tmp_files=""
+  rm -rf "$ci_run_tmp"
+}
+
+ci_scrub_file() {
+  local file=$1 secret=$2
+  if [ ! -f "$file" ]; then
+    return 0
+  fi
+  if [ -z "$secret" ]; then
+    cat "$file"
+    return 0
+  fi
+  awk -v secret="$secret" '
+    {
+      line = $0
+      out = ""
+      while (index(line, secret) > 0) {
+        i = index(line, secret)
+        out = out substr(line, 1, i - 1) "<redacted>"
+        line = substr(line, i + length(secret))
+      }
+      print out line
+    }
+  ' "$file"
+}
+
+ci_state_dir() {
+  local dir
+  dir=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
+  dir="${dir}/os-ci"
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  printf '%s\n' "$dir"
+}
+
+ci_write_state() {
+  local key=$1 value=$2 dir
+  dir=$(ci_state_dir)
+  printf '%s\n' "$value" > "${dir}/${key}"
+  chmod 600 "${dir}/${key}"
+}
+
+ci_read_state() {
+  local key=$1 dir file
+  dir=$(ci_state_dir)
+  file="${dir}/${key}"
+  if [ ! -f "$file" ]; then
+    return 1
+  fi
+  tr -d '\r\n' < "$file"
+}
+
+ci_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+ci_trim() {
+  printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+# kind is glob (GitHub CODEOWNERS) or regex (Forgejo CODEOWNERS).
+# Exit 0 when the pattern matches the path. Anchored on path boundaries.
+ci_path_match() {
+  local kind=$1 pattern=$2 path=$3
+  awk -v kind="$kind" -v pat="$pattern" -v path="$path" '
+    function gm(p, s,   rest, n) {
+      if (p == "" ) return s == ""
+      if (substr(p, 1, 2) == "**") {
+        rest = substr(p, 3)
+        if (substr(rest, 1, 1) == "/") rest = substr(rest, 2)
+        if (gm(rest, s)) return 1
+        n = index(s, "/")
+        if (n == 0) return gm(rest, "")
+        return gm(p, substr(s, n + 1))
+      }
+      if (substr(p, 1, 1) == "*") {
+        rest = substr(p, 2)
+        if (gm(rest, s)) return 1
+        if (s != "" && substr(s, 1, 1) != "/") return gm(p, substr(s, 2))
+        return 0
+      }
+      if (s == "" || substr(p, 1, 1) != substr(s, 1, 1)) return 0
+      return gm(substr(p, 2), substr(s, 2))
+    }
+    BEGIN {
+      if (kind == "regex") {
+        if (substr(pat, 1, 1) != "^") pat = "^(" pat ")$"
+        if (path ~ pat) exit 0
+        exit 1
+      }
+      anchored = 0
+      if (substr(pat, 1, 1) == "/") {
+        anchored = 1
+        pat = substr(pat, 2)
+      }
+      # A folder pattern (a trailing /) matches each file under a matching folder.
+      dir = 0
+      if (pat != "" && substr(pat, length(pat), 1) == "/") {
+        pat = substr(pat, 1, length(pat) - 1)
+        dir = 1
+      }
+      n = split(path, segs, "/")
+      acc = ""
+      for (i = 1; i <= n; i++) {
+        acc = (i == 1) ? segs[1] : acc "/" segs[i]
+        if (dir && i == n) break
+        if (!dir && i < n) continue
+        if (fm(pat, acc)) exit 0
+      }
+      exit 1
+    }
+    # Anchored, or with a / inside: from the root. Else at any depth.
+    function fm(p, s,   k, m, parts, tail) {
+      if (anchored || index(p, "/") > 0) return gm(p, s)
+      m = split(s, parts, "/")
+      tail = ""
+      for (k = m; k >= 1; k--) {
+        tail = (tail == "") ? parts[k] : parts[k] "/" tail
+        if (gm(p, tail)) return 1
+      }
+      return 0
+    }
+  '
+}
+
+ci_is_github() {
+  case "${GITHUB_SERVER_URL:-}" in
+    *://github.com|*://www.github.com|*://github.com/*) return 0 ;;
+  esac
+  return 1
+}
+
+ci_api_base() {
+  local api
+  api=${GITHUB_API_URL:-}
+  case "$api" in
+    */api/v1|https://api.github.com|https://api.github.com/)
+      printf '%s\n' "${api%/}"
+      return 0
+      ;;
+  esac
+  if ci_is_github; then
+    printf '%s\n' "https://api.github.com"
+    return 0
+  fi
+  printf '%s\n' "${GITHUB_SERVER_URL%/}/api/v1"
+}
+
+ci_auth_header() {
+  local token=$1
+  if ci_is_github; then
+    printf '%s\n' "Authorization: Bearer ${token}"
+  else
+    printf '%s\n' "Authorization: token ${token}"
+  fi
+}
+
+# Call one host API path (/repos/...) with the job token: METHOD PATH OUT [BODY_FILE].
+# The token goes in a mode-600 curl config, never in an argument, and the config is
+# removed at once. A 2xx answer is success.
+ci_api_call() {
+  local method=$1 path=$2 out=$3 body=${4:-} cfg err http rc
+  cfg=$(ci_mktemp)
+  err=$(ci_mktemp)
+  {
+    printf '%s\n' "header = \"$(ci_auth_header "$JOB_TOKEN")\""
+    printf '%s\n' 'header = "Accept: application/json"'
+    printf '%s\n' "url = \"$(ci_api_base)${path}\""
+    printf '%s\n' "request = \"${method}\""
+    if [ -n "$body" ]; then
+      printf '%s\n' 'header = "Content-Type: application/json"'
+      printf '%s\n' "data-binary = \"@${body}\""
+    fi
+    printf '%s\n' "output = \"${out}\""
+    printf '%s\n' 'silent' 'show-error' 'connect-timeout = 10' 'max-time = 60'
+    printf '%s\n' 'write-out = "%{http_code}"'
+  } > "$cfg"
+  set +e
+  http=$(curl --config "$cfg" 2>"$err")
+  rc=$?
+  set -e
+  rm -f "$cfg"
+  case "$http" in
+    2??) ;;
+    *) rc=1 ;;
+  esac
+  if [ "$rc" -ne 0 ]; then
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+}
+
+ci_api_get() {
+  ci_api_call GET "$1" "$2"
+}
+
+ci_summary_add() {
+  local text=$1
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '%s\n' "$text" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  printf '%s\n' "$text"
+}

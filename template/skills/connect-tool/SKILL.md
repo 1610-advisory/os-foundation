@@ -30,7 +30,7 @@ Check `architecture.md` → "Connections" for what is already connected.
 
 1. Your agent's built-in connectors (Claude: Settings → Connectors; Cursor: Settings → MCP; Codex: `codex mcp --help`).
 2. The vendor's docs: search "{{TOOL}} MCP server".
-3. Nothing official, or no internet to look? Say so. Offer a fallback: export files (CSV, PDF) into the area's `data/` folder and work from those.
+3. Nothing official, or no internet to look? Say so. Offer a fallback: export files (CSV, PDF) into the area's `data/` folder and work from those. They are the area's working files, and only that area's people get them. They do not mirror the tool: never set up a repeated export.
 
 ## 3. Install it where it belongs
 
@@ -47,10 +47,20 @@ Walk them through the sign-in. They click; you wait.
 
 Make one **read-only** call and show the result: the three newest email subjects, today's calendar, the last five invoices. If it fails, read the error and fix the one thing it names.
 
+## Connectors your advisor runs
+
+Some apps have an API but no official connector. A company's advisor may build and maintain a connector for such an app.
+
+- Add it like any other connector (sections 1 to 4), from the company or area folder where it belongs.
+- Each person signs in with their own login. Never share one login.
+- Read-only first. Write access can come later.
+- Record it in `architecture.md` → "Connections" (section 5). Name the advisor as the maintainer.
+- Do not edit it. Ask the advisor for changes.
+
 ## 5. Record it
 
 In `architecture.md` at the company root (create it if missing, with `type: architecture` frontmatter and a "Connections" table), add a row: tool, connector, agent, folder, read-only or read-write, date. No secrets, no account numbers. Commit.
 
-For a knowledge source such as Notion or Drive, also update `memory/existing-sources.md` (or the area's index for restricted material): what it holds, its location, the access method, and the date of the successful read-only check. Keep its entry in the corresponding `memory/MEMORY.md`. Record no credentials. The source stays authoritative; connecting it does not authorize migration, bulk copies, or a scheduled sync.
+For a knowledge source such as Notion, Drive or a meeting recorder, also update `memory/existing-sources.md` (or the area's index for restricted material): what it holds, its location, the access method, the date of the successful read-only check, and its mode. Ask which mode they want: `index` (a pointer) or `copy` (the admin's private `library/` keeps a full copy; the team reads summaries in the wiki). Keep its entry in the corresponding `memory/MEMORY.md`. Record no credentials. Connecting a tool is not a yes to copy it: copy only after a person says yes to that source.
 
 Then tell them one thing they can now ask, for example "What did customers email about this week?"

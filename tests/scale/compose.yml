@@ -1,0 +1,53 @@
+# Local Forgejo for the scale check.
+# A second stack. It does not use the Acme project.
+# Actions are off. Every name starts with osf-scale-.
+
+name: osf-scale
+
+services:
+  forgejo:
+    image: data.forgejo.org/forgejo/forgejo:17.0.0
+    container_name: osf-scale-forgejo
+    restart: unless-stopped
+    # Leave room for the Acme stack on this same Docker (12 CPUs, 8 GB).
+    mem_limit: 2g
+    cpus: 2
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__DOMAIN: localhost
+      FORGEJO__server__ROOT_URL: http://localhost:3400/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__server__LFS_START_SERVER: "false"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__database__SQLITE_JOURNAL_MODE: WAL
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__log__LEVEL: warn
+      FORGEJO__actions__ENABLED: "false"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__SHOW_REGISTRATION_BUTTON: "false"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "true"
+      FORGEJO__service__ENABLE_NOTIFY_MAIL: "false"
+      FORGEJO__service__DEFAULT_ALLOW_CREATE_ORGANIZATION: "false"
+      FORGEJO__repository__DEFAULT_BRANCH: main
+      FORGEJO__repository__FORCE_PRIVATE: "true"
+      FORGEJO__repository__DEFAULT_PRIVATE: private
+      FORGEJO__indexer__REPO_INDEXER_ENABLED: "false"
+      FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
+    ports:
+      - "3400:3000"
+    volumes:
+      - osf-scale-forgejo-data:/data
+    networks:
+      - osf-scale
+
+volumes:
+  osf-scale-forgejo-data:
+    name: osf-scale-forgejo-data
+
+networks:
+  osf-scale:
+    name: osf-scale

@@ -1,0 +1,92 @@
+# Local Forgejo for the Acme test.
+# Job containers run in the DinD sidecar. The host Docker socket is not mounted.
+# Every container, network, and volume name starts with osf-acme-.
+
+name: osf-acme
+
+services:
+  forgejo:
+    image: data.forgejo.org/forgejo/forgejo:17.0.0
+    container_name: osf-acme-forgejo
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__server__DOMAIN: localhost
+      FORGEJO__server__ROOT_URL: http://localhost:3300/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__SSH_PORT: "2222"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__server__LFS_START_SERVER: "false"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__log__LEVEL: info
+      FORGEJO__actions__ENABLED: "true"
+      FORGEJO__actions__DEFAULT_ACTIONS_URL: https://data.forgejo.org
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "false"
+      FORGEJO__service__ENABLE_NOTIFY_MAIL: "false"
+      FORGEJO__repository__DEFAULT_BRANCH: main
+      FORGEJO__repository__DEFAULT_REPO_UNITS: repo.code,repo.issues,repo.pulls,repo.actions,repo.releases
+      FORGEJO__openid__ENABLE_OPENID_SIGNIN: "false"
+    ports:
+      - "3300:3000"
+    volumes:
+      - osf-acme-forgejo-data:/data
+    networks:
+      - osf-acme
+
+  docker:
+    image: docker:29.9.2-dind
+    container_name: osf-acme-dind
+    hostname: docker
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: /certs
+    volumes:
+      - osf-acme-dind-certs:/certs
+      - osf-acme-dind-data:/var/lib/docker
+    networks:
+      osf-acme:
+        aliases:
+          - docker
+
+  runner:
+    image: data.forgejo.org/forgejo/runner:13.2.0
+    container_name: osf-acme-runner
+    restart: unless-stopped
+    depends_on:
+      - forgejo
+      - docker
+    environment:
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_CERT_PATH: /certs/client
+      DOCKER_TLS_VERIFY: "1"
+    volumes:
+      - osf-acme-runner-data:/data
+      - osf-acme-dind-certs:/certs:ro
+    networks:
+      - osf-acme
+    user: "0:0"
+    entrypoint: ["/usr/bin/dumb-init", "--"]
+    command:
+      - bash
+      - -lc
+      - |
+        while [ ! -s /data/config.yml ]; do sleep 1; done
+        exec /bin/forgejo-runner --config /data/config.yml daemon
+
+volumes:
+  osf-acme-forgejo-data:
+    name: osf-acme-forgejo-data
+  osf-acme-runner-data:
+    name: osf-acme-runner-data
+  osf-acme-dind-certs:
+    name: osf-acme-dind-certs
+  osf-acme-dind-data:
+    name: osf-acme-dind-data
+
+networks:
+  osf-acme:
+    name: osf-acme

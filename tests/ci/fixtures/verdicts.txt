@@ -1,0 +1,4 @@
+# Test-only verdicts. The runner environment points at a copy of this file.
+# The first marker found in the diff wins. * is the default.
+OSF_REVIEW_FAIL FAIL
+* PASS

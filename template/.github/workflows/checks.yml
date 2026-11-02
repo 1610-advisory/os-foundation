@@ -1,0 +1,84 @@
+name: checks
+
+# One job. GitHub bills each job as a whole minute.
+# OS_REVIEW_FAKE is test-only. Set that path in the runner environment.
+# This file does not read a verdict from the repository.
+# The review key is readable by anyone with write on the repo (host property).
+# Use a key made only for this review, with a spend cap.
+on:
+  pull_request:
+    branches: [main]
+  issue_comment:
+    types: [created]
+
+jobs:
+  checks:
+    runs-on: ${{ vars.OS_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: write
+    steps:
+      - name: event
+        id: event
+        run: |
+          set -euo pipefail
+          run=yes
+          ref=""
+          if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
+            # Only an /override comment on a pull request runs the checks.
+            trimmed=$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" | sed 's/^[[:space:]]*//')
+            number=$(jq -r 'if .issue.pull_request then (.issue.number // "" | tostring) else "" end' "$GITHUB_EVENT_PATH")
+            case "$trimmed" in
+              /override*) ;;
+              *) run=no ;;
+            esac
+            case "$number" in
+              ''|*[!0-9]*) run=no ;;
+              *) ref="refs/pull/${number}/head" ;;
+            esac
+          else
+            ref=$(jq -r '.pull_request.head.sha // empty' "$GITHUB_EVENT_PATH")
+          fi
+          printf 'run=%s\nref=%s\n' "$run" "$ref" >> "$GITHUB_OUTPUT"
+
+      # Full history, and no token left in the folder's git config.
+      - name: checkout
+        if: steps.event.outputs.run == 'yes'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ steps.event.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: base tools
+        if: steps.event.outputs.run == 'yes'
+        env:
+          JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          umask 077
+          boot="${RUNNER_TEMP:-/tmp}/os-ci-boot"
+          mkdir -p "$boot"
+          # Base copies only. The pull request head is data, not code.
+          git show origin/main:.github/scripts/checkout.sh > "${boot}/checkout.sh"
+          git show origin/main:.github/scripts/lib.sh > "${boot}/lib.sh"
+          bash "${boot}/checkout.sh"
+
+      - name: run checks
+        if: steps.event.outputs.run == 'yes'
+        env:
+          JOB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OS_REVIEW_KEY: ${{ secrets.OS_REVIEW_KEY }}
+        run: |
+          set -euo pipefail
+          tools_file="${RUNNER_TEMP:-/tmp}/os-ci/tools-dir"
+          if [ ! -s "$tools_file" ]; then
+            echo "checks failed: the base tools are missing" >&2
+            exit 1
+          fi
+          tools=$(tr -d '\r\n' < "$tools_file")
+          # Base copies only. The pull request head is data, not code.
+          OS_CHECK_TOOLS="$tools" bash "$tools/.github/scripts/run-checks.sh"

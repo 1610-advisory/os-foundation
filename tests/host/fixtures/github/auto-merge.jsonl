@@ -1,0 +1,1 @@
+{"body":null,"method":"EXEC","path":"gh pr merge 12 --repo acme/acme-os --auto --merge"}

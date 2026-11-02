@@ -1,0 +1,7 @@
+admin|claude|acme-admin|Ada Admin|ada.admin@acme.test
+director|codex|acme-director|Dana Director|dana.director@acme.test
+member-a|claude|acme-member-a|Mia Member|mia.member@acme.test
+member-b|codex|acme-member-b|Max Member|max.member@acme.test
+member-c|cursor|acme-member-c|Noa Member|noa.member@acme.test
+member-d|pi|acme-member-d|Sam Member|sam.member@acme.test
+bot|pi|acme-bot|Acme Bot|acme.bot@acme.test

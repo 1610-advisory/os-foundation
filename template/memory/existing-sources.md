@@ -1,22 +1,32 @@
 ---
 name: Existing sources
-description: Where company knowledge already lives and how to access it without duplicating it
+description: Every tool or place that holds company knowledge, whether the folder points to it or keeps a copy, and where each fact is edited
 type: reference
 ---
 
 # Existing sources
 
-An index of existing knowledge, not a copy of it. Keep each existing system as the source of truth for the material it maintains. No sources recorded yet.
+The list of every source of company knowledge outside this folder. The folder is the company's memory; each tool is a worker it can replace. Each source has a mode: `index` (the folder keeps a pointer) or `copy` (the owner's private `library/` repo keeps a full copy; the team reads the summaries in the wiki). Rules for copies: `library/README.md`, on the admin's computer only. A person picks the mode per source. No sources recorded yet.
 
 For each source, record:
 
-- Name and what it holds.
-- Link or file path.
-- Person who maintains it, if known.
-- Access method: connector, local file, or an excerpt shared by the person.
-- Access status: not checked, unavailable, or verified on YYYY-MM-DD.
-- Which information should stay maintained here rather than in another copy.
+- **Name** and what it holds.
+- **Link or path.**
+- **Maintained by:** the person, if known.
+- **Access method:** connector, local file, export, or an excerpt shared by the person.
+- **Access status:** not checked, unavailable, or verified YYYY-MM-DD.
+- **Mode:** `index` or `copy`.
+- **Copy goes to:** `library/raw/<source>/`, or `none` for `index`.
+- **Refreshed:** `manual` (a person asks for a new copy). `nightly` comes in a later version. `none` for `index`.
+- **Edited in:** the tool, or the folder. One place only. A copy is never edited.
+- **Retention:** `keep`, `delete-after:YYYY-MM-DD`, or `delete-audio-after-transcript`.
 
-A link is not proof of access. Read relevant material when a task needs it; do not claim the index automatically keeps copies current. Do not migrate, make bulk copies, or set up a scheduled sync unless explicitly asked.
+Example (made up):
+
+```
+- Meeting recorder — call recordings and transcripts. Link: (the tool's web app). Maintained by: the office manager. Access: export. Status: verified 2026-01-15. Mode: copy. Copy goes to: library/raw/meeting-recorder/. Refreshed: manual. Edited in: the tool. Retention: delete-audio-after-transcript.
+```
+
+A link is not proof of access. Copy a source only after a person says yes to that source. Never bulk-import on your own, and never say a copy stays current by itself. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area.
 
 Never record credentials. Keep restricted source entries in the relevant area's memory, following the company's sharing rules.

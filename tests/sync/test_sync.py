@@ -1,0 +1,3798 @@
+"""Tests for the sync skill.
+
+Names are made up. Token values are never printed.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SYNC = ROOT / "template" / "skills" / "sync"
+HOST = ROOT / "template" / "skills" / "_host"
+ENGINE = ROOT / "tests" / "fakes" / "engine.sh"
+SECRET = "gh" + "p_" + ("ab12" * 9)
+
+
+# One fixed seat id, so a test can name this computer's branch on the host.
+SEAT = "laptop-0a1b"
+SEAT_BRANCH = "sync/mia/" + SEAT
+SEAT_REF = "refs/heads/" + SEAT_BRANCH
+
+
+def run(cmd, env=None, cwd=None, check=False):
+    return subprocess.run(
+        cmd,
+        cwd=cwd or ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=check,
+    )
+
+
+def git_env(base):
+    env = base.copy()
+    env["GIT_AUTHOR_NAME"] = "Mia Member"
+    env["GIT_AUTHOR_EMAIL"] = "mia.member@acme.test"
+    env["GIT_COMMITTER_NAME"] = "Mia Member"
+    env["GIT_COMMITTER_EMAIL"] = "mia.member@acme.test"
+    return env
+
+
+def write_profile(path, level, switches, slug="acme"):
+    items = ", ".join(switches)
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                "type: company-profile",
+                'summary: "Acme Co test"',
+                "updated: 2026-10-24",
+                f"company_slug: {slug}",
+                f"level: {level}",
+                f"switches: [{items}]",
+                "os_version: 0.0.0-test",
+                "host: forgejo",
+                'host_url: "http://localhost:3300"',
+                "org: acme",
+                'sync_engine: ""',
+                "runner: ubuntu-latest",
+                "---",
+                "",
+                "# Acme Co",
+                "",
+            ]
+        )
+    )
+
+
+def base_env(home, company, host_dir):
+    env = git_env(os.environ.copy())
+    env["HOME"] = str(home)
+    env["XDG_CONFIG_HOME"] = str(home / ".config")
+    env["OS_COMPANY_ROOT"] = str(company)
+    env["OS_PROFILE"] = str(company / "company-profile.md")
+    env["OS_HOST_SH"] = str(host_dir / "host.sh")
+    env["OS_PROFILE_SH"] = str(host_dir / "profile.sh")
+    env["OS_TEST_MODE"] = "1"
+    env["OS_SECRET_SCAN"] = "bundled"
+    env["OS_SYNC_ENGINE"] = str(ENGINE)
+    env["OS_ENGINE_TIMEOUT"] = "5"
+    return env
+
+
+class SyncLocalTests(unittest.TestCase):
+    @classmethod
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "\n".join(
+                [
+                    "---",
+                    "type: person",
+                    "slug: mia",
+                    "github: acme-member-a",
+                    "email: mia.member@acme.test",
+                    "role: writer",
+                    "---",
+                    "",
+                    "# Mia Member",
+                    "",
+                ]
+            )
+        )
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        (cfg / "seat").write_text(SEAT + "\n")
+        self.env = base_env(self.home, self.company, HOST)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sync(self, *args, env=None):
+        return run(["bash", str(SYNC / "sync.sh"), *args], env=env or self.env, cwd=self.company)
+
+    def test_secret_scan_holds_the_rule_not_the_value(self):
+        path = self.tmp / "note.md"
+        path.write_text(f"token = {SECRET}\n")
+        result = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--files", str(path)],
+            env={**self.env, "OS_SECRET_SCAN": "bundled"},
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("github-pat", result.stdout)
+        self.assertNotIn(SECRET, result.stdout)
+        self.assertNotIn(SECRET, result.stderr)
+
+    def test_jobs_refuse_solo_and_render(self):
+        write_profile(self.company / "company-profile.md", "solo", [])
+        jobs = self.tmp / "jobs"
+        env = self.env.copy()
+        env["OS_JOBS_DIR"] = str(jobs)
+        env["OS_JOBS_PLATFORM"] = "macos"
+        refused = self.sync("install-jobs", env=env)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertFalse(jobs.exists())
+
+        write_profile(self.company / "company-profile.md", "team", [])
+        env["OS_JOBS_PLATFORM"] = "macos"
+        # B70: each job carries the PATH the install saw (launchd's own is bare).
+        tools = self.tmp / "tools & bin"
+        tools.mkdir()
+        env["PATH"] = str(tools) + ":" + env["PATH"]
+        made = self.sync("install-jobs", "--admin", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
+        plists = sorted(jobs.glob("*.plist"))
+        for plist in plists:
+            body = plist.read_text()
+            self.assertIn("<key>EnvironmentVariables</key>", body, plist.name)
+            self.assertIn("<key>PATH</key>", body, plist.name)
+            self.assertIn(str(self.tmp / "tools &amp; bin") + ":", body, plist.name)
+        self.assertTrue((self.home / ".config" / "acme-os" / "tool-path").is_file())
+        self.assertGreaterEqual(len(plists), 4)
+        for plist in plists:
+            lint = run(["plutil", "-lint", str(plist)])
+            self.assertEqual(lint.returncode, 0, lint.stdout + lint.stderr)
+        text = "\n".join(p.read_text() for p in plists)
+        self.assertIn("<integer>900</integer>", text)
+        self.assertIn("<integer>2</integer>", text)
+        self.assertIn("<integer>3</integer>", text)
+        self.assertIn("<integer>30</integer>", text)
+
+        linux = self.tmp / "linux-jobs"
+        env["OS_JOBS_DIR"] = str(linux)
+        env["OS_JOBS_PLATFORM"] = "linux"
+        made = self.sync("install-jobs", "--admin", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        names = sorted(p.name for p in linux.iterdir())
+        self.assertTrue(any(n.endswith(".service") for n in names))
+        self.assertTrue(any(n.endswith(".timer") for n in names))
+        for service in linux.glob("*.service"):
+            self.assertIn('Environment="PATH=' + str(tools) + ":", service.read_text(), service.name)
+        push_timer = next(p for p in linux.glob("*push*.timer"))
+        self.assertIn("Persistent=true", push_timer.read_text())
+        self.assertIn("RandomizedDelaySec=1800", push_timer.read_text())
+
+        windows = self.tmp / "win-jobs"
+        env["OS_JOBS_DIR"] = str(windows)
+        env["OS_JOBS_PLATFORM"] = "windows"
+        env["OS_JOBS_LOAD"] = "0"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        xml = "\n".join(p.read_text() for p in windows.glob("*.xml"))
+        self.assertNotIn("Not tested", xml)
+        self.assertIn("StartWhenAvailable>true", xml)
+        self.assertIn("ExecutionTimeLimit>PT1H", xml)
+        self.assertIn("DisallowStartIfOnBatteries>false", xml)
+        self.assertIn("StopIfGoingOnBatteries>false", xml)
+        self.assertIn("MultipleInstancesPolicy>IgnoreNew", xml)
+        self.assertIn("InteractiveToken", xml)
+        self.assertIn("LeastPrivilege", xml)
+
+    def test_render_escapes_ampersand_in_the_root_path(self):
+        root = self.tmp / "acme & co"
+        root.mkdir()
+        write_profile(root / "company-profile.md", "team", [])
+        jobs = self.tmp / "amp-jobs"
+        env = self.env.copy()
+        env["OS_COMPANY_ROOT"] = str(root)
+        env["OS_PROFILE"] = str(root / "company-profile.md")
+        env["OS_JOBS_DIR"] = str(jobs)
+        env["OS_JOBS_LOAD"] = "0"
+        env["OS_JOBS_PLATFORM"] = "macos"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
+        plist = "\n".join(p.read_text() for p in jobs.glob("*.plist"))
+        self.assertIn("acme &amp; co", plist)
+        self.assertNotIn("acme & co", plist)
+        windows = self.tmp / "amp-win"
+        env["OS_JOBS_DIR"] = str(windows)
+        env["OS_JOBS_PLATFORM"] = "windows"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr + made.stdout)
+        xml = "\n".join(p.read_text() for p in windows.glob("*.xml"))
+        self.assertIn("acme &amp; co", xml)
+        self.assertNotIn("acme & co", xml)
+
+    def test_skill_copy_fold_keeps_local_edits(self):
+        script = ROOT / "tests" / "sync" / "test_links_copy.sh"
+        result = run(["bash", str(script)])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS links-copy", result.stdout)
+
+    def test_helper_day_count(self):
+        host = self.tmp / "fake-host"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "\n".join(
+                [
+                    "#!/bin/bash",
+                    "case \"$1\" in",
+                    "  repo-access)",
+                    "    case \"$OS_FAKE_ACCESS\" in",
+                    "      ok) printf '%s\\n' '{\"access\":\"ok\"}'; exit 0 ;;",
+                    "      no-access) printf '%s\\n' '{\"access\":\"no-access\"}'; exit 2 ;;",
+                    "      expired) printf '%s\\n' '{\"error\":\"auth\"}'; exit 4 ;;",
+                    "      offline) printf '%s\\n' '{\"error\":\"offline\"}'; exit 5 ;;",
+                    "    esac",
+                    "    ;;",
+                    "esac",
+                    "exit 1",
+                    "",
+                ]
+            )
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' acme\n"
+        )
+        (host / "profile.sh").chmod(0o755)
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["OS_FAKE_ACCESS"] = "ok"
+        env["OS_NOW"] = "2026-10-01"
+        result = self.sync("helper", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads((self.home / ".config" / "acme-os" / "state" / "helper.json").read_text())
+        self.assertEqual(state["days"], [])
+
+        env["OS_FAKE_ACCESS"] = "expired"
+        result = self.sync("helper", env=env)
+        self.assertIn("sign in again", result.stdout)
+        state = json.loads((self.home / ".config" / "acme-os" / "state" / "helper.json").read_text())
+        self.assertEqual(state["days"], [])
+
+        env["OS_FAKE_ACCESS"] = "offline"
+        result = self.sync("helper", env=env)
+        self.assertNotIn("sign in again", result.stdout)
+        state = json.loads((self.home / ".config" / "acme-os" / "state" / "helper.json").read_text())
+        self.assertEqual(state["days"], [])
+
+        env["OS_FAKE_ACCESS"] = "no-access"
+        for day in range(1, 8):
+            env["OS_NOW"] = f"2026-10-{day:02d}"
+            result = self.sync("helper", env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no access", result.stdout)
+        self.assertTrue(self.company.exists())
+        state = json.loads((self.home / ".config" / "acme-os" / "state" / "helper.json").read_text())
+        self.assertEqual(len(state["days"]), 7)
+
+        env["OS_NOW"] = "2026-10-07"
+        self.sync("helper", env=env)
+        state = json.loads((self.home / ".config" / "acme-os" / "state" / "helper.json").read_text())
+        self.assertEqual(len(state["days"]), 7)
+
+        for day in range(8, 15):
+            env["OS_NOW"] = f"2026-10-{day:02d}"
+            result = self.sync("helper", env=env)
+        self.assertFalse(self.company.exists(), result.stdout + result.stderr)
+
+    def test_helper_refuses_path_outside_home(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        write_profile(outside / "company-profile.md", "team", [])
+        host = self.tmp / "fake-host2"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' '{\"access\":\"no-access\"}'\nexit 2\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        days = [f"2026-10-{day:02d}" for day in range(1, 14)]
+        (state / "helper.json").write_text(json.dumps({"days": days, "warned": True}))
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["OS_COMPANY_ROOT"] = str(outside)
+        env["OS_PROFILE"] = str(outside / "company-profile.md")
+        env["OS_NOW"] = "2026-10-14"
+        result = self.sync("helper", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((outside / "company-profile.md").exists())
+
+    def test_helper_keeps_a_folder_that_holds_the_library(self):
+        host = self.tmp / "fake-host3"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' '{\"access\":\"no-access\"}'\nexit 2\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"photo")
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        days = [f"2026-10-{day:02d}" for day in range(1, 14)]
+        (state / "helper.json").write_text(json.dumps({"days": days, "warned": True}))
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["OS_NOW"] = "2026-10-14"
+        result = self.sync("helper", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("library/ in it is the only copy of local media", result.stdout)
+        self.assertEqual((media / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((self.company / "company-profile.md").exists())
+        self.assertIn("helper hold library", (state / "sync.log").read_text())
+        status = self.sync("status")
+        self.assertIn("library/ is the only copy of local media", status.stdout)
+
+    def test_collect_cases(self):
+        write_profile(self.company / "company-profile.md", "app", ["traces"])
+        bravo = self.home / "bravo"
+        bravo.mkdir()
+        write_profile(bravo / "company-profile.md", "app", ["traces"], slug="bravo")
+        shared = self.home / "shared" / "tools.md"
+        shared.parent.mkdir()
+        shared.write_text("a method\n")
+        cfg = self.home / ".config"
+        cfg.mkdir(exist_ok=True)
+        (cfg / "os-shared-list").write_text(str(self.home / "shared") + "\n")
+        projects = self.home / ".claude" / "projects" / "acme"
+        projects.mkdir(parents=True)
+        acme = str(self.company)
+        bravo_file = str(bravo / "note.md")
+
+        def session(name, cwd, tool_path, extra=""):
+            line = {
+                "type": "user",
+                "cwd": cwd,
+                "sessionId": name,
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Read",
+                            "input": {"file_path": tool_path},
+                        }
+                    ]
+                },
+            }
+            text = json.dumps(line) + "\n" + extra
+            (projects / f"{name}.jsonl").write_text(text)
+
+        session("inside", acme, str(self.company / "notes.md"))
+        session("other", acme, bravo_file)
+        session("root", str(self.home), str(self.company / "notes.md"))
+        session("shared", acme, str(shared))
+        session("secret", acme, str(self.company / "notes.md"), extra=f"token = {SECRET}\n")
+
+        pi = self.home / ".pi" / "agent" / "sessions"
+        pi.mkdir(parents=True)
+        (pi / "parent.jsonl").write_text(
+            json.dumps({"type": "session", "id": "parent", "cwd": acme}) + "\n"
+        )
+        sub = pi / "parent" / "sub"
+        sub.mkdir(parents=True)
+        (sub / "session.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "message",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "toolCall",
+                                "name": "read",
+                                "arguments": {"path": bravo_file},
+                            }
+                        ],
+                    },
+                }
+            )
+            + "\n"
+        )
+        target = self.tmp / "traces"
+        env = self.env.copy()
+        env["OS_TRACES_TARGET"] = str(target)
+        result = self.sync("collect", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        names = sorted(p.name for p in target.glob("*.jsonl"))
+        self.assertIn("inside.jsonl", names)
+        self.assertIn("shared.jsonl", names)
+        self.assertIn("secret.jsonl", names)
+        self.assertNotIn("other.jsonl", names)
+        self.assertNotIn("root.jsonl", names)
+        self.assertNotIn("parent.jsonl", names)
+        uploaded = (target / "secret.jsonl").read_text()
+        self.assertNotIn(SECRET, uploaded)
+        self.assertIn("[redacted]", uploaded)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("collect hold other", log)
+        self.assertIn("collect skip root", log)
+        self.assertIn("collect hold parent", log)
+
+    def test_collect_off_without_switch(self):
+        env = self.env.copy()
+        env["OS_TRACES_TARGET"] = str(self.tmp / "traces")
+        result = self.sync("collect", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("collect off", log)
+        self.assertFalse((self.tmp / "traces").exists())
+
+    def test_lock_blocks_a_second_run(self):
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        lock = state / "lock"
+        lock.mkdir()
+        (lock / "pid").write_text(str(os.getpid()))
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("another sync is running", result.stderr)
+
+    def test_no_secret_in_argv(self):
+        marker = "ARGVTOKENsyncmarker0123456789abcdef"
+        spy = self.tmp / "spy"
+        spy.mkdir()
+        log = self.tmp / "argv.log"
+        token_file = self.tmp / "token"
+        token_file.write_text(marker + "\n")
+        token_file.chmod(0o600)
+        (spy / "git").write_text(
+            "\n".join(
+                [
+                    "#!/bin/bash",
+                    "printf '%s\\n' \"$*\" >> \"$ARGV_LOG\"",
+                    "exec /usr/bin/git \"$@\"",
+                    "",
+                ]
+            )
+        )
+        (spy / "curl").write_text(
+            "\n".join(
+                [
+                    "#!/bin/bash",
+                    "printf '%s\\n' \"$*\" >> \"$ARGV_LOG\"",
+                    "exit 0",
+                    "",
+                ]
+            )
+        )
+        (spy / "host.sh").write_text(
+            "\n".join(
+                [
+                    "#!/bin/bash",
+                    "printf '%s\\n' \"$*\" >> \"$ARGV_LOG\"",
+                    "case \"$1\" in",
+                    "  whoami) printf '%s\\n' '{\"login\":\"acme-member-a\"}' ;;",
+                    "  get-token) tr -d '\\r\\n' < \"$OS_FAKE_TOKEN_FILE\"; printf '\\n' ;;",
+                    "  open-pr) printf '%s\\n' '{\"number\":1,\"url\":\"http://example.test/1\"}' ;;",
+                    "  auto-merge) printf '%s\\n' '{\"ok\":true}' ;;",
+                    "  repo-access) printf '%s\\n' '{\"access\":\"ok\"}'; exit 0 ;;",
+                    "  *) exit 1 ;;",
+                    "esac",
+                    "",
+                ]
+            )
+        )
+        for name in ("git", "curl", "host.sh"):
+            (spy / name).chmod(0o755)
+        (spy / "profile.sh").write_text("#!/bin/bash\nexec \"$1\" \"$@\"\n")
+        # Use the real profile reader.
+        shutil.copy(HOST / "profile.sh", spy / "profile.sh")
+        shutil.copy(HOST / "lib.sh", spy / "lib.sh")
+        (spy / "profile.sh").chmod(0o755)
+        bare = self.tmp / "origin.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(self.company)], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (self.company / "README.md").write_text("seed\n")
+        run(["git", "-C", str(self.company), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "notes.md").write_text("a company fact\n")
+        env = self.env.copy()
+        env["PATH"] = str(spy) + os.pathsep + env.get("PATH", "")
+        env["ARGV_LOG"] = str(log)
+        env["OS_FAKE_TOKEN_FILE"] = str(token_file)
+        env["OS_HOST_SH"] = str(spy / "host.sh")
+        env["OS_TRACES_TARGET"] = str(self.tmp / "traces")
+        env["OS_TRACES_UPLOAD_URL"] = "http://127.0.0.1:9/traces"
+        env["OS_TRACES_UPLOAD_TOKEN_FILE"] = str(token_file)
+        write_profile(self.company / "company-profile.md", "app", ["traces"])
+        projects = self.home / ".claude" / "projects" / "acme"
+        projects.mkdir(parents=True)
+        (projects / "one.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "user",
+                    "cwd": str(self.company),
+                    "sessionId": "one",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": "Read",
+                                "input": {"file_path": str(self.company / "notes.md")},
+                            }
+                        ]
+                    },
+                }
+            )
+            + "\n"
+        )
+        pushed = self.sync("push", env=env)
+        collected = self.sync("collect", env=env)
+        text = log.read_text() if log.exists() else ""
+        self.assertNotIn(marker, text, pushed.stderr + collected.stderr)
+        self.assertNotIn(marker, pushed.stdout + pushed.stderr)
+        self.assertNotIn(marker, collected.stdout + collected.stderr)
+
+
+def fake_host(dir_path, login="acme-member-a"):
+    dir_path.mkdir(parents=True, exist_ok=True)
+    script = """#!/bin/bash
+case "$1" in
+  whoami)
+    # B55: the host API cannot be reached.
+    [ ! -f "HOSTDIR/offline" ] || exit 5
+    printf '%s\n' '{"login":"LOGIN"}' ;;
+  get-token) printf '%s\n' local-token ;;
+  open-pr)
+    # Keep the body, so a test can read what the pull request says.
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--body-file" ] && cp "$2" "HOSTDIR/pr-body.txt"
+      shift
+    done
+    printf '%s\n' '{"number":1,"url":"http://example.test/1"}' ;;
+  open-prs)
+    # B40 b: the open pull request's body, when a test wrote one. B40-READ: a read
+    # that fails.
+    [ ! -f "HOSTDIR/open-prs-fails" ] || exit 3
+    [ -f "HOSTDIR/open-body.txt" ] || { printf '%s\n' '{"prs":[]}'; exit 0; }
+    head="sync/mia/SEAT"
+    [ ! -f "HOSTDIR/open-head.txt" ] || head=$(cat "HOSTDIR/open-head.txt")
+    jq -nc --rawfile b "HOSTDIR/open-body.txt" --arg h "$head" '{prs:[{number:1, head:$h, body:$b}]}' ;;
+  close-pr) printf '%s %s\n' "$2" "$3" >> "HOSTDIR/closed.txt"; printf '%s\n' '{"ok":true}' ;;
+  pr-comment)
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--body-file" ] && cat "$2" >> "HOSTDIR/comments.txt"
+      shift
+    done
+    printf '%s\n' '{"ok":true}' ;;
+  auto-merge) printf '%s\n' '{"ok":true}' ;;
+  repo-access) printf '%s\n' '{"access":"ok"}'; exit 0 ;;
+  *) exit 1 ;;
+esac
+"""
+    (dir_path / "host.sh").write_text(script.replace("LOGIN", login).replace("HOSTDIR", str(dir_path)).replace("SEAT", SEAT))
+    (dir_path / "host.sh").chmod(0o755)
+    (dir_path / "profile.sh").write_text("#!/bin/bash\nprintf '%s\n' acme\n")
+    (dir_path / "profile.sh").chmod(0o755)
+
+
+class SyncFixTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-fix-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
+        )
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        (cfg / "seat").write_text(SEAT + "\n")
+        self.host = self.tmp / "host"
+        fake_host(self.host)
+        self.env = base_env(self.home, self.company, self.host)
+        self.env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sync(self, *args, env=None):
+        return run(["bash", str(SYNC / "sync.sh"), *args], env=env or self.env, cwd=self.company)
+
+    def seed_origin(self):
+        bare = self.tmp / "origin.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(self.company)], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (self.company / "README.md").write_text("seed\n")
+        run(["git", "-C", str(self.company), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        return bare
+
+    def test_secret_scan_quotes_paths_and_rejects_bad_lists(self):
+        odd = self.tmp / "a file *.md"
+        odd.write_text("plain\n")
+        missing = self.tmp / "no-such.txt"
+        result = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--files", "--", str(odd)],
+            env=self.env,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        empty = run(["bash", str(SYNC / "secret-scan.sh"), "--files", "--"], env=self.env)
+        self.assertEqual(empty.returncode, 2)
+        gone = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--files", "--", str(missing)],
+            env=self.env,
+        )
+        self.assertEqual(gone.returncode, 2)
+
+    def test_symlink_is_a_scan_error_and_pushes_nothing(self):
+        self.seed_origin()
+        target = self.company / "README.md"
+        link = self.company / "link.md"
+        link.symlink_to(target)
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("symlink: add it by hand with a pull request", status.stdout)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+
+    def test_a_staged_file_goes_through_the_check(self):
+        # Push unstages first: a file staged by hand is checked like any other.
+        self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        (self.company / "staged.md").write_text("HOLD-ME staged\n")
+        run(["git", "-C", str(self.company), "add", "staged.md"], env=self.env, check=True)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        tree = self.tree(SEAT_REF)
+        self.assertIn("ok.md", tree)
+        self.assertNotIn("staged.md", tree)
+        self.assertTrue((self.company / "staged.md").exists())
+        self.assertIn("staged.md", self.sync("status").stdout)
+        # The folder made the commit itself, with this computer's trailer.
+        trailer = self.git("log", "-1", "--format=%(trailers:key=Sync-Seat,valueonly)", "origin/" + SEAT_BRANCH)
+        self.assertEqual(trailer.stdout.strip(), SEAT)
+
+    def test_a_hand_made_commit_is_refused(self):
+        # Sync makes every commit here. One it did not make never goes up.
+        bare = self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        (self.company / "local.md").write_text("HOLD-ME local commit\n")
+        self.git("add", "local.md")
+        self.git("commit", "-q", "-m", "local")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env).stdout
+        self.assertNotIn("sync/mia", heads)
+        self.assertIn("a change that sync did not make", self.sync("status").stdout)
+        self.assertTrue((self.company / "ok.md").exists())
+
+    def dana_changes(self, bare, files, msg="dana"):
+        dana = self.tmp / "dana"
+        if not dana.exists():
+            run(["git", "clone", "-q", str(bare), str(dana)], env=self.env, check=True)
+        run(["git", "-C", str(dana), "pull", "-q", "origin", "main"], env=self.env, check=True)
+        for path, text in files.items():
+            if text is None:
+                (dana / path).unlink()
+            else:
+                (dana / path).write_text(text)
+        run(["git", "-C", str(dana), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(dana), "commit", "-q", "-m", msg], env=self.env, check=True)
+        run(["git", "-C", str(dana), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
+
+    def shared_seed(self):
+        bare = self.seed_origin()
+        (self.company / "shared.md").write_text("1\n2\n3\n")
+        (self.company / "other.md").write_text("other v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "v1")
+        self.git("push", "-q", "origin", "main")
+        return bare
+
+    def reapply_list(self):
+        return self.sync("re-apply").stdout
+
+    def test_both_changed_at_pull_sets_mine_aside(self):
+        # Memo 8.1: a file changed here and on the host is never merged by git. The host's
+        # text comes in, mine waits in the state folder with its base, and a hold says so.
+        bare = self.shared_seed()
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\n4\n5\n6\n", "other.md": "other v2\n"})
+        (self.company / "shared.md").write_text("1\n3\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("changed on the host while you worked", result.stdout)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual((self.company / "shared.md").read_text(), "1\n2\n3\n4\n5\n6\n")
+        self.assertEqual((self.company / "other.md").read_text(), "other v2\n")
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        status = self.sync("status").stdout
+        self.assertIn("- root shared.md: re-apply: changed on the host while you worked", status)
+        listing = self.reapply_list()
+        mine = re.search(r"mine: (.+)", listing).group(1)
+        base = re.search(r"base: (.+)", listing).group(1)
+        self.assertEqual(Path(mine).read_text(), "1\n3\n")
+        self.assertEqual(Path(base).read_text(), "1\n2\n3\n")
+        now = re.search(r"now: (.+)", listing).group(1)
+        self.assertEqual(Path(now).resolve(), (self.company / "shared.md").resolve())
+        # The agent re-applies the change on the new text, then says done. Push sends it.
+        (self.company / "shared.md").write_text("1\n3\n4\n5\n6\n")
+        done = self.sync("re-apply", "done", "root", "shared.md")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse(Path(mine).exists())
+        self.assertFalse(Path(base).exists())
+        self.assertIn("nothing to re-apply", self.reapply_list())
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            run(["git", "--git-dir", str(bare), "show", SEAT_REF + ":shared.md"], env=self.env).stdout,
+            "1\n3\n4\n5\n6\n",
+        )
+
+    def test_both_changed_at_push_sets_mine_aside(self):
+        # Push takes the host's changes first, so the same rule holds when the person's
+        # edit and the host's meet at push: nothing of the stale copy goes up.
+        bare = self.shared_seed()
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\n4\n", "other.md": "other v2\n"})
+        (self.company / "shared.md").write_text("1\n2\n3\nmine\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env).stdout
+        self.assertNotIn("sync/mia", heads)
+        self.assertEqual((self.company / "shared.md").read_text(), "1\n2\n3\n4\n")
+        self.assertIn("shared.md: re-apply:", self.sync("status").stdout)
+
+    def test_both_changed_after_a_local_commit_is_set_aside(self):
+        # Mine is committed here (its pull request has not merged) when the host changes
+        # the same file. Pull merges main with a merge commit; mine is set aside first.
+        bare = self.shared_seed()
+        (self.company / "shared.md").write_text("1\n2\n3\nmine\n")
+        (self.company / "note.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\ndana\n"})
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertEqual((self.company / "shared.md").read_text(), "1\n2\n3\ndana\n")
+        self.assertEqual((self.company / "note.md").read_text(), "a note\n")
+        self.assertEqual(self.git("merge-base", "--is-ancestor", "origin/main", "HEAD").returncode, 0)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        mine = re.search(r"mine: (.+)", self.reapply_list()).group(1)
+        self.assertEqual(Path(mine).read_text(), "1\n2\n3\nmine\n")
+        # Every commit sync made carries the trailer, so the next push is not refused.
+        self.assertEqual(
+            self.git("log", "--no-merges", "--format=%(trailers:key=Sync-Seat,valueonly)", "origin/main..HEAD")
+            .stdout.split(), [SEAT, SEAT])
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            run(["git", "--git-dir", str(bare), "show", SEAT_REF + ":shared.md"], env=self.env).stdout,
+            "1\n2\n3\ndana\n",
+        )
+
+    def test_delete_here_and_edit_on_the_host_is_the_same_case(self):
+        bare = self.shared_seed()
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\nmore\n"})
+        (self.company / "shared.md").unlink()
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.company / "shared.md").read_text(), "1\n2\n3\nmore\n")
+        self.assertIn("mine: deleted here", self.reapply_list())
+
+    def test_edit_here_and_delete_on_the_host_is_the_same_case(self):
+        bare = self.shared_seed()
+        self.dana_changes(bare, {"shared.md": None})
+        (self.company / "shared.md").write_text("1\n2\n3\nmine\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.company / "shared.md").exists())
+        listing = self.reapply_list()
+        self.assertIn("now: deleted on the host", listing)
+        mine = re.search(r"mine: (.+)", listing).group(1)
+        self.assertEqual(Path(mine).read_text(), "1\n2\n3\nmine\n")
+        self.assertIn("shared.md: re-apply:", self.sync("status").stdout)
+
+    def test_a_question_goes_to_the_inbox_the_pull_request_and_its_body(self):
+        bare = self.shared_seed()
+        (self.company / "users" / "mia").mkdir(parents=True)
+        self.dana_changes(bare, {"shared.md": "1\n3\n"})
+        (self.company / "shared.md").write_text("1\n2\n3\n2b\n")
+        self.sync("pull", "--full")
+        (self.host / "open-body.txt").write_text("")
+        asked = self.sync("re-apply", "ask", "root", "shared.md", "you added 2b after 2; Dana removed 2 since")
+        self.assertEqual(asked.returncode, 0, asked.stderr)
+        inbox = (self.company / "users" / "mia" / "inbox" / "re-apply.md").read_text()
+        self.assertIn("root shared.md: you added 2b after 2; Dana removed 2 since", inbox)
+        comments = (self.host / "comments.txt").read_text()
+        self.assertEqual(comments, "re-apply question: shared.md: you added 2b after 2; Dana removed 2 since\n")
+        self.assertIn("asked: you added 2b", self.reapply_list())
+        # The hold stays; the next push lists the question in the body for the digest.
+        (self.company / "note.md").write_text("a note\n")
+        self.sync("push")
+        body = (self.host / "pr-body.txt").read_text()
+        self.assertIn("- re-apply question: shared.md: you added 2b after 2; Dana removed 2 since\n", body)
+        self.assertIn("shared.md: re-apply:", self.sync("status").stdout)
+
+    def test_sync_pull_request_says_whose_notes_and_lists_each_file(self):
+        # B40: the review reads the body. It names the person and each file, no model call.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "meetings").mkdir()
+        (self.company / "meetings" / "2026-10-31 Kickoff.md").write_text("kickoff notes\n")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = (self.host / "pr-body.txt").read_text()
+        self.assertEqual(
+            body,
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n"
+            "- drafts.md\n- meetings/2026-10-31 Kickoff.md\n<!-- /sync:files -->\n",
+        )
+
+    def push_with_open_body(self, old):
+        # B40 b: the sync pull request is open, and its body is old.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-body.txt").write_bytes(old.encode())
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return (self.host / "pr-body.txt").read_text().rstrip("\n")
+
+    def test_push_keeps_lines_a_person_added_to_the_body(self):
+        # Written on the web: CR LF line ends. Only the block between the markers changes.
+        old = (
+            "Ada: the pricing note is for the January planning meeting.\r\n\r\n"
+            "<!-- sync:files -->\r\nThese are mia's notes from sync.\r\n\r\n- old.md\r\n"
+            "<!-- /sync:files -->\r\nA line after the list.\r\n"
+        )
+        self.assertEqual(
+            self.push_with_open_body(old),
+            "Ada: the pricing note is for the January planning meeting.\n\n"
+            "<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n"
+            "<!-- /sync:files -->\nA line after the list.",
+        )
+
+    def test_push_keeps_an_old_body_with_no_markers(self):
+        old = "These are mia's notes from sync.\n\n- old.md\nAda: keep this line."
+        self.assertEqual(
+            self.push_with_open_body(old),
+            old + "\n\n<!-- sync:files -->\nThese are mia's notes from sync.\n\n- drafts.md\n<!-- /sync:files -->",
+        )
+
+    def test_push_keeps_the_body_when_it_cannot_read_it(self):
+        # B40-READ: open-prs fails. Push gives open-pr no body, so the host keeps its own.
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.host / "open-prs-fails").write_text("")
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        self.assertIn("push body root could not read the open pull request: its body stays", self.sync_log())
+
+    def test_a_failed_commit_is_the_last_error(self):
+        # Push-fail status: a commit that fails shows in status, not "last error: none".
+        self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        hook = self.company / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        (self.company / "drafts.md").write_text("a draft\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("push fail root commit", self.sync_log())
+        self.assertIn("last error: push failed for root: commit", self.sync("status").stdout)
+
+    def test_a_merged_delete_does_not_wedge_the_folder(self):
+        # B48: a note deleted through sync. Its pull request merges. Pull must go on.
+        bare = self.seed_origin()
+        (self.company / "old.md").write_text("an old note\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "old.md").unlink()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # The host merges sync/mia (a fast-forward: push builds it on origin/main).
+        run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", SEAT_REF],
+            env=self.env, check=True)
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        status = run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout
+        self.assertEqual(status, "")
+        self.assertFalse((self.company / "old.md").exists())
+        # And the next push has nothing to do.
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("push fail", self.sync_log())
+
+    def test_a_file_merged_after_the_last_fetch_is_no_change(self):
+        # B46-STALE: the host merged the page after this folder's last fetch. Push fetches
+        # first, so the page is still no change.
+        self.page_equal_to_origin(fetch=False)
+
+    def test_a_file_equal_to_origin_is_no_change(self):
+        self.page_equal_to_origin(fetch=True)
+
+    def page_equal_to_origin(self, fetch):
+        # B46: after join, the page is modified on main but equals origin/main once join's
+        # pull request merges. Push skips it: no commit, no hold, no failure line.
+        bare = self.seed_origin()
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        page = "people/Mia.md"
+        text = (self.company / page).read_text().replace("---\n\n", "terms_accepted: 2026-10-31\n---\n\n", 1)
+        (other / page).write_text(text)
+        run(["git", "-C", str(other), "-c", "user.name=t", "-c", "user.email=t@example.test",
+             "commit", "-q", "-am", "join"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / page).write_text(text)
+        if fetch:
+            run(["git", "-C", str(self.company), "fetch", "-q", "origin"], env=self.env, check=True)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log_file = self.home / ".config" / "acme-os" / "state" / "sync.log"
+        log = log_file.read_text() if log_file.exists() else ""
+        self.assertNotIn("push fail", log)
+        self.assertNotIn("push hold", log)
+        self.assertFalse((self.host / "pr-body.txt").exists())
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+        self.assertNotIn("held:", self.sync("status").stdout)
+
+    def test_auto_merge_failure_is_held(self):
+        self.seed_origin()
+        host = self.host / "host.sh"
+        text = host.read_text()
+        start = text.index("  auto-merge)")
+        end = text.index(";;", start) + 2
+        host.write_text(text[:start] + "  auto-merge) echo 'Auto merge is not allowed' >&2; exit 3 ;;" + text[end:])
+        (self.company / "note.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("last error: auto-merge is off on", status.stdout)
+        self.assertIn("pull request 1 is open but will not merge by itself", status.stdout)
+
+    def git(self, *args, check=True):
+        return run(["git", "-C", str(self.company), *args], env=self.env, check=check)
+
+    def sync_log(self):
+        return (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+
+    def tree(self, ref):
+        return run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "ls-tree", "-r", "--name-only", ref],
+            env=self.env,
+        ).stdout.splitlines()
+
+    def test_logs_are_never_held_as_workspace_only(self):
+        # B13: rule 5 is a path rule. A log is Auto tier, even when the model says otherwise.
+        self.seed_origin()
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-28-mia.md").write_text("WORKSPACE-ME wrote the newsletter\n")
+        (logs / "2026-10-27-mia.md").write_text("PERSONAL-FACT\n")
+        (self.company / "habits.md").write_text("WORKSPACE-ME how I like to work\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree(SEAT_REF)
+        self.assertIn("memory/logs/2026-10-28-mia.md", tree)
+        self.assertNotIn("habits.md", tree)
+        self.assertNotIn("memory/logs/2026-10-27-mia.md", tree)
+        status = self.sync("status").stdout
+        self.assertIn("habits.md: belongs in the workspace", status)
+        self.assertIn("2026-10-27-mia.md: personal-life fact", status)
+        self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
+
+    def test_logs_wait_while_the_host_has_the_old_logs_branch(self):
+        # logsfix (58): a v0 clone ignores memory/logs/ and its plain pull writes over any
+        # file main has there. So while the host has branch logs, logs stay here (held).
+        # When the admin deletes that branch, the next push sends them.
+        bare = self.seed_origin()
+        old = self.tmp / "old-logs"
+        run(["git", "init", "-q", "-b", "logs", str(old)], env=self.env, check=True)
+        (old / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(old), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(old), "commit", "-q", "-m", "Logs: day one"], env=self.env, check=True)
+        run(["git", "-C", str(old), "push", "-q", str(bare), "logs"], env=self.env, check=True)
+        self.git("fetch", "-q", "origin")
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-01-mia.md").write_text("v1 log, same person and day\n")
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree(SEAT_REF)
+        self.assertIn("note.md", tree)
+        self.assertNotIn("memory/logs/2026-10-01-mia.md", tree)
+        self.assertIn(
+            "2026-10-01-mia.md: waits until the old logs branch is deleted on the host "
+            "(skills/upgrade/SKILL.md section 11)",
+            self.sync("status").stdout,
+        )
+        self.assertIn("push hold root memory/logs/2026-10-01-mia.md v0 logs", self.sync_log())
+        run(["git", "--git-dir", str(bare), "branch", "-D", "logs"], env=self.env, check=True)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+
+    def test_logs_wait_when_an_old_copy_pushes_the_logs_branch_back(self):
+        # logsfix (68): after the branch was deleted, fetch --prune left this clone with no
+        # logs ref. An old copy pushes logs back: the push still asks the host and holds.
+        # Offline counts as there. A repo with no v0 history asks no one. Run with /bin/bash
+        # (3.2 on macOS): there a failed host check once ended the check with no answer.
+        bare = self.seed_origin()
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+
+        def push(env):
+            return run([shell, str(SYNC / "sync.sh"), "push"], env=env, cwd=self.company)
+
+        real_git = shutil.which("git")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        shim = bindir / "git"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            "  *' ls-remote '*) [ -z \"${FAKE_OFFLINE:-}\" ] || exit 128 ;;\n"
+            "esac\n"
+            f"exec '{real_git}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        offline = env.copy()
+        offline["FAKE_OFFLINE"] = "1"
+        logs = self.company / "memory" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-10-01-mia.md").write_text("a log with no v0 history\n")
+        result = push(offline)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+        # The upgrade landed (memory/logs-archive/ on main), and branch logs is gone here.
+        arc = self.company / "memory" / "logs-archive"
+        arc.mkdir(parents=True)
+        (arc / "2026-09-01-mia.md").write_text("an old log\n")
+        self.git("add", "memory/logs-archive")
+        self.git("commit", "-q", "-m", "Upgrade to v1")
+        self.git("push", "-q", "origin", "HEAD:main")
+        old = self.tmp / "old-logs"
+        run(["git", "init", "-q", "-b", "logs", str(old)], env=self.env, check=True)
+        (old / "2026-10-02-mia.md").write_text("from an old copy\n")
+        run(["git", "-C", str(old), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(old), "commit", "-q", "-m", "Logs: old copy"], env=self.env, check=True)
+        run(["git", "-C", str(old), "push", "-q", str(bare), "logs"], env=self.env, check=True)
+        self.assertEqual(self.git("for-each-ref", "refs/remotes/origin/logs", "refs/heads/logs").stdout, "")
+        (logs / "2026-10-02-mia.md").write_text("v1 log, same person and day\n")
+        result = push(env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
+        self.assertIn("push hold root memory/logs/2026-10-02-mia.md v0 logs", self.sync_log())
+        run(["git", "--git-dir", str(bare), "branch", "-D", "logs"], env=self.env, check=True)
+        result = push(offline)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
+        result = push(env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
+
+    def test_offline_push_commits_here_and_status_counts_it(self):
+        # B55: the host API is unreachable, so the identity check cannot run. The notes
+        # are still committed here; nothing goes to the host until a push that can check.
+        bare = self.seed_origin()
+        (self.host / "offline").write_text("")
+        (self.company / "notes.md").write_text("an offline note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("offline: changes are saved here", result.stderr)
+        self.assertIn("notes.md", self.git("show", "--name-only", "--format=", "HEAD").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        heads = run(["git", "--git-dir", str(bare), "for-each-ref", "--format=%(refname)", "refs/heads/sync"],
+                    env=self.env).stdout
+        self.assertEqual(heads, "")
+        self.assertIn("push offline root committed here, not sent", self.sync_log())
+        status = self.sync("status")
+        self.assertIn("root: 1 change here is not on the host yet", status.stdout)
+        self.assertIn("last error: offline", status.stdout)
+        # Back online: the same commit goes up, and the error clears.
+        (self.host / "offline").unlink()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("notes.md", self.tree(SEAT_REF))
+        status = self.sync("status")
+        self.assertNotIn("not on the host yet", status.stdout)
+        self.assertIn("last error: none", status.stdout)
+
+    def test_offline_push_is_one_line_for_the_push_and_one_for_the_pull(self):
+        # Round 4: offline, push prints one line for the push and one for the pull, not
+        # one line per repo.
+        self.seed_origin()
+        area = self.company / "areas" / "lab"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "README.md").write_text("lab\n")
+        run(["git", "-C", str(area), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        for repo in (self.company, area):
+            run(["git", "-C", str(repo), "remote", "remove", "origin"], env=self.env, check=False)
+            run(["git", "-C", str(repo), "remote", "add", "origin", str(self.tmp / "gone.git")],
+                env=self.env, check=True)
+        (self.host / "offline").write_text("")
+        (self.company / "notes.md").write_text("an offline note\n")
+        result = self.sync("push")
+        lines = [line for line in result.stderr.splitlines() if line.strip()]
+        offline = [line for line in lines if line.startswith("offline:")]
+        pulls = [line for line in lines if line.startswith("pull failed for")]
+        self.assertEqual(len(offline), 1, result.stderr)
+        self.assertEqual(len(pulls), 1, result.stderr)
+        self.assertIn("root", pulls[0])
+        self.assertIn("area:lab", pulls[0])
+
+    def test_engine_without_network_keeps_the_notes_out_and_says_offline(self):
+        # Round 4: the push check's engine has no network. Nothing is committed (fail
+        # closed), nothing is held, and the line says the notes go up when online.
+        self.seed_origin()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        (self.company / "notes.md").write_text("ENGINE-OFFLINE a note\n")
+        result = self.sync("push")
+        self.assertIn("offline: these notes stay here and go up when you are online", result.stderr)
+        self.assertNotIn("engine check failed", result.stdout + result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), head)
+        self.assertTrue((self.company / "notes.md").exists())
+        self.assertIn("?? notes.md", self.git("status", "--porcelain").stdout)
+        status = self.sync("status")
+        self.assertNotIn("notes.md", status.stdout)
+        self.assertIn("last error: offline", status.stdout)
+        # Online again: the same notes are checked and go up.
+        (self.company / "notes.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("notes.md", self.tree(SEAT_REF))
+
+    def test_a_deleted_held_file_leaves_the_list(self):
+        # B26: status and push drop a held file that is gone, so no session reports it.
+        self.seed_origin()
+        (self.company / "habits.md").write_text("WORKSPACE-ME how I like to work\n")
+        (self.company / "keep.md").write_text("WORKSPACE-ME still here\n")
+        (self.company / "ok.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertIn("habits.md: belongs in the workspace", self.sync("status").stdout)
+        (self.company / "habits.md").unlink()
+        # An entry from a repo push does not visit, like the deleted area note in rehearsal 2.
+        held = self.home / ".config" / "acme-os" / "state" / "held.json"
+        data = json.loads(held.read_text())
+        data["files"].append({"repo": "area:marketing", "path": "notes/ad-tool-login.md", "reason": "secret: github-pat"})
+        held.write_text(json.dumps(data))
+        status = self.sync("status").stdout
+        self.assertNotIn("habits.md", status)
+        self.assertNotIn("ad-tool-login.md", status)
+        self.assertIn("keep.md: belongs in the workspace", status)
+        self.assertIn("held gone root habits.md", self.sync_log())
+        (self.company / "keep.md").unlink()
+        (self.company / "ok2.md").write_text("another shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertNotIn("keep.md", held.read_text())
+        self.assertIn("nothing held", self.sync("status").stdout)
+
+    def test_a_proposed_rules_file_is_held_then_dropped_once_merged(self):
+        # A rules file changed here is held: it goes by propose, on its own pull request.
+        # Once that merges, main has the same text, and pull drops the local copy.
+        bare = self.seed_origin()
+        skill = self.company / "skills" / "invoice" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        skill.write_text("v2 proposed\n")
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("note.md", self.tree(SEAT_REF))
+        self.assertNotIn("skills/invoice/SKILL.md", run(
+            ["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH], env=self.env).stdout)
+        self.assertIn("skills/invoice/SKILL.md: rules file: propose it with sync.sh propose", self.sync("status").stdout)
+        # The rules pull request merges on the host (and the sync one too).
+        self.dana_changes(bare, {"skills/invoice/SKILL.md": "v2 proposed\n"})
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        self.assertEqual(skill.read_text(), "v2 proposed\n")
+        self.assertIn("nothing held", self.sync("status").stdout)
+
+    def test_two_computers_of_one_person_push_two_branches(self):
+        # One seat id per computer: each has its own branch and pull request.
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        (self.company / "a.md").write_text("from the laptop\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        second = self.tmp / "home2"
+        shutil.copytree(self.home / ".config", second / ".config")
+        (second / ".config" / "acme-os" / "seat").write_text("office-9f9f\n")
+        (second / ".config" / "acme-os" / "state" / "held.json").unlink()
+        desk = second / "acme"
+        run(["git", "clone", "-q", str(bare), str(desk)], env=self.env, check=True)
+        (desk / "b.md").write_text("from the desk\n")
+        env = base_env(second, desk, self.host)
+        env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+        result = run(["bash", str(SYNC / "sync.sh"), "push"], env=env, cwd=desk)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env).stdout
+        self.assertIn("refs/heads/sync/mia/" + SEAT, heads)
+        self.assertIn("refs/heads/sync/mia/office-9f9f", heads)
+        self.assertNotIn("b.md", self.tree(SEAT_REF))
+        self.assertIn("b.md", self.tree("refs/heads/sync/mia/office-9f9f"))
+
+    def test_status_counts_changes_not_on_the_host(self):
+        self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        self.git("remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        (self.company / "a.md").write_text("a note\n")
+        self.sync("push")
+        self.assertIn("root: 1 change here is not on the host yet", self.sync("status").stdout)
+
+    def test_a_squash_merge_is_refused_and_the_copy_takes_main(self):
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        (self.company / "a.md").write_text("a note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        # Someone squashes the sync pull request on the web: same text, a new commit.
+        self.dana_changes(bare, {"a.md": "a note\n"})
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("squash merge", result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env).stdout
+        self.assertNotIn("sync/mia", heads)
+        self.assertIn("squash merge", self.sync("status").stdout)
+        (self.company / "b.md").write_text("next note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "b.md\n")
+
+    def test_the_same_text_from_another_seat_is_not_a_squash(self):
+        # B72: two seats send the same catch-up file. The other seat's commit merged first.
+        # This seat drops its own commit quietly: no squash error, and a log line.
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        (self.company / "a.md").write_text("a note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"a.md": "a note\n"}, msg="Sync: notes\n\nSync-Seat: office-7c7c")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("squash", result.stdout + result.stderr)
+        self.assertNotIn("squash merge", self.sync("status").stdout)
+        self.assertIn("last error: none", self.sync("status").stdout)
+        self.assertIn("pull same-text root", self.sync_log())
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        # A real squash of this seat's pull request keeps this seat's line: still an error.
+        (self.company / "b.md").write_text("b note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"b.md": "b note\n"}, msg="sync: mia (%s) (#3)\n\n* Sync: notes\n\nSync-Seat: %s" % (SEAT, SEAT))
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("squash merge", result.stderr)
+
+    def host_show(self, ref, path):
+        return run(["git", "--git-dir", str(self.tmp / "origin.git"), "show", f"{ref}:{path}"],
+                   env=self.env).stdout
+
+    def squashed_seat(self):
+        # A note pushed from this seat, squashed on the web, then a teammate's change to
+        # another file merged: main moved past the squash.
+        bare = self.shared_seed()
+        (self.company / "a.md").write_text("a note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"a.md": "a note\n"})
+        self.dana_changes(bare, {"other.md": "other by dana\n"})
+        (self.company / "mine.md").write_text("my next note\n")
+        return bare
+
+    def test_after_a_squash_a_teammates_note_survives_a_pull_then_a_push(self):
+        # Grok r1 P0: a mixed reset left other.md's old text here, and the push sent it back.
+        bare = self.squashed_seat()
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("squash merge", result.stderr)
+        self.assertIn("your other changes are kept", result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "?? mine.md\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+        self.assertEqual(self.host_show(SEAT_REF, "other.md"), "other by dana\n")
+
+    def test_a_squash_found_at_push_keeps_the_teammates_note(self):
+        bare = self.squashed_seat()
+        result = self.sync("push")
+        self.assertIn("squash merge", result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+
+    def test_a_failed_squash_heal_changes_and_sends_nothing(self):
+        bare = self.squashed_seat()
+        before = self.git("rev-parse", "HEAD").stdout
+        branch = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("push", env=dict(self.env, OS_SYNC_SQUASH_FAIL="1"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not take main. Nothing was changed or pushed", result.stderr)
+        self.assertNotIn("this copy now has main", result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, before)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, branch)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "?? mine.md\n")
+        self.assertIn("could not take main", self.sync("status").stdout)
+
+    def test_a_failed_squash_heal_sets_nothing_aside(self):
+        # Grok r2 P2: the set-aside ran before the reset, so a failed reset left the file
+        # set aside and dropped while the line said nothing was changed.
+        bare = self.squashed_seat()
+        (self.company / "other.md").write_text("other mine\n")
+        result = self.sync("push", env=dict(self.env, OS_SYNC_SQUASH_FAIL="1"))
+        self.assertIn("Nothing was changed or pushed", result.stderr)
+        self.assertNotIn("set aside", result.stdout + result.stderr)
+        self.assertEqual((self.company / "other.md").read_text(), "other mine\n")
+        self.assertEqual((self.company / "mine.md").read_text(), "my next note\n")
+        self.assertNotIn("other.md", self.reapply_list())
+        self.assertEqual(sorted(self.git("status", "--porcelain").stdout.splitlines()),
+                         [" M other.md", "?? mine.md"])
+        self.assertEqual(list((self.home / ".config" / "acme-os" / "state").glob("squash.*")), [])
+
+    def test_a_squash_heal_sets_a_both_changed_file_aside_after_taking_main(self):
+        bare = self.squashed_seat()
+        (self.company / "other.md").write_text("other mine\n")
+        result = self.sync("pull", "--full")
+        self.assertIn("this copy now has main", result.stderr)
+        self.assertIn("other.md: changed on the host while you worked", result.stdout)
+        self.assertEqual((self.company / "other.md").read_text(), "other by dana\n")
+        self.assertIn("other.md", self.reapply_list())
+        held = json.loads((self.home / ".config" / "acme-os" / "state" / "held.json").read_text())
+        mine = [f["mine"] for f in held["files"] if f["path"] == "other.md"]
+        self.assertEqual(Path(mine[0]).read_text(), "other mine\n")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+
+    def test_a_seat_branch_left_after_a_squash_goes_at_the_next_push(self):
+        # Grok r2 P2: when the heal could not delete sync/<me>/<seat>, every later push was
+        # refused (not a fast-forward). Now the heal names it and the next push deletes it.
+        bare = self.squashed_seat()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\n"
+                        "while read old new ref; do\n"
+                        "  case $new in 0000000000000000000000000000000000000000)\n"
+                        "    if [ -f refuse-delete ]; then rm -f refuse-delete; echo refused >&2; exit 1; fi ;;\n"
+                        "  esac\n"
+                        "done\n")
+        hook.chmod(0o755)
+        (bare / "refuse-delete").write_text("")
+        old = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("pull", "--full")
+        self.assertIn("this copy now has main", result.stderr)
+        self.assertIn(f"could not delete the branch {SEAT_BRANCH} on the host", result.stderr)
+        self.assertFalse((bare / "refuse-delete").exists())
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, old)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", SEAT_BRANCH],
+                             env=self.env).stdout, "mine.md\n")
+        # The new branch starts from main: the squashed commit is not on it.
+        self.assertNotEqual(run(["git", "--git-dir", str(bare), "merge-base", "--is-ancestor",
+                                 old.strip(), SEAT_REF], env=self.env).returncode, 0)
+
+    def test_a_seat_branch_with_work_main_lacks_is_never_deleted(self):
+        bare = self.squashed_seat()
+        # Someone put a commit on this computer's branch that main does not have.
+        other = self.tmp / "other-clone"
+        run(["git", "clone", "-q", "-b", SEAT_BRANCH, str(bare), str(other)], env=self.env, check=True)
+        (other / "extra.md").write_text("not on main\n")
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "-c", "user.name=x", "-c", "user.email=x@invalid",
+             "commit", "-q", "-m", "extra"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", SEAT_BRANCH], env=self.env, check=True)
+        tip = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        self.sync("pull", "--full")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, tip)
+
+    def test_names_with_an_em_dash_or_an_emoji(self):
+        # Grok r1 P1: diff --name-only quoted these, so a both-sides change was missed.
+        dash, emoji = "Supplier call \u2014 notes.md", "Ideas \U0001F4A1.md"
+        bare = self.seed_origin()
+        for name in (dash, emoji):
+            (self.company / name).write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "v1")
+        self.git("push", "-q", "origin", "main")
+        self.dana_changes(bare, {dash: "v1\ndana\n", emoji: "v1\ndana\n"})
+        for name in (dash, emoji):
+            (self.company / name).write_text("v1\nmine\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.count("changed on the host while you worked"), 2)
+        self.assertNotIn("Ask the admin", result.stdout + result.stderr)
+        for name in (dash, emoji):
+            self.assertEqual((self.company / name).read_text(), "v1\ndana\n")
+        listing = self.reapply_list()
+        self.assertIn(dash, listing)
+        self.assertIn(emoji, listing)
+
+    def test_an_emoji_name_is_no_false_squash(self):
+        # Quoted, both sides read as missing and looked equal: a squash that was not one.
+        emoji = "Ideas \U0001F4A1.md"
+        bare = self.seed_origin()
+        (self.company / emoji).write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "v1")
+        self.git("push", "-q", "origin", "main")
+        (self.company / emoji).write_text("v1\nmine\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {emoji: "v1\ndana\n"})
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("squash", result.stderr)
+        self.assertEqual((self.company / emoji).read_text(), "v1\ndana\n")
+        mine = re.search(r"mine: (.+)", self.reapply_list()).group(1)
+        self.assertEqual(Path(mine).read_text(), "v1\nmine\n")
+
+    def open_merge(self):
+        # A run died inside its own merge: MERGE_HEAD and conflict lines are left.
+        bare = self.shared_seed()
+        (self.company / "shared.md").write_text("1\n2\n3\nmine\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.dana_changes(bare, {"shared.md": "1\n2\n3\ndana\n"})
+        self.git("fetch", "-q", "origin")
+        self.git("merge", "-q", "--no-edit", "origin/main", check=False)
+        self.assertEqual(self.git("rev-parse", "-q", "--verify", "MERGE_HEAD", check=False).returncode, 0)
+        self.assertIn("<<<<<<< ", (self.company / "shared.md").read_text())
+        return bare
+
+    def test_a_merge_left_open_is_undone_before_anything(self):
+        bare = self.open_merge()
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertIn("pull merge-abort root", self.sync_log())
+        self.assertNotIn("<<<<<<<", self.host_show(SEAT_REF, "shared.md"))
+        self.assertEqual(self.host_show(SEAT_REF, "shared.md"), "1\n2\n3\ndana\n")
+        mine = re.search(r"mine: (.+)", self.reapply_list()).group(1)
+        self.assertEqual(Path(mine).read_text(), "1\n2\n3\nmine\n")
+
+    def test_a_merge_that_cannot_be_undone_sends_nothing(self):
+        bare = self.open_merge()
+        branch = run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout
+        result = self.sync("push", env=dict(self.env, OS_SYNC_ABORT_FAIL="1"))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("a merge stopped halfway here and could not be undone", result.stderr)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "rev-parse", SEAT_REF], env=self.env).stdout, branch)
+
+    def test_a_file_with_conflict_lines_is_never_committed(self):
+        self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        (self.company / "both.md").write_text("<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> origin/main\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        tree = self.tree(SEAT_REF)
+        self.assertIn("ok.md", tree)
+        self.assertNotIn("both.md", tree)
+        self.assertIn("both.md: conflict lines", self.sync("status").stdout)
+
+    def upgraded_on_branch(self):
+        # The admin's folder after an upgrade on a host: on upgrade/v1, pushed, its pull
+        # request open (B52).
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "upgrade/v1")
+        (self.company / "v1.md").write_text("v1 rules\n")
+        self.git("add", "v1.md")
+        self.git("commit", "-q", "-m", "Upgrade to v1")
+        self.git("push", "-q", "origin", "upgrade/v1")
+        return bare
+
+    def test_pull_waits_on_an_upgrade_branch_until_it_merges(self):
+        self.upgraded_on_branch()
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("this folder is on upgrade/v1 until the upgrade pull request merges", result.stderr)
+        self.assertNotIn("Ask the admin", result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "upgrade/v1")
+
+    def test_pull_puts_the_folder_back_on_main_once_the_upgrade_merged(self):
+        bare = self.upgraded_on_branch()
+        # The upgrade put the check tools on main first; then the admin merged the PR.
+        host = self.tmp / "host-merge"
+        run(["git", "clone", "-q", str(bare), str(host)], env=self.env, check=True)
+        (host / ".github").mkdir()
+        (host / ".github" / "review.conf").write_text("engine=fake\n")
+        run(["git", "-C", str(host), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(host), "commit", "-q", "-m", "checks on main"], env=self.env, check=True)
+        run(["git", "-C", str(host), "merge", "-q", "--no-ff", "--no-edit", "origin/upgrade/v1"], env=self.env, check=True)
+        run(["git", "-C", str(host), "push", "-q", "origin", "main"], env=self.env, check=True)
+        # team-on wrote the same file here meanwhile.
+        (self.company / ".github").mkdir()
+        (self.company / ".github" / "review.conf").write_text("engine=fake\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        self.assertIn("pull ok root back on main from upgrade/v1", self.sync_log())
+
+    def test_pull_prunes_a_branch_the_host_deleted(self):
+        # Round 4 (47): pull fetches with --prune, so a stale origin/rules/* ref goes.
+        self.seed_origin()
+        self.git("update-ref", "refs/remotes/origin/rules/ada/offboard-mia", "HEAD")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotEqual(
+            self.git("rev-parse", "-q", "--verify", "origin/rules/ada/offboard-mia", check=False).returncode, 0
+        )
+
+    def join_ready(self):
+        # A joining teammate's clone: the people page on main, an own workspace repo.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("users/\n")
+        self.git("add", "people/Mia.md", ".gitignore")
+        self.git("commit", "-q", "-m", "people")
+        self.git("push", "-q", "origin", "main")
+        ws = self.company / "users" / "mia"
+        ws.mkdir(parents=True)
+        run(["git", "-C", str(ws), "init", "-q", "-b", "main"], env=self.env, check=True)
+        answers = self.tmp / "join-answers"
+        answers.write_text(f"root={self.company}\nme=mia\nareas=\n")
+        return bare, answers
+
+    def join(self, answers):
+        env = self.env.copy()
+        env["OS_JOBS_DIR"] = str(self.tmp / "jobs")
+        env["OS_JOBS_LOAD"] = "0"
+        return run(["bash", str(ROOT / "template" / "skills" / "add-teammate" / "join.sh"), "--answers", str(answers)],
+                   env=env, cwd=self.company)
+
+    def test_join_on_a_mac_starts_the_jobs(self):
+        # B73: launchd reads ~/Library/LaunchAgents only at login. On macOS join starts the
+        # jobs itself (bootout first, then bootstrap), unless OS_JOBS_LOAD=0. A fake
+        # launchctl records the calls: nothing is loaded for real.
+        if os.uname().sysname != "Darwin":
+            self.skipTest("macOS only")
+        bare, answers = self.join_ready()
+        (self.company / "skills").symlink_to(ROOT / "template" / "skills")
+        with open(self.company / ".git" / "info" / "exclude", "a") as fh:
+            fh.write("/skills\n")
+        fake = self.tmp / "fakebin"
+        fake.mkdir()
+        calls = self.tmp / "launchctl.log"
+        (fake / "launchctl").write_text('#!/bin/bash\nprintf "%%s\\n" "$*" >> "%s"\n' % calls)
+        (fake / "launchctl").chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = "%s:%s" % (fake, env["PATH"])
+        env.pop("OS_JOBS_DIR", None)
+        env.pop("OS_JOBS_LOAD", None)
+        join = ["bash", str(ROOT / "template" / "skills" / "add-teammate" / "join.sh"), "--answers", str(answers)]
+        result = run(join, env=env, cwd=self.company)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        uid = str(os.getuid())
+        agents = self.home / "Library" / "LaunchAgents"
+        log = calls.read_text()
+        for job in ("pull", "push", "helper"):
+            label = "com.osfoundation.acme." + job
+            self.assertIn("bootout gui/%s/%s\n" % (uid, label), log)
+            self.assertIn("bootstrap gui/%s %s\n" % (uid, agents / (label + ".plist")), log)
+            self.assertIn("sync-jobs: started " + label, result.stdout)
+        self.assertLess(log.index("bootout gui/%s/com.osfoundation.acme.pull" % uid),
+                        log.index("bootstrap gui/%s %s" % (uid, agents / "com.osfoundation.acme.pull.plist")))
+        # OS_JOBS_LOAD=0 writes the jobs only.
+        calls.unlink()
+        env["OS_JOBS_LOAD"] = "0"
+        result = run(join, env=env, cwd=self.company)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(calls.exists())
+
+    def host_page(self, bare, ref):
+        return run(["git", "--git-dir", str(bare), "show", f"{ref}:people/Mia.md"], env=self.env).stdout
+
+    def test_join_terms_survive_the_next_push(self):
+        # logsfix (54, B25): push rebuilds sync/<me> from main plus local changes. The
+        # join's terms must be a local change too, or the next push drops them.
+        bare, answers = self.join_ready()
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("terms: proposed", result.stdout)
+        self.assertRegex(self.host_page(bare, SEAT_BRANCH), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertRegex((self.company / "people" / "Mia.md").read_text(), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        (self.company / "note.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        page = self.host_page(bare, SEAT_BRANCH)
+        self.assertRegex(page, r"(?m)^terms_accepted: \"?\d{4}-", "the push dropped the terms")
+        self.assertIn("note.md", self.tree(SEAT_REF))
+        # The pull request merges: main has the terms. The local page is clean again.
+        run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", SEAT_REF], env=self.env, check=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.assertRegex(self.host_page(bare, "main"), r"(?m)^terms_accepted: \"?\d{4}-")
+        self.assertEqual(self.git("status", "--porcelain", "people").stdout, "")
+
+    def host_merge(self, bare, branch):
+        # The host merges a pull request with a merge commit, as auto-merge does.
+        hm = self.tmp / "host-merge"
+        if hm.exists():
+            shutil.rmtree(hm)
+        run(["git", "clone", "-q", str(bare), str(hm)], env=self.env, check=True)
+        run(["git", "-C", str(hm), "merge", "-q", "--no-ff", "-m", "Merge pull request", "origin/" + branch],
+            env=self.env, check=True)
+        run(["git", "-C", str(hm), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
+
+    def test_join_commit_is_the_persons(self):
+        # B54: the terms commit names the person, not the OS.
+        bare, answers = self.join_ready()
+        for key in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+            self.env.pop(key, None)
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        author = run(["git", "--git-dir", str(bare), "log", "-1", "--grep=^Join: accept terms",
+                      "--format=%an <%ae>|%s", SEAT_REF], env=self.env).stdout.strip()
+        self.assertEqual(author, "mia <mia.member@acme.test>|Join: accept terms")
+
+    def test_a_many_file_commit_names_every_file(self):
+        # B54: one commit for three files says so, and lists each file's line.
+        self.seed_origin()
+        for name in ("one.md", "two.md", "three.md"):
+            (self.company / name).write_text(f"a note in {name}\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        body = self.git("log", "-1", "--format=%B").stdout
+        n = len(re.findall(r"(?m)^- ", body))
+        self.assertGreaterEqual(n, 3)
+        self.assertEqual(body.splitlines()[0], f"Update {n} files")
+        for name in ("one.md", "two.md", "three.md"):
+            self.assertRegex(body, rf"(?m)^- {re.escape(name)}: update {re.escape(name)}$")
+        self.assertIn("Sync-Seat: " + SEAT, body)
+
+    def test_join_then_push_before_pull(self):
+        # B46: the terms pull request merged on the host, and the next push runs before
+        # any pull. Push takes main first: nothing new goes up, nothing fails.
+        bare, answers = self.join_ready()
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.host_merge(bare, SEAT_BRANCH)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("push fail", self.sync_log())
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+        self.assertNotIn("not on the host yet", self.sync("status").stdout)
+
+    def test_rejoin_after_a_push_never_checks_out_over_the_folder(self):
+        # logsfix (55, B29): the host's sync/<me> holds a pushed note, and the same note is
+        # untracked here on main. A join that must propose the terms again still works.
+        bare, answers = self.join_ready()
+        (self.company / "note.md").write_text("a shop note\n")
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.assertIn("note.md", self.tree(SEAT_REF))
+        self.assertNotRegex(self.host_page(bare, SEAT_BRANCH), r"(?m)^terms_accepted: \"?\d")
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("would be overwritten", result.stderr)
+        self.assertIn("terms: proposed", result.stdout)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertEqual((self.company / "note.md").read_text(), "a shop note\n")
+        tree = self.tree(SEAT_REF)
+        self.assertIn("note.md", tree)
+        self.assertRegex(self.host_page(bare, SEAT_BRANCH), r"(?m)^terms_accepted: \"?\d{4}-")
+
+    def test_push_and_pull_leave_no_temp_files(self):
+        # logsfix (57): the nightly job runs push and pull every day. Each run must leave
+        # the temp folder as it found it, or a person's temp folder fills over months.
+        bare, answers = self.join_ready()
+        tmpdir = self.tmp / "tmpdir"
+        tmpdir.mkdir()
+        self.env["TMPDIR"] = str(tmpdir)
+        # macOS mktemp ignores TMPDIR. This shim behaves like GNU mktemp, so every temp file
+        # a script makes is counted here, on any system.
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        real = shutil.which("mktemp")
+        (shim / "mktemp").write_text(
+            "#!/bin/sh\n"
+            f'if [ $# -eq 0 ]; then exec {real} "${{TMPDIR:-/tmp}}/tmp.XXXXXXXX"; fi\n'
+            f'if [ $# -eq 1 ] && [ "$1" = -d ]; then exec {real} -d "${{TMPDIR:-/tmp}}/tmp.XXXXXXXX"; fi\n'
+            f'exec {real} "$@"\n'
+        )
+        (shim / "mktemp").chmod(0o755)
+        self.env["PATH"] = f"{shim}{os.pathsep}{self.env['PATH']}"
+        result = self.join(answers)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(sorted(os.listdir(tmpdir)), [], "join left temp files")
+        for n in range(3):
+            (self.company / f"note-{n}.md").write_text(f"a shop note {n}\n")
+            result = self.sync("push")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            run(["git", "--git-dir", str(bare), "update-ref", "refs/heads/main", SEAT_REF], env=self.env, check=True)
+            for args in (("pull",), ("pull", "--full"), ("status",)):
+                result = self.sync(*args)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # A failed push (no host) cleans up too.
+        self.git("remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        (self.company / "note-x.md").write_text("one more\n")
+        self.sync("push")
+        self.sync("pull", "--full")
+        self.assertEqual(sorted(os.listdir(tmpdir)), [], "push or pull left temp files")
+
+    def test_a_good_run_clears_the_last_error_but_never_its_own(self):
+        # Round 2 (last error kept): a pull or push that went through for every repo
+        # clears the last error, a pull's or a push's. Push takes main first, so a good
+        # push is a good pull too. An error this same run set stays.
+        script = (
+            'source "$1/lib.sh"; SYNC_HELD="$2"; sync_mktemp() { mktemp; }; '
+            '[ -z "$3" ] || SYNC_RUN_ERROR=1; sync_clear_error; jq -r .last_error "$2"'
+        )
+        held = self.tmp / "held.json"
+        pull_err = "pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."
+        for before, this_run, after in [
+            (pull_err, "", ""),
+            ("auto-merge is off on acme-os: pull request 1 is open but will not merge by itself", "", ""),
+            ("offline", "", ""),
+            ("", "", ""),
+            (pull_err, "1", pull_err),
+        ]:
+            held.write_text(json.dumps({"files": [], "last_error": before}))
+            out = run(["bash", "-c", script, "x", str(SYNC), str(held), this_run], env=self.env)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(out.stdout.strip(), after)
+
+    def test_area_drafts_and_logs_are_area_work(self):
+        script = 'source "$1/lib.sh"; source "$1/push.sh"; sync_not_workspace_only "$2" "$3"'
+
+        def exempt(kind, path):
+            return run(["bash", "-c", script, "x", str(SYNC), kind, path], env=self.env).returncode == 0
+
+        self.assertTrue(exempt("area", "drafts/spring-post.md"))
+        self.assertTrue(exempt("area", "memory/logs/2026-10-28-mia.md"))
+        self.assertTrue(exempt("root", "memory/logs/2026-10-28-mia.md"))
+        self.assertFalse(exempt("root", "drafts/spring-post.md"))
+        self.assertFalse(exempt("area", "notes/habits.md"))
+        self.assertFalse(exempt("workspace", "memory/logs/2026-10-28-mia.md"))
+
+    def old_sync(self):
+        # next/v1's own sync code, as a seat made before this change runs it.
+        old = self.tmp / "old"
+        if not old.exists():
+            data = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "origin/next/v1",
+                                   "template/skills"], capture_output=True, check=True).stdout
+            import io
+            import tarfile
+            with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+                tar.extractall(old, filter="tar")
+        return old / "template" / "skills" / "sync" / "sync.sh"
+
+    def test_a_seat_made_by_the_old_code_moves_on_its_first_pull_and_push(self):
+        if run(["git", "-C", str(ROOT), "rev-parse", "-q", "--verify", "origin/next/v1"]).returncode != 0:
+            self.skipTest("origin/next/v1 is not fetched")
+        bare = self.seed_origin()
+        skill = self.company / "skills" / "invoice" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("v1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        (self.home / ".config" / "acme-os" / "seat").unlink()
+        old = self.old_sync()
+        # The old code: the note goes up on sync/mia, and stays here as a loose copy.
+        (self.company / "note.md").write_text("a shop note\n")
+        (self.company / "draft.md").write_text("waiting on its pull request\n")
+        skill.write_text("v2 proposed\n")
+        result = run(["bash", str(old), "push"], env=self.env, cwd=self.company)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertIn("note.md", run(["git", "--git-dir", str(bare), "ls-tree", "-r", "--name-only",
+                                      "refs/heads/sync/mia"], env=self.env).stdout)
+        # The host merges note.md (and the rules file, by its own pull request); the old
+        # pull request stays open, empty, with draft.md not merged yet.
+        self.dana_changes(bare, {"note.md": "a shop note\n", "skills/invoice/SKILL.md": "v2 proposed\n"})
+        (self.host / "open-body.txt").write_text("These are mia's notes from sync.\n")
+        (self.host / "open-head.txt").write_text("sync/mia")
+        # The new code's first pull drops the copies main has and keeps real work.
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        self.assertEqual(self.git("status", "--porcelain").stdout, "?? draft.md\n")
+        self.assertEqual((self.company / "note.md").read_text(), "a shop note\n")
+        # The first push makes the seat, closes the old pull request, deletes sync/mia
+        # (git cannot hold sync/mia and sync/mia/<seat> at once) and sends draft.md.
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        seat = (self.home / ".config" / "acme-os" / "seat").read_text().strip()
+        self.assertRegex(seat, r"^[a-z0-9-]+-[0-9a-f]{4}$")
+        self.assertEqual((self.host / "closed.txt").read_text(), "origin 1\n")
+        heads = run(["git", "ls-remote", "--heads", str(bare)], env=self.env).stdout
+        self.assertNotIn("refs/heads/sync/mia\n", heads)
+        self.assertIn(f"refs/heads/sync/mia/{seat}", heads)
+        self.assertEqual(run(["git", "--git-dir", str(bare), "diff", "--name-only", "main", f"sync/mia/{seat}"],
+                             env=self.env).stdout, "draft.md\n")
+        self.assertIn("push removed old branch root sync/mia", self.sync_log())
+
+    def test_pull_leaves_own_sync_branch_once_pushed(self):
+        # B14: join left the clone on sync/mia. Push rebuilt that branch on the host.
+        bare = self.seed_origin()
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "README.md").write_text("seed\nterms accepted\n")
+        self.git("commit", "-q", "-am", "Join: accept terms")
+        self.git("push", "-q", "origin", "sync/mia")
+        other = self.tmp / "other"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / "README.md").write_text("seed\nterms accepted\n")
+        run(["git", "-C", str(other), "commit", "-q", "-am", "rebuilt"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "-f", "origin", "HEAD:sync/mia"], env=self.env, check=True)
+        run(["git", "-C", str(other), "reset", "-q", "--hard", "origin/main"], env=self.env, check=True)
+        (other / "news.md").write_text("from main\n")
+        run(["git", "-C", str(other), "add", "news.md"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "news"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "HEAD:main"], env=self.env, check=True)
+        (self.company / "scratch.md").write_text("not committed yet\n")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertTrue((self.company / "news.md").exists())
+        self.assertEqual((self.company / "scratch.md").read_text(), "not committed yet\n")
+        log = self.sync_log()
+        self.assertIn("back on main from sync/mia", log)
+        self.assertNotIn("not fast-forward", log)
+
+    def test_pull_brings_unpushed_work_on_the_old_branch_back_to_main(self):
+        # Older join code left a clone on sync/mia with a commit the host never got. The
+        # new pull goes back to main and keeps the file as a change; the next push sends it.
+        bare = self.seed_origin()
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-b", "sync/mia")
+        (self.company / "draft.md").write_text("only here\n")
+        self.git("add", "draft.md")
+        self.git("commit", "-q", "-m", "local only")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").stdout.strip(), "main")
+        self.assertEqual((self.company / "draft.md").read_text(), "only here\n")
+        self.assertIn("back on main from sync/mia", self.sync_log())
+        self.assertEqual(self.sync("push").returncode, 0)
+        self.assertIn("draft.md", self.tree(SEAT_REF))
+
+    def test_failed_pull_says_why_and_status_shows_it(self):
+        # B19: a pull that cannot fetch was silent. Now it is one plain line and last_error.
+        bare = self.seed_origin()
+        moved = self.tmp / "away.git"
+        bare.rename(moved)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        lines = [l for l in result.stderr.splitlines() if l.startswith("pull failed for ")]
+        self.assertEqual(
+            lines,
+            ["pull failed for root: could not reach the host. Check the internet connection and sign-in, then run it again."],
+            result.stderr,
+        )
+        status = self.sync("status").stdout
+        self.assertIn("last error: pull failed for root: could not reach the host", status)
+        self.assertIn("pull fail root could not reach origin", self.sync_log())
+        # The next clean pull clears it.
+        moved.rename(bare)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("last error: none", self.sync("status").stdout)
+
+    def test_clean_pull_clears_a_push_error(self):
+        # Round 2: a pull that went through clears the last error, a push's too.
+        self.seed_origin()
+        script = 'source "$1/lib.sh"; sync_bind; sync_held_error "auto-merge is off on acme-os"'
+        run(["bash", "-c", script, "x", str(SYNC)], env=self.env, cwd=self.company, check=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.assertIn("last error: none", self.sync("status").stdout)
+
+    def v0_clone_after_upgrade(self, archive=False):
+        # v0: logs on branch logs, checked out at memory/logs/, ignored by main.
+        # archive=True: the upgrade layout since logsfix (58): memory/logs-archive/ plus
+        # the logs-archive tag on the host.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/memory/logs/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "v0 ignore")
+        self.git("push", "-q", "origin", "main")
+        self.git("worktree", "add", "-q", "--detach", "memory/logs")
+        logs = self.company / "memory" / "logs"
+        run(["git", "-C", str(logs), "checkout", "-q", "--orphan", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "rm", "-rfq", "."], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day one"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # The upgrade ran elsewhere: main now tracks memory/logs/ and no longer ignores it.
+        other = self.tmp / "upgrader"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / ".gitignore").write_text("")
+        moved = other / "memory" / ("logs-archive" if archive else "logs")
+        moved.mkdir(parents=True)
+        (moved / "2026-10-01-mia.md").write_text("day one\n")
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "Upgrade to v1"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        if archive:
+            run(["git", "-C", str(other), "tag", "-a", "logs-archive-2026-10-01", "origin/logs", "-m", "snapshot"],
+                env=self.env, check=True)
+            run(["git", "-C", str(other), "push", "-q", "origin", "logs-archive-2026-10-01"], env=self.env, check=True)
+        # On this clone, after the upgrade: a log commit not pushed yet, an edit, a new file.
+        (logs / "2026-10-02-mia.md").write_text("day two, committed only here\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: day two"], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\nand a later line\n")
+        (logs / "2026-10-03-mia.md").write_text("day three, untracked\n")
+        return bare, logs
+
+    def test_pull_moves_a_v0_logs_worktree_without_losing_a_log(self):
+        # Round 3 (30): the upgrade removed the worktree only where it ran.
+        bare, logs = self.v0_clone_after_upgrade()
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        self.assertNotIn(str(logs), self.git("worktree", "list").stdout)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout, self.git("rev-parse", "origin/main").stdout)
+        self.assertEqual((logs / "2026-10-01-mia.md").read_text(), "day one\nand a later line\n")
+        self.assertEqual((logs / "2026-10-02-mia.md").read_text(), "day two, committed only here\n")
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        # The unpushed log commit went to the host first.
+        log = run(["git", "--git-dir", str(bare), "log", "--format=%s", "logs"], env=self.env).stdout
+        self.assertIn("Logs: day two", log)
+        self.assertIn("pull v0-logs root worktree removed, 3 files kept as local changes, 0 beside", self.sync_log())
+        # The files are local changes now, so the next push sends them.
+        status = self.git("status", "--porcelain").stdout
+        self.assertIn("memory/logs/2026-10-01-mia.md", status)
+        self.assertIn("memory/logs/2026-10-03-mia.md", status)
+
+    def logs_clone(self, name):
+        # Another v0 teammate: a clone of the logs branch only.
+        path = self.tmp / name
+        run(["git", "clone", "-q", "--branch", "logs", str(self.tmp / "origin.git"), str(path)], env=self.env, check=True)
+        return path
+
+    def test_v0_logs_merge_when_the_host_logs_moved(self):
+        # logsfix (52, 53): someone else pushed to logs after the upgrade. The park merges
+        # the host's logs before its push, and the folder moves to the merged tip, so the
+        # copy holds both. A log pushed to the old branch after that comes in by catch-up
+        # as a local change, with one line; a second pull does not repeat it.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-05-noa.md").write_text("noa, after the upgrade\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: noa"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        host = run(["git", "--git-dir", str(bare), "log", "--format=%s", "logs"], env=self.env).stdout
+        self.assertIn("Logs: day two", host)
+        self.assertIn("Logs: noa", host)
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-01-mia.md").read_text(), "day one\nand a later line\n")
+        self.assertEqual((arc / "2026-10-02-mia.md").read_text(), "day two, committed only here\n")
+        self.assertEqual((arc / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        self.assertEqual((arc / "2026-10-05-noa.md").read_text(), "noa, after the upgrade\n")
+        self.assertEqual(list(logs.iterdir()) if logs.exists() else [], [])
+        self.assertNotIn("logs: ", result.stdout)
+        run(["git", "-C", str(noa), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env, check=True)
+        (noa / "2026-10-06-noa.md").write_text("noa, later still\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: noa later"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((arc / "2026-10-06-noa.md").read_text(), "noa, later still\n")
+        self.assertIn(
+            "logs: 1 files written to the old logs branch after the upgrade are now in memory/logs-archive/ in root. "
+            "The next push sends them.",
+            result.stdout,
+        )
+        self.assertIn("pull logs-catch-up root 1 files 0 beside", self.sync_log())
+        again = self.sync("pull", "--full")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("logs: ", again.stdout)
+
+    def test_a_bare_job_path_still_finds_the_tools(self):
+        # B70: launchd starts a job with PATH /usr/bin:/bin:/usr/sbin:/sbin. Tools in
+        # ~/.local/bin (claude) or Homebrew are found anyway; a missing one is named.
+        self.seed_origin()
+        bindir = self.home / ".local" / "bin"
+        bindir.mkdir(parents=True)
+        for tool in ("jq", "git"):
+            found = shutil.which(tool)
+            if found and not (bindir / tool).exists():
+                (bindir / tool).symlink_to(found)
+        claude = bindir / "claude"
+        claude.write_text('#!/bin/bash\nexec bash "%s"\n' % ENGINE)
+        claude.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        env["OS_SYNC_ENGINE"] = "claude -p"
+        pull = self.sync("pull", env=env)
+        self.assertEqual(pull.returncode, 0, pull.stdout + pull.stderr)
+        (self.company / "note.md").write_text("a shop note\n")
+        push = self.sync("push", env=env)
+        self.assertEqual(push.returncode, 0, push.stdout + push.stderr)
+        self.assertIn("note.md", self.tree(SEAT_REF))
+        # No claude anywhere: the push says so, and keeps the file here.
+        claude.unlink()
+        (self.company / "later.md").write_text("a later note\n")
+        push = self.sync("push", env=env)
+        self.assertNotEqual(push.returncode, 0)
+        status = self.sync("status", env=env).stdout
+        self.assertIn("last error: claude not found: install it, or run join again", status)
+        self.assertNotIn("could not reach the host", push.stdout + push.stderr + status)
+        self.assertTrue((self.company / "later.md").exists())
+        # Any tool sync needs: one plain line.
+        need = run(["bash", "-c", 'source "$1/lib.sh"; sync_need no-such-tool-b70', "x", str(SYNC)], env=self.env)
+        self.assertEqual(need.returncode, 1)
+        self.assertIn("no-such-tool-b70 not found: install it, or run join again", need.stderr)
+
+    def test_found_tool_dirs_go_before_the_system_dirs(self):
+        # r8: /usr/bin/git is Apple's stand-in when the command line tools are missing. The
+        # tool dirs go before the bare system dirs, as brew shellenv puts them, so the real
+        # git is the one used. With only the stand-in, sync says git is not installed.
+        self.seed_origin()
+        bindir = self.home / ".local" / "bin"
+        bindir.mkdir(parents=True)
+        mark = self.home / "git-used"
+        real_git = shutil.which("git")
+        (bindir / "git").write_text('#!/bin/bash\n: > "%s"\nexec "%s" "$@"\n' % (mark, real_git))
+        (bindir / "git").chmod(0o755)
+        found = shutil.which("jq")
+        if found:
+            (bindir / "jq").symlink_to(found)
+        env = self.env.copy()
+        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        pull = self.sync("pull", env=env)
+        self.assertEqual(pull.returncode, 0, pull.stdout + pull.stderr)
+        # The git sync used came from a tool dir (Homebrew's, or ~/.local/bin), not /usr/bin.
+        which = run(
+            ["bash", "-c", 'source "$1/lib.sh"; sync_path_add /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin"; '
+             'command -v git', "x", str(SYNC)],
+            env=env,
+        )
+        self.assertNotEqual(which.stdout.strip(), "/usr/bin/git")
+        self.assertTrue(mark.exists() or not which.stdout.startswith(str(bindir)))
+        order = run(
+            ["bash", "-c", 'source "$1/lib.sh"; sync_path_add "$2"; printf "%s" "$PATH"', "x", str(SYNC), str(bindir)],
+            env=env,
+        )
+        self.assertEqual(order.stdout, "%s:/usr/bin:/bin:/usr/sbin:/sbin" % bindir)
+        # Only the stand-in: one plain line, never "could not reach the host".
+        shim = self.tmp / "shim"
+        shim.mkdir()
+        (shim / "git").write_text(
+            "#!/bin/bash\n"
+            "echo 'xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools), "
+            "missing xcrun at: /Library/Developer/CommandLineTools/usr/bin/xcrun' >&2\nexit 1\n"
+        )
+        (shim / "git").chmod(0o755)
+        (bindir / "git").unlink()
+        env["PATH"] = "%s:/usr/bin:/bin:/usr/sbin:/sbin" % shim
+        pull = self.sync("pull", env=env)
+        self.assertNotEqual(pull.returncode, 0)
+        self.assertIn("git not installed: install the Xcode command line tools, or run join again", pull.stderr)
+        self.assertNotIn("could not reach the host", pull.stdout + pull.stderr)
+        # Low (r8): a missing tool also goes to sync.log and to status's last error.
+        self.assertIn("fail tool git not installed", self.sync_log())
+        status = self.sync("status", env=env)
+        self.assertIn("last error: git not installed: install the Xcode command line tools, or run join again",
+                      status.stdout, status.stdout + status.stderr)
+
+    def test_catch_up_logs_are_never_held_as_workspace_only(self):
+        # B68: the catch-up writes old-branch logs into memory/logs-archive/ and says the
+        # next push sends them. Rule 5 is a path rule there too, so a model that calls one
+        # "belongs in the workspace" does not hold it.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-05-noa.md").write_text("WORKSPACE-ME noa, after the upgrade\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: noa"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("are now in memory/logs-archive/ in root. The next push sends them.", result.stdout)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("memory/logs-archive/2026-10-05-noa.md", self.tree(SEAT_REF))
+        status = self.sync("status").stdout
+        self.assertNotIn("2026-10-05-noa.md", status)
+        self.assertIn("push path-rule root memory/logs-archive/2026-10-05-noa.md", self.sync_log())
+
+    def test_catch_up_keeps_a_change_made_here(self):
+        # logsfix (53): an archived log edited here (not pushed) is not replaced by the
+        # host's logs branch copy.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        mine = self.company / "memory" / "logs-archive" / "2026-10-01-mia.md"
+        mine.write_text("my fix, here only\n")
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("changed on the old branch\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: late edit"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(mine.read_text(), "my fix, here only\n")
+        # logsfix (59): the old branch's text is beside it, with one line.
+        beside = mine.with_name("2026-10-01-mia.old-branch.md")
+        self.assertEqual(beside.read_text(), "changed on the old branch\n")
+        self.assertIn(
+            "logs: 1 files from the old logs branch had a different copy here in root, so the old text is beside "
+            "each one as <name>.old-branch.md. Nothing was written over.",
+            result.stdout,
+        )
+        again = self.sync("pull", "--full")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("logs: ", again.stdout)
+        self.assertEqual(beside.read_text(), "changed on the old branch\n")
+        # logsfix (69): the old branch moves again. The new text gets its own name beside
+        # it, with one line; the first one is not written over, and nothing repeats.
+        run(["git", "-C", str(noa), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env, check=True)
+        (noa / "2026-10-01-mia.md").write_text("changed on the old branch\nand again\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: later edit"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        third = self.sync("pull", "--full")
+        self.assertEqual(third.returncode, 0, third.stdout + third.stderr)
+        self.assertEqual(mine.read_text(), "my fix, here only\n")
+        self.assertEqual(beside.read_text(), "changed on the old branch\n")
+        self.assertEqual(
+            mine.with_name("2026-10-01-mia.old-branch-2.md").read_text(), "changed on the old branch\nand again\n"
+        )
+        self.assertIn("logs: 1 files from the old logs branch had a different copy here in root", third.stdout)
+        fourth = self.sync("pull", "--full")
+        self.assertEqual(fourth.returncode, 0, fourth.stdout + fourth.stderr)
+        self.assertNotIn("logs: ", fourth.stdout)
+        self.assertFalse(mine.with_name("2026-10-01-mia.old-branch-3.md").exists())
+
+    def test_catch_up_never_writes_over_a_file_main_tracks(self):
+        # logsfix (59): main already tracks the archived log, unchanged here. A late edit
+        # on the old branch goes beside it; main's file stays as it is.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        self.git("checkout", "-q", "--", "memory/logs-archive")
+        self.git("clean", "-qfd", "--", "memory/logs-archive")
+        main_copy = self.company / "memory" / "logs-archive" / "2026-10-01-mia.md"
+        self.assertEqual(main_copy.read_text(), "day one\n")
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("day one, edited on the old branch\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: late edit"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(main_copy.read_text(), "day one\n")
+        self.assertEqual(self.git("status", "--porcelain", "--", str(main_copy)).stdout, "")
+        self.assertEqual(
+            (main_copy.parent / "2026-10-01-mia.old-branch.md").read_text(), "day one, edited on the old branch\n"
+        )
+        # The cleaned day-two log comes back as a new file; day one goes beside.
+        self.assertIn("pull logs-catch-up root 1 files 1 beside", self.sync_log())
+
+    def test_v0_logs_merge_brings_both_sides_into_the_copy(self):
+        # logsfix (60): both sides changed the same log without a conflict. The merged file
+        # (both changes) lands in the copy, so both reach main by the next push.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        (logs / "2026-10-02-mia.md").write_text("top from noa\nday two, committed only here\n")
+        run(["git", "-C", str(logs), "checkout", "-q", "--", "2026-10-02-mia.md"], env=self.env, check=True)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("noa's first line\nday one\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa on day one"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # Here: a committed change at the end of the same file, nothing else pending in it.
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's last line\n")
+        run(["git", "-C", str(logs), "commit", "-q", "-am", "Logs: mia on day one"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        merged = "noa's first line\nday one\nmia's last line\n"
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-01-mia.md").read_text(), merged)
+        self.assertEqual(
+            run(["git", "--git-dir", str(bare), "show", "logs:2026-10-01-mia.md"], env=self.env).stdout, merged
+        )
+        self.assertFalse((arc / "2026-10-01-mia.old-branch.md").exists())
+
+    def v0_behind_snapshot(self):
+        # A v0 teammate who never pulled logs: the old folder is behind the upgrade's
+        # snapshot, which has noa's changes to day one and to ada's log.
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/memory/logs/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "v0 ignore")
+        self.git("push", "-q", "origin", "main")
+        self.git("worktree", "add", "-q", "--detach", "memory/logs")
+        logs = self.company / "memory" / "logs"
+        run(["git", "-C", str(logs), "checkout", "-q", "--orphan", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "rm", "-rfq", "."], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\n")
+        (logs / "2026-10-04-ada.md").write_text("ada first\n")
+        run(["git", "-C", str(logs), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "commit", "-q", "-m", "Logs: first"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("day one\nnoa's line\n")
+        (noa / "2026-10-04-ada.md").write_text("ada first\nada later\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # The upgrade ran elsewhere, from the host's newest logs.
+        other = self.tmp / "upgrader"
+        run(["git", "clone", "-q", str(bare), str(other)], env=self.env, check=True)
+        (other / ".gitignore").write_text("")
+        moved = other / "memory" / "logs-archive"
+        moved.mkdir(parents=True)
+        for name in ("2026-10-01-mia.md", "2026-10-04-ada.md"):
+            (moved / name).write_text((noa / name).read_text())
+        run(["git", "-C", str(other), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "Upgrade to v1"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        run(["git", "-C", str(other), "tag", "-a", "logs-archive-2026-10-01", "origin/logs", "-m", "snapshot"],
+            env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "logs-archive-2026-10-01"], env=self.env, check=True)
+        return bare, logs, noa
+
+    def test_blocked_fast_forward_keeps_the_newer_logs(self):
+        # logsfix (66): this teammate never pulled logs, so the old folder is behind the
+        # upgrade's snapshot, and one edit here overlaps a change made there. That file
+        # keeps the person's copy, with the other text beside it. Every other log keeps the
+        # newer text, so the next push sends nothing older.
+        bare, logs, noa = self.v0_behind_snapshot()
+        # Here, on the old base: an edit to day one, not committed.
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
+        self.assertEqual(self.git("status", "--porcelain", "--", "memory/logs-archive/2026-10-04-ada.md").stdout, "")
+        self.assertEqual((arc / "2026-10-01-mia.md").read_text(), "day one\nmia's line\n")
+        self.assertEqual((arc / "2026-10-01-mia.old-branch.md").read_text(), "day one\nnoa's line\n")
+        self.assertIn(
+            "logs: 1 files in the old logs folder were changed here and on the old logs branch in root, so the old "
+            "text is beside each one as <name>.old-branch.md. Nothing was written over.",
+            result.stdout,
+        )
+        self.assertIn("pull v0-logs root worktree removed, 1 files kept as local changes, 1 beside", self.sync_log())
+        again = self.sync("pull", "--full")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("logs: ", again.stdout)
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
+
+    def cp_shim(self):
+        # FAKE_CP_FAIL=<name>: the copy of a kept file back into the logs folder fails
+        # (a log open in an editor). FAKE_CP_ASIDE_FAIL=<name>: the copy aside fails.
+        # Every other copy works.
+        real_cp = shutil.which("cp")
+        bindir = self.tmp / "cpbin"
+        bindir.mkdir()
+        shim = bindir / "cp"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "if [ -n \"${FAKE_CP_FAIL:-}\" ] && [ \"$1\" = -p ]; then\n"
+            "  case \"$2\" in *os-logs-keep.*/\"$FAKE_CP_FAIL\") exit 1 ;; esac\n"
+            "fi\n"
+            "if [ -n \"${FAKE_CP_ASIDE_FAIL:-}\" ] && [ \"$1\" = -p ]; then\n"
+            "  case \"$3\" in *os-logs-keep.*/files/\"$FAKE_CP_ASIDE_FAIL\") exit 1 ;; esac\n"
+            "fi\n"
+            f"exec '{real_cp}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        env["FAKE_CP_FAIL"] = "2026-10-01-mia.md"
+        env["OS_KEEP_TMP"] = str(self.tmp)
+        return env
+
+    def logs_state(self, logs):
+        files = {p.name: p.read_text() for p in sorted(logs.iterdir()) if p.name != ".git"}
+        head = run(["git", "-C", str(logs), "rev-parse", "HEAD"], env=self.env).stdout
+        status = run(["git", "-C", str(logs), "status", "--porcelain"], env=self.env).stdout
+        return files, head, status
+
+    def test_failed_restore_puts_the_logs_folder_back(self):
+        # logsfix (70): after the reset to the host's logs, one kept file cannot be copied
+        # back. The folder goes back exactly as it was (old commit, the edit, the added
+        # file, nothing beside), so the next pull starts over and keeps the edit.
+        bare, logs, noa = self.v0_behind_snapshot()
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        (logs / "2026-10-07-mia.md").write_text("added here\n")
+        before = self.logs_state(logs)
+        result = self.sync("pull", "--full", env=self.cp_shim())
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "could not put the files changed here back into memory/logs, so memory/logs is back as it was. "
+            "Nothing was removed.",
+            result.stderr,
+        )
+        self.assertTrue((logs / ".git").exists())
+        self.assertEqual(self.logs_state(logs), before)
+        self.assertNotIn("pull v0-logs", self.sync_log())
+        again = self.sync("pull", "--full")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-01-mia.md").read_text(), "day one\nmia's line\n")
+        self.assertEqual((arc / "2026-10-01-mia.old-branch.md").read_text(), "day one\nnoa's line\n")
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
+        self.assertEqual((arc / "2026-10-07-mia.md").read_text(), "added here\n")
+
+    def test_failed_copy_aside_leaves_the_logs_folder_as_it_is(self):
+        # logsfix (73): the second file cannot be kept aside. Nothing in the folder moves,
+        # so both edits stay, byte for byte.
+        bare, logs, noa = self.v0_behind_snapshot()
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        (logs / "2026-10-04-ada.md").write_text("ada first\nmia on ada\n")
+        before = self.logs_state(logs)
+        env = self.cp_shim()
+        del env["FAKE_CP_FAIL"]
+        env["FAKE_CP_ASIDE_FAIL"] = "2026-10-04-ada.md"
+        result = self.sync("pull", "--full", env=env)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not keep aside the files changed here", result.stderr)
+        self.assertIn("memory/logs was not changed.", result.stderr)
+        self.assertEqual(self.logs_state(logs), before)
+
+    def test_failed_restore_keeps_a_file_the_old_commit_tracks(self):
+        # logsfix (74): the beside name is a file the old commit tracks and the host's
+        # branch removed. Putting the folder back keeps that file.
+        bare, logs, noa = self.v0_behind_snapshot()
+        (noa / "2026-10-01-mia.old-branch.md").write_text("tracked at the old commit\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: a tracked beside name"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "fetch", "-q", "origin"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "merge", "-q", "--ff-only", "origin/logs"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "rm", "-q", "2026-10-01-mia.old-branch.md"], env=self.env, check=True)
+        (noa / "2026-10-01-mia.md").write_text("day one\nnoa's line\nnoa again\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa again"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        (logs / "2026-10-01-mia.md").write_text("day one\nmia's line\n")
+        before = self.logs_state(logs)
+        result = self.sync("pull", "--full", env=self.cp_shim())
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("so memory/logs is back as it was", result.stderr)
+        self.assertEqual(self.logs_state(logs), before)
+        self.assertEqual((logs / "2026-10-01-mia.old-branch.md").read_text(), "tracked at the old commit\n")
+
+    def test_blocked_fast_forward_keeps_an_added_file_the_host_has(self):
+        # logsfix (72): a log added here, not committed, that the host's logs branch has
+        # too. The reset writes the host's text over it; the kept copy comes back, and the
+        # host's text goes beside it.
+        bare, logs, noa = self.v0_behind_snapshot()
+        run(["git", "-C", str(noa), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env, check=True)
+        (noa / "2026-10-08-mia.md").write_text("day eight, from noa\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: day eight"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        (logs / "2026-10-08-mia.md").write_text("day eight, here only\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        arc = self.company / "memory" / "logs-archive"
+        self.assertEqual((arc / "2026-10-08-mia.md").read_text(), "day eight, here only\n")
+        self.assertEqual((arc / "2026-10-08-mia.old-branch.md").read_text(), "day eight, from noa\n")
+        self.assertEqual((arc / "2026-10-04-ada.md").read_text(), "ada first\nada later\n")
+        self.assertIn("pull v0-logs root worktree removed, 1 files kept as local changes, 1 beside", self.sync_log())
+
+    def test_put_back_keeps_an_archive_change_not_committed(self):
+        # logsfix (71): a plain git pull brought memory/logs-archive/, and the person edited
+        # a log there, not committed, while the old folder has another edit of it. The
+        # archive edit stays; the old folder's copy goes beside it, with one line.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.git("fetch", "-q", "origin")
+        self.git("merge", "-q", "--ff-only", "origin/main")
+        mine = self.company / "memory" / "logs-archive" / "2026-10-01-mia.md"
+        mine.write_text("day one\nmy archive line\n")
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((logs / ".git").exists())
+        self.assertEqual(mine.read_text(), "day one\nmy archive line\n")
+        self.assertEqual(mine.with_name("2026-10-01-mia.old-branch.md").read_text(), "day one\nand a later line\n")
+        self.assertIn(
+            "logs: 1 files in memory/logs-archive/ have a change here that is not committed in root, so the copy "
+            "from the old logs folder is beside each one as <name>.old-branch.md. Nothing was written over.",
+            result.stdout,
+        )
+        self.assertIn(
+            "pull v0-logs root worktree removed, 2 files kept as local changes, 0 beside, 1 beside a change not "
+            "committed",
+            self.sync_log(),
+        )
+        arc = mine.parent
+        self.assertEqual((arc / "2026-10-02-mia.md").read_text(), "day two, committed only here\n")
+        self.assertEqual((arc / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+
+    def test_failed_catch_up_is_a_pull_error(self):
+        # logsfix (61): a catch-up write that fails is one plain pull error, kept in status.
+        bare, logs = self.v0_clone_after_upgrade(archive=True)
+        self.assertEqual(self.sync("pull", "--full").returncode, 0)
+        noa = self.logs_clone("noa")
+        (noa / "late").mkdir()
+        (noa / "late" / "2026-10-06-noa.md").write_text("late\n")
+        run(["git", "-C", str(noa), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "commit", "-q", "-m", "Logs: late"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        # A file where the folder must go: the write cannot happen.
+        (self.company / "memory" / "logs-archive" / "late").write_text("in the way\n")
+        # logsfix (67): the shell the jobs use (/bin/bash, 3.2 on macOS) exits 1 through
+        # the EXIT trap.
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+        result = run([shell, str(SYNC / "sync.sh"), "pull", "--full"], env=self.env, cwd=self.company)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(
+            "pull failed for root: could not write memory/logs-archive/late/2026-10-06-noa.md from the old logs "
+            "branch. Check the free disk space, then run skills/sync/sync.sh pull --full again.",
+            result.stderr,
+        )
+        self.assertNotIn("logs: ", result.stdout)
+        self.assertIn("last error: pull failed for root: could not write memory/logs-archive/late/", self.sync("status").stdout)
+
+    def test_v0_logs_conflict_says_what_to_do(self):
+        # logsfix (52): both sides changed the same log. Nothing is removed, and the line
+        # gives the steps. Following them, the next pull moves the folder.
+        bare, logs = self.v0_clone_after_upgrade()
+        run(["git", "-C", str(logs), "commit", "-q", "-am", "Logs: day one, more"], env=self.env, check=True)
+        noa = self.logs_clone("noa")
+        (noa / "2026-10-01-mia.md").write_text("day one\nnoa added this\n")
+        run(["git", "-C", str(noa), "commit", "-q", "-am", "Logs: noa on day one"], env=self.env, check=True)
+        run(["git", "-C", str(noa), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "the old logs folder memory/logs could not be moved: the logs branch here and on the host both changed "
+            "2026-10-01-mia.md. Nothing was removed. In memory/logs run: git pull --no-rebase origin logs, keep both "
+            'texts in each of those files, git commit -am "Logs: merge", git push origin logs. Then run this again.',
+            result.stderr,
+        )
+        self.assertNotIn("Ask the admin", result.stderr)
+        self.assertTrue((logs / ".git").exists())
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        self.assertEqual(run(["git", "-C", str(logs), "status", "--porcelain", "--untracked-files=no"], env=self.env).stdout, "")
+        # The steps in the line work.
+        run(["git", "-C", str(logs), "pull", "-q", "--no-rebase", "origin", "logs"], env=self.env)
+        (logs / "2026-10-01-mia.md").write_text("day one\nand a later line\nnoa added this\n")
+        run(["git", "-C", str(logs), "commit", "-q", "-am", "Logs: merge"], env=self.env, check=True)
+        run(["git", "-C", str(logs), "push", "-q", "origin", "logs"], env=self.env, check=True)
+        result = self.sync("pull", "--full")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((logs / "2026-10-01-mia.md").read_text(), "day one\nand a later line\nnoa added this\n")
+
+    def test_v0_logs_worktree_stays_when_the_push_fails(self):
+        bare, logs = self.v0_clone_after_upgrade()
+        hook = bare / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        result = self.sync("pull", "--full")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("pull failed for root: the old logs folder memory/logs could not be moved", result.stderr)
+        self.assertTrue((logs / ".git").exists())
+        self.assertEqual((logs / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+
+    def test_v0_logs_put_back_failure_keeps_the_copy(self):
+        # Round 4 (45): a copy back fails after the worktree is gone (a file lock on
+        # Windows). The saved folder stays, one plain line names it, and no success is
+        # logged. Run with bash 3.2 when the system has it.
+        bare, logs = self.v0_clone_after_upgrade()
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            "  *' -R'*) ;;\n"
+            "  *memory/logs/2026-10-03-mia.md*) exit 1 ;;\n"
+            "esac\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        shell = "/bin/bash" if Path("/bin/bash").exists() else "bash"
+        result = run([shell, str(SYNC / "sync.sh"), "pull", "--full"], env=env, cwd=self.company)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("could not copy 1 logs back into memory/logs. A full copy is in ", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        self.assertNotIn("worktree removed", self.sync_log())
+        self.assertIn("last error: pull failed for root: the old logs folder", self.sync("status").stdout)
+        shutil.rmtree(save, ignore_errors=True)
+
+    def test_partial_worktree_remove_says_where_the_copy_is(self):
+        # Round 4 (48): a remove that deletes some files, then stops.
+        bare, logs = self.v0_clone_after_upgrade()
+        real_git = shutil.which("git")
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        shim = bindir / "git"
+        shim.write_text(
+            "#!/bin/bash\n"
+            "case \" $* \" in\n"
+            f"  *' worktree remove '*) rm -f '{logs}/2026-10-03-mia.md'; exit 1 ;;\n"
+            "esac\n"
+            f"exec '{real_git}' \"$@\"\n"
+        )
+        shim.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.sync("pull", "--full", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("some files may be gone from memory/logs. A full copy is in ", result.stderr)
+        self.assertNotIn("Nothing was removed", result.stderr)
+        save = Path(result.stderr.split("A full copy is in ", 1)[1].split()[0].rstrip("."))
+        self.assertEqual((save / "2026-10-03-mia.md").read_text(), "day three, untracked\n")
+        shutil.rmtree(save, ignore_errors=True)
+
+    def test_engine_must_print_one_json_line(self):
+        self.seed_origin()
+        engine = self.tmp / "two.sh"
+        engine.write_text("#!/bin/bash\nprintf '%s\\n' '{\"decision\":\"commit\",\"reason\":\"ok\",\"message\":\"x\"}' extra\n")
+        engine.chmod(0o755)
+        (self.company / "note.md").write_text("a note\n")
+        env = self.env.copy()
+        env["OS_SYNC_ENGINE"] = str(engine)
+        result = self.sync("push", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("engine check failed", log)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+
+    def test_commit_hook_failure_does_not_push(self):
+        self.seed_origin()
+        hooks = self.company / ".git" / "hooks"
+        hooks.mkdir(exist_ok=True)
+        hook = hooks / "pre-commit"
+        hook.write_text("#!/bin/bash\nexit 1\n")
+        hook.chmod(0o755)
+        (self.company / "note.md").write_text("a note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("commit", log)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+
+    def test_rename_is_not_cut_and_binary_is_held(self):
+        self.seed_origin()
+        (self.company / "old.md").write_text("keep me\n")
+        run(["git", "-C", str(self.company), "add", "old.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "old"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "mv", "old.md", "new.md"], env=self.env, check=True)
+        blob = self.company / "blob.bin"
+        blob.write_bytes(b"bin\0data")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        show = run(
+            ["git", "--git-dir", str(self.tmp / "origin.git"), "ls-tree", "-r", "--name-only", SEAT_REF],
+            env=self.env,
+        )
+        self.assertIn("new.md", show.stdout)
+        self.assertNotIn("blob.bin", show.stdout)
+        status = self.sync("status")
+        self.assertIn("binary file: add it by hand with a pull request", status.stdout)
+        other = self.tmp / "incoming"
+        run(["git", "clone", "-q", str(self.tmp / "origin.git"), str(other)], env=self.env, check=True)
+        (other / "incoming.md").write_text("from the host\n")
+        run(["git", "-C", str(other), "add", "incoming.md"], env=self.env, check=True)
+        run(["git", "-C", str(other), "commit", "-q", "-m", "incoming"], env=self.env, check=True)
+        run(["git", "-C", str(other), "push", "-q", "origin", "main"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "mv", "README.md", "readme-renamed.md"], env=self.env, check=True)
+        pulled = self.sync("pull")
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((self.company / "incoming.md").exists())
+        self.assertTrue((self.company / "readme-renamed.md").exists())
+        self.assertFalse((self.company / "README.md").exists())
+
+    def test_stale_lock_and_other_company_jobs(self):
+        state = self.home / ".config" / "acme-os" / "state"
+        state.mkdir(parents=True)
+        lock = state / "lock"
+        lock.mkdir()
+        (lock / "pid").write_text("999999")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("another sync is running", result.stderr)
+        jobs = self.tmp / "jobs"
+        env = self.env.copy()
+        env["OS_JOBS_DIR"] = str(jobs)
+        env["OS_JOBS_PLATFORM"] = "linux"
+        made = self.sync("install-jobs", env=env)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        other = jobs / "osfoundation-bravo-pull.service"
+        other.write_text("[Unit]\nDescription=other\n")
+        removed = self.sync("uninstall-jobs", env=env)
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertTrue(other.exists())
+        self.assertFalse(list(jobs.glob("osfoundation-acme-*")))
+
+    def test_reclone_failure_puts_nested_repo_back(self):
+        bare = self.seed_origin()
+        area = self.company / "areas" / "shop"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "keep.md").write_text("area\n")
+        run(["git", "-C", str(area), "add", "keep.md"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "area"], env=self.env, check=True)
+        orphan = self.tmp / "orphan"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: github-pat\n")
+        run(
+            ["git", "-C", str(orphan), "tag", "-a", "os-rewrite-20261024235959", "-F", str(tag)],
+            env=self.env,
+            check=True,
+        )
+        run(
+            ["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-20261024235959"],
+            env=self.env,
+            check=True,
+        )
+        (self.company / "keep.md").write_text("local note\n")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((area / "keep.md").exists())
+        self.assertTrue((self.company / "keep.md").exists())
+        self.assertTrue((self.company / "company-profile.md").exists())
+
+    def test_reclone_copy_failure_removes_nothing(self):
+        self.seed_origin()
+        (self.company / "block-copy.md").write_text("keep this\n")
+        orphan = self.tmp / "orphan"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(
+            ["git", "-C", str(orphan), "tag", "-a", "os-rewrite-20261024235958", "-F", str(tag)],
+            env=self.env,
+            check=True,
+        )
+        run(
+            ["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-20261024235958"],
+            env=self.env,
+            check=True,
+        )
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in\n"
+            "    */block-copy.md) exit 1 ;;\n"
+            "  esac\n"
+            "done\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("could not copy block-copy.md; nothing removed", log)
+        self.assertEqual((self.company / "block-copy.md").read_text(), "keep this\n")
+        self.assertTrue((self.company / "company-profile.md").exists())
+        self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
+
+    def rewrite_origin(self, stamp):
+        orphan = self.tmp / ("orphan-" + stamp)
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(["git", "-C", str(orphan), "tag", "-a", "os-rewrite-" + stamp, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-" + stamp], env=self.env, check=True)
+
+    def test_reclone_holds_while_a_commit_is_not_on_the_host(self):
+        # Round 3 (38): a reclone copies only changed files. A commit the host never had stays.
+        self.seed_origin()
+        (self.company / "mine.md").write_text("not pushed\n")
+        run(["git", "-C", str(self.company), "add", "mine.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "mine"], env=self.env, check=True)
+        head = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.rewrite_origin("20261024235956")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(
+            "pull failed for root: this copy has 1 commits (on any local branch) that are not on the host, so it was not swapped",
+            result.stderr,
+        )
+        after = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        self.assertEqual(after, head)
+        self.assertEqual((self.company / "mine.md").read_text(), "not pushed\n")
+        self.assertFalse(list(self.company.parent.glob(".sync-reclone-*")))
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("pull reclone root", log)
+
+    def test_reclone_holds_while_another_local_branch_has_unpushed_work(self):
+        # Round 4 (44): HEAD is clean, but a local branch the host never had would be lost.
+        self.seed_origin()
+        self.git("checkout", "-q", "-b", "draft-ideas")
+        (self.company / "idea.md").write_text("not pushed\n")
+        self.git("add", "idea.md")
+        self.git("commit", "-q", "-m", "idea")
+        self.git("checkout", "-q", "main")
+        self.rewrite_origin("20261024235954")
+        result = self.sync("pull")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("this copy has 1 commits (on any local branch) that are not on the host", result.stderr)
+        self.assertEqual(self.git("show", "draft-ideas:idea.md").stdout, "not pushed\n")
+        self.assertNotIn("pull reclone root", self.sync_log())
+
+    def test_reclone_runs_when_every_commit_was_on_the_host(self):
+        # The old main tip was on the host before the rewrite: that is not unpushed work.
+        self.seed_origin()
+        self.rewrite_origin("20261024235955")
+        result = self.sync("pull")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertNotIn("commits that are not on the host", result.stderr)
+        self.assertIn("pull reclone root", log, result.stdout + result.stderr)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
+
+    def test_reclone_leaves_nested_repo_when_move_back_fails(self):
+        self.seed_origin()
+        area = self.company / "areas" / "shop"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "keep.md").write_text("uncommitted area note\n")
+        run(["git", "-C", str(area), "add", "keep.md"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "area"], env=self.env, check=True)
+        (area / "keep.md").write_text("uncommitted area note\nextra\n")
+        orphan = self.tmp / "orphan2"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        run(["git", "-C", str(orphan), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(self.tmp / "origin.git")], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        run(
+            ["git", "-C", str(orphan), "tag", "-a", "os-rewrite-20261024235957", "-F", str(tag)],
+            env=self.env,
+            check=True,
+        )
+        run(
+            ["git", "-C", str(orphan), "push", "-q", "origin", "refs/tags/os-rewrite-20261024235957"],
+            env=self.env,
+            check=True,
+        )
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "after-nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        found = list(self.tmp.rglob("keep.md"))
+        self.assertTrue(found, "nested file was deleted")
+        self.assertTrue(any("uncommitted area note" in p.read_text() for p in found))
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("left", log)
+        status = self.sync("status")
+        self.assertIn(".sync-reclone-", status.stdout)
+        self.assertTrue(any(p.is_dir() for p in self.company.parent.glob(".sync-reclone-*")))
+
+    def push_rewrite(self, bare, stamp):
+        orphan = self.tmp / f"orphan-{stamp}"
+        run(["git", "init", "-q", "-b", "main", str(orphan)], env=self.env, check=True)
+        (orphan / "README.md").write_text("rewritten\n")
+        (orphan / ".gitignore").write_text("/library/\n")
+        run(["git", "-C", str(orphan), "add", "README.md", ".gitignore"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "commit", "-q", "-m", "rewritten"], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "--force", "origin", "main"], env=self.env, check=True)
+        tag = orphan / "tagmsg"
+        tag.write_text("rule: none\n")
+        name = f"os-rewrite-{stamp}"
+        run(["git", "-C", str(orphan), "tag", "-a", name, "-F", str(tag)], env=self.env, check=True)
+        run(["git", "-C", str(orphan), "push", "-q", "origin", f"refs/tags/{name}"], env=self.env, check=True)
+
+    def make_library(self):
+        lib = self.company / "library"
+        (lib / "transcripts").mkdir(parents=True)
+        (lib / "media" / "ab").mkdir(parents=True)
+        (lib / ".gitignore").write_text("/media/*\n!/media/LOCAL.md\n")
+        (lib / "transcripts" / "2026-10-24 Kickoff.md").write_text("transcript\n")
+        run(["git", "init", "-q", "-b", "main", str(lib)], env=self.env, check=True)
+        run(["git", "-C", str(lib), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(lib), "commit", "-q", "-m", "Library: start"], env=self.env, check=True)
+        # Media is git-ignored: this file exists only on this computer.
+        (lib / "media" / "ab" / "ab12.jpg").write_bytes(b"photo")
+        (lib / "transcripts" / "unpushed.md").write_text("not committed\n")
+        return lib
+
+    def test_rewrite_keeps_the_library(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235956")
+        result = self.sync("pull")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("pull reclone", log)
+        self.assertEqual((self.company / "README.md").read_text(), "rewritten\n")
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+        self.assertTrue((lib / "transcripts" / "unpushed.md").exists())
+        head = run(["git", "-C", str(lib), "log", "-1", "--format=%s"], env=self.env, check=True)
+        self.assertEqual(head.stdout.strip(), "Library: start")
+        self.assertFalse(list(self.company.parent.glob(".sync-old-*")))
+
+    def test_failed_rewrite_puts_the_library_back(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        lib = self.make_library()
+        self.push_rewrite(bare, "20261024235955")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((lib / ".git").is_dir())
+        self.assertEqual((lib / "media" / "ab" / "ab12.jpg").read_bytes(), b"photo")
+
+    def test_failed_move_back_never_deletes_a_library_without_git(self):
+        bare = self.seed_origin()
+        (self.company / ".gitignore").write_text("/library/\n")
+        media = self.company / "library" / "media" / "ab"
+        media.mkdir(parents=True)
+        (media / "ab12.jpg").write_bytes(b"only copy")
+        self.push_rewrite(bare, "20261024235954")
+        env = self.env.copy()
+        env["OS_SYNC_RECLONE_FAIL"] = "after-nested"
+        result = self.sync("pull", env=env)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        found = [p for p in self.tmp.rglob("ab12.jpg") if p.read_bytes() == b"only copy"]
+        self.assertTrue(found, "library media was deleted")
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("reclone: library at", log)
+        # The person is told where the only copy is and where it goes, never "delete it".
+        status = self.sync("status")
+        kept = found[0].parents[2]
+        self.assertEqual(kept.name, "library")
+        line = [l for l in status.stdout.splitlines() if "the library at" in l]
+        self.assertTrue(line, status.stdout)
+        # Compare path tails: macOS temp paths may resolve through /private.
+        self.assertIn(f"/{kept.parent.name}/library is the only copy: move it back to ", line[0])
+        self.assertIn(f"/{self.company.name}/library. Then check the rest of ", line[0])
+        self.assertNotIn("Check it, then delete it", status.stdout)
+        self.assertFalse((self.company / "library").exists())
+
+    def test_dangling_symlink_is_not_pushed_as_a_deletion(self):
+        self.seed_origin()
+        (self.company / "dangling.md").symlink_to("missing-target")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        status = self.sync("status")
+        self.assertIn("symlink: add it by hand with a pull request", status.stdout)
+        heads = run(
+            ["git", "ls-remote", "--heads", str(self.tmp / "origin.git")],
+            env=self.env,
+        )
+        self.assertNotIn("sync/mia", heads.stdout)
+
+
+class SyncForgejoTests(unittest.TestCase):
+    def test_forgejo_cases(self):
+        cache = Path.home() / ".cache" / "os-foundation" / "forgejo"
+        env = os.environ.copy()
+        env["OSF_ACME_CACHE"] = str(cache)
+        result = run(["bash", str(ROOT / "tests" / "sync" / "forgejo.sh")], env=env)
+        text = result.stdout + result.stderr
+        if "BLOCKED: Forgejo" in text:
+            self.fail(text)
+        self.assertEqual(result.returncode, 0, text)
+        self.assertIn("PASS forgejo", text)
+
+
+class ProposeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-propose-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
+        )
+        (self.company / ".gitignore").write_text("areas/\nusers/\n")
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        (cfg / "seat").write_text(SEAT + "\n")
+        self.host = self.tmp / "host"
+        fake_host(self.host)
+        self.env = base_env(self.home, self.company, self.host)
+        self.env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+        self.company_bare = self.tmp / "company.git"
+        self.area_bare = self.tmp / "area.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(self.company_bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "--bare", "-b", "main", str(self.area_bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(self.company)], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "remote", "add", "origin", str(self.company_bare)], env=self.env, check=True)
+        (self.company / "AGENTS.md").write_text("# rules\n")
+        (self.company / "README.md").write_text("seed\n")
+        run(["git", "-C", str(self.company), "add", "AGENTS.md", "README.md", ".gitignore", "company-profile.md", "people"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        self.area = self.company / "areas" / "shop"
+        self.area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(self.area)], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "remote", "add", "origin", str(self.area_bare)], env=self.env, check=True)
+        (self.area / "AGENTS.md").write_text("# area rules\n")
+        run(["git", "-C", str(self.area), "add", "AGENTS.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def propose(self, *args):
+        return run(["bash", str(SYNC / "sync.sh"), "propose", *args], env=self.env, cwd=self.company)
+
+    def branch_file(self, bare, path):
+        return run(
+            ["git", "--git-dir", str(bare), "show", f"refs/heads/rules/mia/topic:{path}"],
+            env=self.env,
+        )
+
+    def test_company_path(self):
+        (self.company / "AGENTS.md").write_text("# changed company rules\n")
+        result = self.propose("topic", "AGENTS.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.strip(), "1")
+        shown = self.branch_file(self.company_bare, "AGENTS.md")
+        self.assertIn("changed company rules", shown.stdout)
+        log = (self.home / ".config" / "acme-os" / "state" / "sync.log").read_text()
+        self.assertIn("propose ok", log)
+
+    def test_area_path(self):
+        (self.area / "AGENTS.md").write_text("# changed area rules\n")
+        result = self.propose("topic", "areas/shop/AGENTS.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        shown = self.branch_file(self.area_bare, "AGENTS.md")
+        self.assertIn("changed area rules", shown.stdout)
+        company = self.branch_file(self.company_bare, "AGENTS.md")
+        self.assertNotEqual(company.returncode, 0)
+
+    def test_company_and_area_open_two_pull_requests(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "skills").mkdir()
+        (self.area / "skills" / "SKILL.md").write_text("# area skill\n")
+        result = self.propose("topic", "AGENTS.md", "areas/shop/skills/SKILL.md")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        numbers = [line for line in result.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(numbers), 2)
+        self.assertIn("company change", self.branch_file(self.company_bare, "AGENTS.md").stdout)
+        self.assertIn("area skill", self.branch_file(self.area_bare, "skills/SKILL.md").stdout)
+
+    def test_users_path_is_refused(self):
+        user = self.company / "users" / "mia"
+        user.mkdir(parents=True)
+        (user / "note.md").write_text("draft\n")
+        result = self.propose("topic", "users/mia/note.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("users paths stay in the workspace", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_nothing_staged(self):
+        result = self.propose("topic", "AGENTS.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("nothing to propose: AGENTS.md", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_bad_paths_are_refused(self):
+        outside = self.tmp / "outside.md"
+        outside.write_text("outside\n")
+        for path in ("areas/x/../../outside.md", "/etc/hosts", "a/../b", "bad\nname.md"):
+            result = self.propose("topic", path)
+            self.assertEqual(result.returncode, 1, path)
+            self.assertIn("propose refused: bad path", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_symlink_is_refused(self):
+        link = self.company / "link.md"
+        link.symlink_to(self.company / "AGENTS.md")
+        result = self.propose("topic", "link.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("propose refused: symlink: link.md", result.stderr)
+        nested = self.company / "realnest"
+        nested.mkdir()
+        (nested / "file.md").write_text("via link\n")
+        (self.company / "nest").symlink_to(nested)
+        result = self.propose("topic", "nest/file.md")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("propose refused: symlink: nest/file.md", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_scan_stops_before_any_push(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        secret = "gh" + "p_" + ("ab12" * 9)
+        (self.area / "AGENTS.md").write_text(f"token = {secret}\n")
+        result = self.propose("topic", "AGENTS.md", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("secret scan hit", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_fetch_is_checked_before_the_first_push(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "AGENTS.md").write_text("# area change\n")
+        run(
+            ["git", "-C", str(self.area), "remote", "set-url", "origin", "http://127.0.0.1:9/area.git"],
+            env=self.env,
+            check=True,
+        )
+        result = self.propose("topic", "AGENTS.md", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail area: fetch", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+    def test_later_failure_lists_opened_pull_requests(self):
+        host = self.tmp / "host-fail"
+        host.mkdir()
+        (host / "host.sh").write_text(
+            "#!/bin/bash\n"
+            "case \"$1\" in\n"
+            "  whoami) printf '%s\\n' '{\"login\":\"acme-member-a\"}' ;;\n"
+            "  get-token) printf '%s\\n' local-token ;;\n"
+            "  open-pr)\n"
+            "    n=$(wc -l < \"$COUNT\" | tr -d ' ')\n"
+            "    printf 'x\\n' >> \"$COUNT\"\n"
+            "    if [ \"$n\" != \"0\" ]; then exit 3; fi\n"
+            "    printf '%s\\n' '{\"number\":1,\"url\":\"http://example.test/1\"}'\n"
+            "    ;;\n"
+            "  auto-merge) printf '%s\\n' '{\"ok\":true}' ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        (host / "host.sh").chmod(0o755)
+        (host / "profile.sh").write_text("#!/bin/bash\nprintf '%s\\n' acme\n")
+        (host / "profile.sh").chmod(0o755)
+        count = self.tmp / "count"
+        count.write_text("")
+        env = self.env.copy()
+        env["OS_HOST_SH"] = str(host / "host.sh")
+        env["OS_PROFILE_SH"] = str(host / "profile.sh")
+        env["COUNT"] = str(count)
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        (self.area / "AGENTS.md").write_text("# area change\n")
+        result = run(
+            ["bash", str(SYNC / "sync.sh"), "propose", "topic", "AGENTS.md", "areas/shop/AGENTS.md"],
+            env=env,
+            cwd=self.company,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("propose fail area: open-pr", result.stderr)
+        self.assertIn("opened: company 1", result.stderr)
+
+    def test_copy_failure_names_the_step(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        fake = bindir / "cp"
+        fake.write_text(
+            "#!/bin/bash\n"
+            "for arg in \"$@\"; do\n"
+            "  case \"$arg\" in\n"
+            "    */AGENTS.md) exit 1 ;;\n"
+            "  esac\n"
+            "done\n"
+            "exec /bin/cp \"$@\"\n"
+        )
+        fake.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        (self.company / "AGENTS.md").write_text("# changed\n")
+        result = run(
+            ["bash", str(SYNC / "sync.sh"), "propose", "topic", "AGENTS.md"],
+            env=env,
+            cwd=self.company,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail company: copy AGENTS.md", result.stderr)
+        self.assertNotIn("nothing to propose", result.stderr)
+
+    def test_symlink_on_main_is_not_written_through(self):
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        skills = self.company / "skills"
+        skills.mkdir()
+        (skills / "x").symlink_to(outside)
+        run(["git", "-C", str(self.company), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "link dir"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (skills / "x").unlink()
+        (skills / "x").mkdir()
+        (skills / "x" / "f.md").write_text("must not land outside\n")
+        result = self.propose("t", "skills/x/f.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: skills/x/f.md", result.stderr)
+        self.assertEqual(list(outside.iterdir()), [])
+        target = outside / "target.md"
+        target.write_text("kept\n")
+        (self.company / "link.md").symlink_to(target)
+        run(["git", "-C", str(self.company), "add", "link.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "file link"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (self.company / "link.md").unlink()
+        (self.company / "link.md").write_text("overwrite\n")
+        result = self.propose("t", "link.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: link.md", result.stderr)
+        self.assertEqual(target.read_text(), "kept\n")
+
+    def test_opened_lines_before_refuse(self):
+        (self.company / "AGENTS.md").write_text("# company change\n")
+        result = self.propose("topic", "AGENTS.md", "areas/shop/AGENTS.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("nothing to propose: areas/shop/AGENTS.md", result.stderr)
+        self.assertIn("opened: company 1", result.stderr)
+        outside = self.tmp / "outside-link"
+        outside.mkdir()
+        skills = self.area / "skills"
+        skills.mkdir()
+        (skills / "x").symlink_to(outside)
+        run(["git", "-C", str(self.area), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "commit", "-q", "-m", "link"], env=self.env, check=True)
+        run(["git", "-C", str(self.area), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (skills / "x").unlink()
+        (skills / "x").mkdir()
+        (skills / "x" / "f.md").write_text("no\n")
+        (self.company / "AGENTS.md").write_text("# company change again\n")
+        result = self.propose("topic2", "AGENTS.md", "areas/shop/skills/x/f.md")
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: areas/shop/skills/x/f.md", result.stderr)
+        self.assertIn("opened: company 1", result.stderr)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_symlink_walk_does_not_glob(self):
+        # Glob is a later component. The only cwd match is a decoy, not the symlink.
+        outside = self.tmp / "outside-glob"
+        outside.mkdir()
+        target = outside / "target.md"
+        target.write_text("kept\n")
+        (self.company / "x-only").write_text("decoy\n")
+        skills = self.company / "skills"
+        skills.mkdir()
+        (skills / "x*").symlink_to(target)
+        run(["git", "-C", str(self.company), "add", "--", "skills/x*"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "glob link"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        (skills / "x*").unlink()
+        (skills / "x*").write_text("overwrite\n")
+        result = self.propose("topic", "skills/x*")
+        self.assertEqual(target.read_text(), "kept\n")
+        self.assertEqual(list(outside.iterdir()), [target])
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("propose refused: symlink on main: skills/x*", result.stderr)
+
+    def test_gitdir_file_is_refused(self):
+        git_dir = self.area / ".git"
+        shutil.rmtree(git_dir)
+        git_dir.write_text("gitdir: /tmp/not-this-repo\n")
+        (self.area / "AGENTS.md").write_text("# changed area rules\n")
+        result = self.propose("topic", "areas/shop/AGENTS.md")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("propose fail shop: repo", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.company_bare)], env=self.env)
+        self.assertNotIn("rules/mia", heads.stdout)
+
+
+class SecretScanAwkTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-scan-"))
+        self.env = os.environ.copy()
+        self.env["OS_SECRET_SCAN"] = "bundled"
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def scan(self, text, env=None):
+        path = self.tmp / "note.txt"
+        path.write_text(text if text.endswith("\n") else text + "\n")
+        return run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--files", "--", str(path)],
+            env=env or self.env,
+        )
+
+    def test_known_bad_fixtures_hit_and_hide_the_value(self):
+        cases = [
+            ("gh" + "p_" + ("ab12" * 9), "github-pat"),
+            ("github" + "_pat_" + "abcdefghij1234567890ab", "github-pat"),
+            ("xo" + "xb-" + "1234567890abcdef", "slack-bot-token"),
+            ("xo" + "xp-" + "1234567890abcdef", "slack-bot-token"),
+            ("AK" + "IA" + "0123456789ABCDEF", "aws-access-key"),
+            ("token = abcdefghijklmnop", "generic-api-key"),
+            ("api_key=abcdefghijklmnop", "generic-api-key"),
+            ('token = "' + ("e" * 16), "generic-api-key"),
+            ("token = " + ("d" * 16) + " secret = x", "generic-api-key"),
+            ("token = no token = " + ("d" * 16), "generic-api-key"),
+            ("password = aB3xQ9mZ2kL8pR4sT6uV1wY5nC7dE0fG2hJ4", "high-entropy"),
+            ("-----BE" + "GIN OPENSSH PRIVATE KEY-----", "private-key"),
+            ("-----BE" + "GIN RSA PRIVATE KEY-----", "private-key"),
+        ]
+        for text, rule in cases:
+            result = self.scan(text)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn(rule, result.stdout)
+            self.assertNotIn(text, result.stdout)
+            self.assertNotIn(text, result.stderr)
+
+    def test_clean_lines_stay_clean(self):
+        for text in ("notes: no secret here", "password = short", "-----BE" + "GIN OPENSSH"):
+            result = self.scan(text)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout, "")
+
+    def test_self_test_fails_closed_when_awk_does_not_flag(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "awk"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        result = self.scan("hello\n", env=env)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("secret scan error: self-test failed", result.stderr)
+        self.assertNotIn("hello", result.stdout)
+        self.assertNotIn("self-test ok", result.stdout)
+
+    def test_empty_staged_self_test_fails_closed(self):
+        bindir = self.tmp / "bin"
+        bindir.mkdir()
+        stub = bindir / "awk"
+        stub.write_text("#!/bin/sh\nexit 0\n")
+        stub.chmod(0o755)
+        env = self.env.copy()
+        env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        run(["git", "init", "-q", "-b", "main", str(repo)], env=env, check=True)
+        result = run(
+            ["bash", str(SYNC / "secret-scan.sh"), "--staged"],
+            env=env,
+            cwd=repo,
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("secret scan error: self-test failed", result.stderr)
+
+    def test_same_fixtures_under_bsd_mawk_and_gawk(self):
+        result = run(["bash", str(ROOT / "tests" / "sync" / "scan-awks.sh")])
+        text = result.stdout + result.stderr
+        if "BLOCKED: docker" in text:
+            self.fail(text)
+        self.assertEqual(result.returncode, 0, text)
+        for label in ("bsd", "bookworm-mawk", "stable-mawk", "gawk"):
+            self.assertIn(f"PASS {label}", text)
+
+
+class QuickPullTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-sync-quick-"))
+        self.home = self.tmp / "home"
+        self.home.mkdir()
+        self.company = self.home / "acme"
+        self.company.mkdir()
+        write_profile(self.company / "company-profile.md", "team", [])
+        (self.company / "people").mkdir()
+        (self.company / "people" / "Mia.md").write_text(
+            "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
+        )
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True)
+        (cfg / "me").write_text("mia\n")
+        (cfg / "seat").write_text(SEAT + "\n")
+        self.host = self.tmp / "host"
+        fake_host(self.host)
+        self.env = base_env(self.home, self.company, self.host)
+        self.env["OS_PROFILE_SH"] = str(self.host / "profile.sh")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sync(self, *args, env=None):
+        return run(["bash", str(SYNC / "sync.sh"), *args], env=env or self.env, cwd=self.company)
+
+    def clock(self, now, mid, base=None):
+        env = (base or self.env).copy()
+        env["OS_SYNC_CLOCK"] = f"{now} {mid}"
+        return env
+
+    def make_repo(self, path, bare, name="README.md", text="seed\n"):
+        path.mkdir(parents=True, exist_ok=True)
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(path)], env=self.env, check=True)
+        target = path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run(["git", "-C", str(path), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(path), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+        return bare
+
+    def commit_push(self, path, rel, text, message="more"):
+        target = path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run(["git", "-C", str(path), "add", rel], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", message], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def stamp(self, repo):
+        fetch = Path(repo) / ".git" / "FETCH_HEAD"
+        if not fetch.exists():
+            return None
+        return fetch.stat().st_mtime_ns
+
+    def state_path(self):
+        return self.company / ".git" / "os-foundation" / "pull-state"
+
+    def state_lines(self):
+        raw = self.state_path().read_bytes()
+        self.assertNotIn(b"\r", raw)
+        self.assertTrue(raw.endswith(b"\n"))
+        text = raw.decode("ascii")
+        lines = text.split("\n")
+        self.assertEqual(lines[-1], "")
+        return lines[:-1]
+
+    def log_text(self):
+        path = self.home / ".config" / "acme-os" / "state" / "sync.log"
+        if not path.exists():
+            return ""
+        return path.read_text()
+
+    def line_for(self, rel):
+        for line in self.state_lines():
+            if line.startswith("repo ") and line.endswith(" " + rel):
+                return line
+        return ""
+
+    def test_no_state_is_a_full_pull_and_status_names_it(self):
+        never = self.sync("status")
+        self.assertEqual(never.returncode, 0, never.stderr)
+        self.assertIn("last full pull: never", never.stdout)
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        workspace = self.company / "users" / "mia"
+        self.make_repo(workspace, self.tmp / "mia.git")
+        env = self.clock(1700000000, 72000)
+        result = self.sync("pull", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        lines = self.state_lines()
+        self.assertEqual(lines[0], "os-sync-state 1")
+        self.assertEqual(lines[1], "full 1700000000")
+        self.assertEqual(lines[2], "me mia")
+        self.assertEqual(lines[3], "bot 0")
+        self.assertTrue(self.line_for(".").startswith("repo ok "))
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+        self.assertTrue(self.line_for("users/mia").startswith("repo ok "))
+        self.assertEqual(
+            [line.split()[-1] for line in lines if line.startswith("repo ")],
+            [".", "areas/lab", "users/mia"],
+        )
+        status = self.sync("status", env=env)
+        self.assertIn("last full pull: 2023-11-14T22:13:20Z", status.stdout)
+        self.assertNotIn("pull-state", run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout)
+
+    def test_nothing_changed_does_not_fetch_or_log(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        (self.company / "skills" / "lint").mkdir(parents=True)
+        (self.company / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (self.company / ".agents" / "skills").mkdir(parents=True)
+        (self.company / ".claude" / "skills").mkdir(parents=True)
+        first = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        copied = self.company / ".agents" / "skills" / "lint" / "SKILL.md"
+        self.assertEqual(copied.read_text(), "base\n")
+        copied.unlink()
+        root_stamp = self.stamp(self.company)
+        area_stamp = self.stamp(area)
+        before = self.log_text()
+        quiet = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertEqual(self.stamp(area), area_stamp)
+        self.assertEqual(self.log_text(), before)
+        self.assertFalse(copied.exists())
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_full_flag_still_fetches_and_copies(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        (self.company / "skills" / "lint").mkdir(parents=True)
+        (self.company / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (self.company / ".agents" / "skills").mkdir(parents=True)
+        (self.company / ".claude" / "skills").mkdir(parents=True)
+        run(["git", "-C", str(self.company), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        (self.company / ".agents" / "skills" / "lint" / "SKILL.md").unlink()
+        before = self.stamp(self.company)
+        full = self.sync("pull", "--full", env=self.clock(100100, 18000))
+        self.assertEqual(full.returncode, 0, full.stderr + full.stdout)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual((self.company / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertEqual(self.state_lines()[1], "full 100100")
+
+    def test_one_area_changed_leaves_the_others(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        lab = self.company / "areas" / "lab"
+        shop = self.company / "areas" / "shop"
+        self.make_repo(lab, self.tmp / "lab.git")
+        self.make_repo(shop, self.tmp / "shop.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        root_line = self.line_for(".")
+        lab_line = self.line_for("areas/lab")
+        root_stamp = self.stamp(self.company)
+        lab_stamp = self.stamp(lab)
+        side = self.tmp / "shop-side"
+        run(["git", "clone", "-q", str(self.tmp / "shop.git"), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/new.md", "from the host\n")
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((shop / "notes" / "new.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertEqual(self.stamp(lab), lab_stamp)
+        self.assertNotEqual(self.stamp(shop), None)
+        self.assertEqual(self.line_for("."), root_line)
+        self.assertEqual(self.line_for("areas/lab"), lab_line)
+        self.assertNotEqual(self.line_for("areas/shop"), "")
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_retry_line_is_pulled(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        lines = self.state_lines()
+        swapped = []
+        for line in lines:
+            if line.endswith(" areas/lab") and line.startswith("repo ok "):
+                swapped.append("repo retry " + line[len("repo ok ") :])
+            else:
+                swapped.append(line)
+        self.state_path().write_text("\n".join(swapped) + "\n")
+        before = self.stamp(self.company)
+        area_before = self.stamp(area)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertEqual(self.stamp(self.company), before)
+        self.assertNotEqual(self.stamp(area), area_before)
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+
+    def test_new_area_is_pulled_with_its_copy_pass(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        root_stamp = self.stamp(self.company)
+        area = self.company / "areas" / "shop"
+        self.make_repo(area, self.tmp / "shop.git")
+        (area / "skills" / "lint").mkdir(parents=True)
+        (area / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (area / ".agents" / "skills").mkdir(parents=True)
+        (area / ".claude" / "skills").mkdir(parents=True)
+        run(["git", "-C", str(area), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        run(["git", "-C", str(area), "push", "-q", "origin", "main"], env=self.env, check=True)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertIsNotNone(self.stamp(area))
+        self.assertEqual((area / ".agents" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertEqual((area / ".claude" / "skills" / "lint" / "SKILL.md").read_text(), "base\n")
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+
+    def test_new_area_without_origin_still_gets_the_copy_pass(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        area = self.company / "areas" / "shop"
+        area.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(area)], env=self.env, check=True)
+        (area / "skills" / "lint").mkdir(parents=True)
+        (area / "skills" / "lint" / "SKILL.md").write_text("base\n")
+        (area / ".agents" / "skills").mkdir(parents=True)
+        (area / ".claude" / "skills").mkdir(parents=True)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        copied = area / ".agents" / "skills" / "lint" / "SKILL.md"
+        self.assertEqual(copied.read_text(), "base\n")
+        self.assertEqual(self.line_for("areas/shop"), "repo ok none areas/shop")
+        copied.unlink()
+        before = self.log_text()
+        quiet = self.sync("pull", env=self.clock(100200, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertFalse(copied.exists())
+        self.assertEqual(self.log_text(), before)
+        self.assertEqual(self.line_for("areas/shop"), "repo ok none areas/shop")
+        run(["git", "-C", str(area), "add", "skills"], env=self.env, check=True)
+        run(["git", "-C", str(area), "commit", "-q", "-m", "skill"], env=self.env, check=True)
+        bare = self.tmp / "shop.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(area), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        run(["git", "-C", str(area), "push", "-q", "origin", "main"], env=self.env, check=True)
+        side = self.tmp / "shop-side"
+        run(["git", "clone", "-q", str(bare), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/from-host.md", "from the host\n")
+        gained = self.sync("pull", env=self.clock(100300, 18000))
+        self.assertEqual(gained.returncode, 0, gained.stderr + gained.stdout)
+        self.assertTrue((area / "notes" / "from-host.md").exists())
+        self.assertTrue(self.line_for("areas/shop").startswith("repo ok "))
+        self.assertNotIn("none", self.line_for("areas/shop"))
+
+    def test_ls_remote_failure_uses_the_normal_fail_line(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        run(
+            ["git", "-C", str(area), "remote", "set-url", "origin", str(self.tmp / "missing.git")],
+            env=self.env,
+            check=True,
+        )
+        before = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertNotEqual(pulled.returncode, 0)
+        self.assertEqual(self.stamp(self.company), before)
+        self.assertIn("pull fail area:lab could not reach origin", self.log_text())
+        self.assertTrue(self.line_for("areas/lab").startswith("repo retry "))
+
+    def test_daily_due_is_full_and_not_due_is_quick(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        seeded = self.sync("pull", env=self.clock(100000, 10800))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        quiet_root = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(100100, 10800))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        self.assertEqual(self.stamp(self.company), quiet_root)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        due = self.sync("pull", env=self.clock(200000, 10800))
+        self.assertEqual(due.returncode, 0, due.stderr)
+        self.assertNotEqual(self.stamp(self.company), quiet_root)
+        self.assertNotEqual(self.stamp(area), None)
+        self.assertEqual(self.state_lines()[1], "full 200000")
+
+    def test_local_changes_that_block_fast_forward_are_retry(self):
+        bare = self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        side = self.tmp / "side"
+        run(["git", "clone", "-q", str(bare), str(side)], env=self.env, check=True)
+        # A local edit to a file the host changed no longer blocks (it is set aside). A
+        # file here where the host now has a folder still does.
+        (side / "notes").mkdir()
+        self.commit_push(side, "notes/a.md", "from the host\n")
+        (self.company / "notes").write_text("local file\n")
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertNotEqual(pulled.returncode, 0)
+        self.assertIn("pull fail root local changes", self.log_text())
+        line = self.line_for(".")
+        self.assertTrue(line.startswith("repo retry "), line)
+        self.assertNotIn("repo ok ", line)
+        head = run(["git", "-C", str(self.company), "rev-parse", "HEAD"], env=self.env, check=True).stdout.strip()
+        origin = run(
+            ["git", "-C", str(self.company), "rev-parse", "refs/remotes/origin/main"],
+            env=self.env,
+            check=True,
+        ).stdout.strip()
+        self.assertNotEqual(head, origin)
+        ancestor = run(
+            ["git", "-C", str(self.company), "merge-base", "--is-ancestor", "refs/remotes/origin/main", "HEAD"],
+            env=self.env,
+        )
+        self.assertNotEqual(ancestor.returncode, 0)
+
+    def test_bad_flag_and_broken_state(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        bad = self.sync("pull", "--nope")
+        self.assertEqual(bad.returncode, 1)
+        self.assertIn("unknown flag", bad.stderr)
+        extra = self.sync("pull", "--full", "--extra")
+        self.assertEqual(extra.returncode, 1)
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        self.state_path().write_text("not a state\n")
+        before = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual(self.state_lines()[0], "os-sync-state 1")
+        self.assertEqual(self.state_lines()[1], "full 100100")
+
+    def test_quick_path_does_not_put_the_token_in_argv(self):
+        marker = "ARGVTOKENquickmarker0123456789abcdef"
+        spy = self.tmp / "spy"
+        spy.mkdir()
+        log = self.tmp / "argv.log"
+        token_file = self.tmp / "token"
+        token_file.write_text(marker + "\n")
+        token_file.chmod(0o600)
+        (spy / "git").write_text(
+            "#!/bin/bash\n"
+            "printf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\n"
+            "if [ -n \"${GIT_ASKPASS:-}\" ] && [ -f \"$GIT_ASKPASS\" ]; then\n"
+            "  printf '%s\\n' ASKPASS >> \"$ARGV_LOG\"\n"
+            "  cat \"$GIT_ASKPASS\" >> \"$ARGV_LOG\"\n"
+            "fi\n"
+            "exec /usr/bin/git \"$@\"\n"
+        )
+        (spy / "git").chmod(0o755)
+        (spy / "host.sh").write_text(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$ARGV_LOG\"\n"
+            "case \"$1\" in\n"
+            "  get-token) tr -d '\\r\\n' < \"$OS_FAKE_TOKEN_FILE\" ;;\n"
+            "  *) exit 1 ;;\n"
+            "esac\n"
+        )
+        (spy / "host.sh").chmod(0o755)
+        shutil.copy(self.host / "profile.sh", spy / "profile.sh")
+        self.make_repo(self.company, self.tmp / "root.git")
+        env = self.clock(100000, 18000)
+        env["PATH"] = str(spy) + os.pathsep + env.get("PATH", "")
+        env["ARGV_LOG"] = str(log)
+        env["OS_FAKE_TOKEN_FILE"] = str(token_file)
+        env["OS_HOST_SH"] = str(spy / "host.sh")
+        first = self.sync("pull", env=env)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        log.write_text("")
+        second = self.sync("pull", env=self.clock(100100, 18000, env))
+        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
+        text = log.read_text() if log.exists() else ""
+        self.assertNotIn(marker, text)
+        self.assertNotIn(marker, second.stdout + second.stderr)
+        self.assertNotIn(marker, self.log_text())
+        self.assertIn("ASKPASS", text)
+
+    def test_reset_behind_is_pulled_back(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        area = self.company / "areas" / "lab"
+        self.make_repo(area, self.tmp / "lab.git")
+        self.commit_push(area, "notes/second.md", "second\n", "second")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        run(["git", "-C", str(area), "reset", "--hard", "HEAD~1"], env=self.env, check=True)
+        self.assertFalse((area / "notes" / "second.md").exists())
+        root_stamp = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((area / "notes" / "second.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+
+    def test_symlinked_area_behind_is_pulled(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        seeded = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        outside = self.tmp / "outside-lab"
+        self.make_repo(outside, self.tmp / "lab.git")
+        side = self.tmp / "lab-side"
+        run(["git", "clone", "-q", str(self.tmp / "lab.git"), str(side)], env=self.env, check=True)
+        self.commit_push(side, "notes/linked.md", "linked\n")
+        (self.company / "areas").mkdir()
+        (self.company / "areas" / "lab").symlink_to(outside)
+        root_stamp = self.stamp(self.company)
+        pulled = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(pulled.returncode, 0, pulled.stderr + pulled.stdout)
+        self.assertTrue((outside / "notes" / "linked.md").exists())
+        self.assertEqual(self.stamp(self.company), root_stamp)
+        self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
+
+    def test_four_am_is_the_boundary_and_a_future_stamp_is_due(self):
+        self.make_repo(self.company, self.tmp / "root.git")
+        first = self.sync("pull", env=self.clock(100000, 1800))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        stamp = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(110800, 12600))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr)
+        self.assertEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+        due = self.sync("pull", env=self.clock(114400, 16200))
+        self.assertEqual(due.returncode, 0, due.stderr)
+        self.assertNotEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 114400")
+        lines = self.state_lines()
+        lines[1] = "full 300000"
+        self.state_path().write_text("\n".join(lines) + "\n")
+        before = self.stamp(self.company)
+        forced = self.sync("pull", env=self.clock(114500, 16200))
+        self.assertEqual(forced.returncode, 0, forced.stderr)
+        self.assertNotEqual(self.stamp(self.company), before)
+        self.assertEqual(self.state_lines()[1], "full 114500")
+
+
+if __name__ == "__main__":
+    unittest.main()

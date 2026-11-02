@@ -1,0 +1,167 @@
+---
+name: upgrade
+description: Move this company OS to a newer os-foundation version. Shows a dry-run report first, then makes one pull request (or one commit at solo) that adds the new parts. A v1 company refreshes its stock skills and checks with --refresh. Never rewrites company content. One commit reverts it. Use when lint says a newer version exists, or someone says "upgrade the OS", "update os-foundation", or "get the new version".
+---
+
+# Upgrade
+
+Use this when `lint` says a newer os-foundation version exists, or when someone asks.
+
+- **Folder only (no 1610 OS app):** the company manages its own upgrades. 1610 does not push them. Run this skill when you choose. Release notes are public at `1610.sh/os/changes`.
+- **Linked to the 1610 OS app:** 1610 manages updates through the app. Do not run this. Say so and stop.
+
+The flags are in `skills/upgrade/CLI.md`. Use exactly those.
+
+## 1. Get the script
+
+The script comes with the new os-foundation version. Below, `<template>` is that version's `template/` folder and `<upgrade>` is `<template>/skills/upgrade/upgrade.sh`, the new copy. Use the new copy for the upgrade and for every refresh. The company folder's own `skills/upgrade/upgrade.sh` is the release it last got: a refresh run with it runs that older refresh code once, so the new release's refresh fixes show only at the next refresh.
+
+Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run the upgrade from a Mac or Linux clone of the company repo`) and changes nothing. If the person only has Windows, the admin runs it from a Mac or Linux clone.
+
+**A team: the log freeze comes first.** The dry run prints a `log-freeze:` line when an old `logs` branch is there. Before the real run, ask every teammate to save their logs in each folder that has `memory/logs/`: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. Nobody writes a log until the upgrade pull requests merge. Teammates never run a plain `git pull` in their old folder. Section 11 is what they do after the merge.
+
+## 2. Level
+
+Ask: "Does anyone else use this company OS with you?" Suggest no.
+- No: the level is `solo`. Add nothing.
+- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, follow section 11: the admin runs `add-teammate` Part A with the same people (it adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs), then each teammate joins.
+- Yes, but the folder was never on a git host: upgrade at `solo`. Then run `add-teammate` Part A.
+
+## 3. Clean folder
+
+A real run refuses a folder with uncommitted changes. The same goes for each area repo. Check with `git status --short` at the company root and in each `areas/<area>/`.
+- **Solo:** commit the changes first, as usual.
+- **Team:** the nightly push sends them. Run the upgrade the next day. Never commit them on `main`.
+
+## 4. Dry run
+
+1. Run `<upgrade> --dry-run --root <company folder> --template <template>`.
+2. It changes nothing. It prints `v0:` lines (the old shape it found), `change:` lines, `todo:` lines and `conflict:` lines.
+3. Read the report to the person in plain words, one line each.
+   - `upgrade: already v1. ...`: `main` already has the v1 parts. To get a newer release's skills and checks, run `<upgrade> --refresh --dry-run --root <company folder> --template <template>`, read its lines to the person (`kept:` files are ones the company changed: they stay as they are), then with their OK run it without `--dry-run`. It opens one rules pull request per repo (one commit per repo at solo). At team level it first puts the new check tools on `main` (`checks-on-main:`; protection is lifted for that one push and put back). If it prints `override:`, read that line to the admin: they post that exact comment once lint and the secret scan pass. See `CLI.md` "Refresh".
+   - `upgrade: pending upgrade/v1` (no host): the upgrade branch waits for the person to merge it (step 6, solo). If they want a fresh run instead, run the `To start over` commands with their OK.
+   - `change: replace <repo> upgrade/v1` (or `upgrade/scripts`): an earlier upgrade run made that branch. Its pull request may still be open, or the run stopped. A real run rebuilds the branch from `main`, replaces it on the host and reuses the open pull request (or opens a new one). Say so. Go on only with the person's OK.
+   - `upgrade: stopped: <repo> has commits on <branch> that the upgrade did not make`: someone added work to an upgrade branch. A real run stops before any change. Ask the person which they want. To keep that work, merge or close its pull request first. To start over, run the exact commands the line gives, in the folder it names. Then run the dry run again.
+   - `the area areas/<name> has uncommitted changes`: go to step 3 for that area. Then run the dry run again.
+   - `finding: plan: <line>` and `finding: plan blocks: ...`: the GitHub org plan (or a sign-in that cannot see it) blocks a team upgrade. The rest of the report is still right. Tell the person the line. A real run stops before any change until that is fixed.
+   - `could not fetch <repo>`: the area repo on the host could not be reached. Check the sign-in and the network. Then run the dry run again.
+4. Show the person each `change: rules-merge` line. Say plainly: "Your own lines in the rules files are kept exactly as written. They move under the new v1 headings." Give the count from `company-lines=`.
+5. A `change: rules-spill` line means the rules file would be 10,000 bytes or more. Say: "Your own rules lines go to `company-rules.md` (an area: `area-rules.md`), unchanged. `AGENTS.md` gets one line that says to read it." When `CLAUDE.md` spills too, its lines go to the end of the same file under `## From CLAUDE.md`.
+   A `todo: AGENTS.md is <m> characters` line means the file is over the 9,000 it sets for itself. Read the line to the person. Offer to move the lines it names after the upgrade.
+6. For each `todo: fill` line, ask the person for that value, one at a time. Write the answers to a file in the temporary folder, one `key=value` per line (the keys are in `skills/upgrade/CLI.md`). Add `--answers <file>` to every later run. Run the dry run again.
+
+What an upgrade may add or change:
+- the committed skill links (`.agents/skills` and `.claude/skills`),
+- old session logs on the `logs` branch, moved to per-person files in `memory/logs/` on `main`, with their history,
+- the `level:`, `switches:` and `os_version:` lines in `company-profile.md`,
+- the approval tier table in `AGENTS.md` (team level only),
+- the v1 rules in `AGENTS.md` and `CLAUDE.md`, in the company folder and in each area,
+- new stock skills, and new files inside a stock skill,
+- `.gitattributes`, only when the folder has none.
+
+What it never changes:
+- **Company content.** Notes, people, customers, decisions, meetings, area files, workspaces.
+- **A skill you changed.** A stock skill is replaced only if it is still exactly as shipped. A changed one is listed as a conflict. It stays as it is.
+- **Your own rules lines.** Each line the company added to `AGENTS.md` or `CLAUDE.md` is kept byte for byte, in its old order. It moves to the end of the matching v1 section. A section the company added stays whole at the end.
+
+## 5. Conflicts
+
+For each conflict, say what it is and what the new version would change. Ask the person, one at a time:
+- **Keep yours** (suggested). The upgrade skips that file.
+- **Take the new one.** Do it later by its own rules change, so it gets a review.
+
+A `conflict: .claude/skills/<path>` (or `.agents/skills/<path>`) line means that folder holds a copy of a skill file that differs from the one in `skills/`. The line `conflict: .claude/skills left: resolve the files above first` follows. The folder stays until each such file is resolved. Ask the person which copy to keep. Put the kept copy in `skills/` and commit it. Then run the dry run again.
+
+`conflict: .claude/skills (untracked; commit it first)` (or `.agents/skills`) means git does not track that folder, and it holds a file that is not a plain copy. The upgrade does not move or delete it. Ask the person to keep what they need: move a skill they wrote into `skills/` and commit it. Then run the dry run again.
+
+`conflict: company-rules.md exists` (or `conflict: areas/<name>/area-rules.md exists`) means the folder already has that file. The upgrade will not write its spill file there, and a real run stops before any write. Ask the person to rename that file or merge it into `AGENTS.md` by hand, in a normal rules change ([team] `skills/sync/sync.sh propose <topic> <file>...`; solo: commit). After that merges, run the dry run again.
+
+`app-groups: needs Track K` means the folder is linked to the app. Stop and tell the person: 1610 manages that upgrade.
+
+## 6. Apply
+
+Ask once: "Apply this upgrade?" Suggest yes when the report has no surprises.
+
+Run `<upgrade> --root <company folder> --template <template>`. It stages only the upgrade paths. It makes branch `upgrade/v1` with one merge commit, even when there was no `logs` branch. It never writes to `main` itself.
+
+- **Team on a host** (`level: team` or `app`, and `host:` is not `none`): on GitHub it first checks the org plan. A Free org stops before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` There is no Free-plan team mode. Solo still upgrades on a Free org. Before any pull request it prints each step:
+  1. `review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY`. Without that key the model review fails. The admin sets it as in add-teammate A3.
+  2. `checks-on-main: <repo>`, for the company repo and each area repo. The checks run their tools from `main`, never from the pull request, and a v0 `main` has none. So the upgrade lifts protection, pushes one commit with only the check files (`.github/workflows/checks.yml`, `.github/scripts/`, `.github/review.conf`, and rules-only `CODEOWNERS` in place of the v0 `* @admin` line; every other line the company added stays) to `main`, and protects again. On GitHub, lifting protection also removes the v0 classic rule. If the push is refused, it protects `main` again before it stops. No company content goes to `main`. `checks-on-main: <repo> already` means `main` had them. When `main` has check tools from an older release, it prints `checks-on-main: <repo> updated the check tools on main (release <old> to <new>)`: the same safe path (lift protection, push only those files, protect again). It compares `.github/scripts/tools-release` and never puts older tools over newer ones: `checks-on-main: <repo> already: kept the check tools on main (...)`.
+  3. `protected: <repo>`. The v1 rules replace the v0 rule that needed one code-owner approval. Auto-merge is allowed on the repo.
+  4. `pr: <repo> <n>` for each area, then `pr: <n>` for the company.
+
+  The checks are secret scan, `lint` and model review. Nobody writes to `main` by hand, the admin included.
+  - **Forgejo:** each pull request gets auto-merge. They merge by themselves on green checks. The last line is `upgrade: ok`.
+  - **GitHub:** the admin wrote these pull requests and they change rules files. The admin merges them by hand. The upgrade turns auto-merge off on each one, so a pull request reused from an earlier run does not merge by itself. Each one prints one line: `merge-by-hand: <repo> <n>: it will not merge by itself.`, then what the admin does. If auto-merge could not be turned off, the line says instead that it may merge by itself, and the admin first opens it and clicks "Disable auto-merge". Read each line to the admin. For each one, the admin waits until lint and the secret scan pass and the model review passes (or is overridden, below), opens the pull request and merges it. When the admin is the only code owner (every v0 company), a plain merge works. If GitHub asks for a review, tick "Merge without waiting for requirements to be met (bypass rules)" and click "Bypass rules and merge". Only an org admin has that box.
+  - `override: <repo> <n> is too large for the model review`: the company pull request holds the new stock skills, so the model review cannot read it and fails. That is expected. Wait until lint and the secret scan pass on it. Then the admin comments on that pull request, exactly: `/override v1 upgrade: stock skills, too large for the model review`. The checks run again, with lint and the secret scan, and pass. Then the admin merges it as above.
+  - `override: <repo> <n> if the model review fails it: ...`: the review judges each pull request with this release's `review-rules.md`, which the upgrade put on `main` first. Each body lists the company lines kept and the approval table set to the release's default, so it should pass. If it fails, read the finding to the admin. When the change is only what the body says, the admin posts the comment that line gives (`/override <reason>`). The same line follows a refresh, team-on, add-person and remove pull request.
+  - `auto-merge is off on <repo>: pull request <n> stays open until the admin merges it` (Forgejo): the run goes on. The admin merges it when its checks pass.
+  - `upgrade: open pull requests: <repo> <n>, ...`: the last line when any pull request will not merge by itself. It replaces `upgrade: ok`. Tell the admin each one and what to click.
+  - Solo with a host: no plan check, no check tools on `main`, no protect, no auto-merge. It opens the pull requests only, and the last line names them. The person merges them.
+  - `Could not read the plan of the GitHub org <org>: sign in as an org owner`: it stopped before any write. Only an org owner sees the plan, and team setup needs one. The admin signs in as an org owner, then runs it again.
+  - `the company slug is not known`: it stopped before any push. Add `slug=<slug>` to the answers file and run it again.
+  - `could not put the check tools on main of <repo>` or `push refused for <repo>`: it stopped, and `main` is protected again. Do what the line says, then run it again. Each step is safe to run twice.
+  - `replaced: <repo> <branch>`: an earlier upgrade run made that branch. This run replaced it and updated its pull request.
+  - `could not push <branch> for <repo>. The host branch changed while the upgrade ran.`: someone pushed to it during the run. Run the upgrade again. If it then stops with `upgrade: stopped:`, follow that line.
+  - `upgrade stopped. Protection on <repo> is back on.`: a host error stopped it while protection was lifted. `main` is protected again. Do what the line before it says, then run it again.
+  - `PROTECTION IS OFF on <repo>: run ...`: protecting `main` again failed. Give the admin that exact line first. The admin runs it in their own terminal. Then stop.
+- **Solo, no host:** do step 7 first. Then merge the branch into `main` yourself: `git merge --no-ff upgrade/v1`. Solo commits to `main` as usual.
+  Each area repo with old rules also has a branch `upgrade/scripts` with its rules merge. The upgrade leaves that branch checked out. After step 7, in each such area run `git -C areas/<area> checkout main`, then `git -C areas/<area> merge --no-ff upgrade/scripts`.
+
+The branch has its own commit for the rules merge, `Upgrade: rules merge`. With a host, the pull request body lists it first, for the code owner. Each area gets the same commit in its own `upgrade/scripts` pull request.
+
+## 7. Read the new rules together
+
+Before the person approves the upgrade pull request (solo: before the merge), open the merged `AGENTS.md` with them. Do the same for `company-rules.md` if the upgrade made one. Then read each area `AGENTS.md` (and `area-rules.md`) the same way. An area pull request may merge by itself when its checks pass. That is fine: a fix there also goes by a follow-up rules change.
+1. Show where each of their own lines now sits.
+2. Ask: "Does each of your lines still fit under its heading?"
+3. A line that sits under a heading that does not fit: write it down. Do not change it in the upgrade branch or pull request. That keeps the one-commit revert clean.
+4. After the upgrade merges, move those lines by a follow-up rules change: [team] `skills/sync/sync.sh propose <topic> AGENTS.md`. Solo: edit and commit on `main`.
+
+## 8. The old logs branch
+
+If the folder has an old `logs` branch (the company folder, and each area that has one):
+- Its files move to `memory/logs-archive/` on `main`. Their history comes with them. The `/memory/logs/` line leaves `.gitignore`. An area gets this in its own `upgrade/scripts` pull request.
+- Why not `memory/logs/`: a teammate's old copy still has its logs folder there, and its `main` ignores it. Git writes over ignored files, so the first plain `git pull` there would write over any log `main` has in `memory/logs/`.
+- So while the host still has the old `logs` branch, `sync.sh push` keeps new logs in each folder. `sync.sh status` shows them as held ("waits until the old logs branch is deleted"). Nothing is lost. When every teammate has moved, the admin deletes the old branch (section 11, step 7). The next push sends the held logs.
+- The old branch is kept as a tag named `logs-archive-<date>` (the `tag:` line). With a host the tag goes up too. Keep it 90 days. Then it may be deleted. The script never deletes it.
+- Logs pushed to the old branch after the run: each full `sync.sh pull` compares the tag with the host's `logs` branch. It writes any later log into `memory/logs-archive/` as a local change and says so (`logs: <n> files ...`). The next push sends them. It never writes over a file: if one with that name is already there, the old text goes beside it as `<name>.old-branch.md`.
+- Teammates: section 11.
+
+## 9. Going back
+
+The whole upgrade is one merge commit. One revert undoes it.
+- **With a host:** never commit on `main`. Make a new branch from `origin/main` (for example `upgrade/revert-v1`). On that branch run `git revert -m 1 <merge commit>`. Push the branch (`git push origin upgrade/revert-v1`). Open the pull request: `skills/_host/host.sh open-pr {{COMPANY_SLUG}}-os --head upgrade/revert-v1 --base main --title "Revert the v1 upgrade"`. The model review runs. It merges when the checks pass. On GitHub the admin's own pull request needs the bypass box (section 6).
+- **Team on a host:** that revert undoes the merge only. Two things stay on each repo (the company repo and each area repo): the `Upgrade: check tools on main` commit and the v1 rules on `main`. To undo them too, in this order:
+  1. Revert each area's `upgrade/scripts` merge the same way: a branch from `origin/main`, `git revert -m 1 <merge commit>`, a pull request.
+  2. In each repo, revert the `Upgrade: check tools on main` commit by a pull request the same way (`git revert <commit>`, no `-m`). That also puts back the v0 `CODEOWNERS` line. Its checks still run: they run from `main`.
+  3. On GitHub, the admin merges each of these pull requests with the bypass box, as in section 6.
+  4. When all have merged, `main` has no check tools, so the v1 rules would block every pull request. Lift them. In the company folder run `git checkout main` but do not pull yet: it still has `skills/_host/` and the v1 `company-profile.md`. Run `skills/_host/host.sh unprotect <repo>` for the company repo and each area repo. Then pull.
+  5. The v0 rule on `main` (a pull request with one code-owner approval) is gone. The admin adds it back by hand in the repo settings: Branches, a rule for `main`, "Require a pull request before merging", one approval, "Require review from Code Owners".
+- **Solo, no host:** run `git revert -m 1 <merge commit>` on `main`. Solo commits to `main` as usual.
+
+## 10. Tell the person
+
+One line each:
+- What changed.
+- How many of their own rules lines were kept, and where (or that they went to `company-rules.md`).
+- Any line to move later by its own rules change.
+- What was skipped (conflicts kept as they were).
+- How to go back.
+- With a host: the link to each pull request. On Forgejo it merges when the checks pass. On GitHub the admin merges it with the bypass box (step 6).
+
+Then delete the temporary folder.
+
+## 11. After the merge: the team
+
+A v0 team only. Do these in order. The run printed the same steps as `teammates:` lines.
+
+1. **Admin.** Wait until every upgrade pull request has merged. Run `skills/sync/sync.sh pull` in the company folder: the upgrade left it on `upgrade/v1` and each area on `upgrade/scripts`, and the pull puts each one back on `main` once its pull request merged (a file there that `main` now has, the same text, goes). Before the merge it says `this folder is on upgrade/v1 until the upgrade pull request merges`. Then run `add-teammate` Part A again with the same people. It adds what v0 did not have: people pages, workspaces, teams and the OS jobs. It sends each person a hand-off message. Main already has rules, so it never pushes there: an area director it names goes up as a rules pull request (`rules-pr: <repo> <n>`). Merge each one.
+2. **Each teammate, in the old folder.** Never run `git pull` there. In v0 `memory/logs/` is a separate git folder that `main` ignored, and a plain pull can write over it. If the old folder has `memory/logs/`, save the logs once more: `git -C memory/logs add -A`, `git -C memory/logs commit -m "Logs: before v1"`, `git -C memory/logs pull --rebase`, `git -C memory/logs push`. Do the same in each `areas/<name>/memory/logs`. On Windows, run these in Git Bash. Do this before step 3: v0 made `memory/logs` with `git worktree add`, which writes the folder's full path, so after the rename git cannot open it. If the folder is already renamed, skip this step: `join.sh` reads those logs through the old folder's own `.git` and copies each one into the new folder (step 6). Never push the old logs branch after step 7: that brings it back.
+3. **Rename the old folder**, for example `~/{{COMPANY_SLUG}}-os` to `~/{{COMPANY_SLUG}}-os-old`. That keeps the usual folder name free.
+4. **Join as a new teammate:** `add-teammate` Part B, B1 to B5, with the hand-off message. It clones into the usual folder, shows the joining terms and runs `join.sh`. On Windows `join.sh` runs in Git Bash, as B4 shows.
+5. **Check.** The old logs are in `memory/logs-archive/` in the new folder. Logs pushed to the old branch after the upgrade come in by the next full pull: run `skills/sync/sync.sh pull --full` to get them now. A file of theirs that never reached the host is brought over by `join.sh` (step 6).
+6. **Keep the old folder's work, then delete it.** At the end, `join.sh` brings each file, commit and log in the old folder (and its areas) that the host does not have into the new folder, one `old-folder:` line each. A new file, and each log in the old `memory/logs/` that was not committed or never pushed (on the `logs` branch or a detached one), is copied (into `memory/logs/` for a log; join makes the folder). A change to a file the host has is set aside: the folder's agent re-applies it to the host's current text (`skills/sync/sync.sh re-apply list`, `skills/sync/re-apply.md`). Never copy a whole file from the old folder: main may have newer lines, and the copy undoes them. A stash is listed, and you redo it by hand (`git -C <old> stash show -p`): join never brings a stash. While a stash is there, the last line says it is still only in the old folder, and `sync.sh status` prints `old folder: <old> still has stashed changes ...` until the old folder is gone or has no stash. The last line says how many items there were, or `has nothing the host lacks. You may delete it.` When a part could not be read (for example the old logs folder), it says so and how to check it by hand, and never says you may delete it. Join never deletes or changes the old folder. Delete it only after each stash join listed is redone here, the agent has re-applied what was set aside, and sync has sent it.
+7. **Admin, when every teammate has done step 6.** Delete the old logs branch on the host. v0 protected it (no deletion, admins included), so a plain `git push origin --delete logs` fails with GH006. Run the line the upgrade printed: `skills/_host/host.sh drop-logs <repo>` for the company repo and for each area repo that had one. It lifts that old rule and deletes the branch; it never touches `main`. Why only now: until every teammate has moved, an old copy may still push logs there, and the old rule keeps them safe (no force-push, no delete). Until then, everyone's new logs wait in their own folder (section 8). The next `sync.sh push` sends them. If an old copy pushes the branch back, logs wait again: find that copy and move it.
+
+A teammate who already has the v1 `sync` skill skips steps 2 to 6: `skills/sync/sync.sh pull` moves the old logs folder out and keeps every file. They still run `join.sh` once if they never did.
