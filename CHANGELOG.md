@@ -11,6 +11,9 @@ Five small fixes from the first team upgrade on v1.0.1.
 - **A v0 job title is kept.** v0 people pages used `role:` for the job title. `team-on` and `add-person` move it to `job_title:` before they set the OS role.
 - **An org invite is named.** On GitHub, adding someone outside the org to a team sends them an org invite. `team-on` and `add-person` say so in one `invite:` line. `join` stops while the person's invite is still open and gives the link that accepts it.
 - **The check comment shows the gates.** The pull request comment starts with `secret scan: pass, lint: pass` above the model review.
+- **Host calls work in Git Bash on Windows.** Git Bash turned a GitHub API path such as `/repos/...` into a Windows folder path, so `join`, the push sign-in check and most host steps failed on Windows. No path starts with `/` any more.
+- **A failed sign-in check says why.** When `sync.sh push` cannot check who is signed in, it prints `push: identity check failed: <what the host said>`, with any token hidden. `status` and the sync log keep it.
+- **Push prints the pull request link.** `sync.sh push` prints `pr: <url>` once when it opens or updates this computer's pull request. The job log keeps it too.
 
 ## v1.0.1 — 2026-11-01
 

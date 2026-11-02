@@ -124,8 +124,12 @@ sync_identity() {
     return 0
   fi
   if [ "$rc" -ne 0 ]; then
-    sync_held_error "identity check failed"
-    sync_log "push fail identity"
+    # B75: say what the host said, one line, tokens masked. Kept in status and sync.log.
+    local why
+    why=$(sync_error_line "$err")
+    sync_held_error "identity check failed${why:+: $why}"
+    sync_log "push fail identity${why:+: $why}"
+    printf '%s\n' "push: identity check failed${why:+: $why}" >&2
     return 1
   fi
   login=$(printf '%s' "$login" | jq -r '.login // empty')
@@ -500,7 +504,7 @@ sync_range_fail() {
 # request per computer, merged with a merge commit. Never forced.
 sync_push_commits() {
   local repo=$1 id=$2 kind=$3
-  local me seat branch name_on_host number pr_body block rc
+  local me seat branch name_on_host number pr_body block rc opened url
   if [ -z "$(git -C "$repo" rev-list -n 1 origin/main..HEAD 2>/dev/null)" ]; then
     return 0
   fi
@@ -548,10 +552,17 @@ sync_push_commits() {
     pr_body=""
     sync_log "push body ${id} could not read the open pull request: its body stays"
   fi
-  number=$(sync_open_pr "$name_on_host" "$branch" "sync: ${me} (${seat})" "$pr_body" | jq -r '.number // empty')
+  opened=$(sync_open_pr "$name_on_host" "$branch" "sync: ${me} (${seat})" "$pr_body" || true)
+  number=$(printf '%s' "$opened" | jq -r '.number // empty' 2>/dev/null || true)
   if [ -z "$number" ]; then
     sync_apply_fail "$id" "could not open a pull request"
     return 1
+  fi
+  # B76: the person (and a job's log) sees where the change waits. Once per pull request.
+  url=$(printf '%s' "$opened" | jq -r '.url // empty' 2>/dev/null || true)
+  if [ -n "$url" ]; then
+    printf 'pr: %s\n' "$url"
+    sync_log "push pr ${id} ${url}"
   fi
   "$HOST_SH" auto-merge "$name_on_host" "$number" >/dev/null 2>&1
   rc=$?

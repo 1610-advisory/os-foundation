@@ -216,6 +216,7 @@ cloned: <slug>-<area>
 skipped: <slug>-<area>
 cloned: <slug>-user-<slug>
 terms: proposed
+pr: <url>   (sync push: this computer's pull request)
 ```
 
 ## add-person.sh

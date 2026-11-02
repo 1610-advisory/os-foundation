@@ -13,9 +13,7 @@
 0fdc603a97f596da3c797ac5ec38675d1ed32bf3 skills/upgrade/v0/AGENTS.md
 10c319524f2068e2b81768172319458380eb386b .github/scripts/review-diff.sh
 1143505386d04837363a415d51b74bbdb4a33209 skills/connect-tool/SKILL.md
-11815032f248cd2d54575fa1fc048ed06f7b938c skills/sync/push.sh
 11ceaba02e0727a14b1efd5e0d2d0dd997f7815b .github/workflows/checks.yml
-12acc7ce9fa2d2148860b45eb999d4292fcc7d16 skills/add-teammate/SKILL.md
 142475e4d020622e7a27ea67102c285705c8a8ac skills/skill-creator/eval-viewer/viewer.html
 14e41d6068635f4dd3fb878fd1626312395dda63 skills/skill-creator/agents/analyzer.md
 153edac8768f7e1caa81a173f6346f758a5db6cd skills/add-teammate/workspace/profile/PROFILE.md
@@ -29,7 +27,9 @@
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
 328a1ec00e13205c57b0f53b265690b6faa72d1d skills/upgrade/SKILL.md
+33d9175facf8ce45a9eafeb92d96fb1d80a3aa26 skills/sync/lib.sh
 364506f0297c393279d1ec329ee8338e011434ee skills/reports/CLI.md
+37dc0ff9852633602fc970381db6e98d4a02a02e skills/add-teammate/CLI.md
 3aa05c919599ded93c619c90c4d854613dbf2577 .github/scripts/tools/host/forgejo.sh
 3aa05c919599ded93c619c90c4d854613dbf2577 skills/_host/forgejo.sh
 3b59a75c6f9d29153f6579687bafb1eefdaf8d8d .github/scripts/lib.sh
@@ -48,13 +48,13 @@
 57808ed82b3a2a20a9503ef9d671429988d8a6ee skills/privacy/SKILL.md
 5a124d09c4046aefb6cc6b56efa1ddf24f01b60c skills/privacy/privacy.sh
 5cfa3c805fb152cf7ec38fa06a8948434e3a8ba8 skills/ingest/SKILL.md
-5ef02f54e2a638f54c9187708156aab7c849e462 skills/sync/lib.sh
 5f0553580f7987f9e6f5bfcc831d43edccf92c41 skills/sync/jobs/macos-calendar.plist
 60626c54d1e72cbe8f2495f59a9db0961f1ed604 .github/scripts/set-status.sh
 61d73258ea1243e27a62e0e2ebce9297ba1b7b3a skills/remove-teammate/SKILL.md
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 657fdbbfc58c696100ed33d87cc9f51fccb98a88 skills/_host/README.md
+6d7508953202e9927c3d6ef9f721b0daf9bc412f skills/add-teammate/SKILL.md
 6fd2d97bca0799eb5b7cac7dce8e0b351a57a0d9 skills/upgrade/refresh.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
@@ -71,6 +71,7 @@
 869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
 86e952582ec4688465c13862a67072f455d07d0e skills/add-area/templates/marketing/goals.md
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/upgrade/v0/areas/_area/AGENTS.md
+879288f53dd676a8f9a8b4ae5762f3d19fc87c31 skills/sync/CLI.md
 879efdc459c33da3fc70d0441c864ba320cd5763 skills/upgrade/rules.sh
 8a983cc3bedbd8c9342a675810ee99909803cbf9 skills/nightly-review/CLI.md
 8aa59ab35cf71bc53f35789bbc1942869033740d skills/upgrade/v0/CLAUDE.md
@@ -88,7 +89,6 @@
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
-a9d3450c81fbda43d82cc7e551fe9a97c31dc6ee skills/add-teammate/CLI.md
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
@@ -116,9 +116,10 @@ c9ef6d90d5a141ba381bfa2940acf910ecfab3f8 skills/upgrade/rules-map.txt
 cb6d2eb96650bbb9ddd2c6cf68c71972abb4ae3a skills/add-bot/lib.sh
 cbec3862012bd1315b2daaecc166ff09217870ab skills/add-area/templates/finance/AGENTS.md
 cc3d1de9072ee6e23794df57c986aaa11d1c5d40 skills/add-bot/git-guard.sh
+cef5f3520dfba76ef94e4cfba7c2b8861ac93bba .github/scripts/tools/host/github.sh
+cef5f3520dfba76ef94e4cfba7c2b8861ac93bba skills/_host/github.sh
 cf2adccc5cd6b33d7a748e853220cf019e5b9559 skills/upgrade/upgrade.sh
 cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/personas.md
-cfa401165c8669ed8dbdbfdddb1a4f05e96844e4 skills/sync/CLI.md
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
@@ -142,10 +143,9 @@ eb3c81fa9a680eba98538adf0a3f60d433023211 skills/sync/re-apply.md
 ed8e1dddce77b16af13c6f36b3fe86c4ac7c590c skills/skill-creator/scripts/quick_validate.py
 edd37c800937626e435ed28a6dc87542e94d55b4 .github/scripts/tools/add-teammate/lib.sh
 edd37c800937626e435ed28a6dc87542e94d55b4 skills/add-teammate/lib.sh
+ede90365e3cfc65e4475b3991dda99ba42e6aebb skills/sync/push.sh
 ee09ec1d3e8ce00abf1613a4b2fc747fc25a3057 skills/lint/SKILL.md
 eeccbe00e58b5859b5c9b36230034d7b6b20f57c skills/lint/CLI.md
-ef32d49e2c13c2914b53eb2f405bdb09ee504ba1 .github/scripts/tools/host/github.sh
-ef32d49e2c13c2914b53eb2f405bdb09ee504ba1 skills/_host/github.sh
 f350db92effafd1059dc2cba3579abbab676fbec skills/add-area/templates/marketing/AGENTS.md
 f44456e5950111f484aa23ec05a1fe7646260890 skills/company-skills/SKILL.md
 f48eac444656ddc41204aac1760a217951ce609e skills/skill-creator/scripts/package_skill.py

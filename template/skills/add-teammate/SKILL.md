@@ -146,7 +146,7 @@ One line each:
 - **Who they are.** `~/.config/{{COMPANY_SLUG}}-os/me` names them. The nightly push checks it against their git sign-in.
 - **OS jobs.** Pull every 15 minutes, push at about 2 am. Notes go up by themselves. A held file stays here; the next session says why. Windows: they are Task Scheduler tasks named `osfoundation-<company slug>-pull`, `-push` and `-helper`, run through Git Bash with no window (`skills/sync/SKILL.md`, "Windows").
 - **Profile.** `users/<slug>/profile/PROFILE.md` holds their voice and preferences. Claude Code, Codex, Pi (and Cursor, with a rules file) load it in every session, read-only. Their AI keeps it current.
-- **Terms.** `terms: proposed`: their yes goes on their people page by pull request.
+- **Terms.** `terms: proposed`: their yes goes on their people page by pull request. Join's push prints that pull request's link (`pr: <url>`). Each later `sync.sh push` prints its link the same way.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
 
 ## Rules for this skill
