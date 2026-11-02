@@ -160,6 +160,7 @@
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
 268c5d4b8ec433f402ab80141ec964e3ae342fbd skills/remove-teammate/SKILL.md
 26a7a07771abed6515dc546982a861654410b0ae skills/upgrade/upgrade.sh
+26ac681051dead95f486913cad3239f93eb0b8bb skills/upgrade/upgrade.sh
 26aecde5a6dcc51af4b25cf8d258dffa3604c139 skills/sync/CLI.md
 270074a990f057a703858f9596e5a26a7d0f5935 .github/scripts/tools/host/github.sh
 270074a990f057a703858f9596e5a26a7d0f5935 skills/_host/github.sh

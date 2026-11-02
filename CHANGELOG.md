@@ -2,7 +2,7 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
-## v1.0.2 — unreleased
+## v1.0.2 — 2026-11-02
 
 Five small fixes from the first team upgrade on v1.0.1.
 

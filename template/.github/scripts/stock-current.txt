@@ -25,6 +25,7 @@
 215e0a6369659b47d22d218325922ac276701f07 skills/add-teammate/workspace/memory/logs/README.md
 23dbbbb0548b514bad67859e72598ee6660cc4f1 skills/sync/jobs/linux.service
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
+26ac681051dead95f486913cad3239f93eb0b8bb skills/upgrade/upgrade.sh
 29a10818c56d987b4904bdd4fc35e467884b6625 skills/app-setup/hosting-options.md
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
@@ -120,7 +121,6 @@ cbec3862012bd1315b2daaecc166ff09217870ab skills/add-area/templates/finance/AGENT
 cc3d1de9072ee6e23794df57c986aaa11d1c5d40 skills/add-bot/git-guard.sh
 cef5f3520dfba76ef94e4cfba7c2b8861ac93bba .github/scripts/tools/host/github.sh
 cef5f3520dfba76ef94e4cfba7c2b8861ac93bba skills/_host/github.sh
-cf2adccc5cd6b33d7a748e853220cf019e5b9559 skills/upgrade/upgrade.sh
 cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/personas.md
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md

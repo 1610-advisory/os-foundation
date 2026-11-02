@@ -1322,9 +1322,9 @@ if [ -n "$ANSWERS" ]; then
   ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
   RUNNER=$(os_answer_or runner "$ANSWERS" "")
 fi
-[ -n "${OS_VER:-}" ] || OS_VER="v1.0.1"
+[ -n "${OS_VER:-}" ] || OS_VER="v1.0.2"
 case "$OS_VER" in
-  *'{{'*) OS_VER="v1.0.1" ;;
+  *'{{'*) OS_VER="v1.0.2" ;;
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"
