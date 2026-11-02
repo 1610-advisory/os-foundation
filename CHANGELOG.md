@@ -2,7 +2,27 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
-## v1.0.0 — unreleased
+## v1.0.1 — 2026-11-01
+
+A small release: one more review vendor.
+
+- **OpenRouter can run the model review.** Set `vendor=openrouter` in `.github/review.conf` (or `review_vendor=openrouter` in the `add-teammate` or `upgrade` answers). One OpenRouter key reaches many vendors' models. Name the model as OpenRouter does, `<maker>/<model>`; a blank model uses `openai/gpt-4o-mini`. For `second-vendor` or `same-vendor`, the vendor is the model's maker. A failed review names OpenRouter's message, never the key. A reply with no verdict but an error message now says that message too.
+- **The upgrade writes `os_version: v1.0.1`.** The check tools are release `2026110206`, so `upgrade --refresh` brings this review script to `main`.
+
+### Also in v1.0.0, listed here late
+
+These shipped in v1.0.0 but were missing from its notes.
+
+- **Moving off v0 on Windows.** `join` reads a file the old folder checked out with Windows line ends as the same text, so only the real edit is set aside.
+- **Moving off v0 is careful with names.** `join` never brings a file whose name has `..`, a leading `/`, a tab or a new line, or one that would go through a link. It says so in one line and never says the old folder may be deleted.
+- **A file a commit added and the folder later lost still comes over.** `join` brings it from the commit. A link or a special file is named and left in place.
+- **A stash is part of the delete rule.** While the old folder has a stash, `join`'s last line and `sync.sh status` say to redo each stash here before deleting the old folder.
+- **The jobs find the right tools.** Tool folders go before the system folders in `PATH`. A Mac with only the Xcode stand-in for `git` gets "git not installed: install the Xcode command line tools, or run join again". A missing tool shows in `sync.sh status` and the sync log.
+- **No false squash error.** When `main` already has the same text from another computer's sync commit, `pull` drops the copy here quietly.
+- **`join` starts the jobs on a Mac.** It loads them in launchd at once (`OS_JOBS_LOAD=0` turns this off). Uninstall stops them.
+- **The weekly report reaches the host.** The reports run makes its `reports/` folder first.
+
+## v1.0.0 — 2026-11-01
 
 The multi-user release. A solo owner gets a simpler setup. A team gets enforced review, private workspaces and nightly sync.
 

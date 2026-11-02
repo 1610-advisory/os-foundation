@@ -199,8 +199,8 @@ if [ -n "$ANSWERS" ]; then
   REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
 fi
 case "$REVIEW_VENDOR" in
-  ""|anthropic|openai|xai) ;;
-  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+  ""|anthropic|openai|xai|openrouter) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, xai, or openrouter" ;;
 esac
 if [ -z "$REVIEW_KIND" ]; then
   if [ -n "$REVIEW_VENDOR" ]; then
@@ -1168,7 +1168,7 @@ plan_host_steps() {
     printf 'change: protect %s\n' "$(os_area_repo "$SLUG" "$(basename "$area")")"
   done
   if [ -z "$(os_answer_or review_vendor "${ANSWERS:-/dev/null}" "")" ]; then
-    printf '%s\n' "todo: answer review_vendor (anthropic, openai or xai) for .github/review.conf"
+    printf '%s\n' "todo: answer review_vendor (anthropic, openai, xai or openrouter) for .github/review.conf"
   fi
 }
 plan_host_steps
@@ -1322,9 +1322,9 @@ if [ -n "$ANSWERS" ]; then
   ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
   RUNNER=$(os_answer_or runner "$ANSWERS" "")
 fi
-[ -n "${OS_VER:-}" ] || OS_VER="v1.0.0"
+[ -n "${OS_VER:-}" ] || OS_VER="v1.0.1"
 case "$OS_VER" in
-  *'{{'*) OS_VER="v1.0.0" ;;
+  *'{{'*) OS_VER="v1.0.1" ;;
 esac
 
 os_fm_set "$ROOT/company-profile.md" level "$LEVEL"

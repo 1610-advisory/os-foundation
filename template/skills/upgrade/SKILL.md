@@ -24,7 +24,7 @@ Run the upgrade from a Mac or Linux computer. On Windows the script stops (`run 
 
 Ask: "Does anyone else use this company OS with you?" Suggest no.
 - No: the level is `solo`. Add nothing.
-- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai` or `xai`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, follow section 11: the admin runs `add-teammate` Part A with the same people (it adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs), then each teammate joins.
+- Yes, and the repos are on a git host (a v0 team): this is the one path for a team company. Write these to the answers file (step 4): `level=team`, `host` (`github` or `forgejo`), `org`, `slug`, and `review_vendor` (`anthropic`, `openai`, `xai` or `openrouter`; add-teammate A3 explains it). Forgejo: also `host_url`. The admin runs the upgrade with their own sign-in. On GitHub it needs `gh auth refresh -s admin:org,workflow`. After the upgrade pull requests merge, follow section 11: the admin runs `add-teammate` Part A with the same people (it adds what v1 teams have and v0 did not: people pages, workspaces, teams and the OS jobs), then each teammate joins.
 - Yes, but the folder was never on a git host: upgrade at `solo`. Then run `add-teammate` Part A.
 
 ## 3. Clean folder

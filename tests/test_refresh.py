@@ -16,7 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "template"
 UPGRADE = TEMPLATE / "skills" / "upgrade" / "upgrade.sh"
-OLD_REF = "origin/next/v1"
+# A v1 company from before the redesign (next/v1 at #40). A fixed commit: once a
+# branch starts from next/v1, next/v1 is no longer far behind the template.
+OLD_REF = "136a0f34a5e3af971b925cbe149366cca223265e"
 
 
 def run(cmd, env=None, cwd=None, check=False):
