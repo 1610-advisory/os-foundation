@@ -105,7 +105,7 @@ for arg in "$@"; do
   case "$prev" in
     --method) method=$arg ;;
     --hostname) ;;
-    *) case "$arg" in /*) path=$arg ;; esac ;;
+    *) case "$arg" in /*) path=$arg ;; repos/*|orgs/*|user|user/*|users/*|app/*|teams/*) path=/$arg ;; esac ;;
   esac
   prev=$arg
 done

@@ -416,7 +416,7 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os"})
         self.assertFalse((self.dir / "classic").exists())
-        self.assertIn("--method DELETE /repos/acme/acme-os/branches/main/protection", self.writes()[0])
+        self.assertIn("--method DELETE repos/acme/acme-os/branches/main/protection", self.writes()[0])
         # No classic rule (404): still fine.
         proc = run(["unprotect", "acme-os"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -451,8 +451,8 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "branch": "logs", "deleted": True})
         writes = self.writes()
-        self.assertIn("--method DELETE /repos/acme/acme-os/branches/logs/protection", writes[0])
-        self.assertIn("--method DELETE /repos/acme/acme-os/git/refs/heads/logs", writes[1])
+        self.assertIn("--method DELETE repos/acme/acme-os/branches/logs/protection", writes[0])
+        self.assertIn("--method DELETE repos/acme/acme-os/git/refs/heads/logs", writes[1])
         self.assertFalse(any("branches/main" in w for w in writes))
         # A second run: rule and branch already gone, still fine.
         proc = run(["drop-logs", "acme-os"], self.env)
@@ -507,7 +507,7 @@ class GithubSecondRunTests(unittest.TestCase):
         proc = run(["archive-repo", "acme-os"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "archived": True, "already": True})
-        self.assertEqual(sum("--method PATCH /repos/acme/acme-os" in w for w in self.writes()), 1)
+        self.assertEqual(sum("--method PATCH" in w and w.endswith(" repos/acme/acme-os") for w in self.writes()), 1)
 
     def test_drop_logs_stops_when_the_rule_stays(self):
         self.flag("logs-rule")
@@ -613,7 +613,7 @@ class GithubSecondRunTests(unittest.TestCase):
         second = run(["create-repo", "acme-os", "--private"], self.env)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(json.loads(second.stdout)["name"], "acme-os")
-        patches = [c for c in self.calls() if "--method PATCH /repos/acme/acme-os" in c]
+        patches = [c for c in self.calls() if "--method PATCH" in c and c.endswith(" repos/acme/acme-os")]
         self.assertEqual(len(patches), 2)
 
     def test_create_repo_auto_merge_denied_is_one_line(self):
