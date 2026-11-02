@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SYNC = ROOT / "template" / "skills" / "sync"
+OLD_SYNC_REF = "136a0f34a5e3af971b925cbe149366cca223265e"
 HOST = ROOT / "template" / "skills" / "_host"
 ENGINE = ROOT / "tests" / "fakes" / "engine.sh"
 SECRET = "gh" + "p_" + ("ab12" * 9)
@@ -1815,10 +1816,11 @@ class SyncFixTests(unittest.TestCase):
         self.assertFalse(exempt("workspace", "memory/logs/2026-10-28-mia.md"))
 
     def old_sync(self):
-        # next/v1's own sync code, as a seat made before this change runs it.
+        # The sync code from before the redesign (next/v1 at #40), as a seat made then
+        # runs it. A fixed commit: next/v1 now has the redesign itself.
         old = self.tmp / "old"
         if not old.exists():
-            data = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", "origin/next/v1",
+            data = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", OLD_SYNC_REF,
                                    "template/skills"], capture_output=True, check=True).stdout
             import io
             import tarfile
@@ -1827,8 +1829,8 @@ class SyncFixTests(unittest.TestCase):
         return old / "template" / "skills" / "sync" / "sync.sh"
 
     def test_a_seat_made_by_the_old_code_moves_on_its_first_pull_and_push(self):
-        if run(["git", "-C", str(ROOT), "rev-parse", "-q", "--verify", "origin/next/v1"]).returncode != 0:
-            self.skipTest("origin/next/v1 is not fetched")
+        if run(["git", "-C", str(ROOT), "rev-parse", "-q", "--verify", OLD_SYNC_REF + "^{commit}"]).returncode != 0:
+            self.skipTest(f"{OLD_SYNC_REF} is not fetched")
         bare = self.seed_origin()
         skill = self.company / "skills" / "invoice" / "SKILL.md"
         skill.parent.mkdir(parents=True)

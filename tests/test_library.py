@@ -306,9 +306,9 @@ class LibraryFolderTests(unittest.TestCase):
             self.assertIn(name, line)
         self.assertLess(len(rules), 9000)
 
-    def test_changelog_line_is_in_the_unreleased_v1_section(self):
+    def test_changelog_line_is_in_the_v1_section(self):
         log = (ROOT / "CHANGELOG.md").read_text()
-        v1 = log.split("## v1.0.0 — unreleased")[1].split("\n## ")[0]
+        v1 = log.split("## v1.0.0 — 2026-11-01")[1].split("\n## ")[0]
         self.assertIn("**The folder can keep its own copy.**", v1)
         self.assertNotIn("v1.1", log.split("## v1.0.0")[0])
 
