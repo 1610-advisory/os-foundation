@@ -569,6 +569,8 @@ case "$1" in
   whoami)
     # B55: the host API cannot be reached.
     [ ! -f "HOSTDIR/offline" ] || exit 5
+    # B75: any other failure, with the host's own error text.
+    if [ -f "HOSTDIR/whoami-fails" ]; then cat "HOSTDIR/whoami-fails" >&2; exit 3; fi
     printf '%s\n' '{"login":"LOGIN"}' ;;
   get-token) printf '%s\n' local-token ;;
   open-pr)
@@ -687,6 +689,34 @@ class SyncFixTests(unittest.TestCase):
         # The folder made the commit itself, with this computer's trailer.
         trailer = self.git("log", "-1", "--format=%(trailers:key=Sync-Seat,valueonly)", "origin/" + SEAT_BRANCH)
         self.assertEqual(trailer.stdout.strip(), SEAT)
+
+    def test_an_identity_failure_says_what_the_host_said(self):
+        # B75: not sign-in (4) or offline (5): one line on stderr, in status and sync.log,
+        # with any token masked.
+        self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        token = "gh" + "p_" + "A1b2" * 9
+        (self.host / "whoami-fails").write_text(
+            "\nHTTP 502: Bad Gateway (https://api.github.com/user) token " + token + "\nsecond line\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0)
+        want = "identity check failed: HTTP 502: Bad Gateway (https://api.github.com/user) token [redacted]"
+        self.assertIn("push: " + want + "\n", result.stderr)
+        self.assertIn("last error: " + want, self.sync("status").stdout)
+        self.assertIn("push fail identity: HTTP 502: Bad Gateway (https://api.github.com/user) token [redacted]",
+                      self.sync_log())
+        for text in (result.stdout, result.stderr, self.sync_log(), self.sync("status").stdout):
+            self.assertNotIn(token, text)
+            self.assertNotIn("second line", text)
+
+    def test_push_prints_the_pull_request_link_once(self):
+        # B76: the seat pull request's link, once, on stdout (a job's log takes it).
+        self.seed_origin()
+        (self.company / "ok.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.count("pr: http://example.test/1\n"), 1, result.stdout)
+        self.assertIn("push pr root http://example.test/1", self.sync_log())
 
     def test_a_hand_made_commit_is_refused(self):
         # Sync makes every commit here. One it did not make never goes up.

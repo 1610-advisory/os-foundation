@@ -41,6 +41,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `grant <name> <user\|team:<team>> <read\|write\|admin>` | Grant repo access |
 | `revoke <name> <user\|team:<team>>` | Revoke repo access |
 | `org-remove <user>` | Remove a user from the org |
+| `my-membership` | The signed-in person's own membership: `{"state":"active"\|"pending"\|"none"}`. GitHub reads `/user/memberships/orgs/<org>`, which says `pending` while their invite is open. Forgejo: `active` or `none`. `join` runs it. |
 | `org-membership <user>` | `{"user":...,"state":"active"\|"pending"\|"none"}`. GitHub: `pending` is an open invite. Forgejo: `active` or `none`. Any other answer exits non-zero, never `none`. |
 | `invites <user> [<repo>]` | Pending invites for the user: the org's, or one repo's. `{"invites":[{"id","permission"}]}`. Forgejo has no pending invites: it adds people at once, so the list is empty. A list it cannot read exits non-zero, never an empty list. |
 | `cancel-invites <user> [<repo>]` | Cancel each pending invite for the user: the org's, or one repo's. A second run is fine. `{"ok":true,"user":...,"cancelled":N}`. A list it cannot read exits non-zero. |

@@ -360,6 +360,8 @@ while [ $# -gt 0 ]; do
     *) path=$1; shift ;;
   esac
 done
+# B74: the product sends the path last, with no leading slash.
+case "$path" in /*) ;; ?*) path=/$path ;; esac
 printf '%s %s\n' "$method" "$path" >> "$GH_LOG"
 case "$method $path" in
   "GET /repos/acme/acme-os/rulesets"|"GET /repos/acme/acme-os/rulesets?per_page=100&page=1")

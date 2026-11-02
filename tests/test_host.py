@@ -4,6 +4,7 @@ Run: python3 -m unittest discover -s tests -v
 """
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -34,6 +35,7 @@ VERBS = [
     "revoke",
     "org-remove",
     "org-membership",
+    "my-membership",
     "invites",
     "cancel-invites",
     "archive-repo",
@@ -228,6 +230,7 @@ class GithubDryRunTests(unittest.TestCase):
             ("revoke-team.jsonl", ["revoke", "acme-os", "team:writers"], None),
             ("org-remove.jsonl", ["org-remove", "ada"], None),
             ("org-membership.jsonl", ["org-membership", "ada"], None),
+            ("my-membership.jsonl", ["my-membership"], None),
             ("invites.jsonl", ["invites", "ada"], None),
             ("cancel-invites-repo.jsonl", ["cancel-invites", "ada", "acme-os"], None),
             ("archive-repo.jsonl", ["archive-repo", "acme-os"], None),
@@ -414,7 +417,7 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os"})
         self.assertFalse((self.dir / "classic").exists())
-        self.assertIn("--method DELETE /repos/acme/acme-os/branches/main/protection", self.writes()[0])
+        self.assertIn("--method DELETE repos/acme/acme-os/branches/main/protection", self.writes()[0])
         # No classic rule (404): still fine.
         proc = run(["unprotect", "acme-os"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -449,8 +452,8 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "branch": "logs", "deleted": True})
         writes = self.writes()
-        self.assertIn("--method DELETE /repos/acme/acme-os/branches/logs/protection", writes[0])
-        self.assertIn("--method DELETE /repos/acme/acme-os/git/refs/heads/logs", writes[1])
+        self.assertIn("--method DELETE repos/acme/acme-os/branches/logs/protection", writes[0])
+        self.assertIn("--method DELETE repos/acme/acme-os/git/refs/heads/logs", writes[1])
         self.assertFalse(any("branches/main" in w for w in writes))
         # A second run: rule and branch already gone, still fine.
         proc = run(["drop-logs", "acme-os"], self.env)
@@ -505,7 +508,7 @@ class GithubSecondRunTests(unittest.TestCase):
         proc = run(["archive-repo", "acme-os"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"ok": True, "name": "acme-os", "archived": True, "already": True})
-        self.assertEqual(sum("--method PATCH /repos/acme/acme-os" in w for w in self.writes()), 1)
+        self.assertEqual(sum("--method PATCH" in w and w.endswith(" repos/acme/acme-os") for w in self.writes()), 1)
 
     def test_drop_logs_stops_when_the_rule_stays(self):
         self.flag("logs-rule")
@@ -611,7 +614,7 @@ class GithubSecondRunTests(unittest.TestCase):
         second = run(["create-repo", "acme-os", "--private"], self.env)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(json.loads(second.stdout)["name"], "acme-os")
-        patches = [c for c in self.calls() if "--method PATCH /repos/acme/acme-os" in c]
+        patches = [c for c in self.calls() if "--method PATCH" in c and c.endswith(" repos/acme/acme-os")]
         self.assertEqual(len(patches), 2)
 
     def test_create_repo_auto_merge_denied_is_one_line(self):
@@ -702,6 +705,13 @@ class TokenAndUsageTests(unittest.TestCase):
     def test_scripts_do_not_log_tokens(self):
         for path in LIB.glob("*.sh"):
             text = path.read_text()
+            # One set -x is allowed: host_xtrace_restore gives back the caller's own
+            # xtrace after a secret is out of every variable (round 3, P2).
+            if path.name == "lib.sh":
+                restore = re.search(r"^host_xtrace_restore\(\) \{\n(.*?)^\}\n", text, re.S | re.M)
+                self.assertIsNotNone(restore)
+                self.assertEqual(restore.group(1).count("set -x"), 1)
+                text = text.replace(restore.group(0), "")
             self.assertNotIn("set -x", text)
             self.assertNotIn("curl -v", text)
             self.assertNotIn("?token=", text)
@@ -914,6 +924,240 @@ class TokenAndUsageTests(unittest.TestCase):
             self.assertNotIn(secret, argv)
             self.assertNotIn(token, argv)
 
+
+
+class SetSecretPromptTests(unittest.TestCase):
+    """v1.0.2: set-secret at a terminal asks with no echo; a pipe still works; empty fails."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.got = self.root / "gh-stdin"
+        gh = self.root / "gh"
+        gh.write_text('#!/bin/sh\ncat > "$FAKE_GH_STDIN"\nprintf \'%s\\n\' "$*" > "$FAKE_GH_STDIN.argv"\n')
+        gh.chmod(0o755)
+        self.env = {
+            "OS_HOST": "github", "OS_ORG": "acme", "OS_HOST_URL": "", "OS_SLUG": "acme",
+            "OS_PROFILE": str(COMPANY), "HOST_DRY_RUN": "",
+            "PATH": str(self.root) + os.pathsep + os.environ.get("PATH", ""),
+            "FAKE_GH_STDIN": str(self.got),
+        }
+
+    def test_terminal_prompt_hides_the_value(self):
+        import pty
+        import select
+        import time
+
+        secret = "typed-secret-value-42"
+        env = os.environ.copy()
+        env.update(self.env)
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve(str(HOST), [str(HOST), "set-secret", "OS_REVIEW_KEY"], env)
+        seen = b""
+
+        def read_for(seconds, until=None):
+            nonlocal seen
+            end = time.time() + seconds
+            while time.time() < end:
+                ready, _, _ = select.select([fd], [], [], 0.1)
+                if ready:
+                    try:
+                        chunk = os.read(fd, 1024)
+                    except OSError:
+                        return
+                    if not chunk:
+                        return
+                    seen += chunk
+                    if until and until in seen:
+                        return
+
+        read_for(10, b"OS_REVIEW_KEY: ")
+        self.assertIn(b"OS_REVIEW_KEY: ", seen)
+        # Type as a person does, a moment after the prompt. bash turns echo off only
+        # once the prompt has been read off the terminal (TCSADRAIN).
+        read_for(1.0)
+        os.write(fd, secret.encode() + b"\r")
+        read_for(10)
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if not done:
+            os.kill(pid, 9)
+            _, status = os.waitpid(pid, 0)
+        os.close(fd)
+        self.assertNotEqual(done, 0, "set-secret did not finish after the value and Enter: " + repr(seen))
+        self.assertEqual(os.waitstatus_to_exitcode(status), 0, seen)
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        self.assertIn("secret set OS_REVIEW_KEY --org acme", (self.root / "gh-stdin.argv").read_text())
+
+    def test_pipe_still_works_and_empty_fails(self):
+        piped = run(["set-secret", "OS_REVIEW_KEY"], self.env, stdin="piped-value")
+        self.assertEqual(piped.returncode, 0, piped.stderr)
+        self.assertEqual(self.got.read_text(), "piped-value")
+        self.assertNotIn("piped-value", piped.stdout + piped.stderr)
+        self.got.unlink()
+        empty = run(["set-secret", "OS_REVIEW_KEY"], self.env, stdin=" \n")
+        self.assertEqual(empty.returncode, 1)
+        self.assertEqual(empty.stderr, "OS_REVIEW_KEY is empty: nothing was set\n")
+        self.assertFalse(self.got.exists())
+
+    def _pty_run(self, argv, env, secret):
+        import pty
+        import select
+        import time
+
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve(argv[0], argv, env)
+        seen = b""
+        sent = False
+        prompted = None
+        end = time.time() + 15
+        while time.time() < end:
+            ready, _, _ = select.select([fd], [], [], 0.1)
+            if ready:
+                try:
+                    chunk = os.read(fd, 1024)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                seen += chunk
+            if prompted is None and b"OS_REVIEW_KEY: " in seen:
+                prompted = time.time()
+            # Type a moment after the prompt, as a person does (see the test above).
+            if not sent and prompted is not None and time.time() - prompted >= 1.0:
+                os.write(fd, secret.encode() + b"\r")
+                sent = True
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if not done:
+            os.kill(pid, 9)
+            _, status = os.waitpid(pid, 0)
+        os.close(fd)
+        return sent, os.waitstatus_to_exitcode(status), seen
+
+    def test_xtrace_never_prints_the_value(self):
+        # Round 3, P2: under bash -x or an inherited SHELLOPTS=xtrace, the value
+        # was traced by printf '%s' "$value" (and by the Forgejo body).
+        secret = "xtrace-secret-value-77"
+        traced = dict(self.env, SHELLOPTS="xtrace")
+        # A pipe, with xtrace inherited by host.sh and the adapter.
+        piped = run(["set-secret", "OS_REVIEW_KEY"], traced, stdin=secret)
+        self.assertEqual(piped.returncode, 0, piped.stderr)
+        self.assertIn("+ ", piped.stderr, "xtrace was not on")
+        self.assertNotIn(secret, piped.stdout + piped.stderr)
+        self.assertEqual(self.got.read_text(), secret)
+        self.got.unlink()
+        # A terminal, with bash -x on the adapter itself.
+        env = os.environ.copy()
+        env.update(self.env)
+        sent, code, seen = self._pty_run(
+            ["/bin/bash", "-x", str(LIB / "github.sh"), "set-secret", "OS_REVIEW_KEY"], env, secret)
+        self.assertTrue(sent, seen)
+        self.assertEqual(code, 0, seen)
+        self.assertIn(b"+ ", seen, "xtrace was not on")
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        # A terminal through host.sh, with xtrace inherited.
+        self.got.unlink()
+        env["SHELLOPTS"] = "xtrace"
+        sent, code, seen = self._pty_run([str(HOST), "set-secret", "OS_REVIEW_KEY"], env, secret)
+        self.assertTrue(sent, seen)
+        self.assertEqual(code, 0, seen)
+        self.assertNotIn(secret.encode(), seen)
+        self.assertEqual(self.got.read_text(), secret)
+        # Forgejo puts the value in a request body: that is not traced either.
+        curl = self.root / "curl"
+        curl.write_text(
+            "#!/bin/bash\n"
+            "cfg=\n"
+            "while [ $# -gt 0 ]; do\n"
+            "  if [ \"$1\" = \"--config\" ]; then cfg=$2; shift 2; continue; fi\n"
+            "  shift\n"
+            "done\n"
+            "data=$(sed -n 's/^data-binary = \"@\\(.*\\)\"/\\1/p' \"$cfg\")\n"
+            "[ -z \"$data\" ] || cp \"$data\" \"$FAKE_GH_STDIN.body\"\n"
+            "printf '%s' 201\n"
+        )
+        curl.chmod(0o755)
+        fj = dict(traced, OS_HOST="forgejo", OS_HOST_URL="http://127.0.0.1:9", FORGEJO_TOKEN="fj-not-a-real-token")
+        forgejo = run(["set-secret", "OS_REVIEW_KEY"], fj, stdin=secret)
+        self.assertEqual(forgejo.returncode, 0, forgejo.stderr)
+        self.assertIn("+ ", forgejo.stderr, "xtrace was not on")
+        self.assertNotIn(secret, forgejo.stdout + forgejo.stderr)
+        self.assertEqual(json.loads((self.root / "gh-stdin.body").read_text()), {"data": secret})
+
+
+class GhApiPathTests(unittest.TestCase):
+    """B74: Git Bash (MSYS) rewrites an argument that starts with / into a Windows path,
+    so gh.exe got C:/Program Files/Git/repos/... No gh api path may start with /."""
+
+    def test_only_the_wrapper_runs_gh_api(self):
+        # Every gh api call goes through host_gh_api, which drops the leading slash.
+        for path in [LIB / "github.sh", ROOT / "template" / ".github" / "scripts" / "tools" / "host" / "github.sh"]:
+            lines = [l.strip() for l in path.read_text().splitlines()
+                     if "gh api" in l and not l.strip().startswith("#")]
+            self.assertEqual(lines, ['gh api --hostname "$GH_HOSTNAME" "$@" "$path"', 'gh api "$@" "$path"'], path)
+            self.assertIn("local path=${1#/}", path.read_text())
+        for path in (ROOT / "template").rglob("*.sh"):
+            if path.name == "github.sh" and path.parent.name in ("_host", "host"):
+                continue
+            for line in path.read_text().splitlines():
+                if line.strip().startswith("#"):
+                    continue
+                self.assertNotRegex(line, r"(^|[\s;|&(])gh\s+api\b", f"{path}: {line}")
+
+    def test_no_verb_sends_a_path_that_starts_with_a_slash(self):
+        # Run every verb for real against a fake gh that logs its argv, one line per arg.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "argv.log"
+            gh = root / "gh"
+            gh.write_text(
+                "#!/bin/bash\n"
+                'printf "%s\\n" "CALL" "$@" >> "$FAKE_GH_ARGV"\n'
+                'cat > /dev/null 2>&1 < /dev/null\n'
+                'case "$*" in *" -i "*|*" -i") printf "HTTP/2 200\\r\\nx-oauth-scopes: repo\\r\\n\\r\\n{\\"login\\":\\"ada\\"}\\n" ;;\n'
+                '*) printf "%s\\n" "{}" ;; esac\n')
+            gh.chmod(0o755)
+            body = root / "body.txt"
+            body.write_text("body\n")
+            env = {
+                "OS_HOST": "github", "OS_ORG": "acme", "OS_HOST_URL": "", "OS_SLUG": "acme",
+                "OS_PROFILE": str(COMPANY), "HOST_DRY_RUN": "",
+                "PATH": str(root) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_GH_ARGV": str(log),
+            }
+            cases = [
+                ["whoami"], ["plan-check"], ["repo-access", "acme-os"], ["unprotect", "acme-os"],
+                ["protect", "acme-os", "--approvals", "0", "--code-owners"],
+                ["secret-exists", "OS_REVIEW_KEY"], ["user-access", "acme-os", "ada"],
+                ["team-create", "writers"], ["team-add", "writers", "ada"], ["team-remove", "writers", "ada"],
+                ["team-repos", "acme-company"], ["org-repos"], ["grant", "acme-os", "ada", "write"],
+                ["grant", "acme-os", "team:writers", "read"], ["revoke", "acme-os", "ada"],
+                ["org-remove", "ada"], ["org-membership", "ada"], ["my-membership"], ["invites", "ada"],
+                ["cancel-invites", "ada", "acme-os"], ["archive-repo", "acme-os"],
+                ["open-pr", "acme-os", "--head", "sync/ada", "--base", "main", "--title", "t", "--body-file", str(body)],
+                ["open-prs", "acme-os"], ["close-pr", "acme-os", "12"], ["drop-logs", "acme-os"],
+                ["pr-status", "acme-os", "12"], ["pr-comment", "acme-os", "12", "--body-file", str(body)],
+                ["create-repo", "acme-os", "--private"],
+            ]
+            for args in cases:
+                try:
+                    subprocess.run([str(HOST), *args], env={**os.environ, **env}, text=True,
+                                   capture_output=True, timeout=30, check=False)
+                except subprocess.TimeoutExpired:
+                    self.fail(f"{args[0]} did not finish")
+            calls = [c.strip().splitlines() for c in log.read_text().split("CALL\n") if c.strip()]
+            api = [c for c in calls if c and c[0] == "api"]
+            self.assertGreaterEqual(len(api), len(cases), "too few gh api calls were made")
+            for call in api:
+                for arg in call:
+                    self.assertFalse(arg.startswith("/"), f"gh api path starts with /: {call}")
+            paths = {c[-1] for c in api}
+            self.assertIn("user", paths)
+            self.assertIn("repos/acme/acme-os", paths)
 
 if __name__ == "__main__":
     unittest.main()

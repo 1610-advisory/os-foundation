@@ -21,6 +21,8 @@ while [ $# -gt 0 ]; do
     --auto) auto=1; shift ;;
     api) shift ;;
     /*|graphql) path=$1; shift ;;
+    # B74: the product sends paths with no leading slash.
+    repos/*|orgs/*|user|user/*|users/*|app/*|teams/*) path=/$1; shift ;;
     *) shift ;;
   esac
 done

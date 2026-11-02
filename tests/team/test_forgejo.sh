@@ -196,7 +196,7 @@ grep -q '^kind=second-vendor$' "$company/.github/review.conf" || die "review.con
 grep -q '^vendor=xai$' "$company/.github/review.conf" || die "review vendor missing"
 grep -q '^kind=second-vendor$' "$company/areas/marketing/.github/review.conf" || die "area review.conf missing"
 grep -q '^review:' "$company/company-profile.md" && die "profile must not hold a review line"
-grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/team-on.out" || die "review command missing"
+grep -q 'review-command: OS_HOST=[a-z]* OS_ORG=[^ ]* .*skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/team-on.out" || die "review command missing"
 grep -q '^level: team$' "$company/company-profile.md" || die "profile level not team"
 grep -q 'hand-off: mia' "$work/team-on.out" || die "missing hand-off"
 grep -q 'http://localhost:3300/acme/team-os' "$work/team-on.out" || die "hand-off missing repo URL"

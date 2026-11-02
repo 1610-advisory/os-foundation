@@ -391,6 +391,61 @@ class ReviewOpenRouterTests(unittest.TestCase):
             self.assertNotIn(KEY, text)
             self.assertNotIn(KEY[:5] + "****", text)
 
+    # B77: a small model wrapped the whole answer in a code fence; the closing fence
+    # was read as the verdict line.
+    def test_fenced_pass_is_a_pass(self):
+        self.answer = self.reply("```\nSUMMARY: Docs only. Safe. No findings noted.\nVERDICT: PASS\n```")
+        result = self.review()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertTrue(out.rstrip().endswith("VERDICT: PASS"), out)
+        self.assertNotIn("```", out)
+
+    def test_fenced_fail_with_a_language_word_is_a_fail(self):
+        self.answer = self.reply("\n```text\nSUMMARY: a price in a note\nVERDICT: FAIL\n```\n")
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertIn("SUMMARY: a price in a note", out)
+        self.assertTrue(out.rstrip().endswith("VERDICT: FAIL"), out)
+        self.assertNotIn("no verdict", result.stderr)
+
+    def test_bold_or_dotted_verdict_is_read(self):
+        for line, code in (("**VERDICT: PASS**", 0), ("VERDICT: PASS.", 0), ("**VERDICT: FAIL**", 1)):
+            self.answer = self.reply("SUMMARY: ok\n" + line)
+            result = self.review()
+            self.assertEqual(result.returncode, code, line + ": " + result.stderr)
+            self.assertNotIn("no verdict", result.stderr, line)
+
+    def test_no_verdict_shows_the_model_text(self):
+        said = "I could not decide about this change.\nIt uses the key " + KEY + " here."
+        self.answer = self.reply(said)
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        for text in (result.stderr, out):
+            self.assertIn("I could not decide about this change.", text)
+            self.assertIn("It uses the key [key] here.", text)
+            self.assertTrue(text.rstrip().endswith("model review failed: no verdict"), text)
+            self.assertNotIn(KEY, text)
+        # At most 40 lines of the model's text.
+        self.answer = self.reply("\n".join(f"line {i}" for i in range(1, 61)))
+        result = self.review()
+        self.assertEqual(result.returncode, 1)
+        out = (self.root / "out").read_text(encoding="utf-8")
+        self.assertIn("line 40\n", out)
+        self.assertNotIn("line 41", out)
+
+    def test_text_after_the_verdict_still_fails(self):
+        # A fence in the middle, with text after the verdict: no outer fence to drop.
+        for said in ("SUMMARY: ok\nVERDICT: PASS\n```\nmore notes\n```",
+                     "```\nSUMMARY: ok\nVERDICT: PASS\nmore notes\n```",
+                     "SUMMARY: ok\nVERDICT: PASS\nmore notes"):
+            self.answer = self.reply(said)
+            result = self.review()
+            self.assertEqual(result.returncode, 1, said)
+            self.assertIn("model review failed:", result.stderr, said)
+
     def test_ok_status_with_an_error_body_says_why(self):
         self.answer = (200, {"error": {"code": 502, "message": "Provider returned error for " + KEY}})
         result = self.review()
@@ -1382,7 +1437,7 @@ class OverrideHonourTests(unittest.TestCase):
         self.HEAD = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
         self.repo = repo
 
-    def run_checks(self, comments):
+    def run_checks(self, comments, review=None, lint=False):
         root, repo, base = self.root, self.repo, self.base
         scripts = root / "tools" / ".github" / "scripts"
         scripts.mkdir(parents=True)
@@ -1390,9 +1445,22 @@ class OverrideHonourTests(unittest.TestCase):
             (scripts / name).write_text((SCRIPTS / name).read_text())
         (scripts / "tools").mkdir()
         (scripts / "tools" / "secret-scan.sh").write_text("exit 0\n")
+        if lint:
+            (scripts / "tools" / "lint.sh").write_text("exit 0\n")
+        # The host layer: pr-comment keeps the body it was given.
+        (scripts / "tools" / "host").mkdir()
+        (scripts / "tools" / "host" / "host.sh").write_text(
+            'while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$FAKE_POSTED"; shift; done\n')
         (root / "comments.json").write_text(json.dumps(comments), encoding="utf-8")
         (scripts / "host-read.sh").write_text('cat "$FAKE_COMMENTS"\n')
-        (scripts / "model-review.sh").write_text('echo REVIEW_RAN >&2\nexit 1\n')
+        if review is None:
+            (scripts / "model-review.sh").write_text('echo REVIEW_RAN >&2\nexit 1\n')
+        else:
+            (root / "review.txt").write_text(review + "\n", encoding="utf-8")
+            (scripts / "model-review.sh").write_text(
+                'while [ $# -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done\n'
+                f'cp "{root / "review.txt"}" "$out"\n'
+                + ('exit 0\n' if review.endswith("PASS") else 'exit 1\n'))
         (root / "tools" / "review-rules.md").write_text("rules\n")
         state = root / "runner" / "os-ci"
         state.mkdir(parents=True)
@@ -1407,6 +1475,7 @@ class OverrideHonourTests(unittest.TestCase):
             env={
                 "RUNNER_TEMP": str(root / "runner"),
                 "FAKE_COMMENTS": str(root / "comments.json"),
+                "FAKE_POSTED": str(root / "posted.md"),
                 "JOB_TOKEN": KEY,
                 "GITHUB_REPOSITORY": "acme/acme-os",
                 "GITHUB_SERVER_URL": "https://github.com",
@@ -1416,6 +1485,20 @@ class OverrideHonourTests(unittest.TestCase):
 
     def line(self, user="acme-admin", head=None):
         return f"override by {user} for {head or self.HEAD}: too large\n"
+
+    def test_comment_shows_the_gates_above_the_review(self):
+        # v1.0.2: the override line names lint and the secret scan, so the comment says
+        # how they went, above the model review's own text.
+        result = self.run_checks([], review="SUMMARY: ok\nVERDICT: PASS", lint=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        posted = (self.root / "posted.md").read_text(encoding="utf-8")
+        self.assertEqual(posted, "secret scan: pass, lint: pass\n\nSUMMARY: ok\nVERDICT: PASS\n")
+
+    def test_comment_says_lint_was_skipped(self):
+        result = self.run_checks([], review="SUMMARY: a price\nVERDICT: FAIL")
+        self.assertEqual(result.returncode, 1)
+        posted = (self.root / "posted.md").read_text(encoding="utf-8")
+        self.assertTrue(posted.startswith("secret scan: pass, lint: skipped\n\nSUMMARY: a price"), posted)
 
     def test_bot_line_and_owner_comment_pass_without_a_review(self):
         result = self.run_checks([

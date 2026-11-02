@@ -83,6 +83,20 @@ host_classify_gh() {
   printf '%s\n' "3"
 }
 
+# The only place that runs gh api. PATH goes last, with no leading slash: Git Bash
+# (MSYS) rewrites an argument that starts with / into a Windows path, so gh.exe got
+# "C:/Program Files/Git/repos/..." (B74). gh reads "repos/..." the same as "/repos/...".
+# MSYS_NO_PATHCONV=1 is not the fix: it breaks the askpass path.
+host_gh_api() {
+  local path=${1#/}
+  shift
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" "$@" "$path"
+  else
+    gh api "$@" "$path"
+  fi
+}
+
 # Run gh. On success print the body. On failure scrub stderr, set GH_STATUS, return it.
 host_gh_call() {
   local method=$1 path=$2 body=${3-}
@@ -91,18 +105,10 @@ host_gh_call() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    if [ -n "$body" ]; then
-      printf '%s' "$body" | gh api --hostname "$GH_HOSTNAME" --method "$method" "$path" --input - >"$out" 2>"$err"
-    else
-      gh api --hostname "$GH_HOSTNAME" --method "$method" "$path" >"$out" 2>"$err"
-    fi
+  if [ -n "$body" ]; then
+    printf '%s' "$body" | host_gh_api "$path" --method "$method" --input - >"$out" 2>"$err"
   else
-    if [ -n "$body" ]; then
-      printf '%s' "$body" | gh api --method "$method" "$path" --input - >"$out" 2>"$err"
-    else
-      gh api --method "$method" "$path" >"$out" 2>"$err"
-    fi
+    host_gh_api "$path" --method "$method" >"$out" 2>"$err"
   fi
   code=$?
   set -e
@@ -343,11 +349,7 @@ cmd_whoami() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" -i "/user" >"$out" 2>"$err"
-  else
-    gh api -i "/user" >"$out" 2>"$err"
-  fi
+  host_gh_api "/user" -i >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -ne 0 ]; then
@@ -612,11 +614,7 @@ cmd_user_access() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
-  else
-    gh api --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
-  fi
+  host_gh_api "$(host_repo "$name")/collaborators/${user}/permission" --method GET >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -eq 0 ]; then
@@ -665,11 +663,7 @@ cmd_secret_exists() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
-  else
-    gh api --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
-  fi
+  host_gh_api "/orgs/${OS_ORG}/actions/secrets/${name}" --method GET >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -eq 0 ]; then
@@ -849,6 +843,32 @@ cmd_org_membership() {
     exit "$rc"
   fi
   printf '%s' "$out" | jq -c --arg user "$user" '{user:$user, state:(.state // "unknown"), role:(.role // "")}'
+}
+
+# The signed-in person's own membership of the org. Unlike org-membership, this works
+# while their invite is still open: pending (v1.0.2).
+cmd_my_membership() {
+  local errf rc out
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  if host_dry; then
+    host_emit GET "/user/memberships/orgs/${OS_ORG}"
+    return 0
+  fi
+  errf=$(host_mktemp)
+  set +e
+  out=$(host_gh_call GET "/user/memberships/orgs/${OS_ORG}" 2>"$errf")
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    if grep -q 'HTTP 404' "$errf"; then
+      jq -nc '{state:"none"}'
+      return 0
+    fi
+    cat "$errf" >&2
+    exit "$rc"
+  fi
+  printf '%s' "$out" | jq -c '{state:(.state // "unknown"), role:(.role // "")}'
 }
 
 # The repos a team grants. A missing team: exists false, no repos.
@@ -1285,7 +1305,7 @@ cmd_set_secret() {
   esac
   name=$POS1
   secret_file=$(host_mktemp)
-  cat > "$secret_file"
+  host_read_secret "$secret_file" "$name"
   if host_dry; then
     body=$(jq -nc '{encrypted_value:"<redacted>", key_id:"<public-key>", visibility:"all"}')
     host_emit PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body"
@@ -1329,15 +1349,8 @@ cmd_get_token() {
     out=$(host_mktemp)
     host_require_bin gh
     set +e
-    if [ -n "$GH_HOSTNAME" ]; then
-      GH_TOKEN="$jwt" gh api --hostname "$GH_HOSTNAME" --method POST \
-        -H "Accept: application/vnd.github+json" \
-        "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
-    else
-      GH_TOKEN="$jwt" gh api --method POST \
-        -H "Accept: application/vnd.github+json" \
-        "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
-    fi
+    GH_TOKEN="$jwt" host_gh_api "/app/installations/${inst}/access_tokens" --method POST \
+      -H "Accept: application/vnd.github+json" >"$out" 2>"$err"
     code=$?
     set -e
     if [ "$code" -ne 0 ]; then
@@ -1414,6 +1427,7 @@ case "$VERB" in
   revoke) cmd_revoke ;;
   org-remove) cmd_org_remove ;;
   org-membership) cmd_org_membership ;;
+  my-membership) cmd_my_membership ;;
   invites) cmd_invites ;;
   cancel-invites) cmd_cancel_invites ;;
   archive-repo) cmd_archive ;;

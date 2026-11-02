@@ -195,7 +195,7 @@ for repo in acme2-os acme2-marketing; do
 done
 grep -qx 'checks-on-main: acme2-os (with review-rules.md)' "$work/run.out" || team_fail "no checks-on-main line (with review-rules.md)"
 grep -qx 'protected: acme2-marketing' "$work/run.out" || team_fail "no protected line"
-grep -q 'review-command: skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
+grep -q 'review-command: OS_HOST=[a-z]* OS_ORG=[^ ]* .*skills/_host/host.sh set-secret OS_REVIEW_KEY' "$work/run.out" || team_fail "no review command"
 # B41, B57: the stock skills put the company pull request over the model review's limit.
 # The review leaves out each file exactly as this release ships it (main's
 # stock-current.txt, which the check tools brought), so it fits and needs no /override.

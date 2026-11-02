@@ -109,7 +109,7 @@ if [ ! -d "$ws_dir/.git" ]; then
 fi
 os_host create-repo "$(os_user_repo "$SLUG" "$PERSON")" --private --source "$ws_dir" --push >/dev/null
 os_host grant "$(os_user_repo "$SLUG" "$PERSON")" "$gh" write >/dev/null
-os_host team-add "$(os_team_company)" "$gh" >/dev/null
+os_team_add "$(os_team_company)" "$gh"
 os_host grant "$COMPANY_REPO" "$gh" write >/dev/null
 
 a=""
@@ -119,7 +119,7 @@ for a in $(printf '%s' "$areas" | tr ',' ' '); do
   if [ -d "$ROOT/areas/$a" ]; then
     os_team_guard "$(os_team_area "$a")" "$(os_area_repo "$SLUG" "$a")"
     os_host team-create "$(os_team_area "$a")" >/dev/null
-    os_host team-add "$(os_team_area "$a")" "$gh" >/dev/null
+    os_team_add "$(os_team_area "$a")" "$gh"
     os_host grant "$(os_area_repo "$SLUG" "$a")" "team:$(os_team_area "$a")" write >/dev/null
     os_host grant "$(os_area_repo "$SLUG" "$a")" "$gh" write >/dev/null
   fi
