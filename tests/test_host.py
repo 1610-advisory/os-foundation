@@ -4,6 +4,7 @@ Run: python3 -m unittest discover -s tests -v
 """
 import json
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -704,6 +705,13 @@ class TokenAndUsageTests(unittest.TestCase):
     def test_scripts_do_not_log_tokens(self):
         for path in LIB.glob("*.sh"):
             text = path.read_text()
+            # One set -x is allowed: host_xtrace_restore gives back the caller's own
+            # xtrace after a secret is out of every variable (round 3, P2).
+            if path.name == "lib.sh":
+                restore = re.search(r"^host_xtrace_restore\(\) \{\n(.*?)^\}\n", text, re.S | re.M)
+                self.assertIsNotNone(restore)
+                self.assertEqual(restore.group(1).count("set -x"), 1)
+                text = text.replace(restore.group(0), "")
             self.assertNotIn("set -x", text)
             self.assertNotIn("curl -v", text)
             self.assertNotIn("?token=", text)
