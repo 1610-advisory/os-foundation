@@ -83,6 +83,20 @@ host_classify_gh() {
   printf '%s\n' "3"
 }
 
+# The only place that runs gh api. PATH goes last, with no leading slash: Git Bash
+# (MSYS) rewrites an argument that starts with / into a Windows path, so gh.exe got
+# "C:/Program Files/Git/repos/..." (B74). gh reads "repos/..." the same as "/repos/...".
+# MSYS_NO_PATHCONV=1 is not the fix: it breaks the askpass path.
+host_gh_api() {
+  local path=${1#/}
+  shift
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh api --hostname "$GH_HOSTNAME" "$@" "$path"
+  else
+    gh api "$@" "$path"
+  fi
+}
+
 # Run gh. On success print the body. On failure scrub stderr, set GH_STATUS, return it.
 host_gh_call() {
   local method=$1 path=$2 body=${3-}
@@ -91,18 +105,10 @@ host_gh_call() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    if [ -n "$body" ]; then
-      printf '%s' "$body" | gh api --hostname "$GH_HOSTNAME" --method "$method" "$path" --input - >"$out" 2>"$err"
-    else
-      gh api --hostname "$GH_HOSTNAME" --method "$method" "$path" >"$out" 2>"$err"
-    fi
+  if [ -n "$body" ]; then
+    printf '%s' "$body" | host_gh_api "$path" --method "$method" --input - >"$out" 2>"$err"
   else
-    if [ -n "$body" ]; then
-      printf '%s' "$body" | gh api --method "$method" "$path" --input - >"$out" 2>"$err"
-    else
-      gh api --method "$method" "$path" >"$out" 2>"$err"
-    fi
+    host_gh_api "$path" --method "$method" >"$out" 2>"$err"
   fi
   code=$?
   set -e
@@ -343,11 +349,7 @@ cmd_whoami() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" -i "/user" >"$out" 2>"$err"
-  else
-    gh api -i "/user" >"$out" 2>"$err"
-  fi
+  host_gh_api "/user" -i >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -ne 0 ]; then
@@ -612,11 +614,7 @@ cmd_user_access() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
-  else
-    gh api --method GET "$(host_repo "$name")/collaborators/${user}/permission" >"$out" 2>"$err"
-  fi
+  host_gh_api "$(host_repo "$name")/collaborators/${user}/permission" --method GET >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -eq 0 ]; then
@@ -665,11 +663,7 @@ cmd_secret_exists() {
   out=$(host_mktemp)
   err=$(host_mktemp)
   set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh api --hostname "$GH_HOSTNAME" --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
-  else
-    gh api --method GET "/orgs/${OS_ORG}/actions/secrets/${name}" >"$out" 2>"$err"
-  fi
+  host_gh_api "/orgs/${OS_ORG}/actions/secrets/${name}" --method GET >"$out" 2>"$err"
   code=$?
   set -e
   if [ "$code" -eq 0 ]; then
@@ -1355,15 +1349,8 @@ cmd_get_token() {
     out=$(host_mktemp)
     host_require_bin gh
     set +e
-    if [ -n "$GH_HOSTNAME" ]; then
-      GH_TOKEN="$jwt" gh api --hostname "$GH_HOSTNAME" --method POST \
-        -H "Accept: application/vnd.github+json" \
-        "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
-    else
-      GH_TOKEN="$jwt" gh api --method POST \
-        -H "Accept: application/vnd.github+json" \
-        "/app/installations/${inst}/access_tokens" >"$out" 2>"$err"
-    fi
+    GH_TOKEN="$jwt" host_gh_api "/app/installations/${inst}/access_tokens" --method POST \
+      -H "Accept: application/vnd.github+json" >"$out" 2>"$err"
     code=$?
     set -e
     if [ "$code" -ne 0 ]; then

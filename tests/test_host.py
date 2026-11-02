@@ -991,5 +991,76 @@ class SetSecretPromptTests(unittest.TestCase):
         self.assertEqual(empty.stderr, "OS_REVIEW_KEY is empty: nothing was set\n")
         self.assertFalse(self.got.exists())
 
+
+class GhApiPathTests(unittest.TestCase):
+    """B74: Git Bash (MSYS) rewrites an argument that starts with / into a Windows path,
+    so gh.exe got C:/Program Files/Git/repos/... No gh api path may start with /."""
+
+    def test_only_the_wrapper_runs_gh_api(self):
+        # Every gh api call goes through host_gh_api, which drops the leading slash.
+        for path in [LIB / "github.sh", ROOT / "template" / ".github" / "scripts" / "tools" / "host" / "github.sh"]:
+            lines = [l.strip() for l in path.read_text().splitlines()
+                     if "gh api" in l and not l.strip().startswith("#")]
+            self.assertEqual(lines, ['gh api --hostname "$GH_HOSTNAME" "$@" "$path"', 'gh api "$@" "$path"'], path)
+            self.assertIn("local path=${1#/}", path.read_text())
+        for path in (ROOT / "template").rglob("*.sh"):
+            if path.name == "github.sh" and path.parent.name in ("_host", "host"):
+                continue
+            for line in path.read_text().splitlines():
+                if line.strip().startswith("#"):
+                    continue
+                self.assertNotRegex(line, r"(^|[\s;|&(])gh\s+api\b", f"{path}: {line}")
+
+    def test_no_verb_sends_a_path_that_starts_with_a_slash(self):
+        # Run every verb for real against a fake gh that logs its argv, one line per arg.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "argv.log"
+            gh = root / "gh"
+            gh.write_text(
+                "#!/bin/bash\n"
+                'printf "%s\\n" "CALL" "$@" >> "$FAKE_GH_ARGV"\n'
+                'cat > /dev/null 2>&1 < /dev/null\n'
+                'case "$*" in *" -i "*|*" -i") printf "HTTP/2 200\\r\\nx-oauth-scopes: repo\\r\\n\\r\\n{\\"login\\":\\"ada\\"}\\n" ;;\n'
+                '*) printf "%s\\n" "{}" ;; esac\n')
+            gh.chmod(0o755)
+            body = root / "body.txt"
+            body.write_text("body\n")
+            env = {
+                "OS_HOST": "github", "OS_ORG": "acme", "OS_HOST_URL": "", "OS_SLUG": "acme",
+                "OS_PROFILE": str(COMPANY), "HOST_DRY_RUN": "",
+                "PATH": str(root) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_GH_ARGV": str(log),
+            }
+            cases = [
+                ["whoami"], ["plan-check"], ["repo-access", "acme-os"], ["unprotect", "acme-os"],
+                ["protect", "acme-os", "--approvals", "0", "--code-owners"],
+                ["secret-exists", "OS_REVIEW_KEY"], ["user-access", "acme-os", "ada"],
+                ["team-create", "writers"], ["team-add", "writers", "ada"], ["team-remove", "writers", "ada"],
+                ["team-repos", "acme-company"], ["org-repos"], ["grant", "acme-os", "ada", "write"],
+                ["grant", "acme-os", "team:writers", "read"], ["revoke", "acme-os", "ada"],
+                ["org-remove", "ada"], ["org-membership", "ada"], ["my-membership"], ["invites", "ada"],
+                ["cancel-invites", "ada", "acme-os"], ["archive-repo", "acme-os"],
+                ["open-pr", "acme-os", "--head", "sync/ada", "--base", "main", "--title", "t", "--body-file", str(body)],
+                ["open-prs", "acme-os"], ["close-pr", "acme-os", "12"], ["drop-logs", "acme-os"],
+                ["pr-status", "acme-os", "12"], ["pr-comment", "acme-os", "12", "--body-file", str(body)],
+                ["create-repo", "acme-os", "--private"],
+            ]
+            for args in cases:
+                try:
+                    subprocess.run([str(HOST), *args], env={**os.environ, **env}, text=True,
+                                   capture_output=True, timeout=30, check=False)
+                except subprocess.TimeoutExpired:
+                    self.fail(f"{args[0]} did not finish")
+            calls = [c.strip().splitlines() for c in log.read_text().split("CALL\n") if c.strip()]
+            api = [c for c in calls if c and c[0] == "api"]
+            self.assertGreaterEqual(len(api), len(cases), "too few gh api calls were made")
+            for call in api:
+                for arg in call:
+                    self.assertFalse(arg.startswith("/"), f"gh api path starts with /: {call}")
+            paths = {c[-1] for c in api}
+            self.assertIn("user", paths)
+            self.assertIn("repos/acme/acme-os", paths)
+
 if __name__ == "__main__":
     unittest.main()

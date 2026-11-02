@@ -7,6 +7,7 @@ on:
       - template/skills/sync/**
       - template/skills/add-teammate/**
       - template/skills/lint/**
+      - template/skills/_host/**
       - template/.gitattributes
       - .gitattributes
       - tests/windows/**
@@ -38,3 +39,8 @@ jobs:
       - name: S15 ${{ matrix.name }}
         shell: cmd
         run: ${{ matrix.exe }} -NoProfile -ExecutionPolicy Bypass -File tests\windows\s15.ps1
+      - name: B74 gh api paths in Git Bash
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tests/windows/b74.sh
