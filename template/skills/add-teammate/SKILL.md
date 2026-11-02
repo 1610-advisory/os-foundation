@@ -36,8 +36,8 @@ Every pull request gets a review by a second AI model before it merges. Ask for 
 Tell the admin plainly: only the review check uses it. It sends only the pull request under review (title, body, diff), nothing else. Each review is one model call, at that vendor's normal price. It is an org secret on the git host, never a file. Anyone who can push a branch can read it: the git host works that way. So use a key made only for this review, with a spend cap, and rotate it when someone leaves.
 
 Ask, one at a time:
-1. **Which vendor is the key from?** `anthropic`, `openai` or `xai`.
-2. **Is that the company's own AI vendor?** No: `second-vendor` (suggested). Yes: `same-vendor`; say plainly: "Weaker review: same vendor."
+1. **Which vendor is the key from?** `anthropic`, `openai`, `xai` or `openrouter`. An OpenRouter key reaches many vendors' models. With it, ask which model; the default is `openai/gpt-4o-mini`.
+2. **Is that the company's own AI vendor?** No: `second-vendor` (suggested). Yes: `same-vendor`; say plainly: "Weaker review: same vendor." For `openrouter`, the vendor is the model's maker: the part before `/`.
 
 No key at all: say plainly: "No review key: every pull request fails the model review until you add one." Nothing merges until then.
 

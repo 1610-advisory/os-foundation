@@ -139,8 +139,8 @@ REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
 REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
 REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
 case "$REVIEW_VENDOR" in
-  ""|anthropic|openai|xai) ;;
-  *) os_die 2 "review_vendor must be anthropic, openai, or xai" ;;
+  ""|anthropic|openai|xai|openrouter) ;;
+  *) os_die 2 "review_vendor must be anthropic, openai, xai, or openrouter" ;;
 esac
 case "$REVIEW_KIND" in
   "")
