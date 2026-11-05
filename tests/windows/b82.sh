@@ -24,8 +24,9 @@ stop_line() {
 
 # A folder this user cannot write in: deny "write" (add file, write data) on it.
 MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$ro")" /deny "${user}:(OI)(CI)(W)" > /dev/null
-if : > "$ro/probe" 2> /dev/null; then
-  printf '%s\n' "B82 FAIL setup: the denied folder still takes a write"
+# git.exe, a native program, honours the deny (a Git Bash write may not: backup intent).
+if git config --file "$ro/probe" a.b 1 > /dev/null 2>&1; then
+  printf '%s\n' "B82 FAIL setup: git can still write in the denied folder"
   exit 1
 fi
 

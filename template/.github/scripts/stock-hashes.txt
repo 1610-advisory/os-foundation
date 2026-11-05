@@ -104,6 +104,7 @@
 178ff9268f1a132be0bea537705ed52ebb8ef7c5 skills/_host/README.md
 17cb7970f00ab6f02fdffc75f5f6750a45cd719f skills/lint/SKILL.md
 180e200fb3ec73d985e154c9086bbee53b27318d skills/add-bot/CLI.md
+180fd50a6ebd6a3c2f2a3b53c0557158c9876c8d skills/add-teammate/CLI.md
 18623ef4e7ddae89e4b1e26e71aba052143e3988 skills/sync/CLI.md
 186b6b7a995407066b4895a8aed8b282e91f02a8 skills/sync/lib.sh
 188c0c9b74c312bf6e2aa7e17526cd51268d2163 skills/add-area/SKILL.md
@@ -453,6 +454,8 @@
 7435310701884ff51ff5c873a3979dfc3788a47c skills/undo-run/SKILL.md
 7460f656246d1486a45e757e395dd489cb7b66c3 .github/scripts/tools/add-teammate/lib.sh
 7460f656246d1486a45e757e395dd489cb7b66c3 skills/add-teammate/lib.sh
+7462c673ed6e5268ca8d7171370bbe01abb1764b .github/scripts/tools/add-teammate/lib.sh
+7462c673ed6e5268ca8d7171370bbe01abb1764b skills/add-teammate/lib.sh
 74b15336925f04f0843631c83e7fe107cd0bd9b2 skills/nightly-review/run.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 754f69d0d0a7605e21dec25033231e32ff2d1799 .github/scripts/run-checks.sh

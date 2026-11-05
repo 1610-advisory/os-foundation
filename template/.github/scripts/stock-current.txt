@@ -21,6 +21,7 @@
 14e41d6068635f4dd3fb878fd1626312395dda63 skills/skill-creator/agents/analyzer.md
 153edac8768f7e1caa81a173f6346f758a5db6cd skills/add-teammate/workspace/profile/PROFILE.md
 154646683bbdd58a891e3fb5aa495681c28b635e skills/add-area/templates/_area/AGENTS.md
+180fd50a6ebd6a3c2f2a3b53c0557158c9876c8d skills/add-teammate/CLI.md
 1a083f06124fe0471347d131aceff7dce47522a3 skills/add-teammate/SKILL.md
 1b0849aca4460deb037aba773773aa43b081b417 .github/scripts/override.sh
 1c100f3f78a38a51d2cdbfab397ba93471bda1ed skills/add-area/templates/_area/.gitattributes
@@ -57,6 +58,8 @@
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 657fdbbfc58c696100ed33d87cc9f51fccb98a88 skills/_host/README.md
+7462c673ed6e5268ca8d7171370bbe01abb1764b .github/scripts/tools/add-teammate/lib.sh
+7462c673ed6e5268ca8d7171370bbe01abb1764b skills/add-teammate/lib.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
 7ad6ef16a31463912488951db20b5137657fd660 skills/add-teammate/add-person.sh
@@ -82,8 +85,6 @@
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer
-9942c80aeacc023ee328b753a7a2eab5dbf39b8e .github/scripts/tools/add-teammate/lib.sh
-9942c80aeacc023ee328b753a7a2eab5dbf39b8e skills/add-teammate/lib.sh
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
@@ -93,7 +94,6 @@ a861d826b8a38e8a77a2667ae6e98d9a0ec3c0e1 skills/_host/forgejo.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
-b10c02e055ea7d8123a07cd21a6e8990fc3de111 skills/add-teammate/CLI.md
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
 b48e2800cf28411b7d0a9aa41a7b423961f4eaac skills/add-teammate/workspace/skills/README.md
 b542dbf1dd1771a0ce60c4211335383d4b3c07b2 skills/reports/report-prompt.md

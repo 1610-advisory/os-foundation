@@ -364,8 +364,11 @@ os_home_check() {
   case "$home|$show|${HOME:-}" in
     //*|\\\\*|*"|//"*|*"|\\\\"*) os_die 2 "$stop" ;;
   esac
+  # git itself makes the test file, as gh auth setup-git does (lock file, then rename).
+  # A Git Bash write uses backup intent, so an admin may pass where git cannot.
   probe="$home/.os-home-check.$$"
-  if ! { : > "$probe"; } 2>/dev/null; then
+  if ! git config --file "$probe" os.homecheck 1 >/dev/null 2>&1; then
+    rm -f "$probe" "$probe.lock" 2>/dev/null || true
     os_die 2 "$stop"
   fi
   rm -f "$probe"
