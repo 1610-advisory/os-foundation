@@ -8,12 +8,16 @@ lib="$root/template/skills/add-teammate/lib.sh"
 base=$(mktemp -d)
 ro="$base/ro"
 rw="$base/rw"
+# The runner's own temp folder is on another drive (D:) than the system drive.
+if [ -n "${RUNNER_TEMP:-}" ]; then
+  rw="$(cygpath -u "$RUNNER_TEMP")/b82-rw-$$"
+fi
 mkdir -p "$ro" "$rw"
 user=${USERNAME:-$(whoami)}
 # shellcheck disable=SC2329  # run by the EXIT trap
 cleanup() {
   MSYS2_ARG_CONV_EXCL='*' icacls "$(cygpath -w "$ro")" /remove:d "$user" > /dev/null 2>&1 || true
-  rm -rf "$base"
+  rm -rf "$base" "$rw"
 }
 trap cleanup EXIT
 fail=0
