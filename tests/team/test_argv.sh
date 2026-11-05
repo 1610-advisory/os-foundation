@@ -198,6 +198,26 @@ grep -q 'review_key' "$answers" && team_fail "answers file must not hold a revie
   cat "$work/err" >&2
   team_fail "team-on spy run failed ($rc)"
 }
+# B81 (v1.0.3): a company with no joining-terms.md (upgraded before v1.0.3) gets one, with
+# its name filled, in the "Team: turn on" commit. A second run changes nothing, and a copy
+# the company edited stays as it is.
+jt="$company/joining-terms.md"
+[ -f "$jt" ] || team_fail "team-on did not write joining-terms.md"
+grep -qx '# Joining terms — Acme Co' "$jt" || team_fail "joining-terms.md name: $(head -n 2 "$jt")"
+grep -q '{{' "$jt" && team_fail "joining-terms.md kept a placeholder"
+printf '%s\n' "$out" | grep -qx 'added: joining-terms.md' || team_fail "team-on did not say added: joining-terms.md"
+# The spy git logs the commit's paths: joining-terms.md is staged with the others.
+grep -qx 'joining-terms.md' "$OS_ARGV_LOG" || team_fail "joining-terms.md is not in the Team: turn on commit"
+jt_sum=$(team_sha "$jt")
+out_jt=$(PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --answers "$answers" 2>"$work/err-jt") \
+  || team_fail "second team-on run failed: $(cat "$work/err-jt")"
+[ "$(team_sha "$jt")" = "$jt_sum" ] || team_fail "a second team-on run changed joining-terms.md"
+printf '%s\n' "$out_jt" | grep -q '^added: joining-terms.md' && team_fail "a second run added joining-terms.md again"
+printf '%s\n' "Acme adds: laptops go back to the office." >> "$jt"
+jt_sum=$(team_sha "$jt")
+PATH="$work/bin:$PATH" "$root/template/skills/add-teammate/team-on.sh" --answers "$answers" >"$work/out-jt2" 2>"$work/err-jt" \
+  || team_fail "team-on over an edited copy failed: $(cat "$work/err-jt")"
+[ "$(team_sha "$jt")" = "$jt_sum" ] || team_fail "team-on wrote over the company's joining-terms.md"
 # Round 5: a repo not there yet is expected before each create: no raw 404 lines.
 grep -q 'Not Found (HTTP 404)\|not found or no access' "$work/err" && { cat "$work/err" >&2; team_fail "r5: team-on showed the expected 404 lines"; }
 [ "$(git -C "$company" remote get-url origin)" = "http://127.0.0.1:9/acme/team-os.git" ] || team_fail "create path left the wrong company origin"
@@ -381,6 +401,17 @@ jc="$work/join-company"
 mkdir -p "$jc"
 printf '%s\n' '---' 'company_slug: team' 'level: team' 'host: github' 'host_url: ""' 'org: acme' '---' > "$jc/company-profile.md"
 printf '%s\n' "root=$jc" "me=carl" > "$work/join-answers"
+# B81: no joining-terms.md in the clone: one line, exit 2, and no host call.
+: > "$OS_ARGV_LOG"
+set +e
+jout=$("$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>&1)
+jrc=$?
+set -e
+[ "$jrc" -eq 2 ] || team_fail "join without joining-terms.md exit was $jrc: $jout"
+[ "$jout" = "terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again" ] \
+  || team_fail "join without joining-terms.md said: $jout"
+grep -qx 'my-membership' "$OS_ARGV_LOG" && team_fail "join called the host before the terms check"
+cp "$root/template/joining-terms.md" "$jc/joining-terms.md"
 set +e
 jout=$(OS_FAKE_MY_STATE=pending "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>&1)
 jrc=$?
@@ -400,5 +431,63 @@ printf '%s\n' "$jout" | grep -q "$tok" && team_fail "join printed the token"
 printf '%s\n' "$jout" | grep -q 'accept the org invite first' && team_fail "a failed check stopped join"
 printf '%s\n' "$jout" | sed -n '/could not check your org invite/,$p' | sed -n '2p' | grep -q . \
   || team_fail "join did not go on after a failed check: $jout"
+
+# B82 (v1.0.3): on Windows, join checks that git can write in its home folder.
+home_stop() {
+  printf 'home: git uses %s as your home folder and cannot write there; set the user environment variable HOME to %%USERPROFILE%% (Settings, Environment Variables, User variables), open a new terminal, then run join again' "$1"
+}
+ro="$work/ro-home"
+mkdir -p "$ro"
+chmod 555 "$ro"
+if [ -w "$ro" ]; then
+  printf '%s\n' "SKIP home check: this user can write in a read-only folder (root)"
+else
+  set +e
+  hout=$(unset GIT_CONFIG_GLOBAL; HOME="$ro" os_home_check 2>&1)
+  hrc=$?
+  set -e
+  [ "$hrc" -eq 2 ] || team_fail "read-only home exit was $hrc: $hout"
+  [ "$hout" = "$(home_stop "$ro")" ] || team_fail "read-only home line: $hout"
+  # join on Git Bash stops there, before any host call.
+  mkdir -p "$work/winbin"
+  printf '%s\n' '#!/bin/bash' 'printf "%s\n" MINGW64_NT-10.0-19045' > "$work/winbin/uname"
+  printf '%s\n' '#!/bin/bash' 'exit 0' > "$work/winbin/gh"
+  chmod 755 "$work/winbin/uname" "$work/winbin/gh"
+  : > "$OS_ARGV_LOG"
+  set +e
+  jout=$(unset GIT_CONFIG_GLOBAL; HOME="$ro" PATH="$work/winbin:$PATH" \
+    "$root/template/skills/add-teammate/join.sh" --answers "$work/join-answers" 2>&1)
+  jrc=$?
+  set -e
+  [ "$jrc" -eq 2 ] || team_fail "join with a read-only home exit was $jrc: $jout"
+  [ "$jout" = "$(home_stop "$ro")" ] || team_fail "join read-only home line: $jout"
+  grep -q . "$OS_ARGV_LOG" && team_fail "join called git or the host before the home check"
+fi
+chmod 755 "$ro"
+# A writable home: no line.
+hout=$(unset GIT_CONFIG_GLOBAL; HOME="$work/home" os_home_check 2>&1) || team_fail "writable home failed: $hout"
+[ -z "$hout" ] || team_fail "writable home printed: $hout"
+# Git Bash names it with a drive letter. Another drive than the system one: one warning.
+mkdir -p "$work/cyg"
+cat > "$work/cyg/cygpath" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$FAKE_WIN_PATH"
+EOF
+chmod 755 "$work/cyg/cygpath"
+bs="\\"  # one backslash
+hout=$(unset GIT_CONFIG_GLOBAL; HOME="$work/home" SYSTEMDRIVE=C: FAKE_WIN_PATH="I:${bs}" PATH="$work/cyg:$PATH" os_home_check 2>&1) \
+  || team_fail "a writable home on I: stopped: $hout"
+[ "$hout" = "home: git uses I:${bs} as your home folder, not a folder on C:. Join goes on. If a later step cannot write there, set the user environment variable HOME to %USERPROFILE%, open a new terminal, then run join again" ] \
+  || team_fail "other drive line: $hout"
+hout=$(unset GIT_CONFIG_GLOBAL; HOME="$work/home" SYSTEMDRIVE=c: FAKE_WIN_PATH='C:\Users\ada' PATH="$work/cyg:$PATH" os_home_check 2>&1) \
+  || team_fail "a home on C: stopped: $hout"
+[ -z "$hout" ] || team_fail "a home on the system drive printed: $hout"
+# A network (UNC) path stops, even when it can be written.
+set +e
+hout=$(unset GIT_CONFIG_GLOBAL; HOME="$work/home" FAKE_WIN_PATH='\\server\home\ada' PATH="$work/cyg:$PATH" os_home_check 2>&1)
+hrc=$?
+set -e
+[ "$hrc" -eq 2 ] || team_fail "UNC home exit was $hrc: $hout"
+[ "$hout" = "$(home_stop '\\server\home\ada')" ] || team_fail "UNC home line: $hout"
 
 printf '%s\n' "PASS argv"

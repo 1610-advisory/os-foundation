@@ -2,6 +2,13 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.3 — unreleased
+
+Two join fixes from the first live team on v1.0.2.
+
+- **An upgraded company gets its joining terms.** The upgrade and its refresh now add `joining-terms.md` (with the company name) and `scale.md` when the folder lacks them. `team-on` adds `joining-terms.md` the same way. They never write over the company's own copy. Without the terms, `join` stops with one `terms:` line that says what the admin runs.
+- **Join checks git's home folder on Windows.** On a domain PC, git can use a network drive as its home folder and then cannot save its settings. `join` now stops with one `home:` line that says how to point `HOME` at your user folder.
+
 ## v1.0.2 — 2026-11-02
 
 Five small fixes from the first team upgrade on v1.0.1.

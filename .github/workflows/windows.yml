@@ -44,3 +44,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash tests/windows/b74.sh
+      - name: B82 git home folder in Git Bash
+        shell: bash
+        run: bash tests/windows/b82.sh

@@ -297,6 +297,89 @@ os_company_name() {
   printf '%s' "$line"
 }
 
+# Company-root files the template ships that an older (v0) company lacks (B81). The
+# upgrade and its refresh add each one that is missing. Never over a company's own copy.
+# shellcheck disable=SC2034  # read by upgrade.sh and refresh.sh
+OS_ROOT_FILES="joining-terms.md scale.md"
+
+# Write SRC to DEST with the company name in place of its placeholder. The name is
+# copied as plain text: no character in it is special.
+os_fill_root_file() {
+  local src=$1 dest=$2 name=$3 ob cb
+  # Split braces, one pair per line: a built folder holds no placeholder outside skills/.
+  ob='{{'
+  cb='}}'
+  OS_PH="${ob}COMPANY_NAME${cb}" OS_NAME=$name awk '
+    {
+      s = $0
+      out = ""
+      while ((i = index(s, ENVIRON["OS_PH"])) > 0) {
+        out = out substr(s, 1, i - 1) ENVIRON["OS_NAME"]
+        s = substr(s, i + length(ENVIRON["OS_PH"]))
+      }
+      print out s
+    }' "$src" > "$dest.tmp.$$"
+  mv "$dest.tmp.$$" "$dest"
+  chmod 644 "$dest"
+}
+
+# The same, only when DEST is not there yet. Prints "added: <name>" when it writes.
+os_add_root_file() {
+  local src=$1 dest=$2 name=$3
+  [ -e "$dest" ] && return 0
+  [ -f "$src" ] || return 1
+  os_fill_root_file "$src" "$dest" "$name"
+  printf 'added: %s\n' "$(basename "$dest")"
+}
+
+# The folder git calls home: the one that holds its global config (B82). On a domain PC
+# with HOME unset, Git for Windows takes HOMEDRIVE and HOMEPATH, often a network drive.
+# git var lists the global files; git config --global writes ~/.gitconfig, so that line
+# comes first when it is there. GIT_CONFIG_GLOBAL set by hand is the only line.
+os_git_home() {
+  local all f
+  all=$(git var GIT_CONFIG_GLOBAL 2>/dev/null || true)
+  f=$(printf '%s\n' "$all" | grep -m 1 '/\.gitconfig$' || true)
+  [ -n "$f" ] || f=$(printf '%s\n' "$all" | sed -n '1p')
+  if [ -n "$f" ]; then
+    f=$(dirname -- "$f")
+  else
+    f=${HOME:-}
+  fi
+  printf '%s\n' "$f"
+}
+
+# Join on Windows: gh auth setup-git writes git's global config in that folder. Stop
+# (exit 2) when git cannot write there or it is a network (UNC) path. Warn and go on when
+# it is on another drive than the system drive. Quiet when all is well.
+os_home_check() {
+  local home show probe drive sys stop
+  home=$(os_git_home)
+  show=$home
+  if command -v cygpath >/dev/null 2>&1; then
+    show=$(cygpath -w -- "$home" 2>/dev/null || printf '%s' "$home")
+  fi
+  stop="home: git uses ${show:-no folder} as your home folder and cannot write there; set the user environment variable HOME to %USERPROFILE% (Settings, Environment Variables, User variables), open a new terminal, then run join again"
+  [ -n "$home" ] || os_die 2 "$stop"
+  case "$home|$show|${HOME:-}" in
+    //*|\\\\*|*"|//"*|*"|\\\\"*) os_die 2 "$stop" ;;
+  esac
+  probe="$home/.os-home-check.$$"
+  if ! { : > "$probe"; } 2>/dev/null; then
+    os_die 2 "$stop"
+  fi
+  rm -f "$probe"
+  drive=""
+  case "$show" in
+    [A-Za-z]:*) drive=$(printf '%s' "${show%%:*}" | tr '[:lower:]' '[:upper:]') ;;
+  esac
+  sys=$(printf '%s' "${SYSTEMDRIVE:-C:}" | tr '[:lower:]' '[:upper:]')
+  sys=${sys%%:*}
+  if [ -n "$drive" ] && [ "$drive" != "$sys" ]; then
+    printf '%s\n' "home: git uses ${show} as your home folder, not a folder on ${sys}:. Join goes on. If a later step cannot write there, set the user environment variable HOME to %USERPROFILE%, open a new terminal, then run join again"
+  fi
+}
+
 os_find_host() {
   local root=$1 script_dir=$2
   if [ -n "${OS_HOST_SH:-}" ] && [ -f "$OS_HOST_SH" ]; then

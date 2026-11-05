@@ -174,7 +174,13 @@ case "$REVIEW" in
     ;;
 esac
 # The company-root files team-on writes. Only these go in the "Team: turn on" commit.
-ROOT_PATHS=(company-profile.md .github .gitea privacy.md)
+ROOT_PATHS=(company-profile.md .github .gitea privacy.md joining-terms.md)
+# B81: join shows joining-terms.md (Part B step B3). A company upgraded before v1.0.3 has
+# none. Write it when it is missing; a copy the company has is never written over.
+if [ ! -e "$ROOT/joining-terms.md" ]; then
+  os_add_root_file "$DIR/joining-terms.template.md" "$ROOT/joining-terms.md" "$COMPANY_NAME" \
+    || printf '%s\n' "terms: skills/add-teammate/joining-terms.template.md is not here: run the upgrade refresh, then team-on again"
+fi
 mkdir -p "$ROOT/.github"
 cat > "$ROOT/.github/review.conf" << EOF
 vendor=${REVIEW_VENDOR}

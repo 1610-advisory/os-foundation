@@ -13,7 +13,7 @@ team-on.sh --answers <file>
 team-on.sh --help
 ```
 
-Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to a main that has commits. A repo an earlier run made but left empty (its first push failed) gets that first push on the next run: `host.sh unprotect` first, then the push, then `protect` as usual. It prints `first push: <repo>`. A repo is never protected while it is empty. The "Team: turn on" commit holds only the files team-on writes (`company-profile.md`, `.github/`, `.gitea/`, `privacy.md`, the people pages; in an area `.github/`, `.gitea/`, `review-rules.md`). Untracked files in the folder stay local.
+Turns solo into team in one run. A second run does not change git history. If origin is missing, it adds the host clone URL and fetches. If origin is set but origin/main is missing, it fetches again. It does not push to a main that has commits. A repo an earlier run made but left empty (its first push failed) gets that first push on the next run: `host.sh unprotect` first, then the push, then `protect` as usual. It prints `first push: <repo>`. A repo is never protected while it is empty. The "Team: turn on" commit holds only the files team-on writes (`company-profile.md`, `.github/`, `.gitea/`, `privacy.md`, `joining-terms.md`, the people pages; in an area `.github/`, `.gitea/`, `review-rules.md`). Untracked files in the folder stay local.
 
 GitHub: before any change it reads the `gh` sign-in scopes (`host.sh whoami`). If `admin:org` or `workflow` is missing, it stops with exit 4: `the gh sign-in needs admin:org and workflow: run gh auth refresh -s admin:org,workflow`. A fine-grained token sends no scope list. Then the host calls show what it lacks.
 
@@ -106,6 +106,7 @@ kind=second-vendor
    Before any write, it checks each team it will use (`host.sh team-repos`). A team may grant only its own repo. If it already grants another repo (another company's, when two companies share an org and its plain names), it stops with exit 2 and one line: `team <team> already grants <repos>. It may grant only <repo>. Two companies must not share a team: ... Use one org per company, or take those repos off team <team> on the host. Then run this again.` `add-person.sh` checks the same way.
 10. Creates one workspace repo `<slug>-user-<person>` per person. The source is `add-teammate/workspace/`, copied as a whole, including `CLAUDE.md` when that file is present. The person gets write. Admins reach it through org ownership, not a second grant.
 11. Runs `skills/privacy/privacy.sh --root <root>` when that file exists.
+   Before that, when the folder has no `joining-terms.md` (a company upgraded before v1.0.3), it writes one from `skills/add-teammate/joining-terms.template.md`, with the company name in place of `{{COMPANY_NAME}}` (the `company_name` answer, else the first heading of `company-profile.md`), and prints `added: joining-terms.md`. A copy the company has, edited or not, is never written over. It goes in the "Team: turn on" commit. When `main` already has the rules files (a second run), it goes up with the admin's next sync push, like the people pages.
 12. Writes the admin's `me` file and runs `skills/sync/sync.sh install-jobs --admin` when that file exists.
 13. Prints one hand-off message per teammate. No secrets.
 
@@ -181,7 +182,8 @@ The person's sign-in is `FORGEJO_TOKEN` or `<config>/<slug>-os/forgejo-token`. I
 
 ### What it does
 
-1. Refuses a synced folder.
+1. Refuses a synced folder. On Windows (Git Bash), before that, it checks git's home folder (B82): the folder of git's global config (`git var GIT_CONFIG_GLOBAL`, else `$HOME`), where `gh auth setup-git` writes. It makes and removes one test file there. When that fails, or the folder is a network (UNC) path, it stops with exit 2: `home: git uses <path> as your home folder and cannot write there; set the user environment variable HOME to %USERPROFILE% (Settings, Environment Variables, User variables), open a new terminal, then run join again`. A domain PC with `HOME` unset often maps it to a network drive (`HOMEDRIVE` and `HOMEPATH`). When it works but is not on the system drive, it prints one `home: git uses <path> as your home folder, not a folder on C:. ...` line and goes on. It never changes the variable.
+   Without `joining-terms.md` in `root` it stops with exit 2: `terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again`. Part B shows that page before join (B3).
 2. If `company-profile.md` is already in `root`, the company clone is done. GitHub: it runs `host.sh my-membership`. While the person's org invite is still open (`pending`), it stops with exit 2: `invite: accept the org invite first: https://github.com/orgs/<org>/invitation, then run join again`. When the check fails (for example a 403 from a token without org read), join does not stop. It prints `invite: could not check your org invite (<the host's first error line, tokens hidden>); if GitHub sent you an invite, accept it at https://github.com/orgs/<org>/invitation` and goes on.
    - A v0 clone that already pulled the upgrade can still have `memory/logs/` as a worktree of branch `logs`. Join moves it out the way `sync.sh pull` does (sync `CLI.md`): it pushes log commits the host lacks, removes the worktree, and keeps every log file as a local change. It prints `v0-logs: moved, <n> files kept as local changes`. When a file changed here and on the old branch, the old text goes beside it as `<name>.old-branch.md`, with one more `v0-logs:` line. A file in `memory/logs-archive/` with a change not committed stays as it is: the old folder's copy goes beside it, with one more `v0-logs:` line. If a kept file cannot be put back, the old folder goes back as it was and join exits 3; the next join starts over. If that fails, join exits 3 with one line. A failure before the removal removes nothing. A later one names the folder that holds a full copy.
 3. Clones each area into `areas/<area>/`. A missing repo or no access is skipped. That is correct.
@@ -217,6 +219,14 @@ skipped: <slug>-<area>
 cloned: <slug>-user-<slug>
 terms: proposed
 pr: <url>   (sync push: this computer's pull request)
+```
+
+Stops and warnings, each one line:
+
+```
+terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again
+home: git uses <path> as your home folder and cannot write there; set the user environment variable HOME to %USERPROFILE% (Settings, Environment Variables, User variables), open a new terminal, then run join again
+home: git uses <path> as your home folder, not a folder on C:. Join goes on. If a later step cannot write there, set the user environment variable HOME to %USERPROFILE%, open a new terminal, then run join again
 ```
 
 ## add-person.sh
