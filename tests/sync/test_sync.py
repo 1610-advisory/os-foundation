@@ -1623,7 +1623,9 @@ class SyncFixTests(unittest.TestCase):
         # A joining teammate's clone: the people page on main, an own workspace repo.
         bare = self.seed_origin()
         (self.company / ".gitignore").write_text("users/\n")
-        self.git("add", "people/Mia.md", ".gitignore")
+        # Join stops without the joining terms (B81).
+        (self.company / "joining-terms.md").write_text("# Joining terms — Acme Co\n")
+        self.git("add", "people/Mia.md", ".gitignore", "joining-terms.md")
         self.git("commit", "-q", "-m", "people")
         self.git("push", "-q", "origin", "main")
         ws = self.company / "users" / "mia"
