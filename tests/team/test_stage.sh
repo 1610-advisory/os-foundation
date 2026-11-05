@@ -50,6 +50,8 @@ level: team
 ---
 # Acme Co
 EOF
+# Join stops without the joining terms (B81).
+printf '%s\n' "# Joining terms — Acme Co" > "$co/joining-terms.md"
 cat > "$co/people/Ada Admin.md" << 'EOF'
 ---
 slug: ada
