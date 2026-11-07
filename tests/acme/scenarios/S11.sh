@@ -211,10 +211,21 @@ fi
 if ! git -C "$dest" cat-file -e HEAD:scale.md 2>/dev/null; then
   osf_result "S11 FAIL upgrade did not add scale.md"
 fi
+if [ "$(git -C "$dest" rev-parse HEAD:review-rules.md 2>/dev/null)" != "$(git hash-object "$root/template/review-rules.md")" ]; then
+  osf_result "S11 FAIL solo upgrade did not add review-rules.md"
+fi
 # A company upgraded before v1.0.3 has no joining-terms.md: team-on writes it.
 git -C "$dest" rm -q joining-terms.md
 git -C "$dest" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
   commit -q -m "As an upgrade before v1.0.3 left it"
+# No host yet, so the person merges the upgrade branches into main by hand
+# ("upgrade: pending upgrade/v1"). team-on then puts main on the host.
+git -C "$dest" checkout -q main
+git -C "$dest" merge -q --ff-only upgrade/v1 || osf_result "S11 FAIL merge upgrade/v1 into main"
+if git -C "$area" show-ref --verify --quiet refs/heads/upgrade/scripts; then
+  git -C "$area" checkout -q main
+  git -C "$area" merge -q --ff-only upgrade/scripts || osf_result "S11 FAIL merge upgrade/scripts into main"
+fi
 
 if ! curl -sf -o /dev/null -m 3 http://localhost:3300/api/v1/version; then
   osf_result "S11 BLOCKED Forgejo is not running"

@@ -64,6 +64,8 @@ git -C "$company" status --porcelain | grep -q . && team_fail "dry-run changed t
 # B81: the root files v1 ships and v0 lacked.
 printf '%s\n' "$dry" | grep -qx 'change: add joining-terms.md' || team_fail "dry-run did not plan joining-terms.md"
 printf '%s\n' "$dry" | grep -qx 'change: add scale.md' || team_fail "dry-run did not plan scale.md"
+# A team plan names review-rules.md once, on its B56 line.
+printf '%s\n' "$dry" | grep -qx 'change: add review-rules.md' && team_fail "team dry-run named review-rules.md twice"
 
 "$upgrade" --root "$company" --template "$root/template" --level team > "$work/apply.out"
 grep -q 'upgrade: ok' "$work/apply.out" || team_fail "upgrade did not finish"
@@ -115,10 +117,16 @@ GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
 GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
   GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
   git -C "$nologs" commit -q -m "v0 no logs"
+# B81: a solo upgrade adds review-rules.md too. team-on later needs it for each area.
+[ ! -e "$nologs/review-rules.md" ] || team_fail "the solo fixture already has review-rules.md"
+solo_dry=$("$upgrade" --dry-run --root "$nologs" --template "$root/template" --level solo)
+printf '%s\n' "$solo_dry" | grep -qx 'change: add review-rules.md' || team_fail "solo dry-run did not plan review-rules.md"
 "$upgrade" --root "$nologs" --template "$root/template" --level solo >"$work/nologs.out"
 grep -q 'upgrade: ok' "$work/nologs.out" || team_fail "no-logs upgrade failed"
 nparents=$(git -C "$nologs" rev-list --parents -n 1 HEAD | awk '{print NF}')
 [ "$nparents" -ge 3 ] || team_fail "no-logs upgrade is not a merge"
+[ "$(git -C "$nologs" rev-parse HEAD:review-rules.md 2>/dev/null)" = "$(git hash-object "$root/template/review-rules.md")" ] \
+  || team_fail "solo upgrade did not add review-rules.md"
 oldn=$(git -C "$nologs" rev-parse 'HEAD^1')
 git -C "$nologs" revert -m 1 --no-edit HEAD >/dev/null
 git -C "$nologs" rev-parse HEAD:company-profile.md >/dev/null

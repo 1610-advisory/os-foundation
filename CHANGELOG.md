@@ -6,7 +6,7 @@ Plain-word release notes for os-foundation. Newest first. Versions follow semver
 
 Two join fixes from the first live team on v1.0.2.
 
-- **An upgraded company gets its joining terms.** The upgrade and its refresh now add `joining-terms.md` (with the company name) and `scale.md` when the folder lacks them. `team-on` adds `joining-terms.md` the same way. They never write over the company's own copy. Without the terms, `join` stops with one `terms:` line that says what the admin runs.
+- **An upgraded company gets its joining terms.** The upgrade and its refresh now add `joining-terms.md` (with the company name), `scale.md` and `review-rules.md` when the folder lacks them. A solo upgrade did not add `review-rules.md`, so `team-on` could not give one to each area. `team-on` adds `joining-terms.md` the same way. They never write over the company's own copy. Without the terms, `join` stops with one `terms:` line that says what the admin runs. When `team-on` has no `review-rules.md` to give an area, it now says so in one `review-rules:` line and goes on, instead of stopping with "not found or no access".
 - **Join checks git's home folder on Windows.** On a domain PC, git can use a network drive as its home folder and then cannot save its settings. `join` now stops with one `home:` line that says how to point `HOME` at your user folder.
 
 ## v1.0.2 — 2026-11-02

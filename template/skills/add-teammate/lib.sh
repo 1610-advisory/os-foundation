@@ -299,8 +299,9 @@ os_company_name() {
 
 # Company-root files the template ships that an older (v0) company lacks (B81). The
 # upgrade and its refresh add each one that is missing. Never over a company's own copy.
+# review-rules.md: a solo upgrade before v1.0.3 did not add it, and team-on needs it.
 # shellcheck disable=SC2034  # read by upgrade.sh and refresh.sh
-OS_ROOT_FILES="joining-terms.md scale.md"
+OS_ROOT_FILES="joining-terms.md scale.md review-rules.md"
 
 # Write SRC to DEST with the company name in place of its placeholder. The name is
 # copied as plain text: no character in it is special.

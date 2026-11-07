@@ -497,10 +497,13 @@ propose_missing_review_rules() {
   if ! git -C "$dir" cat-file -e "origin/${branch}:review-rules.md" 2>/dev/null; then
     git -C "$dir" checkout -q -f -B "$branch" origin/main
     stage_missing_review_rules "$dir"
-    if ! git -C "$dir" diff --cached --quiet; then
-      commit_staged "$dir" "Team: add review rules"
-      push_tools_branch "$dir" "$name" "$branch"
+    # No copy to propose: never open a pull request for a branch that is not on the host.
+    if git -C "$dir" diff --cached --quiet; then
+      printf 'review-rules: %s has no review-rules.md on main, and this folder has none to propose. The checks use the default rules. Run the upgrade refresh, then team-on again\n' "$name"
+      return 0
     fi
+    commit_staged "$dir" "Team: add review rules"
+    push_tools_branch "$dir" "$name" "$branch"
   fi
   open_rules_pr "$name" "$branch"
 }

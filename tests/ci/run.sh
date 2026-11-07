@@ -1078,6 +1078,71 @@ EOF
 else
   fail "area review-rules merge"
 fi
+
+# B81 (v1.0.3): the same area main, and a company with no review-rules.md (a solo upgrade
+# before v1.0.3 left none). team-on has nothing to propose: one line, no pull request.
+none_slug="cnr${stamp}"
+none_slug=${none_slug//-/}
+none_area="${none_slug}-marketing"
+EXTRA_REPOS="${EXTRA_REPOS} ${none_slug}-os ${none_area} ${none_slug}-user-ada"
+none_root="$work/none"
+mkdir -p "$none_root"
+cp -R "$root/template/." "$none_root/"
+rm -f "$none_root/review-rules.md"
+python3 - "$none_root/company-profile.md" "$none_slug" << 'PY'
+import pathlib, sys
+path, slug = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+text = text.replace("{{COMPANY_SLUG}}", slug)
+text = text.replace("{{COMPANY_NAME}}", "Acme Co")
+text = text.replace("{{DATE}}", "2026-10-24")
+text = text.replace("{{ONE_LINER}}", "A test company")
+text = text.replace("{{OS_VERSION}}", "v1.0.0")
+pathlib.Path(path).write_text(text)
+PY
+git -C "$none_root" init -q -b main
+git -C "$none_root" config user.email ada.admin@acme.test
+git -C "$none_root" config user.name "Ada Admin"
+git -C "$none_root" add -A
+git -C "$none_root" commit -q -m "company start, no review rules"
+none_line="review-rules: ${none_area} has no review-rules.md on main, and this folder has none to propose. The checks use the default rules. Run the upgrade refresh, then team-on again"
+if "$work/host/host.sh" create-repo "$none_area" --private --source "$intro_seed" --push >>"$log" 2>&1; then
+  "$work/host/host.sh" grant "$none_area" acme-member-a write >>"$log" 2>&1 || true
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "git" ;;
+  *) cat "$OS_TOKEN_FILE" ;;
+esac
+EOF
+  mkdir -p "$none_root/areas"
+  OS_TOKEN_FILE=$admin GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone -q "http://localhost:3300/acme/${none_area}.git" "$none_root/areas/marketing" >>"$log" 2>&1 || true
+  rm -f "$ask"
+  sed -e "s#^root=.*#root=${none_root}#" -e "s#^company_slug=.*#company_slug=${none_slug}#" \
+    "$work/intro-answers" > "$work/none-answers"
+  set +e
+  # The company's own copy, as in a real folder: no template review-rules.md beside it.
+  OS_HOST_SH="$work/host/host.sh" OS_JOBS_DIR="$work/jobs-none" \
+    "$none_root/skills/add-teammate/team-on.sh" --answers "$work/none-answers" >"$work/none.out" 2>>"$log"
+  none_rc=$?
+  set -e
+  osf_api "$admin" GET "/api/v1/repos/acme/${none_area}/branches/team%2Freview-rules"
+  none_branch=$OSF_HTTP_CODE
+  osf_api_discard
+  if [ "$none_rc" -eq 0 ] && grep -qxF -- "$none_line" "$work/none.out" \
+    && ! awk -v area="$none_area" '$1 == "pr:" && $2 == area { found = 1 } END { exit !found }' "$work/none.out" \
+    && [ "$none_branch" = "404" ]; then
+    pass "area with no review-rules.md to propose: no pull request"
+  else
+    cat "$work/none.out" >>"$log" 2>/dev/null || true
+    fail "area with no review-rules.md to propose: no pull request (rc ${none_rc}, branch HTTP ${none_branch})"
+  fi
+else
+  fail "area with no review-rules.md to propose: no pull request (create-repo)"
+fi
 repo="ci-checks-${stamp}"
 
 # An area made by team-on has review-rules.md on main. Its checks job passes.

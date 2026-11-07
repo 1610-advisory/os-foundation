@@ -1026,6 +1026,10 @@ fill_profile_one_liner() {
 plan_root_files() {
   local f
   for f in $OS_ROOT_FILES; do
+    # A team or app plan names review-rules.md on its own line (B56).
+    if [ "$f" = review-rules.md ] && { [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; }; then
+      continue
+    fi
     if [ ! -e "$ROOT/$f" ] && [ -f "$TEMPLATE/$f" ]; then
       printf 'change: add %s\n' "$f"
     fi
