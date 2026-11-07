@@ -13,3 +13,5 @@ Each check prints one line: `S15 <check> PASS`, `FAIL`, or `BLOCKED`. The script
 The workflow is `.github/workflows/windows.yml`. It runs on pull requests that touch the Windows files, and on `workflow_dispatch`.
 
 It first runs `tests/team/test_join_old.sh` in Git Bash (check `join-crlf`): join reads an old folder cloned with the runner's own `core.autocrlf=true`, and the base it sets aside differs from the person's copy only by the one edit.
+
+Then, in Git Bash, `tests/windows/b74.sh` checks the `gh api` paths (B74), and `tests/windows/b82.sh` checks git's home folder (B82). b82 denies writes on a temp folder (`icacls`; git, a native program, honours that), sets `HOME` to it, and asserts the one `home:` line and exit 2, from `os_home_check` and from `join.sh`. A writable home on the system drive prints nothing. One on another drive prints one warning and goes on. Each check prints `B82 PASS`, `FAIL` or `SKIP`.

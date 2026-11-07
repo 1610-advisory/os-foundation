@@ -1021,8 +1021,33 @@ fill_profile_one_liner() {
   esac
 }
 
+# B81: company-root files this template ships that the company lacks (OS_ROOT_FILES).
+# Each one is added, with the company name filled. A company copy is never touched.
+plan_root_files() {
+  local f
+  for f in $OS_ROOT_FILES; do
+    # A team or app plan names review-rules.md on its own line (B56).
+    if [ "$f" = review-rules.md ] && { [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; }; then
+      continue
+    fi
+    if [ ! -e "$ROOT/$f" ] && [ -f "$TEMPLATE/$f" ]; then
+      printf 'change: add %s\n' "$f"
+    fi
+  done
+}
+
+add_root_files() {
+  local f name
+  name=$(up_company_name)
+  for f in $OS_ROOT_FILES; do
+    [ -f "$TEMPLATE/$f" ] || continue
+    os_add_root_file "$TEMPLATE/$f" "$ROOT/$f" "$name"
+  done
+}
+
 plan_skills
 plan_skill_files
+plan_root_files
 
 LOGS_FOLDER_SAME=0
 if [ -d "$ROOT/skills/logs-folder" ]; then
@@ -1361,6 +1386,7 @@ if [ "$LOGS_FOLDER_SAME" -eq 1 ]; then
   rm -rf "$ROOT/skills/logs-folder"
 fi
 copy_skill_files
+add_root_files
 
 if [ -f "$ROOT/.gitignore" ] && ! grep -qx '/users/' "$ROOT/.gitignore"; then
   printf '\n%s\n' "/users/" >> "$ROOT/.gitignore"
@@ -1565,7 +1591,8 @@ stage_upgrade() {
     && [ ! -e "$ROOT/review-rules.md" ] && [ -f "$TEMPLATE/review-rules.md" ]; then
     cp "$TEMPLATE/review-rules.md" "$ROOT/review-rules.md"
   fi
-  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md review-rules.md .gitattributes; do
+  # shellcheck disable=SC2086
+  for path in .gitignore company-profile.md AGENTS.md CLAUDE.md company-rules.md review-rules.md .gitattributes $OS_ROOT_FILES; do
     if [ -e "$ROOT/$path" ]; then
       git -C "$ROOT" add -- "$path"
     fi

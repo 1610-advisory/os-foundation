@@ -321,6 +321,62 @@ class RefreshTests(unittest.TestCase):
         self.assertRegex(result.stdout, r"refresh: the host (answered, but the fetch for the company folder failed|"
                                         r"refused the sign-in or the repo for the company folder) \(git: ")
 
+    def drop_root_files(self):
+        """A company upgraded from v0 before v1.0.3: no joining-terms.md, no scale.md."""
+        run(["git", "-C", str(self.company), "rm", "-q", "joining-terms.md", "scale.md"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "as an old upgrade left it"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def test_refresh_adds_missing_root_files_with_the_name(self):
+        # B81: join needs joining-terms.md. The refresh adds each company-root file v1
+        # ships that main lacks, with the company name filled, in its pull request.
+        self.drop_root_files()
+        release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
+        dry = self.refresh("--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ref = f"refs/heads/rules/ada/refresh-{release}"
+        terms = run(["git", "--git-dir", str(self.bare), "show", f"{ref}:joining-terms.md"], env=self.env).stdout
+        want = (TEMPLATE / "joining-terms.md").read_text().replace("{{COMPANY_NAME}}", "Acme Co")
+        self.assertEqual(terms, want)
+        self.assertNotIn("{{", terms)
+        scale = run(["git", "hash-object", str(TEMPLATE / "scale.md")], env=self.env).stdout.strip()
+        self.assertEqual(self.host_blob(ref, "scale.md"), scale)
+        mode = run(["git", "--git-dir", str(self.bare), "ls-tree", ref, "joining-terms.md"], env=self.env).stdout.split()[0]
+        self.assertEqual(mode, "100644")
+        # Once it merges, a second run changes nothing.
+        run(["git", "--git-dir", str(self.bare), "update-ref", "refs/heads/main", ref], env=self.env, check=True)
+        again = self.refresh()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("refresh: the company folder is current (1 kept)", again.stdout)
+
+    def test_refresh_never_touches_the_company_terms(self):
+        # A copy the company edited is its own: not replaced, not listed as kept.
+        terms = self.company / "joining-terms.md"
+        terms.write_text(terms.read_text() + "\nAcme: laptops go back to the office.\n")
+        run(["git", "-C", str(self.company), "commit", "-q", "-am", "our terms"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ref = f"refs/heads/rules/ada/refresh-{release}"
+        self.assertEqual(self.host_blob(ref, "joining-terms.md"), self.host_blob("main", "joining-terms.md"))
+        self.assertNotIn("joining-terms.md", result.stdout)
+
+    def test_solo_refresh_commits_the_missing_terms(self):
+        (self.company / "company-profile.md").write_text(self.solo_text)
+        run(["git", "-C", str(self.company), "commit", "-q", "-am", "solo"], env=self.env, check=True)
+        self.drop_root_files()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        head = run(["git", "-C", str(self.company), "show", "HEAD:joining-terms.md"], env=self.env).stdout
+        self.assertTrue(head.startswith("# Joining terms — Acme Co\n"), head[:80])
+        self.assertEqual(run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout, "")
+        again = self.refresh()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("refresh: the company folder is current", again.stdout)
+
     def test_solo_commits_on_main(self):
         # No host: everything at solo is a commit on main.
         (self.company / "company-profile.md").write_text(self.solo_text)

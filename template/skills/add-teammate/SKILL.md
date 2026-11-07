@@ -99,6 +99,7 @@ A new area later: run `add-area`.
    - Git for Windows gives Git Bash. The sync jobs run through it.
    - Say plainly: the Claude desktop app alone is not enough. Its own Claude Code is not on `PATH` and is not signed in outside the app. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The installer puts it in `%USERPROFILE%\.local\bin` and may not add that folder to `PATH`. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
    - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
+   - Home folder: in Git Bash, `git var GIT_CONFIG_GLOBAL` names git's config file. On a domain PC with `HOME` unset it can be on a network drive (for example `I:\`), and `gh auth setup-git` then fails with `could not lock config file`. The teammate sets the user environment variable `HOME` to `%USERPROFILE%` (Settings, Environment Variables, User variables) and opens a new terminal. Do not change it for them. `join.sh` checks it too (`home:` line).
    - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
 3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites, the org invite first (`https://github.com/orgs/<org>/invitation`). Join checks it and stops with that link while the org invite is still open. If the check itself fails, join says so in one `invite:` line with the link, and goes on.
 
@@ -115,6 +116,7 @@ A new area later: run `add-area`.
 ### B3. The joining terms
 
 1. Show `joining-terms.md` from the clone. Show the whole page.
+   - No `joining-terms.md` in the clone: stop. Do not write terms or show other ones. Tell them: `terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again`. When the admin says it is done, run `git pull` in the clone, then start B3 again. `join.sh` stops with the same line.
 2. Name the two main points: when they leave, a helper deletes the company folder (only removed access counts, never leave or an offline laptop); and they delete copies outside the folder themselves (agent transcripts, backups, hand copies).
 3. Point to `privacy.md`: every place a copy of company data sits.
 4. Ask: "Do you accept these terms?" Yes: go on. They accept once, now. No: stop, and tell them to talk to the admin.
