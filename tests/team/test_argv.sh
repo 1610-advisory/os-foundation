@@ -489,5 +489,46 @@ hrc=$?
 set -e
 [ "$hrc" -eq 2 ] || team_fail "UNC home exit was $hrc: $hout"
 [ "$hout" = "$(home_stop '\\server\home\ada')" ] || team_fail "UNC home line: $hout"
+# GIT_CONFIG_GLOBAL set by hand to a native Windows path: the check uses its folder, not
+# the current one. This cygpath maps one native file and its folder, as Git Bash would.
+mkdir -p "$work/cyg2" "$work/dgit"
+cat > "$work/cyg2/cygpath" << 'EOF'
+#!/bin/bash
+mode=$1
+shift
+[ "${1:-}" = "--" ] && shift
+case "$mode|$1" in
+  "-u|$FAKE_NATIVE_FILE") printf '%s\n' "$FAKE_POSIX_DIR/global.cfg" ;;
+  "-w|$FAKE_POSIX_DIR") printf '%s\n' "$FAKE_NATIVE_DIR" ;;
+  -w\|//*) printf '%s\n' "$1" | tr '/' '\\' ;;
+  *) printf '%s\n' "$1" ;;
+esac
+EOF
+chmod 755 "$work/cyg2/cygpath"
+hout=$(cd "$work" && GIT_CONFIG_GLOBAL="D:${bs}git${bs}global.cfg" HOME="$work/home" SYSTEMDRIVE=C: \
+  FAKE_NATIVE_FILE="D:${bs}git${bs}global.cfg" FAKE_POSIX_DIR="$work/dgit" FAKE_NATIVE_DIR="D:${bs}git" \
+  PATH="$work/cyg2:$PATH" os_home_check 2>&1) || team_fail "a native GIT_CONFIG_GLOBAL on D: stopped: $hout"
+[ "$hout" = "home: git uses D:${bs}git as your home folder, not a folder on C:. Join goes on. If a later step cannot write there, set the user environment variable HOME to %USERPROFILE%, open a new terminal, then run join again" ] \
+  || team_fail "native GIT_CONFIG_GLOBAL other drive line: $hout"
+ls "$work"/.os-home-check.* > /dev/null 2>&1 && team_fail "the home check probed the current folder"
+# A native network path in GIT_CONFIG_GLOBAL stops, with or without cygpath.
+set +e
+hout=$(cd "$work" && GIT_CONFIG_GLOBAL="${bs}${bs}server${bs}share${bs}.gitconfig" HOME="$work/home" \
+  PATH="$work/cyg2:$PATH" os_home_check 2>&1)
+hrc=$?
+set -e
+[ "$hrc" -eq 2 ] || team_fail "native UNC GIT_CONFIG_GLOBAL exit was $hrc: $hout"
+[ "$hout" = "$(home_stop '\\server\share')" ] || team_fail "native UNC GIT_CONFIG_GLOBAL line: $hout"
+if command -v cygpath > /dev/null 2>&1; then
+  printf '%s\n' "SKIP native UNC GIT_CONFIG_GLOBAL with no cygpath: this system has cygpath"
+else
+  set +e
+  hout=$(cd "$work" && GIT_CONFIG_GLOBAL="${bs}${bs}server${bs}share${bs}.gitconfig" HOME="$work/home" \
+    os_home_check 2>&1)
+  hrc=$?
+  set -e
+  [ "$hrc" -eq 2 ] || team_fail "native UNC GIT_CONFIG_GLOBAL with no cygpath exit was $hrc: $hout"
+  [ "$hout" = "$(home_stop '//server/share')" ] || team_fail "native UNC GIT_CONFIG_GLOBAL with no cygpath line: $hout"
+fi
 
 printf '%s\n' "PASS argv"

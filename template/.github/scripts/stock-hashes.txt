@@ -52,6 +52,7 @@
 0bde16291a248a436a9efbdae602355edeb15d7f skills/_host/README.md
 0be7fd832833fc5423f7e565ff9135b3885ddfe2 skills/add-bot/SKILL.md
 0c50ba9d2aaf64ce5da0bcf626622a8260d10b95 skills/upgrade/CLI.md
+0c9cbbbce26fe54d1730ed5b39994fcff523b2f0 skills/add-teammate/team-on.sh
 0cb1e67260291e1dd7c7e8d62d7fd951c1b90c69 skills/add-area/templates/_area/memory/MEMORY.md
 0cf8a92b050cf86a901d11200bf731307537f933 skills/upgrade/CLI.md
 0d6f01525acae4ee198bca0079065e766170bbc3 skills/remove-leak/CLI.md
@@ -183,6 +184,7 @@
 2c05e6a2aea87b98bfad20923d23c6b3d75b733f skills/add-area/templates/finance/AGENTS.md
 2c0ee48ad6769072c5f2f9611c850c6b53d46ccb skills/add-teammate/join.sh
 2c2909720bec4825fb874e0a110d7890e41795ad skills/upgrade/upgrade.sh
+2c4fe76fc06510c20c27bcf06e8ef6cb9ed62ea1 skills/add-teammate/CLI.md
 2c6a9fa2c9f7b972cf1a732bc3cfd24892fe3ca6 skills/add-area/SKILL.md
 2c7243543c4bc47d53443fa15755d91a1c2ecee9 skills/sync/push-check.md
 2ca426533bf42b1d02538a73696df32e6d63d436 skills/add-area/templates/apps/AGENTS.md
@@ -366,6 +368,8 @@
 5f0553580f7987f9e6f5bfcc831d43edccf92c41 skills/sync/jobs/macos-calendar.plist
 5f8bb47c7f059b77b68d99a6035dd316cc33add9 skills/sync/push.sh
 5f8c57db40451134ffe1423ced24bcf9985b8f20 skills/connect-tool/SKILL.md
+5fb1dc28d1cee672a755c9627f9f084f206c7e46 .github/scripts/tools/add-teammate/lib.sh
+5fb1dc28d1cee672a755c9627f9f084f206c7e46 skills/add-teammate/lib.sh
 5fe004619fee604de2b7f879dec5b0ea8ce05010 skills/upgrade/upgrade.sh
 5ff3aec277b3796c1061014171403cbf86bb69b4 skills/sync/CLI.md
 5ff468754e3ceb6db53c5d5504fe8b824bf2d256 skills/upgrade/upgrade.sh
@@ -577,6 +581,7 @@
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
 94fb1a936e6baf4eeb7870c33626dc8f32a77271 skills/add-bot/SKILL.md
+95c52827dba0269c226a83e977038d39c20ec1a4 .github/scripts/tools-release
 96ef35b817e64d78b5a8f651633c9b461750310d skills/upgrade/upgrade.sh
 976c0966dcc557e10275602f8aa8a3c9bc8298e5 skills/ingest/SKILL.md
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer

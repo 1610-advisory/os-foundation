@@ -333,14 +333,42 @@ os_add_root_file() {
   printf 'added: %s\n' "$(basename "$dest")"
 }
 
+# A Windows path set by hand (D:\git\global.cfg) in the POSIX form dirname reads. A
+# network path (\\server\share) becomes //server/share, so the home check sees it.
+os_posix_path() {
+  local p=$1 q
+  case "$p" in
+    *\\*) ;;
+    *) printf '%s\n' "$p"; return 0 ;;
+  esac
+  case "$p" in
+    \\\\*) printf '%s\n' "${p//\\//}"; return 0 ;;
+  esac
+  if command -v cygpath >/dev/null 2>&1; then
+    q=$(cygpath -u -- "$p" 2>/dev/null || true)
+    if [ -n "$q" ]; then
+      printf '%s\n' "$q"
+      return 0
+    fi
+  fi
+  printf '%s\n' "${p//\\//}"
+}
+
 # The folder git calls home: the one that holds its global config (B82). On a domain PC
 # with HOME unset, Git for Windows takes HOMEDRIVE and HOMEPATH, often a network drive.
 # git var lists the global files; git config --global writes ~/.gitconfig, so that line
 # comes first when it is there. GIT_CONFIG_GLOBAL set by hand is the only line.
 os_git_home() {
-  local all f
-  all=$(git var GIT_CONFIG_GLOBAL 2>/dev/null || true)
-  f=$(printf '%s\n' "$all" | grep -m 1 '/\.gitconfig$' || true)
+  local all="" line f
+  while IFS= read -r line; do
+    if [ -n "$line" ]; then
+      all="${all}$(os_posix_path "$line")
+"
+    fi
+  done << EOF
+$(git var GIT_CONFIG_GLOBAL 2>/dev/null || true)
+EOF
+  f=$(printf '%s' "$all" | grep -m 1 '/\.gitconfig$' || true)
   [ -n "$f" ] || f=$(printf '%s\n' "$all" | sed -n '1p')
   if [ -n "$f" ]; then
     f=$(dirname -- "$f")

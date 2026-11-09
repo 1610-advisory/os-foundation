@@ -1132,16 +1132,22 @@ EOF
   osf_api "$admin" GET "/api/v1/repos/acme/${none_area}/branches/team%2Freview-rules"
   none_branch=$OSF_HTTP_CODE
   osf_api_discard
+  # The area folder stays on main with no local rules branch, so the next sync runs.
+  none_head=$(git -C "$none_root/areas/marketing" symbolic-ref -q --short HEAD 2>/dev/null || printf 'detached')
+  none_local=absent
+  if git -C "$none_root/areas/marketing" show-ref --verify --quiet refs/heads/team/review-rules; then
+    none_local=present
+  fi
   if [ "$none_rc" -eq 0 ] && grep -qxF -- "$none_line" "$work/none.out" \
     && ! awk -v area="$none_area" '$1 == "pr:" && $2 == area { found = 1 } END { exit !found }' "$work/none.out" \
-    && [ "$none_branch" = "404" ]; then
-    pass "area with no review-rules.md to propose: no pull request"
+    && [ "$none_branch" = "404" ] && [ "$none_head" = "main" ] && [ "$none_local" = "absent" ]; then
+    pass "area with no review-rules.md to propose: no pull request, area stays on main"
   else
     cat "$work/none.out" >>"$log" 2>/dev/null || true
-    fail "area with no review-rules.md to propose: no pull request (rc ${none_rc}, branch HTTP ${none_branch})"
+    fail "area with no review-rules.md to propose: no pull request, area stays on main (rc ${none_rc}, branch HTTP ${none_branch}, area on ${none_head}, local team/review-rules ${none_local})"
   fi
 else
-  fail "area with no review-rules.md to propose: no pull request (create-repo)"
+  fail "area with no review-rules.md to propose: no pull request, area stays on main (create-repo)"
 fi
 repo="ci-checks-${stamp}"
 

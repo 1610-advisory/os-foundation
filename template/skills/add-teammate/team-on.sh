@@ -434,22 +434,29 @@ push_new_repo() {
 
 # Stage review-rules.md when origin/main lacks it. Never overwrites a file
 # already on this commit or in the work tree. The area director owns it.
+# Prints the review-rules.md to propose for an area: its own file, then the company's,
+# then the one next to these scripts. Returns 1 when there is none.
+review_rules_source() {
+  local dir=$1 f
+  for f in "$dir/review-rules.md" "$ROOT/review-rules.md" "$DIR/../../review-rules.md"; do
+    if [ -f "$f" ]; then
+      printf '%s\n' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
 stage_missing_review_rules() {
-  local dir=$1 src=""
+  local dir=$1 src
   if git -C "$dir" cat-file -e "origin/main:review-rules.md" 2>/dev/null; then
     return 0
   fi
   if git -C "$dir" cat-file -e "HEAD:review-rules.md" 2>/dev/null; then
     return 0
   fi
-  if [ ! -f "$dir/review-rules.md" ]; then
-    if [ -f "$ROOT/review-rules.md" ]; then
-      src="$ROOT/review-rules.md"
-    elif [ -f "$DIR/../../review-rules.md" ]; then
-      src="$DIR/../../review-rules.md"
-    else
-      return 0
-    fi
+  src=$(review_rules_source "$dir") || return 0
+  if [ "$src" != "$dir/review-rules.md" ]; then
     cp "$src" "$dir/review-rules.md"
   fi
   git -C "$dir" add -- review-rules.md
@@ -495,14 +502,20 @@ propose_missing_review_rules() {
     return 0
   fi
   if ! git -C "$dir" cat-file -e "origin/${branch}:review-rules.md" 2>/dev/null; then
-    git -C "$dir" checkout -q -f -B "$branch" origin/main
-    stage_missing_review_rules "$dir"
     # No copy to propose: never open a pull request for a branch that is not on the host.
-    if git -C "$dir" diff --cached --quiet; then
+    # Look before the checkout, so the area stays on main and sync still runs there.
+    if ! review_rules_source "$dir" >/dev/null; then
       printf 'review-rules: %s has no review-rules.md on main, and this folder has none to propose. The checks use the default rules. Run the upgrade refresh, then team-on again\n' "$name"
       return 0
     fi
-    commit_staged "$dir" "Team: add review rules"
+    git -C "$dir" checkout -q -f -B "$branch" origin/main
+    stage_missing_review_rules "$dir"
+    if ! commit_staged "$dir" "Team: add review rules"; then
+      git -C "$dir" checkout -q -f main
+      git -C "$dir" branch -q -D "$branch"
+      printf 'review-rules: %s has no review-rules.md on main, and this folder has none to propose. The checks use the default rules. Run the upgrade refresh, then team-on again\n' "$name"
+      return 0
+    fi
     push_tools_branch "$dir" "$name" "$branch"
   fi
   open_rules_pr "$name" "$branch"

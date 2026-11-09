@@ -99,7 +99,40 @@ case "$rw_win" in
         fail=1
         ;;
     esac
+    # GIT_CONFIG_GLOBAL set by hand to a native path: the check uses that folder.
+    set +e
+    out=$(cd "$ro/.." && GIT_CONFIG_GLOBAL="${rw_win}\\global.cfg" HOME="$sys_home" \
+      bash -c '. "$1"; os_home_check' _ "$lib" 2>&1)
+    rc=$?
+    set -e
+    case "$out" in
+      "home: git uses ${rw_win} as your home folder, not a folder on "*)
+        if [ "$rc" -eq 0 ]; then
+          printf '%s\n' "B82 PASS native GIT_CONFIG_GLOBAL on another drive: $out"
+        else
+          printf 'B82 FAIL native GIT_CONFIG_GLOBAL: exit %s\n' "$rc"
+          fail=1
+        fi
+        ;;
+      *)
+        printf 'B82 FAIL native GIT_CONFIG_GLOBAL: exit %s: %s\n' "$rc" "$out"
+        fail=1
+        ;;
+    esac
     ;;
 esac
+
+# A native network path in GIT_CONFIG_GLOBAL stops before any write.
+unc='\\b82-no-host\share'
+set +e
+out=$(GIT_CONFIG_GLOBAL="${unc}\\.gitconfig" HOME="$sys_home" bash -c '. "$1"; os_home_check' _ "$lib" 2>&1)
+rc=$?
+set -e
+if [ "$rc" -eq 2 ] && [ "$out" = "$(stop_line "$unc")" ]; then
+  printf '%s\n' "B82 PASS native UNC GIT_CONFIG_GLOBAL stops"
+else
+  printf 'B82 FAIL native UNC GIT_CONFIG_GLOBAL: exit %s: %s\n' "$rc" "$out"
+  fail=1
+fi
 
 exit "$fail"

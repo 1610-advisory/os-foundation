@@ -10,6 +10,7 @@
 0a770b2059ee27e0a6ba7d0c631a3cd6e446fb39 skills/lint/lint.sh
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
 0b25922bb81894236916ea32c5e143aad47959c0 skills/add-teammate/joining-terms.template.md
+0c9cbbbce26fe54d1730ed5b39994fcff523b2f0 skills/add-teammate/team-on.sh
 0cb1e67260291e1dd7c7e8d62d7fd951c1b90c69 skills/add-area/templates/_area/memory/MEMORY.md
 0d6f01525acae4ee198bca0079065e766170bbc3 skills/remove-leak/CLI.md
 0ec2e32e50964710cd013eaf5c51b4ba7b038121 skills/app-setup/SKILL.md
@@ -29,6 +30,7 @@
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
 29a10818c56d987b4904bdd4fc35e467884b6625 skills/app-setup/hosting-options.md
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
+2c4fe76fc06510c20c27bcf06e8ef6cb9ed62ea1 skills/add-teammate/CLI.md
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
 33d9175facf8ce45a9eafeb92d96fb1d80a3aa26 skills/sync/lib.sh
 364506f0297c393279d1ec329ee8338e011434ee skills/reports/CLI.md
@@ -49,13 +51,13 @@
 5a124d09c4046aefb6cc6b56efa1ddf24f01b60c skills/privacy/privacy.sh
 5cfa3c805fb152cf7ec38fa06a8948434e3a8ba8 skills/ingest/SKILL.md
 5f0553580f7987f9e6f5bfcc831d43edccf92c41 skills/sync/jobs/macos-calendar.plist
+5fb1dc28d1cee672a755c9627f9f084f206c7e46 .github/scripts/tools/add-teammate/lib.sh
+5fb1dc28d1cee672a755c9627f9f084f206c7e46 skills/add-teammate/lib.sh
 60626c54d1e72cbe8f2495f59a9db0961f1ed604 .github/scripts/set-status.sh
 61d73258ea1243e27a62e0e2ebce9297ba1b7b3a skills/remove-teammate/SKILL.md
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 657fdbbfc58c696100ed33d87cc9f51fccb98a88 skills/_host/README.md
-6c845852fface0a178b14f30ea5a8d2f72be2930 .github/scripts/tools/add-teammate/lib.sh
-6c845852fface0a178b14f30ea5a8d2f72be2930 skills/add-teammate/lib.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
 7ad6ef16a31463912488951db20b5137657fd660 skills/add-teammate/add-person.sh
@@ -71,7 +73,6 @@
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/upgrade/v0/areas/_area/AGENTS.md
 879288f53dd676a8f9a8b4ae5762f3d19fc87c31 skills/sync/CLI.md
 879efdc459c33da3fc70d0441c864ba320cd5763 skills/upgrade/rules.sh
-8a89e52be406e3cd4f3fe6f7e08b5f0eee6fca67 .github/scripts/tools-release
 8a983cc3bedbd8c9342a675810ee99909803cbf9 skills/nightly-review/CLI.md
 8aa59ab35cf71bc53f35789bbc1942869033740d skills/upgrade/v0/CLAUDE.md
 91ae6fe551b8d88ff1c969c9ede97079cff6979d skills/add-area/templates/_area/CLAUDE.md
@@ -80,10 +81,10 @@
 93efb44998a1f6c274e0873600ba8ed55ef82f50 skills/remove-leak/remove-leak.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
+95c52827dba0269c226a83e977038d39c20ec1a4 .github/scripts/tools-release
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
-9bbf213f2e826c382d4831ff36648541fa807af4 skills/add-teammate/team-on.sh
 9cd3a5b6407cb8e25357826914f54a1747ff6af6 skills/upgrade/upgrade.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
@@ -123,7 +124,6 @@ cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/per
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
-d71872ffaa0b1edbebb24a037b15cd4c25901065 skills/add-teammate/CLI.md
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
 d8209c262a4226004712d0f445aa5e9522f43cbf skills/upgrade/SKILL.md
 da774305122fee0a951c18993bcc78034e007e7e skills/upgrade/CLI.md
