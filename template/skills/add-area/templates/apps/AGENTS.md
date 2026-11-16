@@ -27,18 +27,18 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 
 ## What this area does
 
-Software that {{COMPANY_NAME}} runs: automations, internal tools, integrations, and apps (a customer portal goes at `portal/`).
+The list of the tools {{COMPANY_NAME}} builds and runs: internal tools, automations, integrations and portals. One record per tool.
 
 ### Before building or hosting
 
-Read `../../skills/app-setup/SKILL.md` when planning an app, automation, hosting or software choice. It explains local vs hosted use, compares existing tools, Cloudflare, a self-managed VPS and other services, and gets approval for costs and external changes before deployment. Keep the decision and operating notes in this area or the app's own repo.
+Read `../../skills/app-setup/SKILL.md` when planning a tool, automation, hosting or software choice. It checks existing software first, says how a tool is declared and where it runs (the company's kernel, or the stopgap rule when there is none), and who approves.
 
-### One repo per app
+### One repo per tool
 
-- This folder is a repo for the small things: scripts, automations, and notes about the apps.
-- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/<app>/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
-- Record each app in `apps.md`: name, what it does, where it runs, who has access. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
-- Code, config, and deploy notes live in the app's repo. Secrets never do.
+- This folder holds notes, skills with their scripts, and one record per tool. It holds no tool code and no data.
+- **Each tool is its own repo, outside the company OS folder.** Each tool has its own access, so a contractor can get one tool and nothing else.
+- Record each tool in `apps.md`: name, what it does, owning area, where it runs, who may use it, repo and status. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
+- Code, config, and deploy notes live in the tool's repo. Secrets never do.
 
 ## Skills
 
@@ -46,7 +46,7 @@ Area skills live in `skills/` here. Company skills live in `../../skills/`: read
 
 | Skill | Use when someone says |
 |---|---|
-| `../../skills/app-setup/` (company skill) | "build an app", "make a portal", "host this", "use a VPS / Cloudflare", "which software should I use" |
+| `../../skills/app-setup/` (company skill) | "build an app", "build a tool", "make a portal", "host this", "where should this run", "which software should I use" |
 
 ## Folders
 

@@ -108,6 +108,7 @@
 188c0c9b74c312bf6e2aa7e17526cd51268d2163 skills/add-area/SKILL.md
 19425d2080de36fdd2db85c4dc0ea6dab74a7074 skills/remove-teammate/CLI.md
 195ba29dc61a96d37452bcaa7ef2df4b529bff55 skills/sync/sync.sh
+196e9800a8433406ac4f14ca6bee8690ee6abb3d skills/add-area/templates/apps/AGENTS.md
 19ad0dc5e875dc8904c34092698116d0d8c7a6c6 skills/add-area/templates/marketing/AGENTS.md
 1a487a426991319d5aae3185613b2ac9e9e9a482 skills/sync/push.sh
 1acca2e47bfef64acb47275dc86a353cfe7c9313 skills/upgrade/upgrade.sh
@@ -353,6 +354,7 @@
 5bfcc9e80884c09ee7b3b54fc3c1ba1cad4be690 skills/lint/SKILL.md
 5c0b7af82e456dc9ad2959fe9da6286388ba4a7f skills/_host/github.sh
 5cfa3c805fb152cf7ec38fa06a8948434e3a8ba8 skills/ingest/SKILL.md
+5d70bd8fc5b14ead9c425ecd4dad9f15ac8e2b63 skills/add-area/templates/apps/apps.md
 5dbd1852f3aba96a9d2e73f85bd060717152e5c8 skills/sync/push-check.md
 5df18a59495bff0d29335124400cb79661d63ea8 skills/upgrade/upgrade.sh
 5e70f51838f1120aa9c22a234fd3c16ae9fdf634 skills/sync/pull.sh
@@ -638,6 +640,7 @@ abf2a027e03ea316d57becf41e55366ea7540867 skills/remove-teammate/SKILL.md
 ac2942b2eddf08a4b8e7c3477bc1f2148cdbc984 .github/scripts/tools/add-teammate/lib.sh
 ac2942b2eddf08a4b8e7c3477bc1f2148cdbc984 skills/add-teammate/lib.sh
 ac6500e5dcf42c32cc64f5bdddd1311e1cd13d19 skills/remove-leak/remove-leak.sh
+ac9a32689c362f07cfaaee060af4ef5cc6deda98 skills/app-setup/SKILL.md
 ac9e446638249628ff2ade55dde29d783367a562 skills/upgrade/rules.sh
 acd098adf2e34aa19296559e5841d69ce6f17c3c skills/upgrade/upgrade.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
@@ -713,6 +716,7 @@ c578cd32ed3e6ca9039e806ca0ad213c5e9152db skills/upgrade/rules-merge.awk
 c5e99bca4a258db2ebd57f0125872b25cdba4aca skills/add-bot/SKILL.md
 c657777a746ff9a750e3e14c114024dc056cbf05 skills/upgrade/CLI.md
 c66f25c148edead40d0b0a4619d50d44fa409d42 skills/_host/README.md
+c6fb831660fb6b7886a037cccfcfc8ef39decf78 skills/add-area/SKILL.md
 c76b4b81e8679f763ca7f7b5b941975b720d1207 .github/scripts/tools/host/forgejo.sh
 c76b4b81e8679f763ca7f7b5b941975b720d1207 skills/_host/forgejo.sh
 c7b914d7efc4dd061a63e2aab8cf6b3d9c5c378b .github/scripts/model-review.sh

@@ -13,7 +13,7 @@ Run this from the company root.
 
 ## 1. Name
 
-Offer the usual list: **marketing, finance, sales, operations, people (HR), apps**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first).
+Offer the usual list: **marketing, finance, sales, operations, people (HR), apps**, or other. A customer portal is a tool: it gets its own repo and one record in the apps area (add `apps` first). Its code never goes in the company OS folder.
 
 Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` exists, stop and ask.
 

@@ -19,40 +19,86 @@ class AppSetupTests(unittest.TestCase):
         text = (SKILL / "SKILL.md").read_text()
         self.assertIn("name: app-setup", text)
         self.assertIn("Use when", text)
-        self.assertIn("hosting-options.md", text)
         self.assertLess(len(text.splitlines()), 100)
         for private_path in ["/Users/", "/home/", "~/"]:
             self.assertNotIn(private_path, text)
 
-    def test_local_and_shared_hosting_are_distinguished(self):
+    def test_existing_software_comes_first(self):
         text = (SKILL / "SKILL.md").read_text()
-        for term in ["local", "computer is off", "GitHub", "not hosting", "existing tools"]:
+        for term in ["existing software", "Custom code is an option, not the default",
+                     "replaces a working tool", "write why"]:
             self.assertIn(term, text)
 
-    def test_provider_choices_are_explicit_and_not_mandatory(self):
-        text = (SKILL / "hosting-options.md").read_text()
-        for term in ["Cloudflare", "Workers", "VPS", "Vercel", "Render", "Supabase",
-                     "not mandatory", "patch", "backups", "runtime", "pricing"]:
+    def test_a_tool_is_declared(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["data list", "Named requests", "Define each one once", "can read and write",
+                     "Screens", "Scheduled scripts", "TypeScript", "React"]:
             self.assertIn(term, text)
 
-    def test_cloudflare_one_platform_benefit_is_explicit(self):
-        for path in [SKILL / "SKILL.md", SKILL / "hosting-options.md", ROOT / "README.md"]:
+    def test_tool_code_stays_out_of_the_company_folder(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["its own repo", "never goes in the company OS folder", "no tool code and no data",
+                     "apps.md", "owning area"]:
+            self.assertIn(term, text)
+        apps = (ROOT / "template/skills/add-area/templates/apps").resolve()
+        self.assertNotIn("portal/`", (apps / "AGENTS.md").read_text())
+        self.assertIn("Owning area", (apps / "apps.md").read_text())
+        add_area = (ROOT / "template/skills/add-area/SKILL.md").read_text()
+        self.assertNotIn("areas/apps/portal/", add_area)
+        self.assertIn("own repo", add_area)
+
+    def test_kernel_first_and_the_stopgap_rule(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["no server and no sign-in of its own", "cannot yet", "behind the kernel",
+                     "Business records only", "office account", "No passwords",
+                     "security review before go-live", "three tests", "Backups",
+                     "storage the company owns", "why it is a stopgap",
+                     "what must be true for it to move", "second stopgap tool", "1610"]:
+            self.assertIn(term, text)
+
+    def test_no_per_app_hosting_choice(self):
+        self.assertFalse((SKILL / "hosting-options.md").exists())
+        for path in [SKILL / "SKILL.md", ROOT / "README.md", ROOT / "start-core.md",
+                     ROOT / "template/skills/add-area/templates/apps/AGENTS.md"]:
             text = path.read_text()
-            for term in ["Workers", "D1", "R2", "platform"]:
-                self.assertIn(term, text)
+            for term in ["hosting-options.md", "D1", "R2", "Prefer Cloudflare",
+                         "self-managed VPS"]:
+                self.assertNotIn(term, text, f"{path.name}: {term}")
 
-    def test_requirements_and_costs_precede_external_changes(self):
+    def test_shared_report_button_and_locks(self):
         text = (SKILL / "SKILL.md").read_text()
-        for term in ["one question at a time", "budget", "data", "maintenance",
-                     "approval", "account", "publish", "recurring", "secret", "Unknown"]:
+        for term in ["shared report button", "pinned version", "do not build your own",
+                     "broken, idea or other", "never captures the screen", "opens an issue",
+                     "assignments", "Never grant rows by hand", "second permission system",
+                     "person's own connection"]:
             self.assertIn(term, text)
-        self.assertLess(text.index("## 3. Save the decision"), text.index("## 4. Build and release"))
 
-    def test_live_verification_covers_access_and_persistence(self):
+    def test_kernel_is_not_changed_and_health_data_stops(self):
         text = (SKILL / "SKILL.md").read_text()
-        for term in ["unauthorized", "restart", "rollback", "restore", "not tested",
-                     "HTTPS", "real data", "export", "approved audience"]:
+        for term in ["Never change the kernel", "`app`", "change to the kernel",
+                     "health records", "Never write your own sign-in code"]:
             self.assertIn(term, text)
+
+    def test_approval_and_data_about_a_person(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["for themselves with no review", "manager of the area", "the owner approves",
+                     "new approval", "without the kernel in front", "mailbox", "HR and pay",
+                     "owner to turn it on"]:
+            self.assertIn(term, text)
+
+    def test_deliverables_hold_no_live_data(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["Markdown is the truth", "single HTML file", '"as of" date',
+                     "reads no live data", "tool screen"]:
+            self.assertIn(term, text)
+
+    def test_external_changes_need_approval_and_verification(self):
+        text = (SKILL / "SKILL.md").read_text()
+        for term in ["one question at a time", "approval", "account", "publish", "recurring",
+                     "secret", "Unknown", "refused", "restore", "not tested", "HTTPS",
+                     "real data", "local prototype", "stop and ask a human"]:
+            self.assertIn(term, text)
+        self.assertLess(text.index("## 5. Approval"), text.index("## 7. Build and release"))
 
     def test_copied_template_keeps_skill_and_area_links(self):
         with tempfile.TemporaryDirectory(prefix="os-app-setup-") as tmp:
@@ -63,7 +109,6 @@ class AppSetupTests(unittest.TestCase):
             shutil.copytree(templates / "_area", area)
             shutil.copytree(templates / "apps", area, dirs_exist_ok=True)
             self.assertTrue((area / "../../skills/app-setup/SKILL.md").resolve().is_file())
-            self.assertTrue((company / "skills/app-setup/hosting-options.md").is_file())
             for file in company.rglob("AGENTS.md"):
                 self.assertLess(len(file.read_text()), 10000, str(file))
 
