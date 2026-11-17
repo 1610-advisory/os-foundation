@@ -149,6 +149,17 @@ One line each:
 - **Terms.** `terms: proposed`: their yes goes on their people page by pull request. Join's push prints that pull request's link (`pr: <url>`). Each later `sync.sh push` prints its link the same way.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
 
+### B6. Phone access (offer, optional)
+
+Only with a claude.ai sign-in (Pro, Max, Team or Enterprise), not an API key. Ask each step; a no is fine.
+1. **Remote Control for every session.** "Do you want to see your Claude sessions on this computer from the Claude app?" Yes: in `claude`, run `/config` and set Remote Control on at startup. Or add `"remoteControlAtStartup": true` to `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`). Add the line to what is there; never replace the file.
+2. **Start new sessions from the phone.** "Do you also want to start new sessions in the company folder from your phone?" Yes: in a new terminal, run `claude remote-control --name "{{COMPANY_SLUG}}-os"` from the company folder (`~/{{COMPANY_SLUG}}-os`). Windows: from PowerShell or Git Bash, in `$HOME\{{COMPANY_SLUG}}-os`. Then open the Claude app: the folder shows by that name, and each new session starts there.
+   - Say plainly: it runs on this computer. It works only while this computer is awake and the command runs. Run the same line again to start it again (after a restart too).
+   - **Keep it running when the terminal closes.** Mac, Linux: in tmux (`brew install tmux` on a Mac): `tmux new -d -s {{COMPANY_SLUG}}-rc -c ~/{{COMPANY_SLUG}}-os 'claude remote-control --name "{{COMPANY_SLUG}}-os"'`. See it: `tmux attach -t {{COMPANY_SLUG}}-rc` (leave it with Ctrl-b then d). Stop it: `tmux kill-session -t {{COMPANY_SLUG}}-rc`. Windows has no tmux (Git Bash has none): start it in its own minimized window from PowerShell: `Start-Process powershell -WindowStyle Minimized -WorkingDirectory "$HOME\{{COMPANY_SLUG}}-os" -ArgumentList '-NoExit','-Command','claude remote-control --name "{{COMPANY_SLUG}}-os"'`. Close that window to stop it.
+   - First time only: run `claude` once in the company folder and trust the folder, before you start it in the background.
+   - New sessions start in the company folder, so they read the company rules. For area work, ask the session to `cd areas/<area>`, or run the same line from that area folder.
+3. Check: start one session from the phone and ask "Which folder are you in?" It names the company folder.
+
 ## Rules for this skill
 
 - Nobody writes to `main`, the admin included. Never write or say otherwise.
