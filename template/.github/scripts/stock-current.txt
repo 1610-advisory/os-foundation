@@ -38,7 +38,6 @@
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
 4a113c3778f079a4a43cf8b22e551bf20368b304 skills/add-bot/templates/BOT.md
-4dbc7f669c3dbe38405390f21cbbdcc406e27137 skills/add-teammate/SKILL.md
 4dd6ef550eca24ad7a5bbb86fdba27436151dca9 skills/upgrade/v0/areas/marketing/AGENTS.md
 4f881c52d1f72f4cfb720e339e2d35c3058d01a9 skills/skill-creator/LICENSE.txt
 50d5f541abf333d4fa16b9c0198705ecc305167b skills/suggest/SKILL.md
@@ -72,6 +71,7 @@
 869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
 86e952582ec4688465c13862a67072f455d07d0e skills/add-area/templates/marketing/goals.md
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/upgrade/v0/areas/_area/AGENTS.md
+873c0da92ccb537d535cc24205cbde98b9d2f0b5 skills/add-teammate/SKILL.md
 879288f53dd676a8f9a8b4ae5762f3d19fc87c31 skills/sync/CLI.md
 879efdc459c33da3fc70d0441c864ba320cd5763 skills/upgrade/rules.sh
 8805c3ca4525c0aa772521738babcce6df566798 skills/add-teammate/CLI.md
