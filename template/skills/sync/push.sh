@@ -795,13 +795,6 @@ sync_push_one() {
         fi
         ;;
     esac
-    # v1.0.4: a path rule before the engine. The file stays on this computer, so no model
-    # needs to read it, and a held file is not judged again at each push.
-    if [ "$kind" = "root" ] && [ -e "$repo/$path" ] && ! sync_root_allowed "$path"; then
-      sync_hold_line "$id" "$path" "$ROOT_REASON" >> "$added"
-      sync_log "push hold ${id} ${path} root content"
-      continue
-    fi
     if [ -f "$repo/$path" ] && sync_is_binary "$repo/$path" && ! sync_binary_allowed "$path"; then
       sync_hold_line "$id" "$path" "binary file: add it by hand with a pull request" >> "$added"
       sync_log "push hold ${id} ${path} binary"
@@ -817,6 +810,13 @@ sync_push_one() {
     if [ ! -e "$repo/$path" ]; then
       printf '%s\n' "$path" >> "$commit_files"
       printf '%s\n' "remove ${path}" >> "$messages"
+      continue
+    fi
+    # v1.0.4: a path rule before the engine. The file stays on this computer, so no model
+    # needs to read it, and a held file is not judged again at each push.
+    if [ "$kind" = "root" ] && ! sync_root_allowed "$path"; then
+      sync_hold_line "$id" "$path" "$ROOT_REASON" >> "$added"
+      sync_log "push hold ${id} ${path} root content"
       continue
     fi
     diff=$(sync_mktemp)

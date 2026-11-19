@@ -1060,8 +1060,9 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("memory/logs/2026-10-27-mia.md", tree)
         status = self.sync("status").stdout
         self.assertIn("habits.md: belongs in the workspace", status)
-        self.assertIn("2026-10-27-mia.md: personal-life fact", status)
-        self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
+        # v1.0.4: the root path rule holds root logs before the model reads them.
+        self.assertIn("memory/logs/2026-10-27-mia.md: root is for rules", status)
+        self.assertNotIn("memory/logs/2026-10-28-mia.md: belongs in the workspace", status)
 
     def test_logs_wait_while_the_host_has_the_old_logs_branch(self):
         # logsfix (58): a v0 clone ignores memory/logs/ and its plain pull writes over any
