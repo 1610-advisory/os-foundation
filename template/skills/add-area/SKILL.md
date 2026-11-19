@@ -13,14 +13,14 @@ Run this from the company root.
 
 ## 1. Name
 
-Offer the usual list: **marketing, finance, sales, operations, people (HR), apps**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first).
+Offer the usual list: **marketing, finance, sales, operations, people (HR), apps**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first). `admin` (leadership, systems and access, the OS build) comes with setup: owners and the advisor only.
 
-Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` exists, stop and ask.
+Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` exists, stop and ask. Never `os`, `user-<anything>`, or the name of the admin's private source repo: the area repo is `{{COMPANY_SLUG}}-{{AREA_SLUG}}`, and those names belong to the company repo, the workspaces and that private repo. Suggest `<name>-team` instead. `team-on.sh` refuses them too.
 
 ## 2. Build it
 
 1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`, hidden files included (`cp -R skills/add-area/templates/_area/. areas/{{AREA_SLUG}}/`). The copy keeps two committed links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. No link step is needed. If either arrived as a plain file from a file-by-file copy, replace it with the link. Windows (symlinks off): leave the plain files and see step 4. Never make a real symlink there.
-2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (marketing, finance, apps), copy it on top. Its files replace the generic ones.
+2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (admin, marketing, finance, apps), copy it on top. Its files replace the generic ones.
 3. Replace placeholders in every new file: `{{AREA_NAME}}` (for example "Marketing"), `{{AREA_SLUG}}`, `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{DATE}}` (today, YYYY-MM-DD).
 4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. **Windows:** before that commit, write each link as a git link entry. A plain file would reach Mac users as a file, not a link. In Git Bash, in `areas/{{AREA_SLUG}}/`:
    ```
@@ -46,7 +46,7 @@ Read `level:` in `company-profile.md`. At `solo`, skip this step: the area stays
 
 At `team`, the area must also get its place on the host. The scripts do it. Never call the host yourself.
 1. Ask who directs this area (approves its rules changes). Suggest the admin.
-2. Ask who may read and write it. Suggest the fewest people.
+2. Ask who may read and write it. Suggest the fewest people. `admin`: the owners only (and the advisor).
 3. Write an answers file for `skills/add-teammate/team-on.sh` (keys in `skills/add-teammate/CLI.md`). It must hold everything a first run needs, or the script refuses it:
    - `host`, `host_url`, `org` and `sync_engine` from `company-profile.md`,
    - `review_vendor` and `review_kind` from `.github/review.conf`,

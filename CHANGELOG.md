@@ -2,6 +2,21 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.4 — unreleased
+
+Private by default, and root changes wait for a person. From a leak in a pilot: an agent wrote a leadership meeting note, with systems, admins and the billing plan, at the shared root, and it merged by itself.
+
+- **Private by default.** The rules (`AGENTS.md` section 3, the inline rules in `CLAUDE.md`, every area) now say: write new material to the most private place that fits. OS build, systems and access, connections, org and billing, and leadership meetings go to `areas/admin/` only. A meeting goes to the area of the people in it. Sharing wider is a separate step the person asks for.
+- **An `admin` area at setup.** Setup makes `areas/admin/` first: owners and the advisor only.
+- **The root holds rules, company memory and company facts [team].** The nightly push holds any other content file at the company root (`root is for rules, company memory and company facts: ...`): meetings, notes, decisions, logs. Allowed there: the map files (`people/`, `company-profile.md`, `joining-terms.md`, `scale.md`, `privacy.md`, `templates/`), company memory (`memory/*.md`, not its logs) and company fact files (one `.md` file at the top, such as `customers.md`). Company-wide meetings go in an `everyone` area. Logs of root work go to the person's workspace. Every root change still waits for an owner's `/approve`, and leadership and access material is still held anywhere at the root.
+- **Root changes and rules changes wait for an owner.** A pull request that changes a rules file, or adds or changes a file in the company repo, no longer merges by itself. Its check fails with `waiting for owner`, and a comment says why in plain words. An owner comments `/approve`; the check then passes for that commit. `/override` still works for a failed review. `sync.sh propose` never turns on auto-merge and prints `waiting for owner: ...`. Agents never type `/approve` or `/override`. Area notes still merge by themselves.
+- **Topic check.** The push check holds a root file about systems and access, billing or ownership, or leadership (`belongs in an area (admin?)`). The model review fails a company-repo change with content at the root or with that material (check 7). The reviewer now gets a `Repo:` line.
+- **Sweep before access.** `skills/add-teammate/sweep.sh` lists what a person will read: every file, `look:` lines for admin material, and deleted files still in the history. add-teammate runs it before the first invite and before each add-person, and the owner says yes once.
+- **remove-leak: less GitHub Support.** `--owners-only` skips the host purge when only owners could read the repo, and says why. For a key, revoking it is the fix. Before the first teammate, the skill offers to make the repo again from a clean history instead.
+- **An area name cannot take another repo's name.** `team-on` refuses an area named `os`, `library` or `user-*` (B86).
+- **`AGENTS.md` is shorter** (8,385 characters), so it stays under 9,000 after setup fills it. Setup checks the size (B87).
+- The check tools are release `2026111701`, so `upgrade --refresh` brings the new checks to `main`.
+
 ## v1.0.3 — unreleased
 
 Two join fixes from the first live team on v1.0.2.

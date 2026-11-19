@@ -124,7 +124,7 @@ From here on, work inside `{{COMPANY_OS}}/` and follow its `AGENTS.md`. Commit a
 | Answer | Build | First win |
 |---|---|---|
 | A) Find anything fast | shared root only | they paste one real thing; you file it with the shared memory; you answer one question from it |
-| B) Meetings and decisions | shared root only | file one meeting note or decision from `inbox/` |
+| B) Meetings and decisions | `areas/admin/` (leadership) or the area the meeting is about | file one meeting note or decision from `inbox/` there |
 | C) Marketing | `areas/marketing/` | draft one post or email in their voice |
 | D) Numbers | `areas/finance/` | read one export they drop in `areas/finance/data/` |
 | E) Apps | `areas/apps/` | list what could be automated first, from their tools |
@@ -165,7 +165,8 @@ Ask what those files still need. Include what they sell and what people buy firs
 
 ## Phase E — Areas and the first win
 
-1. **Areas.** Make the area the first job needs, with `skills/add-area/SKILL.md`. They can add others when they want. Fill `{{AREAS}}` in `AGENTS.md` (or write "none yet").
+1. **Areas.** Always make `areas/admin/` first, with `skills/add-area/SKILL.md`: the private area for the owners (and an advisor). The OS build, systems and access, connections, org and billing, and leadership meetings go there, never at the shared root. Then make the area the first job needs. They can add others when they want. Fill `{{AREAS}}` in `AGENTS.md`.
+   - **Private by default.** Write new material to the most private place that fits. Before you write a meeting note, ask "who should read this?" At the root, keep the company's map (profile, people) and rules.
 2. **One concrete win** before you finish, from the table above. For A, follow the paste rule under Phase B. If a connection unlocks the first job, connect that one tool with `skills/connect-tool/SKILL.md` (your add-on says which to try first). One is plenty today. If it is not available, do the file win.
    - **Apps/automations only:** read `skills/app-setup/SKILL.md` for the planning portion. Save one useful proposed automation or app from their existing tools, and explain hosting only when the job needs it. A local prototype needs no paid hosting. For a shared or always-on app, help choose Cloudflare, a self-managed VPS or another suitable service. Keep this first win short; mark unresolved choices unknown and leave building/provisioning for an approved follow-up. Do not turn every company setup into a hosting interview.
 3. **If the win lives in an area.** The company repo does not keep area files. Leave the draft in the area. Also leave one pointer in a shared file the company repo does keep, so the win is still findable. "Right now" in `AGENTS.md` is a natural spot. One pointer is enough.
@@ -181,6 +182,6 @@ Ask what those files still need. Include what they sell and what people buy firs
    - If they ask how to make or improve skills, explain that Anthropic's creator is already included at `skills/skill-creator/`; `skills/write-skill/` handles company placement/review. Point to `memory/skill-resources.md`. No need to install a whole collection or run evaluations during setup.
 2. **Teammates.** One line: when someone else should use it, say "add a teammate." It sets up their access to only the areas they need.
 3. **Browsing the files.** Optional: any markdown editor works. Obsidian is a good free one: open `{{COMPANY_OS}}` as a vault. Do not sync the folder with iCloud, Dropbox, OneDrive, Google Drive or Obsidian Sync: git keeps the history, and a sync service can break it.
-4. **Check your work.** No `{{...}}` left outside `skills/` folders. (A `{{...}}` inside a skill is filled when that skill runs.) If `skills/privacy/privacy.sh` exists, run it once from `{{COMPANY_OS}}`; it writes `privacy.md`. Commit.
+4. **Check your work.** No `{{...}}` left outside `skills/` folders. `AGENTS.md` must stay under 9,000 characters (`wc -c AGENTS.md`). If it is over, shorten "Right now" and the one-liner first. Never cut a rule. (A `{{...}}` inside a skill is filled when that skill runs.) If `skills/privacy/privacy.sh` exists, run it once from `{{COMPANY_OS}}`; it writes `privacy.md`. Commit.
 5. **Log it.** Append to `memory/logs/YYYY-MM-DD-{{OWNER_SLUG}}.md` (the owner's `slug:`): what was built, what is open (areas not yet added, tools not yet connected). Commit it on `main` like any file.
 6. **Wrap up** in three to five lines: what they have now, and the single best next step. If `privacy.md` exists, name it in one line: it says where their company knowledge is kept and who can read it.

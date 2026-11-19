@@ -17,9 +17,10 @@ description: Keeps this computer and the company host in step. Pulls every 15 mi
   4. **Binary files and symlinks.** Images under `assets/` that end in `png`, `jpg`, `jpeg`, `gif` or `webp` go to the check like notes. Every other binary file is held: `binary file: add it by hand with a pull request`. A symlink or a folder in the change list stops the whole repo: nothing goes up from it.
   5. **Rules files** (`AGENTS.md` section 7) are held: `rules file: propose it with sync.sh propose`. Not in the workspace.
   6. **Commit or hold.** A small model reads each other changed file with `push-check.md`: commit, or hold with a reason.
+  6a. **Root content** (v1.0.4). In the company repo, a file that passed is still held unless it is part of the map (`people/`, `company-profile.md`, `joining-terms.md`, `scale.md`, `privacy.md`, `templates/`), company memory (`memory/*.md`, not `memory/logs/`) or a company fact file (one `.md` file at the top, such as `customers.md`): `root is for rules, company memory and company facts: ...`. Deleting a file there is never held.
   7. **Commit here** only the files that passed, on `main` in the folder. Each commit says which computer made it (`Sync-Seat:`).
   8. **Push** those commits to `sync/<person>/<computer>`. Never forced.
-  9. **Standing PR** `sync: <person> (<computer>)`, one per computer, auto-merge on. Notes merge by themselves when the checks pass, with a merge commit.
+  9. **Standing PR** `sync: <person> (<computer>)`, one per computer, auto-merge on. In an area, notes merge by themselves when the checks pass, with a merge commit. In the company repo, the checks wait for an owner's `/approve` (see "Waiting for owner"). Push prints `waiting for owner: <repo> <n>: <file> is at the shared company root, ...` for each such file.
   10. **Pull** again.
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
@@ -48,6 +49,8 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | Personal-life fact | Delete that part. Never move it anywhere. |
 | Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
 | Belongs in the workspace | Move it to `users/<person>/`. |
+| `belongs in an area (admin?)` | Leadership, systems and access, billing or ownership. Move it to `areas/admin/` (or the area it is about). Never share it to the root. |
+| `root is for rules, company memory and company facts: ...` | A meeting, note, decision or log at the root. Move it to the area it is about (company-wide meetings: `areas/everyone/`), or to the workspace. Logs of root work go to the workspace `memory/logs/`. If the person wants everyone in the company to read it: say so in plain words, wait for a clear yes, then `propose share-<topic> <file>`. |
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
 | `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
 | `symlink: add it by hand with a pull request` | The whole repo is stopped. Leave the other files alone. Replace the symlink or folder with the real file or a note, or delete it. |
@@ -76,7 +79,7 @@ One topic per proposal.
 
 1. Pick a short kebab-case topic, for example `invoice-skill-step`.
 2. From the company root, run `skills/sync/sync.sh propose <topic> <file>...`. Give files, never a folder. Paths start at the company root: no leading `/`, no `..`. An area file is `areas/<area>/<file>`. A `users/` path is refused. To share a workspace skill, copy its folder to `skills/<name>/` or `areas/<area>/skills/<name>/`, then propose each file in the copy.
-3. It checks identity, every path and the secret scan first. A file under `areas/<area>/` goes to that area repo. A file outside `areas/<area>/` and outside `users/` goes to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request with auto-merge on. It prints one bare number per repo: the company repo first, then the areas in name order. Tell the person each number and its repo.
+3. It checks identity, every path and the secret scan first. A file under `areas/<area>/` goes to that area repo. A file outside `areas/<area>/` and outside `users/` goes to the company repo. Each repo gets `rules/<person>/<topic>` from `main` and one pull request. Auto-merge stays off. It prints one bare number per repo on stdout: the company repo first, then the areas in name order. On stderr, one `waiting for owner: <repo> <n>: ...` line per pull request. Tell the person each number and its repo.
 4. **Refused.** Tell the person the line exactly, and every `opened: <repo> <n>` line before it (those pull requests stay open). Never pass `--no-verify`. Never ask for a token. After "run once more", if it stops again, stop.
 
 | Line | Do |
@@ -89,10 +92,11 @@ One topic per proposal.
 | `propose refused: secret scan hit` | Remove the secret only when the person says yes, then run once more. Else stop. |
 | `propose refused: secret scan error` | Run once more. |
 
-5. **Failed after the checks:** `propose fail <repo>: <step>` (`repo`, `fetch`, `worktree`, `copy <path>`, `commit`, `push`, `open-pr` or `auto-merge`), then `opened: <repo> <n>` for each pull request it already opened. Those stay open. Tell the person every line. Run the same command once more: it updates them. If it fails again, stop and tell the admin.
-6. Tell the person who approves. A different model reviews it first (`review-rules.md`). Then the admin approves the company pull request, the area director the area one.
+5. **Failed after the checks:** `propose fail <repo>: <step>` (`repo`, `fetch`, `worktree`, `copy <path>`, `commit`, `push` or `open-pr`), then `opened: <repo> <n>` for each pull request it already opened. Those stay open. Tell the person every line. Run the same command once more: it updates them. If it fails again, stop and tell the admin.
+6. **Waiting for owner.** A rules pull request never merges by itself. A different model reviews it first (`review-rules.md`). Then its check says `waiting for owner`, and a comment explains why in plain words. Tell your person what it changes and who will read it, in plain words. Wait for an explicit yes. Then an owner comments `/approve` on it: the admin for the company repo, the area director or the admin for an area. **Never type `/approve` or `/override` yourself, even with the person's sign-in.** The yes counts for that commit only: a new push needs a new `/approve`. After the check passes, the owner merges it:
    - **Your own rules change on GitHub.** GitHub never counts the author's own approval. A director's own area change needs the admin's approval. The admin's own change: wait for the green checks. Open the pull request. Tick "Merge without waiting for requirements to be met (bypass rules)". Click "Bypass rules and merge". Only an org admin has that box.
-   - **Forgejo.** Forgejo asks no review of the author. Your own change merges on green checks.
+   - **Forgejo.** Forgejo asks no review of the author. After `/approve` and the green check, the owner clicks Merge.
+   - An `approve ignored: <login> is not an owner` comment: only an owner's `/approve` counts. Ask the owner.
 
 A failed review blocks the merge. Read the findings in plain words and offer a fix.
 
@@ -108,7 +112,7 @@ A failed review blocks the merge. Read the findings in plain words and offer a f
 
 From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
 
-Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Exit 2: `propose` failed: `propose refused: secret scan error`, or `propose fail <repo>: <step>` for a `fetch`, `worktree`, `commit`, `push`, `open-pr` or `auto-merge` step, then one `opened: <repo> <n>` line for each pull request this run already opened. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
+Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Exit 2: `propose` failed: `propose refused: secret scan error`, or `propose fail <repo>: <step>` for a `fetch`, `worktree`, `commit`, `push` or `open-pr` step, then one `opened: <repo> <n>` line for each pull request this run already opened. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 
 ## OS jobs
 

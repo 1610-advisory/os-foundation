@@ -113,6 +113,7 @@ os_team_guard "$(os_team_company)" "$(os_company_repo "$SLUG")"
 area=""
 while IFS= read -r area; do
   [ -n "$area" ] || continue
+  os_area_name_ok "$area"
   os_team_guard "$(os_team_area "$area")" "$(os_area_repo "$SLUG" "$area")"
 done << EOF
 $(os_areas_on_disk "$ROOT")

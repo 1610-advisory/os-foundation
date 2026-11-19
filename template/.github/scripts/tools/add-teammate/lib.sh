@@ -546,6 +546,17 @@ os_user_repo() {
   printf '%s-user-%s' "$1" "$2"
 }
 
+# B86: an area repo is <slug>-<area>. These area names would take the name of the
+# company repo (<slug>-os), the library (<slug>-library) or a workspace (<slug>-user-*).
+os_area_name_ok() {
+  case "$1" in
+    os|library|user-*)
+      os_die 2 "area name ${1} is not allowed: its repo name would be the same as the company, library or workspace repo. Rename the folder areas/${1} (for example ${1}-team), then run this again."
+      ;;
+  esac
+  return 0
+}
+
 # Team names. A new company gets <slug>-company and <slug>-area-<a>, so two companies in
 # one org never share a team. A v1 company whose plain team "company" already grants its
 # repo keeps the plain names. Call os_team_names <slug> once, before the names are used.

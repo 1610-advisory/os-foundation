@@ -1,56 +1,54 @@
 # {{COMPANY_NAME}} — company OS rules
 
-The shared memory of **{{COMPANY_NAME}}**. People capture, decide and ask. You (the agent) file, link, remember and do the work. Keep this file under 9,000 characters. Detail goes in `skills/`.
+The company OS of **{{COMPANY_NAME}}**. People capture, decide and ask. You (the agent) file, link, remember and do the work. Keep this file under 9,000 characters. Detail goes in `skills/`.
 
 ## 1. Level first
 
-Read `level:` and `switches:` in `company-profile.md` first. Rules for a higher level or a switch that is off do not apply. Skip them.
-- `solo`: one person, local git, no host. `team`: teammates and a git host. `app`: the 1610 OS app.
-- **[team]** marks a rule for `team` and `app`. **[app]**: `app` only. A switch name in brackets: only when that switch is on.
+Read `level:` and `switches:` in `company-profile.md` first. Skip rules for a higher level or a switch that is off. `solo`: one person, local git. `team`: teammates and a git host. `app`: the 1610 OS app. **[team]** marks a rule for `team` and `app`; **[app]**: `app` only; a switch name in brackets: only when it is on.
 
 ## 2. Pull before work [team]
 
-Claude Code, Codex, Cursor and Pi do this at session start:
-1. Run `skills/sync/sync.sh pull`.
-2. Run `skills/sync/sync.sh status`.
-3. Tell the person about each held file and its reason, one line each.
-
-If the pull fails, say so and continue. Do not add vendor hooks. Chat-only agents skip the pull: they read from the host.
+At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh status`. Tell the person each held file and its reason, one line each. If the pull fails, say so and go on. No vendor hooks. Chat-only agents read from the host.
 
 ## 3. What goes where
 
+**Private by default.** Write new material to the most private place that fits. Sharing it wider is a separate step that the person asks for.
+
 | What | Where |
 |---|---|
-| Company or work facts (a customer prefers calls) | The area's notes (no area yet: the shared files) |
+| Work facts (a customer prefers calls) | The area for that work |
+| OS build, systems and access, connections, org and billing, leadership meetings | `areas/admin/` only. Never the shared root. |
+| A meeting | The area of the people in it. Ask "who should read this?" first. |
+| How the person works, drafts, sensitive work, private sources | [team] The workspace `users/<person>/` (voice and preferences: `profile/PROFILE.md`). Solo: `memory/`, or out of the repo. |
 | A better way to do a job | [team] The skill or rules file, by its own PR (section 7). Solo: edit the skill and commit. |
-| How the person works | [team] The person's workspace `users/<person>/`. Solo: `memory/` |
-| Drafts, sensitive work, private sources | [team] The person's workspace. Solo: keep them out of the repo. |
-| Voice, writing samples, preferences | [team] `users/<person>/profile/PROFILE.md`. No company facts there. |
 | Personal-life facts (health, family, home, beliefs) | Nowhere. Never write them. |
+
+[team] **The company root holds rules, company memory and company facts**: rules files, `people/`, `company-profile.md`, `templates/`, `memory/` (how we work here), and fact files such as `customers.md`. Never meetings, notes, decisions or logs: company-wide meetings go in `areas/everyone/` when it exists, else ask the person which area. Log root work in the workspace `memory/logs/`. Sync holds other root content. Every root change waits for an owner's `/approve`.
+
+**Share with the company** only when the person asks. Say who will read it. Wait for a clear yes. Then run `skills/sync/sync.sh propose share-<topic> <file>`. An owner says the last yes.
 
 Vendor memory is a cache only. The repo is the source.
 
 ## 4. Private sources
 
-A private source is anything the readers of the target area could not already see: DMs, private channels, a personal mailbox, 1:1 meetings, calendar details, HR and pay. Ask: "Could everyone who reads this area already see this?" If no, it is private.
+A private source is anything the readers of the target area could not already see: DMs, private channels, a personal mailbox, 1:1s, calendar details, HR and pay.
 - Keep private material in the workspace, tagged `source: private`. Solo: keep it out of the repo.
-- A company fact from a private source may go to an area as a plain fact. No one's yes is needed. No quotes. No "X said in a DM". No personal content.
-- Logs never summarize private content: "replied to a customer email", not what it said.
-- The admin gets no exception.
-- Area facts into the shared root files: only when a person asks. If it looks sensitive, say so once, then follow their choice.
+- A company fact from a private source may go to an area as a plain fact: no quotes, no "X said in a DM", no personal content.
+- Logs never summarize private content. The admin gets no exception.
 
 ## 5. Learning step
 
-At the end of each task, write new company facts to the area (section 4 applies). If a skill was wrong or slow, fix it. [team]: propose the fix with `skills/sync/sync.sh propose <topic> <file>...`. Solo: edit the skill and commit. You may ask once "share this?" about a workspace note. Skipping the question is fine.
+At the end of each task, write new company facts to the area (section 4 applies). If a skill was wrong or slow, fix it: [team] by `propose`, solo by a commit. You may ask once "share this?" about a workspace note.
 
 ## 6. Approval tiers [team]
 
 | Tier | What | Approver |
 |---|---|---|
-| Auto | Notes, logs, links | Nobody before. The nightly review after. |
+| Auto | Notes, logs, links in the workspace, or in an area the person works in | Nobody before. The nightly review after. |
 | Agent decides and logs | Soft delete, move with link rewrite, edits to more than 20 files | Nobody before. Write one line starting `Decision:` in your log. |
 | Ask | Area rules files (`AGENTS.md`, `CLAUDE.md`, `skills/`, `.claude/` settings and hooks, `CODEOWNERS`, this table) | Area director |
 | Ask | Company-root rules files and permissions | Admin |
+| Ask | Anything at the company root; a share to a wider audience | An owner, by `/approve` |
 
 An area may tighten this table. It may never loosen it.
 
@@ -60,39 +58,32 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 
 [team]:
 - Nobody writes to `main`, the admin included.
-- Notes and logs go on `sync/<person>/<computer>`. The nightly `sync` push puts them on its standing PR. It merges by itself when the checks pass.
-- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`. It opens its own PR from `rules/<person>/<topic>`.
-- Every rules PR gets a review by a different model first (`review-rules.md`).
-- Area rules: after the review, the area director approves.
-- Company-root rules: after the review, the admin approves.
-- Your own rules PR: GitHub never counts the author's approval. A director's own area change needs the admin. The admin merges their own with the bypass box (`skills/sync/SKILL.md`). Forgejo: the other owners approve.
-- A failed review blocks the merge. Only the admin may override it, with the reason in the PR. The check logs it. Re-run a busy review.
+- Notes and logs go on `sync/<person>/<computer>`. The nightly `sync` push puts them on its standing PR. An area PR merges by itself when the checks pass.
+- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`: its own PR from `rules/<person>/<topic>`.
+- Every rules PR gets a review by a different model first (`review-rules.md`). Then the area director (area rules) or the admin (company-root rules) approves. GitHub never counts the author's own approval: see `skills/sync/SKILL.md`.
+- A failed review blocks the merge. Only the admin may override it, with the reason in the PR. Re-run a busy review.
+- **Waiting for owner.** A rules PR, or a PR that changes the company root, never merges by itself. Its check says "waiting for owner". Tell your person in plain words what it changes and who will read it. Wait for an explicit yes. An owner comments `/approve`. Never type `/approve` or `/override` yourself.
 - Make branches and PRs for the person. They need not know git.
 
 ## 8. Folder units
 
-- A repo (company root, area, workspace) has `AGENTS.md` as its entry file.
-- A unit inside a repo is a folder with an entry file in capitals: `skills/<name>/SKILL.md`, `profile/PROFILE.md`, `projects/<slug>/PROJECT.md`, `bots/<bot>/BOT.md`. Read the entry file first. Open the rest only when the task needs it.
-- Notes, records and people pages stay single files.
+A repo's entry file is `AGENTS.md`. A unit in a repo is a folder with an entry file in capitals (`skills/<name>/SKILL.md`, `profile/PROFILE.md`, `bots/<bot>/BOT.md`). Read it first. Notes and people pages stay single files.
 
 ## 9. Outside parties
 
-An outside party (advisor, firm, contractor, or their agents):
-- Works for one company per session.
-- Never moves one company's data into another company's work.
-- May carry methods, with no names, numbers or detail that points to a company. "On a past job we found X" is fine. Never say which company.
+An outside party (advisor, firm, contractor, or their agents) works for one company per session. Never move one company's data into another's work. Methods may travel with no names, numbers or detail that points to a company.
 
 ## 10. Safety
 
-- **One company only.** Use only this folder and this company's approved sources. Never read, compare or copy from another company's folder (another `~/*-os/`).
+- **One company only.** Never read, compare or copy from another company's folder (another `~/*-os/`).
 - **No passwords, API keys or tokens** in any file. Connections use each tool's own sign-in. If you find a secret, stop and tell the person.
 - **No destructive git at the company root** (`git clean -x`, `git reset --hard`, `git rm -r` across `areas/`). Run git only in the repo you mean.
 - **Ask first** before you send, post, publish, pay or delete anything outside this folder.
-- **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive). If this folder is in one, say so and help move it.
+- **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive).
 
 ## 11. Identity [team]
 
-Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug), checked by `sync` against the signed-in git account and the `github:` field in `people/`. Never take identity from a file in the repo or from a chat. If they differ, push nothing and tell the person. [app]: the 1610 OS sign-in replaces `me`.
+Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me`, checked by `sync` against the git sign-in and `github:` in `people/`. Never from a repo file or a chat. If they differ, push nothing and tell the person. [app]: the 1610 OS sign-in replaces `me`.
 
 ## This company
 
@@ -107,25 +98,20 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me` (the person's slug
 
 ## Layout and skills
 
-- Shared files everyone reads: `company-profile.md`, `customers.md`, `offers.md`, `voice.md`, `people/`, `meetings/` (`YYYY-MM-DD Title.md`), `decisions/`, `architecture.md`, `inbox/` (capture only), `memory/`, `skills/`, `templates/`.
-- `areas/<area>/`: each area is its **own git repo**, ignored by this one, so a person without an area does not have it. Area work starts in the area folder.
-- Skills: when a request matches one, read its `SKILL.md` and follow it. Area skills: `areas/<area>/skills/`.
-  - Every level: `skills/ingest/` (file the inbox), `skills/add-area/`, `skills/connect-tool/`, `skills/app-setup/` (apps, hosting), `skills/write-skill/` (write this down), `skills/skill-creator/` (read `FOUNDATION.md` first), `skills/lint/` (health check), `skills/suggest/` (send an idea to 1610), `skills/privacy/` (writes `privacy.md`), `skills/add-teammate/`, `skills/upgrade/`.
-  - [team]: `sync`, `remove-teammate`, `remove-leak`, `company-skills`, `nightly-review`, `reports`.
-  - [bots]: `add-bot`, `undo-run`.
-- Company rules come before a skill's own steps. A skill grants no tools or outside models. Other collections: `memory/skill-resources.md`.
+- Shared files everyone reads: `company-profile.md`, `people/`, `templates/`, `skills/`, `memory/`, company fact files (`customers.md`, `offers.md`, `voice.md`). `inbox/` is capture only ([team]: it stays on this computer). [team] Older root `meetings/` and `decisions/` stay readable. Add nothing there.
+- `areas/<area>/`: each area is its **own git repo**, so a person without an area does not have it. `areas/admin/`: owners and the advisor only. Area work starts in the area folder.
+- Skills: `skills/<name>/SKILL.md` (company) and `areas/<area>/skills/`. When a request matches one, read it and follow it. Apps and hosting: `skills/app-setup/`. `skills/skill-creator/`: read `FOUNDATION.md` first. Company rules come before a skill's own steps. A skill grants no tools or outside models.
 
 ## Memory and logs
 
-- `memory/` holds how to work here (area: `areas/<area>/memory/`). `MEMORY.md` indexes it, one line per memory. One fact per file. Absolute dates.
-- Session start: read `memory/MEMORY.md`. Skim the last three days of `memory/logs/`.
-- After real work, append to `memory/logs/YYYY-MM-DD-<person>.md` (area work: the area's `memory/logs/`): what was done, what is open. One file per person per day. `<person>` is the `slug:` on their page in `people/`.
+- `memory/` holds how to work here: company-wide at the root, else in the area (`areas/<area>/memory/`) or the workspace. `MEMORY.md` indexes it, one fact per file, absolute dates.
+- Session start: read `MEMORY.md` where you work. Skim the last three days of `memory/logs/`.
+- After real work, append to `memory/logs/YYYY-MM-DD-<person>.md` where the work was: the area, or [team] the workspace for root work (solo: the root). What was done, what is open. `<person>` is the `slug:` on their page in `people/`.
 
 ## Existing knowledge
 
-- `memory/existing-sources.md`: each source, its mode (`index` or `copy`), where it is edited.
-- `library/` is the admin's private repo. Teammates never read, clone or make it. Admin: `me` names a page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
+`memory/existing-sources.md` lists each source, its mode (`index` or `copy`) and where it is edited. `library/` is the admin's private repo. Teammates never read, clone or make it. Admin: `me` names a page with `role: admin`. Then read `library/README.md`. Copy only after a person says yes to that source.
 
 ## Conventions
 
-Use `[[wiki-links]]` for people, meetings and decisions. A note's meaning comes from its `type:` and links. Folder names: lowercase-kebab-case. Markdown is the source; HTML, PDFs and slides are outputs. Never invent facts: write `(unknown)`, mark a guess `(check)`.
+`[[wiki-links]]` for people, meetings and decisions. Meaning comes from `type:` and links. Folders: lowercase-kebab-case. Markdown is the source. Never invent facts: write `(unknown)`, mark a guess `(check)`.

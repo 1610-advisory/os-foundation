@@ -51,6 +51,7 @@ Never run it for them, ask for the key in the chat, or read it back.
 
 ### A4. Run it
 
+0. **Sweep before access** (first invite). For each teammate, run `skills/add-teammate/sweep.sh --person <slug> --areas <their areas>` from the company root. Show the admin the whole output once. It lists every file they will read, `look:` lines (access, billing, ownership, leadership) and `history:` lines (deleted files still in the history). Ask: "Is it fine for them to read all of this?" Move admin material to `areas/admin/` first. For a file in `history:` that must go, run `remove-leak` now: before the first teammate it is cheap (see that skill). Wait for a clear yes.
 1. Write the answers file from A2 and A3, with `review_vendor` and `review_kind` (`review_model` only if the admin names one). Never the key.
 2. Run `skills/add-teammate/team-on.sh --answers <file>`. It writes `.github/review.conf` (vendor, model, kind) for the review check.
 3. It checks that the key exists (`host.sh secret-exists`). Read its review line to the admin as printed:
@@ -78,7 +79,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message. If it printed an `invite:` line (GitHub, a person outside the org), tell the admin: the person accepts the org invite before they join.
+Ask A2 items 5 and 6 for the new person. First run the sweep (A4 step 0) for them, show the admin, and wait for a clear yes. Then run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. It waits for the admin's `/approve` (it changes the company root): tell the admin in plain words, and never type `/approve` yourself. Show the hand-off message. If it printed an `invite:` line (GitHub, a person outside the org), tell the admin: the person accepts the org invite before they join.
 
 If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 

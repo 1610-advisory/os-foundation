@@ -1,5 +1,5 @@
 #!/bin/bash
-# Decide whether an /override comment is allowed.
+# Decide whether an /override or /approve comment is allowed.
 # Prints one line: valid <reason> | ignored empty | ignored not-owner
 set -euo pipefail
 
@@ -10,9 +10,10 @@ trap ci_cleanup EXIT
 
 usage() {
   cat << 'EOF'
-usage: override.sh --user LOGIN --comment-file FILE --base SHA
+usage: override.sh [--command override|approve] --user LOGIN --comment-file FILE --base SHA
 
-Decide if this person may override a failed review.
+Decide if this person may override a failed review (/override REASON), or say yes
+to a pull request that waits for an owner (/approve, reason optional).
 Reads CODEOWNERS and people pages from the base commit, not the pull request head.
 A person may override when they are an org owner in the event file, a person
 with role admin, or a company-root code owner.
@@ -24,6 +25,7 @@ user=""
 comment_file=""
 base=""
 event_file=""
+command=override
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -47,6 +49,10 @@ while [ $# -gt 0 ]; do
       event_file=${2:-}
       shift 2
       ;;
+    --command)
+      command=${2:-}
+      shift 2
+      ;;
     *)
       usage >&2
       exit 1
@@ -54,6 +60,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "$command" in
+  override|approve) ;;
+  *) usage >&2; exit 1 ;;
+esac
 if [ -z "$user" ] || [ -z "$comment_file" ] || [ -z "$base" ]; then
   usage >&2
   exit 1
@@ -65,18 +75,20 @@ fi
 body=$(tr -d '\r' < "$comment_file")
 first=$(printf '%s\n' "$body" | head -n 1)
 first=$(ci_trim "$first")
-case "$first" in
-  /override*) ;;
-  *)
-    printf '%s\n' "ignored not-owner"
-    exit 0
-    ;;
-esac
-reason=$(printf '%s' "$first" | sed 's/^\/override[[:space:]]*//')
+# The command is the whole first word: "/overrides" or "/approved" is not one.
+word=${first%%[[:space:]]*}
+if [ "$word" != "/${command}" ]; then
+  printf '%s\n' "ignored not-owner"
+  exit 0
+fi
+reason=${first#"$word"}
 reason=$(ci_trim "$reason")
 if [ -z "$reason" ]; then
-  printf '%s\n' "ignored empty"
-  exit 0
+  if [ "$command" = override ]; then
+    printf '%s\n' "ignored empty"
+    exit 0
+  fi
+  reason=yes
 fi
 
 want=$(ci_lower "$user")

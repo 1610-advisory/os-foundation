@@ -32,7 +32,7 @@ The regex goes in a mode-600 file passed to `git filter-repo --replace-text`. It
 1. If `--pr` is open, revert the path on `--head` and push that branch (no force). If the leak is not on `main`, stop there.
 2. Clone the repo to a temp directory and rewrite with `git filter-repo`. `--path` drops that path. `--pattern-rule` replaces matches with `[removed]`.
 3. Lift protection with `host.sh unprotect <name>`, force-push every branch and tag, then `host.sh protect <name> --code-owners --approvals 0`.
-4. `host.sh purge-request <name>`.
+4. `host.sh purge-request <name>`. With `--owners-only` (only owners and admins could ever read the repo, B90), this step is skipped and the output has `purge: not needed: only owners could read <name>, so no one else saw the old pages`.
 5. Push an annotated tag `os-rewrite-<YYYYMMDDHHMMSS>`. The message is `rule: <id>` or `path: <p>`. It does not contain the secret.
 6. Write one audit line in `memory/logs/YYYY-MM-DD-<person>.md` on the rewritten `main`. The line is `path: <p>` or `rule: <id>`. It does not name the secret.
 

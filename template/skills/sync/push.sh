@@ -11,6 +11,35 @@ fi
 
 RULES_REASON="rules file: propose it with sync.sh propose"
 WORKSPACE_REASON="belongs in the workspace"
+# v1.0.4: the company root is for rules, company memory and company facts. Content goes to an area or the
+# person's workspace. A person shares to the root only by propose, with an owner's yes.
+ROOT_REASON="root is for rules, company memory and company facts: put meetings and notes in an area or your workspace, or share them with sync.sh propose"
+
+# The root's map files: who works here, with which role and areas, and the company's
+# level. team-on and join send them with the admin's push. The checks still wait for
+# an owner's /approve on them.
+sync_root_map_file() {
+  case "$1" in
+    people/*.md|company-profile.md|joining-terms.md|scale.md|privacy.md|templates/*) return 0 ;;
+  esac
+  return 1
+}
+
+# What may go to the root (D163): the map files, company memory (memory/, not its logs)
+# and company fact files (one .md file at the top, such as customers.md). Meetings,
+# notes, decisions, logs and the inbox stay off the root. The push check still holds
+# leadership and access material here, and the checks wait for an owner's /approve.
+sync_root_allowed() {
+  local path=$1
+  sync_root_map_file "$path" && return 0
+  case "$path" in
+    memory/logs/*) return 1 ;;
+    memory/*.md) return 0 ;;
+    */*) return 1 ;;
+    *.md) return 0 ;;
+  esac
+  return 1
+}
 
 # Upgrade spill files are rules files. Held like AGENTS.md.
 # Logs (root or area) and an area's drafts/ folder are area work, never "belongs in the
@@ -571,7 +600,27 @@ sync_push_commits() {
     sync_log "push fail ${id} auto-merge"
     return 1
   fi
+  # v1.0.4 (B89): a file added or changed at the shared company root waits for an
+  # owner's /approve. Say so once per file, in plain words.
+  if [ "$kind" = "root" ]; then
+    sync_new_root_files "$repo" | while IFS= read -r path; do
+      printf 'waiting for owner: %s %s: %s is at the shared company root, where everyone reads it. It merges only after an owner comments /approve. If not everyone should read it, move it to an area (leadership, access, billing: areas/admin/).\n' \
+        "$name_on_host" "$number" "$path"
+      sync_log "push waiting ${id} ${number} new root file"
+    done
+  fi
   return 0
+}
+
+# Files added or changed on this branch at the company root: the checks hold them for
+# an owner (.github/scripts/owner-gate.sh).
+sync_new_root_files() {
+  local repo=$1
+  sync_names "$repo" diff --name-only --diff-filter=ACMRT origin/main...HEAD | while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    sync_is_rules "$path" && continue
+    printf '%s\n' "$path"
+  done
 }
 
 # A squash heal that could not delete this computer's branch on the host leaves it holding
@@ -811,6 +860,12 @@ sync_push_one() {
     if [ "$decision" = "hold" ]; then
       sync_hold_line "$id" "$path" "$reason" >> "$added"
       sync_log "push hold ${id} ${path} engine"
+      continue
+    fi
+    # v1.0.4: a path rule after the engine, so a topic hold keeps its own reason.
+    if [ "$kind" = "root" ] && ! sync_root_allowed "$path"; then
+      sync_hold_line "$id" "$path" "$ROOT_REASON" >> "$added"
+      sync_log "push hold ${id} ${path} root content"
       continue
     fi
     printf '%s\n' "$path" >> "$commit_files"
@@ -1263,7 +1318,7 @@ sync_propose_repo() {
   local topic=$2
   local me=$3
   local list=$4
-  local rel userpath tmp name number rc author aname email msgfile dest
+  local rel userpath tmp name number rc author aname email msgfile dest prbody
   name=$(sync_remote_name "$repo") || name=$repo
   tmp=$(mktemp -d)
   chmod 700 "$tmp"
@@ -1313,17 +1368,34 @@ sync_propose_repo() {
     sync_propose_fail "$name" "push" 2
     return 2
   fi
-  number=$(sync_open_pr "$name" "rules/${me}/${topic}" "rules: ${topic}" | jq -r '.number // empty')
+  # The body lists each file. A file that is not a rules file is a share to everyone who
+  # reads this repo: say whose choice it was, so the review and the owner see it.
+  prbody=$(sync_mktemp)
+  {
+    printf 'Proposed by %s with sync.sh propose.\n\nFiles:\n' "$me"
+    while IFS=$(printf '\t') read -r rel _; do
+      [ -n "$rel" ] || continue
+      if sync_is_rules "$rel"; then
+        printf -- '- %s (rules file)\n' "$rel"
+      else
+        printf -- '- %s: %s chose to share this with everyone who reads this repo.\n' "$rel" "$me"
+      fi
+    done < "$list"
+    printf '\n%s\n' "This pull request does not merge by itself. An owner reads it, comments /approve, then merges it."
+  } > "$prbody"
+  number=$(sync_open_pr "$name" "rules/${me}/${topic}" "rules: ${topic}" "$prbody" | jq -r '.number // empty')
   if [ -z "$number" ]; then
     sync_propose_fail "$name" "open-pr" 2
     return 2
   fi
   printf '%s %s\n' "$name" "$number" >> "$SYNC_STATE/propose-opened"
-  if ! "$HOST_SH" auto-merge "$name" "$number" >/dev/null 2>&1; then
-    sync_propose_fail "$name" "auto-merge" 2
-    return 2
-  fi
-  sync_log "propose ok ${name} ${topic} ${number}"
+  # v1.0.4 (B89): a rules pull request never merges by itself. An earlier run on the
+  # same branch may have turned auto-merge on: turn it off. Its checks wait for an
+  # owner's /approve. The agent asks its person; it never types /approve itself.
+  "$HOST_SH" auto-merge-off "$name" "$number" >/dev/null 2>&1 || true
+  printf 'waiting for owner: %s %s: it changes rules files, so it does not merge by itself. Tell your person in plain words what it changes. Only an owner says yes, by commenting /approve on the pull request. Then an owner merges it.\n' \
+    "$name" "$number" >&2
+  sync_log "propose ok ${name} ${topic} ${number} waiting for owner"
   printf '%s\n' "$number"
 }
 
