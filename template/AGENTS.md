@@ -18,7 +18,7 @@ At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh stat
 |---|---|
 | Work facts (a customer prefers calls) | The area for that work |
 | OS build, systems and access, connections, org and billing, leadership meetings | `areas/admin/` only. Never the shared root. |
-| A meeting | The area of the people in it. Ask "who should read this?" first. |
+| A meeting | The area of the people in it. Ask "who should read this?" first. Solo: `meetings/` |
 | How the person works, drafts, sensitive work, private sources | [team] The workspace `users/<person>/` (voice and preferences: `profile/PROFILE.md`). Solo: `memory/`, or out of the repo. |
 | A better way to do a job | [team] The skill or rules file, by its own PR (section 7). Solo: edit the skill and commit. |
 | Personal-life facts (health, family, home, beliefs) | Nowhere. Never write them. |
@@ -98,7 +98,7 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me`, checked by `sync`
 
 ## Layout and skills
 
-- Shared files everyone reads: `company-profile.md`, `people/`, `templates/`, `skills/`, `memory/`, company fact files (`customers.md`, `offers.md`, `voice.md`). `inbox/` is capture only ([team]: it stays on this computer). [team] Older root `meetings/` and `decisions/` stay readable. Add nothing there.
+- Shared files everyone reads: `company-profile.md`, `people/`, `templates/`, `skills/`, `memory/`, company fact files (`customers.md`, `offers.md`, `voice.md`). `inbox/` is capture only ([team]: it stays on this computer). Solo: `meetings/`, `decisions/`. [team] Older root `meetings/` and `decisions/` stay readable. Add nothing there. `areas/everyone/` holds company-wide meetings and shared tools.
 - `areas/<area>/`: each area is its **own git repo**, so a person without an area does not have it. `areas/admin/`: owners and the advisor only. Area work starts in the area folder.
 - Skills: `skills/<name>/SKILL.md` (company) and `areas/<area>/skills/`. When a request matches one, read it and follow it. Apps and hosting: `skills/app-setup/`. `skills/skill-creator/`: read `FOUNDATION.md` first. Company rules come before a skill's own steps. A skill grants no tools or outside models.
 

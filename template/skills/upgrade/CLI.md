@@ -135,6 +135,21 @@ Each area repo gets its own pull request for the check scripts, on `upgrade/scri
 
 Before a release, a maintainer runs `tests/static/stock-hashes.sh --write` in os-foundation; It writes both lists. `--check` fails when a stock file is missing from the list, or when `stock-current.txt` is not this release's stock files.
 
+## Root router (D163)
+
+```
+upgrade.sh --root-router [--dry-run] [--yes] [--root <dir>]
+```
+
+For a company that moved its facts and memory to `areas/everyone`. The company root holds the rules, company-wide skills, company memory and company facts again. `everyone` keeps company-wide meetings, decisions, shared tools and its logs.
+
+- What moves from `areas/everyone` to the root: `customers.md`, `offers.md`, `voice.md`, `company.md`, and `memory/*.md` (not `memory/MEMORY.md`, `memory/logs/`, `memory/logs-archive/`). The index lines in everyone's `memory/MEMORY.md` for a moved file are added to the root's `memory/MEMORY.md` when the root lacks them.
+- It reads `origin/main` of both repos (team) or `main` here (solo). Lines: `move:` (the root lacks it), `same:` (the root has the same file; it is only removed from everyone), `index:`, `conflict:` (the root has different text), `todo:` (`company.md` comes back as it is; fold it into `company-profile.md` by hand), `keep:` and `audience:`.
+- No `areas/everyone` repo: `root-router: nothing to do` (exit 0). Nothing left to move: `root-router: already done` (exit 0).
+- `--dry-run` prints the list and changes nothing (exit 0). A real run without `--yes` prints the list and exits 2: the files go to a wider audience (every person with the company repo), so the admin reads the list and says yes first. A `conflict:` line stops a real run with exit 2 before any write.
+- The real run tags both repos `pre-root-router` once (local tag). Solo: it commits on `main` in each repo (`committed:`), and refuses a repo with uncommitted changes. Team: it builds `upgrade/root-router` from `origin/main` in a temporary worktree (the folder stays as it is), pushes it (`pushed:`), and opens one pull request per repo when the host is set (`pr: <repo> <number>`). There is no auto-merge. Merge the company pull request first, then the everyone one. everyone gets a short `README.md` that points to the root.
+- Run it again after both merges: it prints `already done`.
+
 ## Exit codes
 
 | Code | Meaning |

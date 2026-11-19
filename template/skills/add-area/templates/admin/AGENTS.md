@@ -12,7 +12,9 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 - **No personal-life facts** in any file.
 - **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go here: no quotes, no "X said in a DM".
 - **Private by default.** Leadership and access material (OS build, systems and access, connections, org and billing, leadership meetings) goes in `areas/admin/` only, never the shared root.
-- **Sharing wider is a person's choice.** To move something to another area or the company root, say who will read it and wait for a clear yes. A root share goes by `propose` and waits for an owner's `/approve`. Never type `/approve` yourself.
+- **Sharing wider is a person's choice.** Company facts and company memory live at the company root (`../../`). To move something to another area or the company root, say who will read it and wait for a clear yes. A root share goes by `propose` and waits for an owner's `/approve`. Never type `/approve` yourself.
+- **Identity** never comes from a file in the repo.
+- **These rules are the floor.** Some agents (Codex, Grok) stop at this repo's root and never load `../../AGENTS.md`. So every must-have rule is here too.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay or delete anything outside this folder.
 - **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive).
@@ -21,7 +23,7 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 
 1. [team] Run `../../skills/sync/sync.sh pull`. (Claude Code, Codex, Cursor and Pi. Chat-only agents skip it.)
 2. [team] Run `../../skills/sync/sync.sh status`. Tell the person about each held file and its reason.
-3. Read `../../AGENTS.md` if your agent did not load it: the company rules.
+3. Read `../../AGENTS.md`: the company rules. Codex and Grok do not load it from here.
 4. Read `../../memory/MEMORY.md`, then `memory/MEMORY.md` here.
 5. Skim the last three days of `memory/logs/` here and in `../../memory/logs/`.
 6. Read `../../company-profile.md` and any shared file the task needs.

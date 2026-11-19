@@ -13,6 +13,7 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 usage() {
   cat << 'EOF'
 usage: upgrade.sh [--dry-run] [--refresh] [--root <dir>] [--template <dir>] [--level solo|team|app] [--answers <file>]
+       upgrade.sh --root-router [--dry-run] [--yes] [--root <dir>]
 
 Dry-run prints changes and conflicts and changes nothing.
 A real run makes one merge commit on upgrade/v1 and opens one pull request.
@@ -21,6 +22,13 @@ Company content is not rewritten. Keep the logs-archive tag for 90 days.
 checks the company did not change to this template. Changed ones are listed and kept.
 EOF
 }
+
+# --root-router is its own job (root-router.sh): facts and memory back to the root (D163).
+for arg in "$@"; do
+  if [ "$arg" = "--root-router" ]; then
+    exec bash "$DIR/root-router.sh" "$@"
+  fi
+done
 
 DRY=0
 REFRESH=0

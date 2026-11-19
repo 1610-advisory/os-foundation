@@ -45,7 +45,7 @@ If the person named one item, process only that. Otherwise process everything. F
 
    | Kind | At the company root | In an area |
    |---|---|---|
-   | Meeting | `meetings/YYYY-MM-DD Title.md`: summary, decisions, action items | `meetings/YYYY-MM-DD Title.md` in the area: summary, decisions, action items |
+   | Meeting | Solo: `meetings/YYYY-MM-DD Title.md`. [team]: not at the root; company-wide goes to `areas/everyone/meetings/` |  `meetings/YYYY-MM-DD Title.md` in the area: summary, decisions, action items |
    | Person | `people/Full Name.md` | update the shared note only with shareable facts; area-only facts stay in the area |
    | Company fact | update `company-profile.md`, `customers.md`, `offers.md`, or `voice.md` | the area file it belongs to |
    | Decision | `decisions/YYYY-MM-DD Decision.md` | the area's notes |

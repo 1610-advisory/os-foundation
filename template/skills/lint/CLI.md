@@ -30,6 +30,7 @@ Checks the company folder. Exit 0 when nothing is wrong. Exit 1 when there is a 
 ## Notices (not findings, not with `--ci`)
 
 - One line when `https://1610.sh/os/version` is a newer stable semver than `os_version`. Timeout 5 seconds. Offline is silent. The body is one `text/plain` line: `vX.Y.Z`, or `unreleased` (no notice). A prerelease is never newer than a stable.
+- One `notice: grok:` line per folder (the company folder and each area repo) that the Grok CLI does not trust, when `grok` and `jq` are installed. Grok loads none of an untrusted folder's rules. `OS_LINT_NO_GROK=1` skips it.
 - One bot-offer sentence after 14 days of use, once, when `bots` is off. State files live under `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/state/`. There is no dream offer.
 
 ## Exit codes
@@ -59,5 +60,6 @@ Notices:
 
 ```
 notice: a newer os-foundation version exists: vX.Y.Z
+notice: grok: <folder> is not trusted, so Grok reads none of its rules there. Start grok in that folder once and trust it.
 offer: You have used this OS for two weeks. A bot can run jobs for you. Ask to add one.
 ```

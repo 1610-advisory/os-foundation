@@ -151,6 +151,7 @@ One line each:
 - **Profile.** `users/<slug>/profile/PROFILE.md` holds their voice and preferences. Claude Code, Codex, Pi (and Cursor, with a rules file) load it in every session, read-only. Their AI keeps it current.
 - **Terms.** `terms: proposed`: their yes goes on their people page by pull request. Join's push prints that pull request's link (`pr: <url>`). Each later `sync.sh push` prints its link the same way.
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
+- **Grok users only.** The Grok CLI reads none of a folder's rules until the person trusts that folder. Ask them to start `grok` once in the company folder and once in each area folder, and say yes to trust. Check: `grok inspect --json` in that folder shows `"projectTrusted": true`. Skip this when they do not use Grok.
 
 ## Rules for this skill
 

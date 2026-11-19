@@ -77,6 +77,9 @@ class UpgradeScripts(unittest.TestCase):
     def test_logs_source(self):
         run_script("test_logs_source.sh", UPGRADE)
 
+    def test_root_router(self):
+        run_script("test_root_router.sh", UPGRADE)
+
 
 if __name__ == "__main__":
     unittest.main()
