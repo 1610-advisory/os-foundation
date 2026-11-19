@@ -166,3 +166,12 @@ A v0 team only. Do these in order. The run printed the same steps as `teammates:
 7. **Admin, when every teammate has done step 6.** Delete the old logs branch on the host. v0 protected it (no deletion, admins included), so a plain `git push origin --delete logs` fails with GH006. Run the line the upgrade printed: `skills/_host/host.sh drop-logs <repo>` for the company repo and for each area repo that had one. It lifts that old rule and deletes the branch; it never touches `main`. Why only now: until every teammate has moved, an old copy may still push logs there, and the old rule keeps them safe (no force-push, no delete). Until then, everyone's new logs wait in their own folder (section 8). The next `sync.sh push` sends them. If an old copy pushes the branch back, logs wait again: find that copy and move it.
 
 A teammate who already has the v1 `sync` skill skips steps 2 to 6: `skills/sync/sync.sh pull` moves the old logs folder out and keeps every file. They still run `join.sh` once if they never did.
+
+## 12. Facts back to the root (`--root-router`)
+
+Use this when the company put its facts and memory in `areas/everyone` (an earlier layout). Since D163 the company root holds the rules, company-wide skills, company memory and company facts; `everyone` holds company-wide meetings and shared tools.
+1. Run `skills/upgrade/upgrade.sh --root-router --dry-run` from the company folder. Show the person every line.
+2. A `conflict:` line: the root and everyone have different text for one file. Help them keep one text, delete the copy in everyone, and run the dry run again.
+3. Read each `move:` file with the admin. After the merge, every person with the company repo reads it. Leadership, access, billing and private-source material goes to the admin's area instead, not to the root.
+4. On the admin's clear yes, run it with `--yes`. Team: it opens two pull requests. Merge the company one first, then the everyone one. Nothing merges by itself.
+5. Run it again after both merges. It should print `already done`.

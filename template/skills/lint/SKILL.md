@@ -22,6 +22,7 @@ What each check means:
 
 The script may also print two lines that are not findings. They do not change the exit code. Pass each on in one line:
 - **`notice:`** a newer os-foundation version exists. Say it, then: "Say 'upgrade the OS' when you want it." Nothing else. Offline, nothing is printed.
+- **`notice: grok:`** the Grok CLI does not trust that folder, so it reads none of its rules. Tell the person to start `grok` there once and trust it. Only for people who use Grok.
 - **`offer:`** the bot offer. One sentence, once, after two weeks of use, when the `bots` switch is off. Say it as printed. Do not repeat it. If the person asks about bots before then, give the same sentence.
 
 Never offer the dream pass. It is not available.

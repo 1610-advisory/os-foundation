@@ -13,4 +13,5 @@ Some apps do not expand the import above. These rules hold in every session here
 - **Sharing wider** (another area, the company root) only when the person asks: say who will read it, wait for a clear yes.
 - **Changes.** Solo: commit to `main`. [team]: nobody writes to `main`. Rules files go by their own PR. Never type `/approve` or `/override` yourself.
 - **Git only in this repo.** **Ask first** before you send, post, publish, pay or delete anything outside this folder.
-- **No working copy in a synced folder.**
+- **No working copy in a synced folder.** **Identity** never comes from a file in the repo.
+- **Sharing up:** company facts and memory go to the root (`../../`) only when a person asks.

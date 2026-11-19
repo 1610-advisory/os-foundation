@@ -13,14 +13,14 @@ Run this from the company root.
 
 ## 1. Name
 
-Offer the usual list: **marketing, finance, sales, operations, people (HR), apps**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first). `admin` (leadership, systems and access, the OS build) comes with setup: owners and the advisor only.
+Offer the usual list: **marketing, finance, sales, operations, people (HR), apps, everyone**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first). **everyone** [team] holds company-wide meetings and shared tools; every person gets it and the admin directs it. Company facts and memory stay at the root, not in `everyone`. `admin` (leadership, systems and access, the OS build) comes with setup: owners and the advisor only.
 
 Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` exists, stop and ask. Never `os`, `user-<anything>`, or the name of the admin's private source repo: the area repo is `{{COMPANY_SLUG}}-{{AREA_SLUG}}`, and those names belong to the company repo, the workspaces and that private repo. Suggest `<name>-team` instead. `team-on.sh` refuses them too.
 
 ## 2. Build it
 
 1. Copy `skills/add-area/templates/_area/` to `areas/{{AREA_SLUG}}/`, hidden files included (`cp -R skills/add-area/templates/_area/. areas/{{AREA_SLUG}}/`). The copy keeps two committed links, `.agents/skills` and `.claude/skills`, both pointing to `../skills`. No link step is needed. If either arrived as a plain file from a file-by-file copy, replace it with the link. Windows (symlinks off): leave the plain files and see step 4. Never make a real symlink there.
-2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (admin, marketing, finance, apps), copy it on top. Its files replace the generic ones.
+2. If `skills/add-area/templates/{{AREA_SLUG}}/` exists (admin, marketing, finance, apps, everyone), copy it on top. Its files replace the generic ones.
 3. Replace placeholders in every new file: `{{AREA_NAME}}` (for example "Marketing"), `{{AREA_SLUG}}`, `{{COMPANY_NAME}}`, `{{COMPANY_SLUG}}`, `{{DATE}}` (today, YYYY-MM-DD).
 4. Make it a repo: `git -C areas/{{AREA_SLUG}} init -b main`, then commit everything with the message `{{AREA_NAME}} area: start`. **Windows:** before that commit, write each link as a git link entry. A plain file would reach Mac users as a file, not a link. In Git Bash, in `areas/{{AREA_SLUG}}/`:
    ```

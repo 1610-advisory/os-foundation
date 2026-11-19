@@ -316,6 +316,20 @@ if [ "$CI" -eq 0 ] && [ -f "$PROFILE" ]; then
   fi
 fi
 
+# Grok CLI: an untrusted folder loads none of its rules files. A notice, not a finding:
+# trust is set on each computer, not in the repo. Only where grok is installed.
+if [ "$CI" -eq 0 ] && [ -z "${OS_LINT_NO_GROK:-}" ] && os_have grok && os_have jq; then
+  for d in "$ROOT" "$ROOT"/areas/*; do
+    [ -d "$d" ] && [ -e "$d/.git" ] || continue
+    trusted=$( (cd "$d" && grok inspect --json 2>/dev/null) | jq -r '.projectTrusted' 2>/dev/null || true)
+    if [ "$trusted" = "false" ]; then
+      rel=${d#"$ROOT"/}
+      [ "$d" != "$ROOT" ] || rel="the company folder"
+      printf 'notice: grok: %s is not trusted, so Grok reads none of its rules there. Start grok in that folder once and trust it.\n' "$rel"
+    fi
+  done
+fi
+
 if [ "$FINDINGS" -ne 0 ]; then
   exit 1
 fi
