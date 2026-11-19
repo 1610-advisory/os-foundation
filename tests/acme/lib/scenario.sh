@@ -689,3 +689,44 @@ osf_approve() {
   fi
   return "$rc"
 }
+
+# v1.0.4 (B89): a root or rules pull request waits for an owner. The test owner is a
+# person here: the harness posts /approve for Ada. A seat agent never types it.
+osf_owner_yes() {
+  local owner="$1" repo="$2" number="$3"
+  local body code i=0
+  # Say yes after the check has said it waits, as a person would.
+  while [ "$i" -lt 60 ]; do
+    osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${owner}/${repo}/issues/${number}/comments?limit=50"
+    if jq -e '[.[] | .body] | join("\n") | contains("WAITING FOR OWNER")' "$OSF_HTTP_BODY" >/dev/null 2>&1; then
+      osf_api_discard
+      break
+    fi
+    osf_api_discard
+    i=$((i + 1))
+    sleep 5
+  done
+  body=$(mktemp)
+  chmod 600 "$body"
+  jq -n '{body:"/approve"}' > "$body"
+  osf_api "$(osf_token_file acme-admin)" POST "/api/v1/repos/${owner}/${repo}/issues/${number}/comments" "$body"
+  rm -f "$body"
+  code=$OSF_HTTP_CODE
+  osf_api_discard
+  [ "$code" = "201" ] || [ "$code" = "200" ]
+}
+
+# propose never turns on auto-merge (v1.0.4): the owner merges a rules pull request.
+osf_owner_merge() {
+  local owner="$1" repo="$2" number="$3"
+  local body code
+  osf_approve "$owner" "$repo" "$number" acme-admin || return 1
+  body=$(mktemp)
+  chmod 600 "$body"
+  jq -n '{Do:"merge"}' > "$body"
+  osf_api "$(osf_token_file acme-admin)" POST "/api/v1/repos/${owner}/${repo}/pulls/${number}/merge" "$body"
+  rm -f "$body"
+  code=$OSF_HTTP_CODE
+  osf_api_discard
+  [ "$code" = "200" ] || [ "$code" = "204" ]
+}

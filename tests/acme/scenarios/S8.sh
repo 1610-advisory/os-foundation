@@ -80,10 +80,12 @@ if [ -z "$number" ]; then
   osf_result "S8 FAIL propose did not open a pull request"
 fi
 osf_approve "$org" "${slug}-os" "$number" acme-director || osf_result "S8 FAIL director approval"
+osf_owner_yes "$org" "${slug}-os" "$number" || osf_result "S8 FAIL owner /approve comment"
 head_sha=$(osf_results pr "$org" "${slug}-os" "$number" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_sha",""))')
 if ! osf_results wait-check "$org" "${slug}-os" "$head_sha" --timeout 180 >/dev/null; then
   osf_result "S8 FAIL bot page checks did not pass"
 fi
+osf_owner_merge "$org" "${slug}-os" "$number" || osf_result "S8 FAIL owner merge"
 i=0
 while [ "$i" -lt 24 ]; do
   osf_host S8 file "$org" "${slug}-os" bots/helper/routines/note.md --ref main

@@ -23,8 +23,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q jq git-filter-repo openssl mawk gawk
-          git config --global user.name "CI Runner"
-          git config --global user.email "ci@acme.test"
+          # Tests use their own HOME. The system file still names the runner.
+          sudo git config --system user.name "CI Runner"
+          sudo git config --system user.email "ci@acme.test"
       - name: Forgejo up
         run: |
           bash tests/acme/forgejo/up.sh
@@ -46,6 +47,19 @@ jobs:
         id: acme
         continue-on-error: true
         run: bash tests/acme/run.sh --tier a 2>&1 | tee acme.txt; ! grep -qE '^S[0-9]+ FAIL' acme.txt
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forgejo-logs
+          retention-days: 3
+          if-no-files-found: ignore
+          path: |
+            ci.txt
+            acme.txt
+            tests/acme/.out/**/*.log
+            tests/acme/.out/**/*.txt
+            tests/acme/.out/**/*.err
       - name: Result
         run: |
           echo "ci=${{ steps.ci.outcome }} team=${{ steps.team.outcome }} sync=${{ steps.sync.outcome }} acme=${{ steps.acme.outcome }}"

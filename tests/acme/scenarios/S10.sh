@@ -36,8 +36,8 @@ osf_seed_area "$dest" marketing
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S10 FAIL team-on"
 
-mkdir -p "$dest/notes"
-printf '%s\n' "Ada keeps a piano at home." > "$dest/notes/leak.md"
+mkdir -p "$dest/memory"
+printf '%s\n' "Ada keeps a piano at home." > "$dest/memory/leak.md"
 export OS_COMPANY_ROOT="$dest"
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine-commit.sh"
 export OS_SECRET_SCAN=bundled
@@ -48,6 +48,7 @@ if [ "$OSF_HTTP_CODE" = "200" ]; then
   osf_api_discard
   if [ -n "$number" ]; then
     osf_approve "$org" "${slug}-os" "$number" acme-director || osf_result "S10 FAIL director approval"
+    osf_owner_yes "$org" "${slug}-os" "$number" || osf_result "S10 FAIL owner /approve comment"
   fi
 else
   osf_api_discard
@@ -55,13 +56,13 @@ else
 fi
 i=0
 while [ "$i" -lt 40 ]; do
-  if osf_results file "$org" "${slug}-os" notes/leak.md >/dev/null 2>&1; then
+  if osf_results file "$org" "${slug}-os" memory/leak.md >/dev/null 2>&1; then
     break
   fi
   i=$((i + 1))
   sleep 5
 done
-osf_host S10 file "$org" "${slug}-os" notes/leak.md --ref main
+osf_host S10 file "$org" "${slug}-os" memory/leak.md --ref main
 leak=$(cat "$OSF_HOST_JSON")
 if [ "$OSF_HOST_RC" -ne 0 ] || ! printf '%s\n' "$leak" | grep -q 'piano'; then
   osf_result "S10 FAIL private fact did not reach main"
@@ -72,9 +73,9 @@ other="$HOME/other"
 osf_clone_as acme-member-a "$(osf_acme_url)/${org}/${slug}-os.git" "$other" >"$work/clone.log" 2>&1 \
   || osf_result "S10 FAIL could not clone for the other seat"
 
-bash "$dest/skills/remove-leak/remove-leak.sh" --repo "${slug}-os" --path notes/leak.md --root "$dest" \
+bash "$dest/skills/remove-leak/remove-leak.sh" --repo "${slug}-os" --path memory/leak.md --root "$dest" \
   >"$work/leak.log" 2>&1 || osf_result "S10 FAIL remove-leak"
-osf_host S10 file "$org" "${slug}-os" notes/leak.md --ref main
+osf_host S10 file "$org" "${slug}-os" memory/leak.md --ref main
 gone=$(cat "$OSF_HOST_JSON")
 if [ "$OSF_HOST_RC" -ne 2 ] || ! printf '%s\n' "$gone" | grep -q '"found": false'; then
   osf_result "S10 FAIL private fact still on main"

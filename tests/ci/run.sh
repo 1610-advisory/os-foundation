@@ -1107,7 +1107,7 @@ EOF
     src="$intro_root/areas/marketing"
     repo="$intro_area"
     intro_sha=$(pr_sha "$intro_number")
-    if wait_sha "$intro_number" "$intro_sha" && approve_and_merge "$intro_number" "$member"; then
+    if owner_yes "$intro_number" "$intro_sha" "area review-rules" && approve_and_merge "$intro_number" "$member"; then
       osf_api "$admin" GET "/api/v1/repos/acme/${intro_area}/contents/review-rules.md?ref=main"
       if [ "$OSF_HTTP_CODE" = "200" ] \
         && [ "$(jq -r '.sha // empty' "$OSF_HTTP_BODY")" = "$(git hash-object "$intro_root/review-rules.md")" ]; then
@@ -1336,7 +1336,7 @@ else
     push_branch "$member" area-rules
     own_pr=$(open_pr "$member" area-rules "Change a skill")
     own_sha=$(pr_sha "$own_pr")
-    if wait_sha "$own_pr" "$own_sha"; then
+    if owner_yes "$own_pr" "$own_sha" "area rules"; then
       pass "area rules checks"
       own_checks=1
     else
