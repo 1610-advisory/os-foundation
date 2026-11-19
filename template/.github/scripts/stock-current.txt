@@ -72,6 +72,7 @@
 80e00eb45db3ee53a132fc2ba97fd59a7339e563 skills/skill-creator/agents/comparator.md
 82da3784b0da035217a68cafb7cadccdd4270d86 skills/upgrade/rules-merge.awk
 850f5ffd03b537b18091d128f8875efba574ae56 skills/sync/pull.sh
+85d1c6959ebbae07f0543451c8b53f4430de6299 skills/nightly-review/run.sh
 869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
 86ac5cf7d2e5a1145140867b8fb70cad5036cc28 .github/scripts/run-checks.sh
 86e952582ec4688465c13862a67072f455d07d0e skills/add-area/templates/marketing/goals.md
@@ -124,17 +125,16 @@ cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/per
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
-d3869131fcc10f0ed041d9f97fc71971713be9f5 skills/sync/push.sh
 d3dcd6a0820fa034aff3fc28d433156b71d5a013 skills/add-teammate/SKILL.md
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
 d8209c262a4226004712d0f445aa5e9522f43cbf skills/upgrade/SKILL.md
 da774305122fee0a951c18993bcc78034e007e7e skills/upgrade/CLI.md
-dbc8822988c482d63d86ccc0de526737dd0fc5df skills/nightly-review/run.sh
 dbf0207afdaeab5cf39ae56e8ecd02e27501e084 skills/skill-creator/eval-viewer/generate_review.py
 dd14da71981108680b19461d82631b3f256b1f52 skills/nightly-review/SKILL.md
 e194be6ef5dabe39368a33c90b7f99c8140a5708 skills/sync/push-check.md
 e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
+e2e0c71bf2404997e1c14c9718aa65c99ea66afa skills/sync/push.sh
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py
 e68801d84c1b94ee47bb961ca44673c93dc93dd6 .github/scripts/checkout.sh
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/inbox/.gitkeep

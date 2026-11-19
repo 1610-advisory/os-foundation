@@ -624,6 +624,28 @@ inbox_case() {
   rm -rf "$box"
 }
 
+# A large tools commit (checks scripts) after the notes must not push them past the cap.
+tools_case() {
+  local box company area digest
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  mkdir -p "$area/.github/scripts"
+  awk 'BEGIN { for (i = 0; i < 6000; i++) printf "# tools line %06d padding padding padding\n", i }' \
+    > "$area/.github/scripts/big.sh"
+  git -C "$area" add -A
+  git -C "$area" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Team: area rules"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  digest="$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24.json"
+  jq -e '[.items[] | select(.summary == "Confirm the price.")] | length == 1' "$digest" >/dev/null \
+    || fail "a large tools commit hid the notes from the review"
+  pass "tools folders stay out of the review diff"
+  rm -rf "$box"
+}
+
 main_case
 engine_down_case
 leak_case
@@ -638,4 +660,5 @@ mdx_case
 no_decide_case
 ( argv_case )
 inbox_case
+tools_case
 printf 'PASS: %s local checks\n' "$PASS"

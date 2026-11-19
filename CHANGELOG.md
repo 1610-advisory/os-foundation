@@ -15,6 +15,8 @@ Private by default, and root changes wait for a person. From a leak in a pilot: 
 - **remove-leak: less GitHub Support.** `--owners-only` skips the host purge when only owners could read the repo, and says why. For a key, revoking it is the fix. Before the first teammate, the skill offers to make the repo again from a clean history instead.
 - **An area name cannot take another repo's name.** `team-on` refuses an area named `os`, `library` or `user-*` (B86).
 - **`AGENTS.md` is shorter** (8,385 characters), so it stays under 9,000 after setup fills it. Setup checks the size (B87).
+- **A held root file stays on this computer.** The push holds a root meeting, note, log or inbox file before the push check reads it, so no model sees it and it is not checked again at each push. A bot's change to the company root waits for an owner's `/approve` like a person's.
+- **The nightly review reads notes, not tool folders.** It leaves `.github/`, `.gitea/`, `.forgejo/`, `.claude/` and `.agents/` out of its diff. A large tools commit (for example from `team-on`) could push the day's notes past the size cap, so the review missed them.
 - The check tools are release `2026111701`, so `upgrade --refresh` brings the new checks to `main`.
 
 ## v1.0.3 — unreleased
