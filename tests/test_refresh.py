@@ -275,9 +275,15 @@ class RefreshTests(unittest.TestCase):
             script = self.tmp / f"{name.replace(' ', '-')}.sh"
             script.write_text(workflow_step(name))
             proc = run(["bash", str(script)], env=ci_env, cwd=work)
-            self.assertEqual(proc.returncode, 0, f"{name}:\n{proc.stdout}\n{proc.stderr}")
+            if name == "run checks":
+                # v1.0.4 (B89): the review passes, but a rules change waits for an owner's /approve.
+                self.assertEqual(proc.returncode, 1, f"{name}:\n{proc.stdout}\n{proc.stderr}")
+                self.assertIn("waiting for owner: an owner comments /approve", proc.stdout + proc.stderr)
+            else:
+                self.assertEqual(proc.returncode, 0, f"{name}:\n{proc.stdout}\n{proc.stderr}")
         posted = (self.tmp / "posted").read_text()
         self.assertIn("VERDICT: PASS", posted)
+        self.assertIn("WAITING FOR OWNER", posted)
         self.assertNotIn("too large", proc.stdout + proc.stderr)
 
     def test_refresh_closes_its_own_older_refresh_pull_request(self):

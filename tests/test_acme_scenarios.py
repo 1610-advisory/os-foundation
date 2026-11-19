@@ -1,4 +1,4 @@
-"""Static checks for Acme scenarios S1-S14. No Docker and no tokens."""
+"""Static checks for Acme scenarios S1-S15. No Docker and no tokens."""
 
 from __future__ import annotations
 
@@ -206,8 +206,8 @@ class SeatLockTests(unittest.TestCase):
 
 
 class ScenarioScriptTests(unittest.TestCase):
-    def test_s1_through_s14_exist(self):
-        for number in range(1, 15):
+    def test_s1_through_s15_exist(self):
+        for number in range(1, 16):
             path = ACME / "scenarios" / f"S{number}.sh"
             self.assertTrue(path.is_file(), path.name)
             text = path.read_text(encoding="utf-8")

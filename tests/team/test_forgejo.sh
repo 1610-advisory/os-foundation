@@ -421,7 +421,8 @@ git -C "$leak" checkout -q -b main
 secret=$(python3 -c 'import secrets; print("token=" + secrets.token_hex(8))')
 printf '%s\n' "$secret" > "$leak/note.md"
 chmod 600 "$leak/note.md"
-git_id git -C "$leak" add note.md
+printf '%s\n' "leadership plan, owners only" > "$leak/admin.md"
+git_id git -C "$leak" add note.md admin.md
 git_id git -C "$leak" commit -q -m "plant"
 FORGEJO_TOKEN=$(load_token "$admin_token")
 "$HOST" create-repo team-leak --private --source "$leak" --push >>"$log" 2>&1 || die "could not create leak repo"
@@ -438,6 +439,14 @@ if ! FORGEJO_TOKEN=$(load_token "$admin_token") \
 fi
 grep -q 'remove-leak: ok' "$work/leak.out" || die "remove-leak did not report ok"
 grep -q 'tag: os-rewrite-' "$work/leak.out" || die "rewrite tag missing"
+# v1.0.4 (B90): only owners could read it, so no purge request; the run says why.
+if ! FORGEJO_TOKEN=$(load_token "$admin_token") \
+  "$root/template/skills/remove-leak/remove-leak.sh" --root "$company" --repo team-leak --path admin.md --owners-only \
+  >"$work/leak-owners.out" 2>>"$log"; then
+  cat "$work/leak-owners.out" >> "$log"
+  die "remove-leak --owners-only failed"
+fi
+grep -q 'purge: not needed: only owners could read team-leak' "$work/leak-owners.out" || die "owners-only purge line missing"
 if grep -F -q -f "$needle" "$work/leak.out" "$log"; then
   die "secret was printed"
 fi

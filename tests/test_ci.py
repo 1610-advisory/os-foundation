@@ -1441,7 +1441,7 @@ class OverrideHonourTests(unittest.TestCase):
         root, repo, base = self.root, self.repo, self.base
         scripts = root / "tools" / ".github" / "scripts"
         scripts.mkdir(parents=True)
-        for name in ("run-checks.sh", "lib.sh", "override.sh", "review-diff.sh"):
+        for name in ("run-checks.sh", "lib.sh", "override.sh", "review-diff.sh", "owner-gate.sh"):
             (scripts / name).write_text((SCRIPTS / name).read_text())
         (scripts / "tools").mkdir()
         (scripts / "tools" / "secret-scan.sh").write_text("exit 0\n")
@@ -1700,3 +1700,156 @@ class HostReadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnerGateTests(unittest.TestCase):
+    """v1.0.4 (B89): owner-gate.sh lists what waits for an owner's /approve."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo = Path(tmp.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "old.md").write_text("old\n", encoding="utf-8")
+
+    def head(self):
+        return subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
+
+    def commit(self, msg):
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", msg)
+        return self.head()
+
+    def gate(self, base, head, tools):
+        return run(["bash", str(SCRIPTS / "owner-gate.sh"), "--range", f"{base}..{head}", "--tools", tools],
+                   cwd=self.repo)
+
+    def test_company_root_new_file_and_rules_wait_and_a_delete_does_not(self):
+        (self.repo / "company-profile.md").write_text("level: team\n", encoding="utf-8")
+        base = self.commit("init")
+        (self.repo / "meetings").mkdir()
+        (self.repo / "meetings" / "2026-11-17 Plan.md").write_text("x\n", encoding="utf-8")
+        (self.repo / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+        head = self.commit("note")
+        result = self.gate(base, head, base)
+        self.assertEqual(result.returncode, 10, result.stderr)
+        self.assertIn("root meetings/2026-11-17 Plan.md", result.stdout)
+        self.assertIn("rules AGENTS.md", result.stdout)
+        (self.repo / "old.md").unlink()
+        gone = self.commit("remove")
+        result = self.gate(head, gone, base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "")
+
+    def test_area_note_does_not_wait_and_area_rules_do(self):
+        base = self.commit("init")
+        (self.repo / "meetings").mkdir()
+        (self.repo / "meetings" / "weekly.md").write_text("x\n", encoding="utf-8")
+        head = self.commit("note")
+        result = self.gate(base, head, base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        (self.repo / "skills" / "post").mkdir(parents=True)
+        (self.repo / "skills" / "post" / "SKILL.md").write_text("x\n", encoding="utf-8")
+        rules = self.commit("skill")
+        result = self.gate(head, rules, base)
+        self.assertEqual(result.returncode, 10)
+        self.assertEqual(result.stdout.strip(), "rules skills/post/SKILL.md")
+
+
+class ApproveCommandTests(unittest.TestCase):
+    """v1.0.4: override.sh --command approve takes /approve with or without a reason."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "people").mkdir()
+        (self.repo / "people" / "Ada.md").write_text("---\ngithub: acme-admin\nrole: admin\n---\n", encoding="utf-8")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "init")
+        self.base = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
+
+    def decide(self, user, body, command):
+        comment = Path(self.tmp.name) / "comment"
+        comment.write_text(body, encoding="utf-8")
+        return run(["bash", str(SCRIPTS / "override.sh"), "--command", command, "--user", user,
+                    "--comment-file", str(comment), "--base", self.base], cwd=self.repo)
+
+    def test_approve(self):
+        yes = self.decide("acme-admin", "/approve", "approve")
+        self.assertEqual(yes.returncode, 0, yes.stderr)
+        self.assertTrue(yes.stdout.startswith("valid "), yes.stdout)
+        member = self.decide("acme-member-a", "/approve", "approve")
+        self.assertEqual(member.stdout.strip(), "ignored not-owner")
+        # /approve is not an override, and a run-together word is no command.
+        wrong = self.decide("acme-admin", "/approve", "override")
+        self.assertFalse(wrong.stdout.startswith("valid "), wrong.stdout)
+        joined = self.decide("acme-admin", "/overridefoo reason", "override")
+        self.assertFalse(joined.stdout.startswith("valid "), joined.stdout)
+
+
+class OwnerWaitTests(unittest.TestCase):
+    """v1.0.4: in the company repo a new root file waits for an owner's /approve."""
+
+    setUp = OverrideHonourTests.setUp
+    run_checks = OverrideHonourTests.run_checks
+
+    def company(self):
+        # Make the base a company repo: company-profile.md on the tools sha.
+        repo = self.repo
+        git(repo, "checkout", "-q", self.base)
+        (repo / "company-profile.md").write_text("level: team\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "profile")
+        self.base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        (repo / "a.md").write_text("a\n", encoding="utf-8")
+        git(repo, "add", ".")
+        git(repo, "commit", "-q", "-m", "note")
+        self.HEAD = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+
+    def test_area_note_passes_by_itself(self):
+        result = self.run_checks([], review="SUMMARY: ok\nVERDICT: PASS")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("WAITING FOR OWNER", (self.root / "posted.md").read_text(encoding="utf-8"))
+
+    def test_root_file_waits_for_owner(self):
+        self.company()
+        result = self.run_checks([], review="SUMMARY: ok\nVERDICT: PASS")
+        self.assertEqual(result.returncode, 1)
+        posted = (self.root / "posted.md").read_text(encoding="utf-8")
+        self.assertIn("WAITING FOR OWNER", posted)
+        self.assertIn("a.md", posted)
+        self.assertIn("An agent never types /approve", posted)
+        self.assertIn("waiting for owner", result.stderr)
+
+    def test_owner_approval_for_this_head_passes(self):
+        self.company()
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/approve", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": f"approved by acme-admin for {self.HEAD}: yes\n",
+             "association": "NONE"},
+        ], review="SUMMARY: ok\nVERDICT: PASS")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_approval_for_another_head_or_by_a_person_does_not_count(self):
+        self.company()
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/approve", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": f"approved by acme-admin for {'1' * 40}: yes\n",
+             "association": "NONE"},
+            {"login": "acme-admin", "body": f"approved by acme-admin for {self.HEAD}: yes\n",
+             "association": "MEMBER"},
+        ], review="SUMMARY: ok\nVERDICT: PASS")
+        self.assertEqual(result.returncode, 1)
+
+    def test_a_failed_review_still_fails_after_approval(self):
+        self.company()
+        result = self.run_checks([
+            {"login": "acme-admin", "body": "/approve", "association": "MEMBER"},
+            {"login": "github-actions[bot]", "body": f"approved by acme-admin for {self.HEAD}: yes\n",
+             "association": "NONE"},
+        ], review="SUMMARY: leadership note\nVERDICT: FAIL")
+        self.assertEqual(result.returncode, 1)

@@ -291,10 +291,10 @@ st_was_main=$(git --git-dir "$work/origin.git" rev-parse main)
 st_was_head=$(git -C "$co" rev-parse HEAD)
 st_was_seat=$(git --git-dir "$work/origin.git" rev-parse "sync/sam/$seat")
 # A plan file on main that the old folder will change.
-mkdir -p "$co/notes"
-printf '%s\n' "# Plan" "- base line" > "$co/notes/plan.md"
+mkdir -p "$co/notes" "$co/memory"
+printf '%s\n' "# Plan" "- base line" > "$co/memory/plan.md"
 printf '%s\n' "# Terms" "- base terms" > "$co/notes/terms.md"
-git -C "$co" add notes/plan.md notes/terms.md
+git -C "$co" add memory/plan.md notes/terms.md
 git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m plan
 git -C "$co" push -q origin HEAD:main
 mv "$co" "$work/co-new"
@@ -328,7 +328,7 @@ git -C "$co" add prices.md notes/terms.md
 git -C "$co" commit -q -m "Pat: draft price list"
 git -C "$co" checkout -q main
 printf '%s\n' "never pushed" > "$co/draft.md"
-printf '%s\n' "- sam: from the old folder" >> "$co/notes/plan.md"
+printf '%s\n' "- sam: from the old folder" >> "$co/memory/plan.md"
 cp "$work/co-new/people/Ada Admin.md" "$co/people/same.md"
 cp "$work/co-new/people/Ada Admin.md" "$work/co-new/people/same.md"
 printf '%s\n' "a local commit" > "$co/notes/local.md"
@@ -344,7 +344,7 @@ git -C "$co/areas/lab" -c user.email=s@acme.test -c user.name=Sam commit -q -m "
 # was made: a colleague adds a line to the same plan file.
 mv "$co" "$old"
 mv "$work/co-new" "$co"
-printf '%s\n' "- ada: newer on main" >> "$co/notes/plan.md"
+printf '%s\n' "- ada: newer on main" >> "$co/memory/plan.md"
 git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -am "newer plan line"
 git -C "$co" push -q origin HEAD:main
 # The new folder has joined the area too; a fresh v1 area has no memory/logs/ yet.
@@ -370,10 +370,10 @@ cp_line "$old/memory/logs/2026-10-01-sam-renamed.md" memory/logs/2026-10-01-sam-
 [ "$(cat "$co/memory/logs/2026-10-31-sam.md")" = "day two" ] || team_fail "item 3: the log has the wrong text"
 [ "$(cat "$co/areas/lab/lab.md")" = "lab" ] || team_fail "item 3: lab.md has the wrong text"
 # B69: the changed tracked file is set aside, never copied over main's newer line.
-grep -qx "old-folder: $old/notes/plan.md is set aside for notes/plan.md: the agent re-applies the change to the host's current text (skills/sync/sync.sh re-apply list). Nothing to copy." "$work/old.out" \
+grep -qx "old-folder: $old/memory/plan.md is set aside for memory/plan.md: the agent re-applies the change to the host's current text (skills/sync/sync.sh re-apply list). Nothing to copy." "$work/old.out" \
   || { cat "$work/old.out" >&2; team_fail "B69: join did not set the changed file aside"; }
-grep -qx -- "- ada: newer on main" "$co/notes/plan.md" || team_fail "B69: join changed main's text"
-grep -q 'sam: from the old folder' "$co/notes/plan.md" && team_fail "B69: join copied the old file over main"
+grep -qx -- "- ada: newer on main" "$co/memory/plan.md" || team_fail "B69: join changed main's text"
+grep -q 'sam: from the old folder' "$co/memory/plan.md" && team_fail "B69: join copied the old file over main"
 grep -q "^old-folder: $old branch price (last commit [0-9a-f]* \"Pat: draft price list\"): notes/terms.md is set aside for notes/terms.md: " "$work/old.out" \
   || team_fail "B69: the side-branch change to a file main has is not set aside"
 grep -q "same.md" "$work/old.out" && team_fail "B63: join listed a file the folder has with the same text"
@@ -390,22 +390,22 @@ st_sync() {
     OS_PROFILE_SH="$root/template/skills/_host/profile.sh" OS_COMPANY_ROOT="$co" bash "$root/template/skills/sync/sync.sh" "$@"
 }
 st_sync re-apply list > "$work/reapply.out"
-grep -qx -- "- root notes/plan.md" "$work/reapply.out" || { cat "$work/reapply.out" >&2; team_fail "B69: no re-apply hold"; }
-base=$(jq -r '.files[] | select(.path == "notes/plan.md") | .basefile' "$work/home/.config/acme-os/state/held.json")
-mine=$(jq -r '.files[] | select(.path == "notes/plan.md") | .mine' "$work/home/.config/acme-os/state/held.json")
+grep -qx -- "- root memory/plan.md" "$work/reapply.out" || { cat "$work/reapply.out" >&2; team_fail "B69: no re-apply hold"; }
+base=$(jq -r '.files[] | select(.path == "memory/plan.md") | .basefile' "$work/home/.config/acme-os/state/held.json")
+mine=$(jq -r '.files[] | select(.path == "memory/plan.md") | .mine' "$work/home/.config/acme-os/state/held.json")
 [ "$(cat "$base")" = "$(printf '%s\n' "# Plan" "- base line")" ] || team_fail "B69: the base is not the old folder's HEAD text"
 grep -qx -- "- sam: from the old folder" "$mine" || team_fail "B69: the set-aside copy is not the person's text"
 # The side branch's file: its base is the text where the branch left main.
 held=$(jq -r '.files[] | select(.path == "notes/terms.md") | "\(.basefile) \(.mine)"' "$work/home/.config/acme-os/state/held.json")
 [ "$(cat "${held% *}")" = "$(printf '%s\n' "# Terms" "- base terms")" ] || team_fail "B69: the side-branch base is not the merge-base text"
 grep -qx -- "- price: side terms" "${held#* }" || team_fail "B69: the side-branch copy is not the branch's text"
-printf '%s\n' "- sam: from the old folder" >> "$co/notes/plan.md"
-st_sync re-apply "done" root notes/plan.md >/dev/null || team_fail "B69: re-apply done failed"
+printf '%s\n' "- sam: from the old folder" >> "$co/memory/plan.md"
+st_sync re-apply "done" root memory/plan.md >/dev/null || team_fail "B69: re-apply done failed"
 # The new folder's lab area has no host here: keep it out of this push.
 mv "$co/areas/lab" "$work/lab-aside"
 st_sync push > "$work/st-push.out" 2>&1 || { cat "$work/st-push.out" >&2; team_fail "B69: push after re-apply failed"; }
 mv "$work/lab-aside" "$co/areas/lab"
-up=$(git --git-dir "$work/origin.git" show "sync/sam/$seat:notes/plan.md")
+up=$(git --git-dir "$work/origin.git" show "sync/sam/$seat:memory/plan.md")
 grep -qx -- "- ada: newer on main" <<< "$up" || team_fail "B69: main's newer line is not on the host: $up"
 grep -qx -- "- sam: from the old folder" <<< "$up" || team_fail "B69: the person's line is not on the host: $up"
 # A second join: what was copied or re-applied is not brought again; an open hold says so.
@@ -460,7 +460,7 @@ grep -qx "old-folder: $old/memory/logs/2026-11-02-sam.md copied to memory/logs/2
 # Nothing left: one line says so.
 rm -rf "$old/draft.md" "$old/areas" "$old/memory/logs"
 git -C "$old" worktree prune
-git -C "$old" checkout -q -- notes/plan.md
+git -C "$old" checkout -q -- memory/plan.md
 git -C "$old" reset -q --hard origin/main
 git -C "$old" branch -q -D price logs
 rm -f "$old/people/same.md"

@@ -8,7 +8,7 @@ here=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$here/lib/common.sh"
 
 # Phase A scenario ids, in order. Tier B is blocked until gates G1-G8.
-PHASE_A="S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14"
+PHASE_A="S0 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14 S15"
 # The en dash in G1–G8 is the character the brief requires.
 TIER_B_REASON="BLOCKED: gates G1–G8"
 
