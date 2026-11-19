@@ -23,6 +23,7 @@
 03598741c96de685df2f004c470573b512a29d3e .github/scripts/run-checks.sh
 03771e523ad8e6ea4f7f69021fe4fe056a3e7a53 skills/sync/jobs/windows-daily.xml
 0381f9167e713b93d62842625c5fb99479ecd8ec skills/connect-tool/SKILL.md
+0389b337e4edad601129a23fa8712d399ba50fe6 skills/upgrade/upgrade.sh
 03b660bf3abc10f7d52b98c6d4e6cf8f000229f6 skills/sync/push.sh
 04014160f438b8dacad9392d84753afbdb8a770e skills/sync/collect.sh
 048b094bce1e4e016cdec096fa9cf44d0db5447e skills/add-teammate/team-on.sh

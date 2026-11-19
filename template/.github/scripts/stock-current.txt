@@ -6,6 +6,7 @@
 0118e274dd93bfa5ac9b3cc86a12b79e19a9bbb2 skills/_host/lib.sh
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
+0389b337e4edad601129a23fa8712d399ba50fe6 skills/upgrade/upgrade.sh
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 0a770b2059ee27e0a6ba7d0c631a3cd6e446fb39 .github/scripts/tools/lint/lint.sh
@@ -86,7 +87,6 @@
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
-9cd3a5b6407cb8e25357826914f54a1747ff6af6 skills/upgrade/upgrade.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
 a861d826b8a38e8a77a2667ae6e98d9a0ec3c0e1 .github/scripts/tools/host/forgejo.sh

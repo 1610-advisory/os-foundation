@@ -2,7 +2,7 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
-## v1.0.4 — unreleased
+## v1.0.4 — 2026-11-18
 
 Private by default, and root changes wait for a person. From a leak in a pilot: an agent wrote a leadership meeting note, with systems, admins and the billing plan, at the shared root, and it merged by itself.
 
@@ -19,7 +19,7 @@ Private by default, and root changes wait for a person. From a leak in a pilot: 
 - **The nightly review reads notes, not tool folders.** It leaves `.github/`, `.gitea/`, `.forgejo/`, `.claude/` and `.agents/` out of its diff. A large tools commit (for example from `team-on`) could push the day's notes past the size cap, so the review missed them.
 - The check tools are release `2026111701`, so `upgrade --refresh` brings the new checks to `main`.
 
-## v1.0.3 — unreleased
+## v1.0.3 — released as part of v1.0.4
 
 Two join fixes from the first live team on v1.0.2.
 
