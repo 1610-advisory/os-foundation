@@ -2,6 +2,20 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.5 — 2026-11-19
+
+The root is the company's front door, and each area keeps its own records list.
+
+- **Facts back to the root: `upgrade --root-router`.** The company root holds the rules, company-wide skills, company memory and company facts. The `everyone` area holds company-wide meetings and shared tools only. `upgrade --root-router` moves company facts (`customers.md`, `offers.md`, `voice.md`, `company.md`) and curated memory from `areas/everyone` back to the root. Run it with `--dry-run` first. A real run needs `--yes`, because the files go to a wider audience. It stops on a conflict before it writes, and a second run says `already done`. Solo, it commits on `main`. With a team, it opens one `upgrade/root-router` pull request per repo, with no auto-merge: merge the company one first. It tags `pre-root-router` in both repos.
+- **An `everyone` area template.** New companies can add `everyone` for company-wide meetings and shared tools.
+- **Every area carries its own must-have rules.** Some agents stop at the area repo and never read the company rules, so each area's rules file now has the privacy, no-secrets and where-things-go rules itself.
+- **Grok trusts the folder.** add-teammate tells a Grok user to start `grok` once in the company folder and in each area, and trust it. `lint` prints a `notice: grok:` line for a folder Grok does not trust (a notice, not a finding; off with `--ci` or `OS_LINT_NO_GROK=1`).
+- **Records stay in their tool.** Each area has a `datasets.md`: the name, the owning tool, the file, as of, lock and what it answers. Records and lists go to a tool's data file, never to markdown. Meeting and decision notes can point at records with `records: ["<tool>:<kind>:<key>"]`.
+- **Apps record and app-setup (rules v1.3).** `apps.md` records each tool's owning area, repo, pinned version, address, who may use it and status. app-setup builds a declared tool (`tool.json`) with one SQLite file per tool. `hosting-options.md` is removed.
+- **`kernel-cli` skill** for the `ops` command: find, describe and run, with no tokens in chat.
+- **Areas are units.** add-area and `AGENTS.md` say the areas and the kernel units are one list, with `admin` too.
+- The check tools are release `2026111801`, so `upgrade --refresh` brings the new lint to `main`.
+
 ## v1.0.4 — 2026-11-18
 
 Private by default, and root changes wait for a person. From a leak in a pilot: an agent wrote a leadership meeting note, with systems, admins and the billing plan, at the shared root, and it merged by itself.
