@@ -336,6 +336,40 @@ comment() {
   rm -f "$body"
 }
 
+# v1.0.4: wait for success after an owner's /approve. A failure before it is expected.
+wait_ok() {
+  local want=$1
+  local i=0 state
+  while [ "$i" -lt 48 ]; do
+    osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${want}/status"
+    state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+    osf_api_discard
+    if [ "$state" = "success" ]; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 5
+  done
+  return 2
+}
+
+# v1.0.4 (B89): a root or rules change waits for an owner. The test owner says yes here,
+# as the person would. An agent never types /approve.
+owner_yes() {
+  local number=$1 sha=$2 label=$3 rc
+  set +e
+  wait_sha "$number" "$sha"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ] && comments_text "$number" | grep -q 'WAITING FOR OWNER'; then
+    pass "$label waits for owner"
+  else
+    fail "$label waits for owner"
+  fi
+  comment "$admin" "$number" "/approve"
+  wait_ok "$sha"
+}
+
 comments_text() {
   local number=$1
   osf_api "$admin" GET "/api/v1/repos/acme/${repo}/issues/${number}/comments?limit=50"
@@ -359,7 +393,21 @@ notes_pr=$(open_pr "$admin" notes "Extend a note")
 as_user "$admin"
 "$work/host/host.sh" auto-merge "$repo" "$notes_pr" >>"$log" 2>&1 || true
 notes_sha=$(pr_sha "$notes_pr")
-if wait_sha "$notes_pr" "$notes_sha"; then
+# A member's /approve does nothing.
+set +e
+wait_sha "$notes_pr" "$notes_sha"
+set -e
+comment "$member" "$notes_pr" "/approve"
+sleep 30
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${notes_sha}/status"
+member_state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+osf_api_discard
+if [ "$member_state" != "success" ]; then
+  pass "member approve ignored"
+else
+  fail "member approve ignored"
+fi
+if owner_yes "$notes_pr" "$notes_sha" "root note"; then
   pass "notes checks"
 else
   fail "notes checks"
@@ -580,7 +628,7 @@ git -C "$src" commit -q -m "change a rule"
 push_branch "$member" rules
 rules_pr=$(open_pr "$member" rules "Change a rule")
 rules_sha=$(pr_sha "$rules_pr")
-if wait_sha "$rules_pr" "$rules_sha"; then
+if owner_yes "$rules_pr" "$rules_sha" "rules"; then
   pass "rules checks"
 else
   fail "rules checks"
@@ -644,7 +692,7 @@ git -C "$src" commit -q -m "add a root owners file"
 push_branch "$member" root-owners
 root_pr=$(open_pr "$member" root-owners "Add root owners")
 root_sha=$(pr_sha "$root_pr")
-if wait_sha "$root_pr" "$root_sha"; then
+if owner_yes "$root_pr" "$root_sha" "root owners"; then
   pass "root owners checks"
 else
   fail "root owners checks"
