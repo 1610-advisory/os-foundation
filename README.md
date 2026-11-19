@@ -14,7 +14,7 @@ Set up my company OS. Read https://1610.sh/os and follow it. Ask me one question
 
 The agent asks one question at a time, saves your answers in `~/{{COMPANY_SLUG}}-os/`, and helps with one real task. You leave with files the next session can read and instructions for how to work with them. Setup time depends on folder access and any connections you choose.
 
-Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
+Already have a Notion workspace, Drive folder, meeting recorder, or brand guide? Your folder is the company's memory, and each tool is a worker you can replace. For each source, you choose: the folder keeps a pointer to it, or a full copy in `library/`, a private repo only the owner and admins have. Your team reads the summaries the agent writes from it. Records (customers, jobs, accounting lines) never become notes and never go in this folder. They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. People read them through that tool or the system's own connector, which checks access. Nothing is copied unless you say yes to that source. Setup records where each thing is edited and how to access it.
 
 | Agent | How to start |
 |---|---|
@@ -80,9 +80,9 @@ Claude installs toolkits as plugins. Other agents keep them in one folder, `~/to
 
 ## Apps and hosting
 
-Say "build an app", "automate this", or "where should this run?" The [app-setup skill](template/skills/app-setup/SKILL.md) checks your existing tools first, explains local versus hosted use, and helps choose the smallest suitable set of programs. Cloudflare is the preferred starting point when it fits: Workers can host the app, D1 can keep database records, and R2 can store files on one platform. Use only the pieces you need. A self-managed VPS or another managed service may suit you better.
+Say "build an app", "automate this", or "where should this run?" The [app-setup skill](template/skills/app-setup/SKILL.md) checks your existing software first. Custom code is an option, not the default. A tool you build is declared: a data list, named requests, and optional screens and schedules, in TypeScript. Each tool has its own repo; your folder keeps one record of it in the Apps area, never its code or data.
 
-You approve hosting, recurring costs, access and data handling before anything is provisioned or published. Setup does not require a hosting subscription, and installing these instructions does not create a server or grant deployment access. The skill also plans maintenance, backups and how to move your app later.
+When your company has an OS server (the kernel), a tool has no sign-in of its own: the kernel handles sign-in, permissions and the audit log, and runs the tool once it can. With no kernel that can host it, a strict stopgap rule applies: business records only, sign-in with your office account, a security review, backups and a copy in storage you own, and a written plan to move. You approve publishing, recurring costs and data handling first. Setup does not require a hosting subscription, and installing these instructions does not create a server or grant deployment access.
 
 ## Teams
 

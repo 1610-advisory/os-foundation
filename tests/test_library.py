@@ -13,9 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "template"
 PRESETS = TEMPLATE / "skills/add-area/templates"
 STARTER = TEMPLATE / "templates/library"
-CRM = ("This version copies no CRM or accounting rows anywhere. People read records live through the "
-       "system's own connector, which checks access. Later versions may add nightly table copies into "
-       "the admin's library (exit and backup only), never into an area.")
+CRM = ("Records (customers, jobs, accounting lines) never become notes and never go in this folder. "
+       "They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. "
+       "People read them through that tool or the system's own connector, which checks access.")
 OLD_RULE = [
     "not a copy",
     "duplicate markdown",
@@ -40,10 +40,10 @@ class LibraryFolderTests(unittest.TestCase):
     def test_template_ships_the_library_starter(self):
         readme = (STARTER / "README.md").read_text()
         for word in ("Copy by choice, per source", "One writer per fact",
-                     "raw form and the readable form", "No CRM or accounting rows",
+                     "raw form and the readable form", "Records stay in their tool",
                      "Plan for deletion", "Never edit a file under `raw/`",
                      "its own private git repo", "Teammates never read, clone or make it",
-                     "The team reads the wiki", "business system", "CRM",
+                     "The team reads the wiki", "business system", "accounting lines",
                      "Never make it on a teammate's computer", "git -C library init",
                      "create-repo", "--private", "user-access", "later version"):
             self.assertIn(word, readme)

@@ -17,7 +17,7 @@ The company's own full copy of what its tools hold: raw exports and full transcr
 ## How people get value from it
 
 - **The team reads the wiki.** The agent writes meeting summaries, people notes and decisions from the library into `meetings/`, `people/` and `decisions/`. Everyone with access reads those.
-- **Records come from the business system** that already checks who may see what. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area.
+- **Records come from the business system** that already checks who may see what. Records (customers, jobs, accounting lines) never become notes and never go in this folder. They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. People read them through that tool or the system's own connector, which checks access.
 - **The library is for completeness, exit, backup, and the admin's agent.** It holds the whole record so the company can leave any tool.
 
 ## Rules
@@ -25,7 +25,7 @@ The company's own full copy of what its tools hold: raw exports and full transcr
 1. **Copy by choice, per source.** Copy a source only after a person says yes to that source. Never bulk-import on your own. Each source and its mode (`index` or `copy`) is in `memory/existing-sources.md`.
 2. **One writer per fact.** A copy is read-only. Never edit it. To update it, replace it with a newer copy. One exception: add `checked: YYYY-MM-DD` to a transcript's front matter when a person checks it (rule 5). People and agents write in the wiki: `meetings/`, `people/`, `decisions/` and the company files. If a source moves into the folder for good, write in `existing-sources.md` that the folder is now where it is edited.
 3. **Keep the raw form and the readable form.** Raw is the export as the tool gave it (JSON, VTT, TXT, CSV). Readable is the Markdown made from it. The readable form can always be made again from the raw.
-4. **No CRM or accounting rows.** This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area. Never turn records into notes.
+4. **Records stay in their tool.** Records (customers, jobs, accounting lines) never become notes and never go in this folder. They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. People read them through that tool or the system's own connector, which checks access. Never turn records into notes.
 5. **Plan for deletion.** Every copied item records a retention. Default: transcripts and notes keep. Audio is deleted after a person checks the transcript (`checked: YYYY-MM-DD` in its front matter), unless the company chose to keep audio.
 
 **Never edit a file under `raw/`.** Never delete one without a person's yes.
