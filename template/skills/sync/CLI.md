@@ -14,7 +14,7 @@ skills/sync/sync.sh <command> [flags]
 |---|---|
 | `pull [--full]` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. Plain `pull` asks the host first and pulls only the repos that changed. `--full` pulls every repo. Any other flag prints `unknown flag` and exits 1. On failure, leave that repo's working copy unchanged and write one line to the log. See "Pull". |
 | `push` | Nightly push. Identity check first. Then, in each repo: take the host's changes, secret scan, engine check, commit in the folder, push. Company and area repos go to `sync/<me>/<seat>` and that computer's standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
-| `propose <topic> <file>...` | Put rules files on `rules/<me>/<topic>` and open a pull request. A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
+| `propose <topic> <file>...` | Put rules files (or a file a person shares to the company root) on `rules/<me>/<topic>` and open a pull request with a body that lists each file. Auto-merge stays off: stderr gets `waiting for owner: <repo> <n>: ...` (v1.0.4). A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
 | `status` | Print the last error, held files, one line per repo with commits the host does not have yet (`<repo>: <n> changes here are not on the host yet`, or `1 change here is`), and `last full pull: <time>`. The next session reads this. |
 | `re-apply [list \| done <repo> <path> \| ask <repo> <path> <question>]` | Files changed here and on the host before either merged. See "Changed under you" and `re-apply.md`. |
 | `set-aside <repo> <path> <mine-file\|-> <base-file\|->` | Used by `join.sh` (B69): sets one file from an old v0 folder aside as a re-apply hold (reason `re-apply: brought from the old folder by join`). `-` for mine is deleted; `-` for base is none. Prints `set-aside`, `already` (that version's hold is open) or `done` (it was re-applied: `state/join-brought` notes each version). |
@@ -372,7 +372,7 @@ The script calls `host.sh` only. It does not call `gh` or the host HTTP API. It 
 |---|---|
 | 0 | The command finished. Holds may still be recorded. |
 | 1 | Usage (including `unknown flag`), lock, solo refusal, identity mismatch, a refused delete, or a repo push or pull that failed closed. |
-| 2 | `propose` failed. A secret scan error: `propose refused: secret scan error`, before any repo changes. Or a `fetch`, `worktree`, `commit`, `push`, `open-pr` or `auto-merge` step failed: `propose fail <repo>: <step>`, then `opened: <repo> <n>` for each pull request this run already opened. Those stay open. |
+| 2 | `propose` failed. A secret scan error: `propose refused: secret scan error`, before any repo changes. Or a `fetch`, `worktree`, `commit`, `push` or `open-pr` step failed: `propose fail <repo>: <step>`, then `opened: <repo> <n>` for each pull request this run already opened. Those stay open. |
 | 3 | Windows only: `sync.ps1` found no Git Bash. |
 
 ## Lock

@@ -49,6 +49,8 @@ if sync_is_windows; then
     printf '%s\n' "install GitHub CLI: winget install --id GitHub.cli -e" >&2
     exit 3
   fi
+  # B82: git's home folder must take a write before gh auth setup-git and the jobs need it.
+  os_home_check
 fi
 os_need git jq
 
@@ -57,6 +59,10 @@ ROOT=$(os_answer_or root "$ANSWERS" "$(pwd)")
 ROOT=$(cd "$ROOT" && pwd)
 os_refuse_synced "$ROOT"
 [ -f "$ROOT/company-profile.md" ] || os_die 2 "not a company clone"
+# B81: Part B shows these terms before join. A company upgraded before v1.0.3 may not have
+# them on main yet. Stop here; never make up terms.
+[ -f "$ROOT/joining-terms.md" ] \
+  || os_die 2 "terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again"
 
 ME=$(os_answer_or me "$ANSWERS" "")
 [ -n "$ME" ] || os_die 2 "me is required"

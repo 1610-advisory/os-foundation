@@ -333,6 +333,8 @@ diff_cut=$diff_file
 prompt=$(ci_mktemp)
 {
   cat "$rules"
+  # v1.0.4: check 7 needs to know if this is the company repo (set by run-checks.sh).
+  printf '\n\nRepo: %s\n' "${REVIEW_REPO:-unknown}"
   printf '\n\nPull request title:\n'
   cat "$title_file"
   printf '\n\nPull request body:\n'

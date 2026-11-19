@@ -8,7 +8,7 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   cat << 'EOF'
-usage: remove-leak.sh --repo <name> (--path <p> | --pattern-rule <id>) [--root <dir>] [--pr <n>] [--head <branch>]
+usage: remove-leak.sh --repo <name> (--path <p> | --pattern-rule <id>) [--root <dir>] [--pr <n>] [--head <branch>] [--owners-only]
 
 Rewrite history, force-push, ask the host to purge, and tag os-rewrite-*.
 The secret is never printed.
@@ -21,6 +21,7 @@ RULE=""
 ROOT=""
 PR_N=""
 HEAD_BRANCH=""
+OWNERS_ONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help)
@@ -56,6 +57,12 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || os_die 1 "missing head"
       HEAD_BRANCH=$2
       shift 2
+      ;;
+    --owners-only)
+      # B90: only owners and admins could ever read the repo. Their own copies stay
+      # anyway, so a cache purge by the host protects no one: skip it.
+      OWNERS_ONLY=1
+      shift
       ;;
     *)
       os_die 1 "unknown argument: $1"
@@ -228,10 +235,16 @@ if ! os_host protect "$REPO_NAME" --code-owners --approvals 0 >/dev/null; then
   exit 3
 fi
 LEAK_PROTECT=0
-os_host purge-request "$REPO_NAME" >/dev/null || true
+if [ "$OWNERS_ONLY" = "1" ]; then
+  PURGE_LINE="purge: not needed: only owners could read ${REPO_NAME}, so no one else saw the old pages"
+else
+  os_host purge-request "$REPO_NAME" >/dev/null || true
+  PURGE_LINE=""
+fi
 
 printf '%s\n' "remove-leak: ok"
 printf 'tag: %s\n' "$TAG"
+[ -z "$PURGE_LINE" ] || printf '%s\n' "$PURGE_LINE"
 if [ -n "$LEAK_PATH" ]; then
   printf 'rule: path\n'
   printf 'path: %s\n' "$LEAK_PATH"

@@ -253,7 +253,7 @@ role: writer
 # Mia Member
 "@
   Write-Utf8 (Join-Path $seed 'people\Mia.md') ($person -replace "`r`n", "`n")
-  Write-Utf8 (Join-Path $seed 'notes\seed.md') "seed`n"
+  Write-Utf8 (Join-Path $seed 'memory\seed.md') "seed`n"
 
   $linkFile = Join-Path $script:work 'link-target'
   [System.IO.File]::WriteAllBytes($linkFile, [Text.Encoding]::ASCII.GetBytes('../skills'))
@@ -297,8 +297,8 @@ role: writer
   & git -c core.symlinks=false -c core.autocrlf=true clone -q -- $areaBare $areaDest
   if ($LASTEXITCODE -ne 0) { throw 'area clone failed' }
 
-  Write-Utf8 (Join-Path $seed 'notes\from-origin.md') "from origin`n"
-  Invoke-Git $seed @('add', 'notes/from-origin.md')
+  Write-Utf8 (Join-Path $seed 'memory\from-origin.md') "from origin`n"
+  Invoke-Git $seed @('add', 'memory/from-origin.md')
   Invoke-Git $seed @('commit', '-q', '-m', 'origin note')
   Invoke-Git $seed @('push', '-q', 'origin', 'main')
 
@@ -346,7 +346,7 @@ esac
   if ($cr -eq 0) { Pass 'line-ends' } else { Fail 'line-ends' "$cr scripts have CR" }
 
   $pullCode = Invoke-Sync @('pull')
-  $pulled = Join-Path $member 'notes\from-origin.md'
+  $pulled = Join-Path $member 'memory\from-origin.md'
   if ($pullCode -eq 0 -and (Test-Path -LiteralPath $pulled)) {
     Pass 'pull'
   } else {
@@ -423,8 +423,8 @@ esac
   }
 
   $beforeChangeRoot = Get-FetchStamp $member
-  Write-Utf8 (Join-Path $areaSeed 'notes\quick.md') "quick change`n"
-  Invoke-Git $areaSeed @('add', 'notes/quick.md')
+  Write-Utf8 (Join-Path $areaSeed 'memory\quick.md') "quick change`n"
+  Invoke-Git $areaSeed @('add', 'memory/quick.md')
   Invoke-Git $areaSeed @('commit', '-q', '-m', 'quick change')
   Invoke-Git $areaSeed @('push', '-q', 'origin', 'main')
   $swChange = [Diagnostics.Stopwatch]::StartNew()
@@ -432,7 +432,7 @@ esac
   $swChange.Stop()
   $changeSecs = [math]::Round($swChange.Elapsed.TotalSeconds, 1)
   Write-Output ("NOTE quick-change {0}" -f $changeSecs)
-  $changeFile = Join-Path $areaDest 'notes\quick.md'
+  $changeFile = Join-Path $areaDest 'memory\quick.md'
   $rootStill = (Get-FetchStamp $member) -eq $beforeChangeRoot
   if ($changeCode -eq 0 -and (Test-Path -LiteralPath $changeFile) -and $rootStill) {
     Pass 'quick-change'
@@ -653,7 +653,7 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
     }
   }
 
-  Write-Utf8 (Join-Path $member 'notes\clean.md') "a clean note`n"
+  Write-Utf8 (Join-Path $member 'memory\clean.md') "a clean note`n"
   $pushCode = Invoke-Sync @('push')
   $tree = & git --git-dir=$bare ls-tree -r --name-only $syncRef
   $mode = & git --git-dir=$bare ls-tree $syncRef .agents/skills
@@ -662,7 +662,7 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
   foreach ($line in @($staged)) {
     if ($line -like '.agents/skills*' -or $line -like '.claude/skills*') { $linkStaged = $true }
   }
-  if ($pushCode -eq 0 -and ($tree -contains 'notes/clean.md') -and ($mode -like '120000*') -and -not $linkStaged) {
+  if ($pushCode -eq 0 -and ($tree -contains 'memory/clean.md') -and ($mode -like '120000*') -and -not $linkStaged) {
     Pass 'push'
     Pass 'links-push'
   } else {
@@ -671,14 +671,14 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
   }
 
   # A case-only rename, as Explorer makes it. Git on Windows ignores case, so the note stays
-  # notes/clean.md in git: the push must not fail, lose the note or send it twice.
-  $caseTmp = Join-Path $member 'notes\clean.md.tmp'
-  [System.IO.File]::Move((Join-Path $member 'notes\clean.md'), $caseTmp)
-  [System.IO.File]::Move($caseTmp, (Join-Path $member 'notes\Clean.md'))
+  # memory/clean.md in git: the push must not fail, lose the note or send it twice.
+  $caseTmp = Join-Path $member 'memory\clean.md.tmp'
+  [System.IO.File]::Move((Join-Path $member 'memory\clean.md'), $caseTmp)
+  [System.IO.File]::Move($caseTmp, (Join-Path $member 'memory\Clean.md'))
   $caseCode = Invoke-Sync @('push')
-  $caseHits = @(& git --git-dir=$bare ls-tree -r --name-only $syncRef -- notes | Where-Object { $_ -ieq 'notes/clean.md' })
-  $caseDirty = @(& git -C $member status --porcelain -- notes)
-  if ($caseCode -eq 0 -and $caseHits.Count -eq 1 -and $caseDirty.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $member 'notes\Clean.md'))) {
+  $caseHits = @(& git --git-dir=$bare ls-tree -r --name-only $syncRef -- memory | Where-Object { $_ -ieq 'memory/clean.md' })
+  $caseDirty = @(& git -C $member status --porcelain -- memory)
+  if ($caseCode -eq 0 -and $caseHits.Count -eq 1 -and $caseDirty.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $member 'memory\Clean.md'))) {
     Pass 'case-rename'
   } else {
     Fail 'case-rename' "exit $caseCode, $($caseHits.Count) copies on the host, $($caseDirty.Count) changes left"
@@ -690,29 +690,29 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
   Invoke-Git $seed @('push', '-q', 'origin', 'main')
 
   $beforeHold = & git --git-dir=$bare rev-parse $syncRef
-  Write-Utf8 (Join-Path $member 'notes\hold.md') "HOLD-ME`n"
+  Write-Utf8 (Join-Path $member 'memory\hold.md') "HOLD-ME`n"
   Invoke-Sync @('push') | Out-Null
   $afterHold = & git --git-dir=$bare rev-parse $syncRef
   $holdTree = & git --git-dir=$bare ls-tree -r --name-only $syncRef
-  Remove-Item -LiteralPath (Join-Path $member 'notes\hold.md') -Force
-  if ($beforeHold -eq $afterHold -and $holdTree -notcontains 'notes/hold.md') { Pass 'hold-engine' } else { Fail 'hold-engine' 'a commit was pushed' }
+  Remove-Item -LiteralPath (Join-Path $member 'memory\hold.md') -Force
+  if ($beforeHold -eq $afterHold -and $holdTree -notcontains 'memory/hold.md') { Pass 'hold-engine' } else { Fail 'hold-engine' 'a commit was pushed' }
 
   $env:OS_SYNC_ENGINE = 'osf-missing-engine'
   $beforeMiss = & git --git-dir=$bare rev-parse $syncRef
-  Write-Utf8 (Join-Path $member 'notes\missing.md') "missing engine`n"
+  Write-Utf8 (Join-Path $member 'memory\missing.md') "missing engine`n"
   $missCode = Invoke-Sync @('push')
   $afterMiss = & git --git-dir=$bare rev-parse $syncRef
-  Remove-Item -LiteralPath (Join-Path $member 'notes\missing.md') -Force
+  Remove-Item -LiteralPath (Join-Path $member 'memory\missing.md') -Force
   $env:OS_SYNC_ENGINE = $engine
   if ($missCode -ne 0 -and $beforeMiss -eq $afterMiss) { Pass 'missing-engine' } else { Fail 'missing-engine' "exit $missCode" }
 
   $secret = 'gh' + 'p_' + ('a' * 36)
   $beforeSecret = & git --git-dir=$bare rev-parse $syncRef
-  Write-Utf8 (Join-Path $member 'notes\secret.md') ("token = " + $secret + "`n")
+  Write-Utf8 (Join-Path $member 'memory\secret.md') ("token = " + $secret + "`n")
   $secretCode = Invoke-Sync @('push')
   $afterSecret = & git --git-dir=$bare rev-parse $syncRef
   $shown = & git --git-dir=$bare grep -l -F $secret $syncRef
-  Remove-Item -LiteralPath (Join-Path $member 'notes\secret.md') -Force
+  Remove-Item -LiteralPath (Join-Path $member 'memory\secret.md') -Force
   if ($beforeSecret -eq $afterSecret -and -not $shown) {
     Pass 'secret-hold'
   } else {
@@ -827,8 +827,8 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
   $started = $false
   $startReason = 'task did not write a log line'
   Set-TaskUserEnv
-  Write-Utf8 (Join-Path $seed 'notes\start-task.md') "start task`n"
-  Invoke-Git $seed @('add', 'notes/start-task.md')
+  Write-Utf8 (Join-Path $seed 'memory\start-task.md') "start task`n"
+  Invoke-Git $seed @('add', 'memory/start-task.md')
   Invoke-Git $seed @('commit', '-q', '-m', 'task start note')
   Invoke-Git $seed @('push', '-q', 'origin', 'main')
   $beforeStart = Snapshot-Logs $logPaths
@@ -855,8 +855,8 @@ printf '%s\n' 'keep-me' > "$CLONE/.claude/skills/lint/KEEP.md"
       $probeOk = $false
       $probeReason = 'probe did not write a log line'
       try {
-        Write-Utf8 (Join-Path $seed 'notes\conhost.md') "conhost`n"
-        Invoke-Git $seed @('add', 'notes/conhost.md')
+        Write-Utf8 (Join-Path $seed 'memory\conhost.md') "conhost`n"
+        Invoke-Git $seed @('add', 'memory/conhost.md')
         Invoke-Git $seed @('commit', '-q', '-m', 'conhost note')
         Invoke-Git $seed @('push', '-q', 'origin', 'main')
         $wrap = '--headless ' + $inner.Execute + ' ' + $inner.Arguments

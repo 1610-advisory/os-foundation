@@ -52,6 +52,10 @@ week=$(date +%G-W%V)
 osf_host S7 file "$org" "${slug}-marketing" "reports/${day}-to-decide.md" --ref "review/${day}"
 decide=$(cat "$OSF_HOST_JSON")
 if [ "$OSF_HOST_RC" -ne 0 ]; then
+  tail -n 40 "$work/review.log" "$work/reports.log" >&2 || true
+  find "$XDG_CONFIG_HOME" "$HOME" -path '*digests*' -name '*.json' -exec sh -c 'echo "== $1"; head -c 3000 "$1"' _ {} \; >&2 2>/dev/null || true
+  git -C "$dest/areas/marketing" log --format='%H %ci %s' -5 >&2 || true
+  date -u >&2
   osf_result "S7 FAIL to-decide file is not on the host"
 fi
 osf_host S7 file "$org" "${slug}-marketing" "reports/${week}.md" --ref "review/${day}"

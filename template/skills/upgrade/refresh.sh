@@ -13,6 +13,20 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
+# The company name for a root file the template ships (B81): the answers file, then the
+# profile's first heading, else "Company".
+up_company_name() {
+  local name=""
+  if [ -n "${ANSWERS:-}" ] && [ -f "$ANSWERS" ]; then
+    name=$(os_answer_or company_name "$ANSWERS" "")
+  fi
+  [ -n "$name" ] || name=$(os_company_name "$ROOT/company-profile.md")
+  case "$name" in
+    ""|*'{{'*) name="Company" ;;
+  esac
+  printf '%s' "$name"
+}
+
 # Stock paths for one repo kind, from the template folder, one per line.
 refresh_stock_paths() {
   local kind=$1
@@ -83,6 +97,16 @@ refresh_plan() {
       printf '%s\n' "$path" >> "$out/kept"
     fi
   done < "$out/stock"
+  # B81: a company-root file this template ships and main lacks is new. One that is there
+  # is the company's, edited or not: never replaced, never listed as kept.
+  if [ "$kind" = "root" ]; then
+    for path in $OS_ROOT_FILES; do
+      [ -f "$TEMPLATE/$path" ] || continue
+      if ! git -C "$dir" cat-file -e "${REFRESH_BASE}:${path}" 2>/dev/null; then
+        printf '%s\n' "$path" >> "$out/add"
+      fi
+    done
+  fi
   # A stock file this release dropped, still exactly as shipped: it goes too.
   refresh_repo_paths "$dir" "$kind" | while IFS= read -r path; do
     [ -n "$path" ] || continue
@@ -99,6 +123,12 @@ refresh_apply() {
   local wt=$1 plan=$2 path
   cat "$plan/add" "$plan/replace" | while IFS= read -r path; do
     [ -n "$path" ] || continue
+    case " $OS_ROOT_FILES " in
+      *" $path "*)
+        os_fill_root_file "$TEMPLATE/$path" "$wt/$path" "$REFRESH_NAME"
+        continue
+        ;;
+    esac
     mkdir -p "$wt/$(dirname "$path")"
     cp "$TEMPLATE/$path" "$wt/$path"
     if [ -x "$TEMPLATE/$path" ]; then
@@ -285,6 +315,7 @@ upgrade_refresh() {
   fi
   REFRESH_FAILED=0
   REFRESH_LOGS=""
+  REFRESH_NAME=$(up_company_name)
   refresh_one "$ROOT" root "the company folder"
   for area in "$ROOT"/areas/*; do
     [ -e "$area/.git" ] || continue

@@ -88,10 +88,13 @@ nr_build_diff() {
   local repo=$1 commits=$2 diff sha
   diff=$(mktemp)
   : > "$diff"
+  # Tool folders (checks scripts, agent config) are not notes: they change by a rules pull
+  # request with its own checks. Left out, a large tools commit cannot push notes past the cap.
   while IFS="$(printf '\t')" read -r sha _rest || [ -n "${sha:-}" ]; do
     [ -n "${sha:-}" ] || continue
     git -C "$repo" show --format= --patch "$sha" -- . \
       ':(exclude)reports' ':(exclude)users' ':(exclude)profile' ':(exclude)traces' \
+      ':(exclude).github' ':(exclude).gitea' ':(exclude).forgejo' ':(exclude).claude' ':(exclude).agents' \
       >> "$diff" || true
   done < "$commits"
   local size

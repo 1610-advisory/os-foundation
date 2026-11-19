@@ -80,10 +80,12 @@ if [ -z "$number" ]; then
   osf_result "S8 FAIL propose did not open a pull request"
 fi
 osf_approve "$org" "${slug}-os" "$number" acme-director || osf_result "S8 FAIL director approval"
+osf_owner_yes "$org" "${slug}-os" "$number" || osf_result "S8 FAIL owner /approve comment"
 head_sha=$(osf_results pr "$org" "${slug}-os" "$number" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("head_sha",""))')
 if ! osf_results wait-check "$org" "${slug}-os" "$head_sha" --timeout 180 >/dev/null; then
   osf_result "S8 FAIL bot page checks did not pass"
 fi
+osf_owner_merge "$org" "${slug}-os" "$number" || osf_result "S8 FAIL owner merge"
 i=0
 while [ "$i" -lt 24 ]; do
   osf_host S8 file "$org" "${slug}-os" bots/helper/routines/note.md --ref main
@@ -142,8 +144,25 @@ fi
 
 export OS_SYNC_ENGINE="$root/tests/acme/fixtures/engine.sh"
 export OS_COMPANY_ROOT="$dest"
-bash "$dest/skills/add-bot/run.sh" helper note --root "$dest" >"$work/run.log" 2>&1 \
-  || osf_result "S8 FAIL bot run"
+# v1.0.4: a bot change to the company root waits for an owner. The bot waits for the
+# merge; the test owner (a person here) says /approve while it waits.
+export OS_BOT_MERGE_WAIT=420
+bash "$dest/skills/add-bot/run.sh" helper note --root "$dest" >"$work/run.log" 2>&1 &
+bot_pid=$!
+bot_pr=""
+i=0
+while [ "$i" -lt 60 ] && [ -z "$bot_pr" ]; do
+  osf_api "$(osf_token_file acme-admin)" GET "/api/v1/repos/${org}/${slug}-os/pulls?state=open&limit=50"
+  bot_pr=$(jq -r '[.[] | select(.head.ref == "sync/helper")][0].number // empty' "$OSF_HTTP_BODY" 2>/dev/null || true)
+  osf_api_discard
+  [ -n "$bot_pr" ] && break
+  i=$((i + 1))
+  sleep 3
+done
+if [ -n "$bot_pr" ]; then
+  osf_owner_yes "$org" "${slug}-os" "$bot_pr" || true
+fi
+wait "$bot_pid" || osf_result "S8 FAIL bot run (pull request ${bot_pr:-none})"
 python3 - "$org" "${slug}-os" "$root/tests/acme/lib" >"$work/pr-user.log" 2>&1 << 'PY' || osf_result "S8 FAIL pull request was not opened by the bot"
 import sys
 sys.path.insert(0, sys.argv[3])

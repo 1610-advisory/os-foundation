@@ -22,12 +22,17 @@ Apply them in this order. The first rule that matches decides.
 3. **Personal-life facts.** Health, family, home, beliefs, money troubles, or other facts about a person's private life. Hold, in every repo.
 4. **Private sources** in `root` or `area`. Hold if the file quotes or closely paraphrases a DM, a private channel, a personal mailbox, a 1:1 meeting, calendar details, HR or pay. Hold if it says "X said in a DM" or similar. Hold if it carries the tag `source: private`. A plain company fact with no source detail is fine.
 5. **How one person works** in `root` or `area` (their habits, their style, their own private drafts). Hold. Reason, exactly: `belongs in the workspace`. These folders are never this rule:
-   - A log under `memory/logs/` or `memory/logs-archive/` (root or area). `memory/logs-archive/` holds old logs that sync brought in after the upgrade. Logs are Auto tier. Go on to rule 7.
-   - A file under an area's `drafts/` folder. That folder is shared copy in progress for the area: it goes to the area with the other notes, and everyone who reads the area sees it. Go on to rule 7. (A person's private draft belongs in their workspace `drafts/`.)
+   - A log under `memory/logs/` or `memory/logs-archive/` (root or area). `memory/logs-archive/` holds old logs that sync brought in after the upgrade. Logs are Auto tier. Go on to rule 6.
+   - A file under an area's `drafts/` folder. That folder is shared copy in progress for the area: it goes to the area with the other notes, and everyone who reads the area sees it. Go on to rule 6. (A person's private draft belongs in their workspace `drafts/`.)
 
    Rules 1, 3 and 4 still apply to both folders.
-6. **Company facts in a profile.** In `workspace`, a file under `profile/` (for example `profile/PROFILE.md`) that holds a company name, number or company detail. Hold. Reason: "company fact in a profile".
-7. **Everything else:** commit. Company facts in other workspace files are fine. Private-source notes in the workspace are fine.
+6. **Leadership and access at the shared root.** In `root` only. Everyone in the company reads the root. Hold a file that holds any of these:
+   - systems or tools with their admins, logins, access levels or ways to connect (a "who has access to what" list, a "data access we need" table);
+   - the company's accounts: host org, private repo names, plans, billing or ownership;
+   - leadership decisions or a leadership meeting: hiring, pay, ownership, or strategy that only the owners discuss.
+   Reason, exactly: `belongs in an area (admin?)`. A plain mention ("we use QuickBooks") is fine. An all-hands meeting is fine. The company's map is fine: a page under `people/` (name, role, areas, `github:`) and `company-profile.md` (level, switches). Company memory (`memory/`) and company facts (`customers.md`, `offers.md`) are fine when they hold none of the above. Meetings and notes at the root are held by a path rule before you see them, so judge only the topic here.
+7. **Company facts in a profile.** In `workspace`, a file under `profile/` (for example `profile/PROFILE.md`) that holds a company name, number or company detail. Hold. Reason: "company fact in a profile".
+8. **Everything else:** commit. Company facts in other workspace files are fine. Private-source notes in the workspace are fine.
 
 ## Answer
 

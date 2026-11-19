@@ -285,10 +285,12 @@ run_engine() {
         -- "$prompt_text"
       ;;
     cursor)
+      # -p runs no shell command without --force. The seat acts only in the Acme test org.
       if [ -n "${OSF_ACME_CURSOR_MODEL:-}" ]; then
         cursor-agent -p \
           --workspace "$cwd" \
           --trust \
+          --force \
           --output-format text \
           --model "$OSF_ACME_CURSOR_MODEL" \
           "$prompt_text"
@@ -296,6 +298,7 @@ run_engine() {
         cursor-agent -p \
           --workspace "$cwd" \
           --trust \
+          --force \
           --output-format text \
           "$prompt_text"
       fi

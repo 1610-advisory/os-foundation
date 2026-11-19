@@ -28,11 +28,11 @@ jobs:
           run=yes
           ref=""
           if [ "${GITHUB_EVENT_NAME:-}" = "issue_comment" ]; then
-            # Only an /override comment on a pull request runs the checks.
+            # Only an /override or /approve comment on a pull request runs the checks.
             trimmed=$(jq -r '.comment.body // empty' "$GITHUB_EVENT_PATH" | sed 's/^[[:space:]]*//')
             number=$(jq -r 'if .issue.pull_request then (.issue.number // "" | tostring) else "" end' "$GITHUB_EVENT_PATH")
             case "$trimmed" in
-              /override*) ;;
+              /override*|/approve*) ;;
               *) run=no ;;
             esac
             case "$number" in

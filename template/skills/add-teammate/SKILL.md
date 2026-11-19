@@ -51,6 +51,7 @@ Never run it for them, ask for the key in the chat, or read it back.
 
 ### A4. Run it
 
+0. **Sweep before access** (first invite). For each teammate, run `skills/add-teammate/sweep.sh --person <slug> --areas <their areas>` from the company root. Show the admin the whole output once. It lists every file they will read, `look:` lines (access, billing, ownership, leadership) and `history:` lines (deleted files still in the history). Ask: "Is it fine for them to read all of this?" Move admin material to `areas/admin/` first. For a file in `history:` that must go, run `remove-leak` now: before the first teammate it is cheap (see that skill). Wait for a clear yes.
 1. Write the answers file from A2 and A3, with `review_vendor` and `review_kind` (`review_model` only if the admin names one). Never the key.
 2. Run `skills/add-teammate/team-on.sh --answers <file>`. It writes `.github/review.conf` (vendor, model, kind) for the review check.
 3. It checks that the key exists (`host.sh secret-exists`). Read its review line to the admin as printed:
@@ -78,7 +79,7 @@ Then show the **hand-off message** the script printed for each teammate. The adm
 
 ### A6. Add one more person later
 
-Ask A2 items 5 and 6 for the new person. Run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request, which merges by itself when its checks pass. Show the hand-off message. If it printed an `invite:` line (GitHub, a person outside the org), tell the admin: the person accepts the org invite before they join.
+Ask A2 items 5 and 6 for the new person. First run the sweep (A4 step 0) for them, show the admin, and wait for a clear yes. Then run `skills/add-teammate/add-person.sh --answers <file>`. Their people page goes in by pull request. It waits for the admin's `/approve` (it changes the company root): tell the admin in plain words, and never type `/approve` yourself. Show the hand-off message. If it printed an `invite:` line (GitHub, a person outside the org), tell the admin: the person accepts the org invite before they join.
 
 If `library/.git` exists on this computer: a new admin gets `skills/_host/host.sh grant {{COMPANY_SLUG}}-library <login> admin`. Anyone else gets the access gate from `library/README.md`: `skills/_host/host.sh user-access {{COMPANY_SLUG}}-library <login>` must print exactly `{"access":"none"}`. If it prints anything else, or fails, stop and tell the admin. Push nothing to the library until it passes.
 
@@ -99,6 +100,7 @@ A new area later: run `add-area`.
    - Git for Windows gives Git Bash. The sync jobs run through it.
    - Say plainly: the Claude desktop app alone is not enough. Its own Claude Code is not on `PATH` and is not signed in outside the app. The nightly check calls the `claude` command, so the Claude Code CLI must be installed. The installer puts it in `%USERPROFILE%\.local\bin` and may not add that folder to `PATH`. The teammate runs `claude` once and signs in. If the company's `sync_engine:` names another tool, install that tool instead.
    - After the installs, close the terminal and open a new one, or restart the app. Then check the four commands again.
+   - Home folder: in Git Bash, `git var GIT_CONFIG_GLOBAL` names git's config file. On a domain PC with `HOME` unset it can be on a network drive (for example `I:\`), and `gh auth setup-git` then fails with `could not lock config file`. The teammate sets the user environment variable `HOME` to `%USERPROFILE%` (Settings, Environment Variables, User variables) and opens a new terminal. Do not change it for them. `join.sh` checks it too (`home:` line).
    - No `winget`: send them to each vendor's download page (Git for Windows, GitHub CLI, jq, Claude Code). Stop until the four commands work.
 3. GitHub: the teammate runs `gh auth login` in the browser. Then they accept the company's invites, the org invite first (`https://github.com/orgs/<org>/invitation`). Join checks it and stops with that link while the org invite is still open. If the check itself fails, join says so in one `invite:` line with the link, and goes on.
 
@@ -115,6 +117,7 @@ A new area later: run `add-area`.
 ### B3. The joining terms
 
 1. Show `joining-terms.md` from the clone. Show the whole page.
+   - No `joining-terms.md` in the clone: stop. Do not write terms or show other ones. Tell them: `terms: joining-terms.md is missing on main; ask the admin to run the upgrade refresh (or team-on) again, then run join again`. When the admin says it is done, run `git pull` in the clone, then start B3 again. `join.sh` stops with the same line.
 2. Name the two main points: when they leave, a helper deletes the company folder (only removed access counts, never leave or an offline laptop); and they delete copies outside the folder themselves (agent transcripts, backups, hand copies).
 3. Point to `privacy.md`: every place a copy of company data sits.
 4. Ask: "Do you accept these terms?" Yes: go on. They accept once, now. No: stop, and tell them to talk to the admin.

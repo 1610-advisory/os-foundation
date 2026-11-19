@@ -58,6 +58,7 @@ What an upgrade may add or change:
 - the v1 rules in `AGENTS.md` and `CLAUDE.md`, in the company folder and in each area,
 - new stock skills, and new files inside a stock skill,
 - `.gitattributes`, only when the folder has none.
+- `joining-terms.md`, `scale.md` and `review-rules.md`, only when the folder has none (`change: add <file>`; a team plan names `review-rules.md` on its own line). The company name is filled in. Join needs `joining-terms.md`. A refresh adds them the same way.
 
 What it never changes:
 - **Company content.** Notes, people, customers, decisions, meetings, area files, workspaces.

@@ -336,6 +336,45 @@ comment() {
   rm -f "$body"
 }
 
+# v1.0.4: wait for success after an owner's /approve. A failure before it is expected.
+wait_ok() {
+  local want=$1
+  local i=0 state
+  while [ "$i" -lt 48 ]; do
+    osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${want}/status"
+    state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+    osf_api_discard
+    if [ "$state" = "success" ]; then
+      return 0
+    fi
+    i=$((i + 1))
+    sleep 5
+  done
+  return 2
+}
+
+# v1.0.4 (B89): a root or rules change waits for an owner. The test owner says yes here,
+# as the person would. An agent never types /approve.
+owner_yes() {
+  local number=$1 sha=$2 label=$3 who=${4:-$admin} rc
+  set +e
+  wait_sha "$number" "$sha"
+  rc=$?
+  set -e
+  if [ "$rc" -eq 2 ] && comments_text "$number" | grep -q 'WAITING FOR OWNER'; then
+    pass "$label waits for owner"
+  else
+    fail "$label waits for owner"
+  fi
+  comment "$who" "$number" "/approve"
+  if wait_ok "$sha"; then
+    return 0
+  fi
+  # Show why: the bot's last comments on the pull request.
+  comments_text "$number" | tail -n 8 | sed "s/^/info $label: /"
+  return 2
+}
+
 comments_text() {
   local number=$1
   osf_api "$admin" GET "/api/v1/repos/acme/${repo}/issues/${number}/comments?limit=50"
@@ -359,7 +398,21 @@ notes_pr=$(open_pr "$admin" notes "Extend a note")
 as_user "$admin"
 "$work/host/host.sh" auto-merge "$repo" "$notes_pr" >>"$log" 2>&1 || true
 notes_sha=$(pr_sha "$notes_pr")
-if wait_sha "$notes_pr" "$notes_sha"; then
+# A member's /approve does nothing.
+set +e
+wait_sha "$notes_pr" "$notes_sha"
+set -e
+comment "$member" "$notes_pr" "/approve"
+sleep 30
+osf_api "$admin" GET "/api/v1/repos/acme/${repo}/commits/${notes_sha}/status"
+member_state=$(jq -r '.state // empty' "$OSF_HTTP_BODY")
+osf_api_discard
+if [ "$member_state" != "success" ]; then
+  pass "member approve ignored"
+else
+  fail "member approve ignored"
+fi
+if owner_yes "$notes_pr" "$notes_sha" "root note"; then
   pass "notes checks"
 else
   fail "notes checks"
@@ -580,7 +633,7 @@ git -C "$src" commit -q -m "change a rule"
 push_branch "$member" rules
 rules_pr=$(open_pr "$member" rules "Change a rule")
 rules_sha=$(pr_sha "$rules_pr")
-if wait_sha "$rules_pr" "$rules_sha"; then
+if owner_yes "$rules_pr" "$rules_sha" "rules"; then
   pass "rules checks"
 else
   fail "rules checks"
@@ -644,7 +697,7 @@ git -C "$src" commit -q -m "add a root owners file"
 push_branch "$member" root-owners
 root_pr=$(open_pr "$member" root-owners "Add root owners")
 root_sha=$(pr_sha "$root_pr")
-if wait_sha "$root_pr" "$root_sha"; then
+if owner_yes "$root_pr" "$root_sha" "root owners"; then
   pass "root owners checks"
 else
   fail "root owners checks"
@@ -1059,7 +1112,8 @@ EOF
     src="$intro_root/areas/marketing"
     repo="$intro_area"
     intro_sha=$(pr_sha "$intro_number")
-    if wait_sha "$intro_number" "$intro_sha" && approve_and_merge "$intro_number" "$member"; then
+    # This area's CODEOWNERS names acme-member-a for review-rules.md: that code owner says yes.
+    if owner_yes "$intro_number" "$intro_sha" "area review-rules" "$member" && approve_and_merge "$intro_number" "$member"; then
       osf_api "$admin" GET "/api/v1/repos/acme/${intro_area}/contents/review-rules.md?ref=main"
       if [ "$OSF_HTTP_CODE" = "200" ] \
         && [ "$(jq -r '.sha // empty' "$OSF_HTTP_BODY")" = "$(git hash-object "$intro_root/review-rules.md")" ]; then
@@ -1077,6 +1131,77 @@ EOF
   fi
 else
   fail "area review-rules merge"
+fi
+
+# B81 (v1.0.3): the same area main, and a company with no review-rules.md (a solo upgrade
+# before v1.0.3 left none). team-on has nothing to propose: one line, no pull request.
+none_slug="cnr${stamp}"
+none_slug=${none_slug//-/}
+none_area="${none_slug}-marketing"
+EXTRA_REPOS="${EXTRA_REPOS} ${none_slug}-os ${none_area} ${none_slug}-user-ada"
+none_root="$work/none"
+mkdir -p "$none_root"
+cp -R "$root/template/." "$none_root/"
+rm -f "$none_root/review-rules.md"
+python3 - "$none_root/company-profile.md" "$none_slug" << 'PY'
+import pathlib, sys
+path, slug = sys.argv[1], sys.argv[2]
+text = pathlib.Path(path).read_text()
+text = text.replace("{{COMPANY_SLUG}}", slug)
+text = text.replace("{{COMPANY_NAME}}", "Acme Co")
+text = text.replace("{{DATE}}", "2026-10-24")
+text = text.replace("{{ONE_LINER}}", "A test company")
+text = text.replace("{{OS_VERSION}}", "v1.0.0")
+pathlib.Path(path).write_text(text)
+PY
+git -C "$none_root" init -q -b main
+git -C "$none_root" config user.email ada.admin@acme.test
+git -C "$none_root" config user.name "Ada Admin"
+git -C "$none_root" add -A
+git -C "$none_root" commit -q -m "company start, no review rules"
+none_line="review-rules: ${none_area} has no review-rules.md on main, and this folder has none to propose. The checks use the default rules. Run the upgrade refresh, then team-on again"
+if "$work/host/host.sh" create-repo "$none_area" --private --source "$intro_seed" --push >>"$log" 2>&1; then
+  "$work/host/host.sh" grant "$none_area" acme-member-a write >>"$log" 2>&1 || true
+  ask=$(mktemp)
+  chmod 700 "$ask"
+  cat > "$ask" << 'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "git" ;;
+  *) cat "$OS_TOKEN_FILE" ;;
+esac
+EOF
+  mkdir -p "$none_root/areas"
+  OS_TOKEN_FILE=$admin GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
+    git -c credential.helper= clone -q "http://localhost:3300/acme/${none_area}.git" "$none_root/areas/marketing" >>"$log" 2>&1 || true
+  rm -f "$ask"
+  sed -e "s#^root=.*#root=${none_root}#" -e "s#^company_slug=.*#company_slug=${none_slug}#" \
+    "$work/intro-answers" > "$work/none-answers"
+  set +e
+  # The company's own copy, as in a real folder: no template review-rules.md beside it.
+  OS_HOST_SH="$work/host/host.sh" OS_JOBS_DIR="$work/jobs-none" \
+    "$none_root/skills/add-teammate/team-on.sh" --answers "$work/none-answers" >"$work/none.out" 2>>"$log"
+  none_rc=$?
+  set -e
+  osf_api "$admin" GET "/api/v1/repos/acme/${none_area}/branches/team%2Freview-rules"
+  none_branch=$OSF_HTTP_CODE
+  osf_api_discard
+  # The area folder stays on main with no local rules branch, so the next sync runs.
+  none_head=$(git -C "$none_root/areas/marketing" symbolic-ref -q --short HEAD 2>/dev/null || printf 'detached')
+  none_local=absent
+  if git -C "$none_root/areas/marketing" show-ref --verify --quiet refs/heads/team/review-rules; then
+    none_local=present
+  fi
+  if [ "$none_rc" -eq 0 ] && grep -qxF -- "$none_line" "$work/none.out" \
+    && ! awk -v area="$none_area" '$1 == "pr:" && $2 == area { found = 1 } END { exit !found }' "$work/none.out" \
+    && [ "$none_branch" = "404" ] && [ "$none_head" = "main" ] && [ "$none_local" = "absent" ]; then
+    pass "area with no review-rules.md to propose: no pull request, area stays on main"
+  else
+    cat "$work/none.out" >>"$log" 2>/dev/null || true
+    fail "area with no review-rules.md to propose: no pull request, area stays on main (rc ${none_rc}, branch HTTP ${none_branch}, area on ${none_head}, local team/review-rules ${none_local})"
+  fi
+else
+  fail "area with no review-rules.md to propose: no pull request, area stays on main (create-repo)"
 fi
 repo="ci-checks-${stamp}"
 
@@ -1217,7 +1342,7 @@ else
     push_branch "$member" area-rules
     own_pr=$(open_pr "$member" area-rules "Change a skill")
     own_sha=$(pr_sha "$own_pr")
-    if wait_sha "$own_pr" "$own_sha"; then
+    if owner_yes "$own_pr" "$own_sha" "area rules"; then
       pass "area rules checks"
       own_checks=1
     else

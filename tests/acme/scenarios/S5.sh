@@ -34,6 +34,14 @@ dest="$work/company"
 osf_setup_solo "$dest" "$slug" >/dev/null
 osf_need_org S5 "$org"
 osf_write_team_answers "$work/answers" "$dest" "$slug" "$org" "$root/tests/acme/fixtures/engine.sh"
+# The shared answers keep noa (member-c) out of every area: S2 checks that noa cannot
+# clone marketing. Here noa proposes the marketing skill, so noa needs that area.
+if [ "$proposer" = "member-c" ]; then
+  sed -i.bak 's/^person\.noa\.areas=$/person.noa.areas=marketing/' "$work/answers"
+  rm -f "$work/answers.bak"
+  grep -qx 'person.noa.areas=marketing' "$work/answers" \
+    || osf_result "S5 FAIL could not give noa the marketing area"
+fi
 osf_export_token acme-admin || osf_result "S5 FAIL admin token missing"
 export OS_ORG="$org"
 osf_use_seat "$slug" ada acme-admin || osf_result "S5 FAIL admin token missing"

@@ -204,6 +204,28 @@ if ! git -C "$dest" show HEAD:AGENTS.md | grep -q 'Acme ships sample goods on Tu
   osf_result "S11 FAIL revert lost a company line"
 fi
 git -C "$dest" reset --hard "$merge" >/dev/null
+# B81 (v1.0.3): the upgrade adds the root files v1 ships, the company name filled.
+if ! git -C "$dest" show HEAD:joining-terms.md 2>/dev/null | sed -n 1p | grep -qx '# Joining terms — Acme Co'; then
+  osf_result "S11 FAIL upgrade did not add joining-terms.md with the company name"
+fi
+if ! git -C "$dest" cat-file -e HEAD:scale.md 2>/dev/null; then
+  osf_result "S11 FAIL upgrade did not add scale.md"
+fi
+if [ "$(git -C "$dest" rev-parse HEAD:review-rules.md 2>/dev/null)" != "$(git hash-object "$root/template/review-rules.md")" ]; then
+  osf_result "S11 FAIL solo upgrade did not add review-rules.md"
+fi
+# A company upgraded before v1.0.3 has no joining-terms.md: team-on writes it.
+git -C "$dest" rm -q joining-terms.md
+git -C "$dest" -c user.name="Ada Admin" -c user.email="ada.admin@acme.test" \
+  commit -q -m "As an upgrade before v1.0.3 left it"
+# No host yet, so the person merges the upgrade branches into main by hand
+# ("upgrade: pending upgrade/v1"). team-on then puts main on the host.
+git -C "$dest" checkout -q main
+git -C "$dest" merge -q --ff-only upgrade/v1 || osf_result "S11 FAIL merge upgrade/v1 into main"
+if git -C "$area" show-ref --verify --quiet refs/heads/upgrade/scripts; then
+  git -C "$area" checkout -q main
+  git -C "$area" merge -q --ff-only upgrade/scripts || osf_result "S11 FAIL merge upgrade/scripts into main"
+fi
 
 if ! curl -sf -o /dev/null -m 3 http://localhost:3300/api/v1/version; then
   osf_result "S11 BLOCKED Forgejo is not running"
@@ -224,6 +246,36 @@ if [ ! -x "$dest/skills/sync/sync.sh" ]; then
 fi
 bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on.log" 2>&1 \
   || osf_result "S11 FAIL team-on"
+# B81: joining-terms.md is on the host's main, the company name filled.
+terms_main() {
+  osf_results file "$org" acme-os joining-terms.md \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("content", ""), end="")'
+}
+terms1=$(terms_main) || osf_result "S11 FAIL joining-terms.md is not on main after team-on"
+if [ "$(printf '%s\n' "$terms1" | sed -n 1p)" != "# Joining terms — Acme Co" ]; then
+  osf_result "S11 FAIL joining-terms.md on main has no company name"
+fi
+if printf '%s' "$terms1" | grep -q '{{'; then
+  osf_result "S11 FAIL joining-terms.md on main kept a placeholder"
+fi
+grep -qx 'added: joining-terms.md' "$work/team-on.log" || osf_result "S11 FAIL team-on did not say added: joining-terms.md"
+# A second run changes nothing.
+local_sum=$(cksum "$dest/joining-terms.md" | awk '{print $1}')
+bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on2.log" 2>&1 \
+  || osf_result "S11 FAIL second team-on"
+if grep -q '^added: joining-terms.md' "$work/team-on2.log"; then
+  osf_result "S11 FAIL second team-on added joining-terms.md again"
+fi
+[ "$(terms_main)" = "$terms1" ] || osf_result "S11 FAIL second team-on changed joining-terms.md on main"
+[ "$(cksum "$dest/joining-terms.md" | awk '{print $1}')" = "$local_sum" ] \
+  || osf_result "S11 FAIL second team-on changed joining-terms.md"
+# A copy the company edited stays as it is.
+printf '%s\n' "Acme: laptops go back to the office." >> "$dest/joining-terms.md"
+local_sum=$(cksum "$dest/joining-terms.md" | awk '{print $1}')
+bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/team-answers" >"$work/team-on3.log" 2>&1 \
+  || osf_result "S11 FAIL team-on over an edited joining-terms.md"
+[ "$(cksum "$dest/joining-terms.md" | awk '{print $1}')" = "$local_sum" ] \
+  || osf_result "S11 FAIL team-on wrote over the company's joining-terms.md"
 if ! grep -q '/company-rules.md' "$dest/.github/CODEOWNERS"; then
   osf_result "S11 FAIL code owners do not cover company-rules.md"
 fi

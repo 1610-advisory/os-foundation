@@ -2,6 +2,30 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.4 — 2026-11-18
+
+Private by default, and root changes wait for a person. From a leak in a pilot: an agent wrote a leadership meeting note, with systems, admins and the billing plan, at the shared root, and it merged by itself.
+
+- **Private by default.** The rules (`AGENTS.md` section 3, the inline rules in `CLAUDE.md`, every area) now say: write new material to the most private place that fits. OS build, systems and access, connections, org and billing, and leadership meetings go to `areas/admin/` only. A meeting goes to the area of the people in it. Sharing wider is a separate step the person asks for.
+- **An `admin` area at setup.** Setup makes `areas/admin/` first: owners and the advisor only.
+- **The root holds rules, company memory and company facts [team].** The nightly push holds any other content file at the company root (`root is for rules, company memory and company facts: ...`): meetings, notes, decisions, logs. Allowed there: the map files (`people/`, `company-profile.md`, `joining-terms.md`, `scale.md`, `privacy.md`, `templates/`), company memory (`memory/*.md`, not its logs) and company fact files (one `.md` file at the top, such as `customers.md`). Company-wide meetings go in an `everyone` area. Logs of root work go to the person's workspace. Every root change still waits for an owner's `/approve`, and leadership and access material is still held anywhere at the root.
+- **Root changes and rules changes wait for an owner.** A pull request that changes a rules file, or adds or changes a file in the company repo, no longer merges by itself. Its check fails with `waiting for owner`, and a comment says why in plain words. An owner comments `/approve`; the check then passes for that commit. `/override` still works for a failed review. `sync.sh propose` never turns on auto-merge and prints `waiting for owner: ...`. Agents never type `/approve` or `/override`. Area notes still merge by themselves.
+- **Topic check.** The push check holds a root file about systems and access, billing or ownership, or leadership (`belongs in an area (admin?)`). The model review fails a company-repo change with content at the root or with that material (check 7). The reviewer now gets a `Repo:` line.
+- **Sweep before access.** `skills/add-teammate/sweep.sh` lists what a person will read: every file, `look:` lines for admin material, and deleted files still in the history. add-teammate runs it before the first invite and before each add-person, and the owner says yes once.
+- **remove-leak: less GitHub Support.** `--owners-only` skips the host purge when only owners could read the repo, and says why. For a key, revoking it is the fix. Before the first teammate, the skill offers to make the repo again from a clean history instead.
+- **An area name cannot take another repo's name.** `team-on` refuses an area named `os`, `library` or `user-*` (B86).
+- **`AGENTS.md` is shorter** (8,385 characters), so it stays under 9,000 after setup fills it. Setup checks the size (B87).
+- **A held root file stays on this computer.** The push holds a root meeting, note, log or inbox file before the push check reads it, so no model sees it and it is not checked again at each push. A bot's change to the company root waits for an owner's `/approve` like a person's.
+- **The nightly review reads notes, not tool folders.** It leaves `.github/`, `.gitea/`, `.forgejo/`, `.claude/` and `.agents/` out of its diff. A large tools commit (for example from `team-on`) could push the day's notes past the size cap, so the review missed them.
+- The check tools are release `2026111701`, so `upgrade --refresh` brings the new checks to `main`.
+
+## v1.0.3 — released as part of v1.0.4
+
+Two join fixes from the first live team on v1.0.2.
+
+- **An upgraded company gets its joining terms.** The upgrade and its refresh now add `joining-terms.md` (with the company name), `scale.md` and `review-rules.md` when the folder lacks them. A solo upgrade did not add `review-rules.md`, so `team-on` could not give one to each area. `team-on` adds `joining-terms.md` the same way. They never write over the company's own copy. Without the terms, `join` stops with one `terms:` line that says what the admin runs. When `team-on` has no `review-rules.md` to give an area, it now says so in one `review-rules:` line and goes on, instead of stopping with "not found or no access". The area folder stays on `main`, so the next sync runs.
+- **Join checks git's home folder on Windows.** On a domain PC, git can use a network drive as its home folder and then cannot save its settings. `join` now stops with one `home:` line that says how to point `HOME` at your user folder. A `GIT_CONFIG_GLOBAL` set to a Windows path (`D:\git\global.cfg`, or a network path) counts too.
+
 ## v1.0.2 — 2026-11-02
 
 Five small fixes from the first team upgrade on v1.0.1.

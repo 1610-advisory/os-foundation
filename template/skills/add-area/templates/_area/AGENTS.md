@@ -11,7 +11,8 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 - **No secrets.** No passwords, API keys or tokens in any file. Connections use each tool's own sign-in.
 - **No personal-life facts** in any file.
 - **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go here: no quotes, no "X said in a DM".
-- **Sharing up is a person's choice.** Move facts from this area into the shared company files (`../../`) only when a person asks.
+- **Private by default.** Leadership and access material (OS build, systems and access, connections, org and billing, leadership meetings) goes in `areas/admin/` only, never the shared root.
+- **Sharing wider is a person's choice.** To move something to another area or the company root, say who will read it and wait for a clear yes. A root share goes by `propose` and waits for an owner's `/approve`. Never type `/approve` yourself.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay or delete anything outside this folder.
 - **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive).

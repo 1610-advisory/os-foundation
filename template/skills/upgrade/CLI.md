@@ -72,6 +72,7 @@ A real run refuses a dirty tree. It stages only the upgrade paths. The result is
 - the approval tier table only when `level` is `team` or `app`
 - new skills copied from the template
 - new files copied into a skill the company already has; a file that exists is not touched
+- `joining-terms.md`, `scale.md` and `review-rules.md`, the company-root files v1 ships, when the folder lacks them (v1.0.3). A solo upgrade before v1.0.3 did not add `review-rules.md`; team-on copies it into each area. A team or app dry run names it on its `change: review-rules.md` line, not as `change: add`. The company name goes in place of `{{COMPANY_NAME}}`: the `company_name` answer, else the first heading of `company-profile.md`. A copy the company has, edited or not, is never touched. Join stops without `joining-terms.md`.
 - `.gitattributes` from the template, only when the folder has none. Each area gets the `_area` copy, merged or not.
 - `/company-rules.md` and `/area-rules.md` lines in the code-owner files, when the folder has them, with the owners of `AGENTS.md`
 - a stock skill file replaced only when its bytes match `v0-hashes.txt` (os-foundation `main` at `c2034af`)
@@ -124,6 +125,7 @@ Each area repo gets its own pull request for the check scripts, on `upgrade/scri
 `--refresh`, on a v1 company, from the company folder, with `--template` the newer os-foundation `template/`:
 
 - **Stock files** are the files the template has under `skills/` and `.github/`. The company repo gets both. Each area repo gets `.github/` (its checks).
+- **Root files (v1.0.3).** The company repo also gets `joining-terms.md`, `scale.md` and `review-rules.md` when its `main` lacks them, with the company name filled, as new files in the same pull request (or commit). One that is on `main` is the company's: never replaced, never `kept:`.
 - **Unchanged or not.** `.github/scripts/stock-hashes.txt` (it ships with the check tools) lists the git blob id and path of every stock file any release has shipped. A company copy on `main` that matches one is as shipped: it is replaced. A copy that matches none was changed by the company: it is kept, and the run prints `kept: <folder> <path> (changed by the company; compare it with the template by hand)`. A stock file this template no longer ships is removed when it is as shipped. A company skill of its own is never in the list, so it is never touched. Scripts keep their mode.
 - **Check tools first (team on a host).** The checks job runs main's tools, so each repo first gets this release's tools on `main` by the upgrade's own `checks-on-main:` step: `host.sh unprotect`, one push of `.github/workflows/checks.yml` and `.github/scripts/` only, then `protect` (an exit on the way puts protection back). Tools on main from a newer release are kept. The stock list is merged into main's whatever the release: it only grows. At the same release, this upgrade's `stock-current.txt` goes on main too. A dry run prints `change: checks-on-main <folder>`.
 - **The review.** The model review leaves out every file whose text is exactly the stock text this release ships at that path (`.github/scripts/stock-current.txt`; `# <n> files are left out` heads its diff). A file put back to an older release's text is a change, and is reviewed. The list comes from the base tools on `main`, never from the pull request, so a pull request cannot add to it, and a change to it is a `.github/` change that needs the code owner. A changed file is still reviewed, and lint and the secret scan read every file. So a refresh pull request passes on its own. If its diff is still over 100000 bytes (removed stock files count), the run prints `override: <repo> <n> is too large for the model review (<bytes> bytes, limit 100000). After lint and the secret scan pass, the admin comments on it: /override refresh: stock skills, too large for the model review`.
@@ -168,6 +170,9 @@ todo: AGENTS.md is <m> characters, over the 9,000 it sets for itself. Move ...
 todo: fill {{OWNER_NAME}}
 change: .gitattributes [areas/<name>]
 change: skill-files skills/<name> new=<n>
+change: add joining-terms.md
+change: add scale.md
+change: add review-rules.md   (solo only)
 change: .agents/skills
 change: skill-moved skills/<path>
 conflict: skills/<name>

@@ -25,6 +25,11 @@ before_notes=$(team_sha "$company/notes/ours.md")
 before_skill=$(team_sha "$company/skills/lint/SKILL.md")
 before_ours=$(team_sha "$company/skills/lint/ours.md")
 
+# Setup filled the company name in the profile heading. B81 takes it from there.
+sed 's/^# {{COMPANY_NAME}}$/# Acme Co/' "$company/company-profile.md" > "$work/profile"
+mv "$work/profile" "$company/company-profile.md"
+[ ! -e "$company/joining-terms.md" ] || team_fail "the v0 fixture already has joining-terms.md"
+
 git -C "$company" init -q
 git -C "$company" checkout -q -b main
 GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
@@ -56,6 +61,11 @@ printf '%s\n' "$dry" | grep -q 'change: skill-files skills/add-teammate new=' ||
 printf '%s\n' "$dry" | grep -q 'change: tier-table' || team_fail "missing tier table"
 printf '%s\n' "$dry" | grep -q 'keep: 90 days' || team_fail "missing 90 day note"
 git -C "$company" status --porcelain | grep -q . && team_fail "dry-run changed the tree"
+# B81: the root files v1 ships and v0 lacked.
+printf '%s\n' "$dry" | grep -qx 'change: add joining-terms.md' || team_fail "dry-run did not plan joining-terms.md"
+printf '%s\n' "$dry" | grep -qx 'change: add scale.md' || team_fail "dry-run did not plan scale.md"
+# A team plan names review-rules.md once, on its B56 line.
+printf '%s\n' "$dry" | grep -qx 'change: add review-rules.md' && team_fail "team dry-run named review-rules.md twice"
 
 "$upgrade" --root "$company" --template "$root/template" --level team > "$work/apply.out"
 grep -q 'upgrade: ok' "$work/apply.out" || team_fail "upgrade did not finish"
@@ -77,6 +87,13 @@ git -C "$company" show HEAD:.gitignore | grep -qx '/library/' || team_fail "libr
 git -C "$company" show-ref --verify --quiet refs/heads/upgrade/work && team_fail "upgrade/work branch remains"
 git -C "$company" ls-files | grep -q 'logs-folder' && team_fail "logs-folder is still in the commit"
 grep -q 'Approval tiers' "$company/AGENTS.md" || team_fail "tier table missing"
+# B81: joining-terms.md and scale.md are in the upgrade commit, the name filled.
+git -C "$company" show HEAD:joining-terms.md > "$work/terms" || team_fail "joining-terms.md is not in the upgrade"
+[ "$(sed -n 1p "$work/terms")" = "# Joining terms — Acme Co" ] || team_fail "joining-terms.md heading: $(sed -n 1p "$work/terms")"
+grep -q '{{' "$work/terms" && team_fail "joining-terms.md kept a placeholder"
+[ "$(git -C "$company" rev-parse HEAD:scale.md)" = "$(git hash-object "$root/template/scale.md")" ] \
+  || team_fail "scale.md is not the template's"
+grep -qx 'added: joining-terms.md' "$work/apply.out" || team_fail "upgrade did not say added: joining-terms.md"
 
 # One-commit revert restores the old state.
 old=$(git -C "$company" rev-parse HEAD^1)
@@ -100,10 +117,16 @@ GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
 GIT_AUTHOR_NAME="Company OS" GIT_AUTHOR_EMAIL="os@localhost" \
   GIT_COMMITTER_NAME="Company OS" GIT_COMMITTER_EMAIL="os@localhost" \
   git -C "$nologs" commit -q -m "v0 no logs"
+# B81: a solo upgrade adds review-rules.md too. team-on later needs it for each area.
+[ ! -e "$nologs/review-rules.md" ] || team_fail "the solo fixture already has review-rules.md"
+solo_dry=$("$upgrade" --dry-run --root "$nologs" --template "$root/template" --level solo)
+printf '%s\n' "$solo_dry" | grep -qx 'change: add review-rules.md' || team_fail "solo dry-run did not plan review-rules.md"
 "$upgrade" --root "$nologs" --template "$root/template" --level solo >"$work/nologs.out"
 grep -q 'upgrade: ok' "$work/nologs.out" || team_fail "no-logs upgrade failed"
 nparents=$(git -C "$nologs" rev-list --parents -n 1 HEAD | awk '{print NF}')
 [ "$nparents" -ge 3 ] || team_fail "no-logs upgrade is not a merge"
+[ "$(git -C "$nologs" rev-parse HEAD:review-rules.md 2>/dev/null)" = "$(git hash-object "$root/template/review-rules.md")" ] \
+  || team_fail "solo upgrade did not add review-rules.md"
 oldn=$(git -C "$nologs" rev-parse 'HEAD^1')
 git -C "$nologs" revert -m 1 --no-edit HEAD >/dev/null
 git -C "$nologs" rev-parse HEAD:company-profile.md >/dev/null

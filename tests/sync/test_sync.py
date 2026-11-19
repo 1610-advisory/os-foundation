@@ -884,8 +884,7 @@ class SyncFixTests(unittest.TestCase):
         run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
         run(["git", "-C", str(self.company), "commit", "-q", "-m", "setup"], env=self.env, check=True)
         run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
-        (self.company / "meetings").mkdir()
-        (self.company / "meetings" / "2026-10-31 Kickoff.md").write_text("kickoff notes\n")
+        (self.company / "customers.md").write_text("customers like calls\n")
         (self.company / "drafts.md").write_text("a draft\n")
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -893,7 +892,7 @@ class SyncFixTests(unittest.TestCase):
         self.assertEqual(
             body,
             "<!-- sync:files -->\nThese are mia's notes from sync.\n\n"
-            "- drafts.md\n- meetings/2026-10-31 Kickoff.md\n<!-- /sync:files -->\n",
+            "- customers.md\n- drafts.md\n<!-- /sync:files -->\n",
         )
 
     def push_with_open_body(self, old):
@@ -1054,13 +1053,16 @@ class SyncFixTests(unittest.TestCase):
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         tree = self.tree(SEAT_REF)
-        self.assertIn("memory/logs/2026-10-28-mia.md", tree)
+        # v1.0.4: a log of root work belongs in the workspace. The root holds it.
+        self.assertNotIn("memory/logs/2026-10-28-mia.md", tree)
+        self.assertIn("push hold root memory/logs/2026-10-28-mia.md root content", self.sync_log())
         self.assertNotIn("habits.md", tree)
         self.assertNotIn("memory/logs/2026-10-27-mia.md", tree)
         status = self.sync("status").stdout
         self.assertIn("habits.md: belongs in the workspace", status)
-        self.assertIn("2026-10-27-mia.md: personal-life fact", status)
-        self.assertIn("push path-rule root memory/logs/2026-10-28-mia.md", self.sync_log())
+        # v1.0.4: the root path rule holds root logs before the model reads them.
+        self.assertIn("memory/logs/2026-10-27-mia.md: root is for rules", status)
+        self.assertNotIn("memory/logs/2026-10-28-mia.md: belongs in the workspace", status)
 
     def test_logs_wait_while_the_host_has_the_old_logs_branch(self):
         # logsfix (58): a v0 clone ignores memory/logs/ and its plain pull writes over any
@@ -1092,7 +1094,9 @@ class SyncFixTests(unittest.TestCase):
         run(["git", "--git-dir", str(bare), "branch", "-D", "logs"], env=self.env, check=True)
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+        # v1.0.4: the old branch is gone, but a root log still stays off the root.
+        self.assertNotIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+        self.assertIn("push hold root memory/logs/2026-10-01-mia.md root content", self.sync_log())
 
     def test_logs_wait_when_an_old_copy_pushes_the_logs_branch_back(self):
         # logsfix (68): after the branch was deleted, fetch --prune left this clone with no
@@ -1126,7 +1130,9 @@ class SyncFixTests(unittest.TestCase):
         (logs / "2026-10-01-mia.md").write_text("a log with no v0 history\n")
         result = push(offline)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+        # v1.0.4: no v0 history, so no logs-branch hold; the root hold keeps it here.
+        self.assertNotIn("memory/logs/2026-10-01-mia.md", self.tree(SEAT_REF))
+        self.assertIn("push hold root memory/logs/2026-10-01-mia.md root content", self.sync_log())
         # The upgrade landed (memory/logs-archive/ on main), and branch logs is gone here.
         arc = self.company / "memory" / "logs-archive"
         arc.mkdir(parents=True)
@@ -1152,7 +1158,8 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
         result = push(env)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
+        self.assertNotIn("memory/logs/2026-10-02-mia.md", self.tree(SEAT_REF))
+        self.assertIn("push hold root memory/logs/2026-10-02-mia.md root content", self.sync_log())
 
     def test_offline_push_commits_here_and_status_counts_it(self):
         # B55: the host API is unreachable, so the identity check cannot run. The notes
@@ -1623,7 +1630,9 @@ class SyncFixTests(unittest.TestCase):
         # A joining teammate's clone: the people page on main, an own workspace repo.
         bare = self.seed_origin()
         (self.company / ".gitignore").write_text("users/\n")
-        self.git("add", "people/Mia.md", ".gitignore")
+        # Join stops without the joining terms (B81).
+        (self.company / "joining-terms.md").write_text("# Joining terms — Acme Co\n")
+        self.git("add", "people/Mia.md", ".gitignore", "joining-terms.md")
         self.git("commit", "-q", "-m", "people")
         self.git("push", "-q", "origin", "main")
         ws = self.company / "users" / "mia"

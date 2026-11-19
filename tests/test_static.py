@@ -108,6 +108,18 @@ class RulesSizeTests(unittest.TestCase):
         self.assertRegex(result.stdout.strip(), r"^OK [1-9][0-9]* files$")
 
 
+class JoiningTermsCopyTests(unittest.TestCase):
+    def test_team_on_copy_is_the_template_page(self):
+        # B81: team-on writes joining-terms.md from its own copy (a company folder has no
+        # template). The two must say the same.
+        template = ROOT / "template"
+        self.assertEqual(
+            (template / "skills" / "add-teammate" / "joining-terms.template.md").read_bytes(),
+            (template / "joining-terms.md").read_bytes(),
+            "edit both: template/joining-terms.md and skills/add-teammate/joining-terms.template.md",
+        )
+
+
 class StockHashesTests(unittest.TestCase):
     def test_every_stock_file_is_in_the_refresh_list(self):
         # upgrade --refresh replaces only files it knows as shipped; a stock file missing
