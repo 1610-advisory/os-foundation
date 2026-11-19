@@ -720,7 +720,8 @@ osf_owner_yes() {
 osf_owner_merge() {
   local owner="$1" repo="$2" number="$3"
   local body code i
-  osf_approve "$owner" "$repo" "$number" acme-admin || return 1
+  # The admin may be the author: the host refuses a review of your own pull request.
+  osf_approve "$owner" "$repo" "$number" acme-admin || true
   body=$(mktemp)
   chmod 600 "$body"
   jq -n '{Do:"merge"}' > "$body"

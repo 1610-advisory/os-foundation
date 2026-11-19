@@ -54,6 +54,7 @@ jobs:
           name: forgejo-logs
           retention-days: 3
           if-no-files-found: ignore
+          include-hidden-files: true
           path: |
             ci.txt
             acme.txt

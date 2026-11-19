@@ -356,7 +356,7 @@ wait_ok() {
 # v1.0.4 (B89): a root or rules change waits for an owner. The test owner says yes here,
 # as the person would. An agent never types /approve.
 owner_yes() {
-  local number=$1 sha=$2 label=$3 rc
+  local number=$1 sha=$2 label=$3 who=${4:-$admin} rc
   set +e
   wait_sha "$number" "$sha"
   rc=$?
@@ -366,7 +366,7 @@ owner_yes() {
   else
     fail "$label waits for owner"
   fi
-  comment "$admin" "$number" "/approve"
+  comment "$who" "$number" "/approve"
   if wait_ok "$sha"; then
     return 0
   fi
@@ -1112,7 +1112,8 @@ EOF
     src="$intro_root/areas/marketing"
     repo="$intro_area"
     intro_sha=$(pr_sha "$intro_number")
-    if owner_yes "$intro_number" "$intro_sha" "area review-rules" && approve_and_merge "$intro_number" "$member"; then
+    # This area's CODEOWNERS names acme-member-a for review-rules.md: that code owner says yes.
+    if owner_yes "$intro_number" "$intro_sha" "area review-rules" "$member" && approve_and_merge "$intro_number" "$member"; then
       osf_api "$admin" GET "/api/v1/repos/acme/${intro_area}/contents/review-rules.md?ref=main"
       if [ "$OSF_HTTP_CODE" = "200" ] \
         && [ "$(jq -r '.sha // empty' "$OSF_HTTP_BODY")" = "$(git hash-object "$intro_root/review-rules.md")" ]; then
