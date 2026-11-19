@@ -719,14 +719,26 @@ osf_owner_yes() {
 # propose never turns on auto-merge (v1.0.4): the owner merges a rules pull request.
 osf_owner_merge() {
   local owner="$1" repo="$2" number="$3"
-  local body code
+  local body code i
   osf_approve "$owner" "$repo" "$number" acme-admin || return 1
   body=$(mktemp)
   chmod 600 "$body"
   jq -n '{Do:"merge"}' > "$body"
-  osf_api "$(osf_token_file acme-admin)" POST "/api/v1/repos/${owner}/${repo}/pulls/${number}/merge" "$body"
+  # The host may still be checking that the pull request can merge: try a few times.
+  i=0
+  while [ "$i" -lt 10 ]; do
+    osf_api "$(osf_token_file acme-admin)" POST "/api/v1/repos/${owner}/${repo}/pulls/${number}/merge" "$body"
+    code=$OSF_HTTP_CODE
+    if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+      osf_api_discard
+      rm -f "$body"
+      return 0
+    fi
+    printf 'owner merge %s #%s: HTTP %s %s\n' "$repo" "$number" "$code" "$(head -c 300 "$OSF_HTTP_BODY" 2>/dev/null)" >&2
+    osf_api_discard
+    i=$((i + 1))
+    sleep 5
+  done
   rm -f "$body"
-  code=$OSF_HTTP_CODE
-  osf_api_discard
-  [ "$code" = "200" ] || [ "$code" = "204" ]
+  return 1
 }

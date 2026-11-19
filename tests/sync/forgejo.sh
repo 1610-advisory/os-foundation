@@ -194,46 +194,50 @@ printf '%s\n' 'users/' >> "$company/.gitignore"
 name="sync-t-$$-root"
 new_repo "$name" "$company/company-profile.md"
 seed_repo "$company" "$name"
-mkdir -p "$company/notes"
-printf '%s\n' "a shop note" > "$company/notes/ok.md"
-printf '%s\n' "HOLD-ME please" > "$company/notes/held.md"
-printf '%s\n' "PERSONAL-FACT about a family trip" > "$company/notes/life.md"
-printf '%s\n' "PRIVATE-QUOTE from a DM" > "$company/notes/quote.md"
-printf '%s\n' "token = $(printf '%s%s_' gh p)$(printf 'ab12%.0s' {1..9})" > "$company/notes/secret.md"
-before=$(cksum "$company/notes/held.md")
+mkdir -p "$company/memory"
+printf '%s\n' "a shop note" > "$company/memory/ok.md"
+printf '%s\n' "HOLD-ME please" > "$company/memory/held.md"
+printf '%s\n' "PERSONAL-FACT about a family trip" > "$company/memory/life.md"
+printf '%s\n' "PRIVATE-QUOTE from a DM" > "$company/memory/quote.md"
+printf '%s\n' "token = $(printf '%s%s_' gh p)$(printf 'ab12%.0s' {1..9})" > "$company/memory/secret.md"
+# v1.0.4: a meeting at the root is held by the path rule.
+mkdir -p "$company/meetings"
+printf '%s\n' "a root meeting" > "$company/meetings/2026-11-18 Sync.md"
+before=$(cksum "$company/memory/held.md")
 sync_env "$company"
 bash "$SYNC" push
 log="$XDG_CONFIG_HOME/acme-os/state/sync.log"
 grep -q "push ok root" "$log" || fail "push did not record ok"
-grep -q "push hold root notes/held.md" "$log" || fail "held file was not held"
+grep -q "push hold root memory/held.md" "$log" || fail "held file was not held"
+grep -q "push hold root meetings/2026-11-18 Sync.md root content" "$log" || fail "root meeting was not held"
 status=$(bash "$SYNC" status)
-printf '%s\n' "$status" | grep -q "notes/held.md" || fail "status missing held file"
-printf '%s\n' "$status" | grep -q "notes/secret.md" || fail "status missing secret"
+printf '%s\n' "$status" | grep -q "memory/held.md" || fail "status missing held file"
+printf '%s\n' "$status" | grep -q "memory/secret.md" || fail "status missing secret"
 printf '%s\n' "$status" | grep -q "personal-life fact" || fail "status missing personal fact"
 printf '%s\n' "$status" | grep -q "private-source quote" || fail "status missing private quote"
 case "$status" in
   *"$(printf '%s%s_' gh p)"*) fail "status printed a secret value" ;;
 esac
-after=$(cksum "$company/notes/held.md")
+after=$(cksum "$company/memory/held.md")
 [ "$before" = "$after" ] || fail "held file changed"
 git_as member -C "$company" fetch -q origin "refs/heads/sync/mia/laptop-0a1b:refs/remotes/origin/sync/mia/laptop-0a1b"
-git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/ok.md || fail "ok note was not pushed"
-if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/held.md 2>/dev/null; then
+git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:memory/ok.md || fail "ok note was not pushed"
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:memory/held.md 2>/dev/null; then
   fail "held file was pushed"
 fi
-if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/secret.md 2>/dev/null; then
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:memory/secret.md 2>/dev/null; then
   fail "secret was pushed"
 fi
-if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:notes/life.md 2>/dev/null; then
+if git -C "$company" cat-file -e origin/sync/mia/laptop-0a1b:memory/life.md 2>/dev/null; then
   fail "personal fact was pushed"
 fi
 # Pull request may still be open. Fast-forward main so the pull property can be checked.
 git_as member -C "$company" push -q origin refs/remotes/origin/sync/mia/laptop-0a1b:refs/heads/main
 bash "$SYNC" pull
-git -C "$company" diff --quiet HEAD -- notes/ok.md || fail "ok note is not clean after pull"
-[ -f "$company/notes/held.md" ] || fail "held file missing after pull"
-grep -q HOLD-ME "$company/notes/held.md" || fail "held file content changed"
-git -C "$company" status --porcelain -- notes/held.md | grep -q . || fail "held file is not a local change"
+git -C "$company" diff --quiet HEAD -- memory/ok.md || fail "ok note is not clean after pull"
+[ -f "$company/memory/held.md" ] || fail "held file missing after pull"
+grep -q HOLD-ME "$company/memory/held.md" || fail "held file content changed"
+git -C "$company" status --porcelain -- memory/held.md | grep -q . || fail "held file is not a local change"
 printf '%s\n' "PASS push-pull"
 
 # --- engine down ---

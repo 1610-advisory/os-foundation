@@ -467,7 +467,7 @@ rm -f "$old/people/same.md"
 join_run > "$work/old2.out"
 grep -qx "old-folder: $old has nothing the host lacks. You may delete it." "$work/old2.out" \
   || { cat "$work/old2.out" >&2; team_fail "B63: a clean old folder was not called clean"; }
-rm -rf "$old" "$co/people/same.md" "$co/draft.md" "$co/prices.md" "$co/areas/lab" \
+rm -rf "$old" "$co/people/same.md" "$co/draft.md" "$co/prices.md" "$co/memory/terms.md" "$co/memory/local.md" "$co/areas/lab" \
   "$co/memory/logs/2026-11-01-sam.md" "$co/memory/logs/2026-10-31-sam.md" "$co/memory/logs/2026-10-01-sam-renamed.md" \
   "$co/memory/logs/2026-11-02-sam.md" "$work/home/.config/acme-os/state/reapply"
 git -C "$co" reset -q --hard "$st_was_head"

@@ -367,7 +367,12 @@ owner_yes() {
     fail "$label waits for owner"
   fi
   comment "$admin" "$number" "/approve"
-  wait_ok "$sha"
+  if wait_ok "$sha"; then
+    return 0
+  fi
+  # Show why: the bot's last comments on the pull request.
+  comments_text "$number" | tail -n 8 | sed "s/^/info $label: /"
+  return 2
 }
 
 comments_text() {

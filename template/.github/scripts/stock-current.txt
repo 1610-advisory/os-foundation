@@ -70,7 +70,6 @@
 7b4d16bf4ef2f76ce92bbf7fd48cfdda73527a60 skills/add-bot/run.sh
 7faad6fae1063b962dd010d2ad88222e9c2370f9 .github/scripts/override.sh
 80e00eb45db3ee53a132fc2ba97fd59a7339e563 skills/skill-creator/agents/comparator.md
-8220e0845948c1ab85c324aabfa81fdd1707831f skills/sync/push-check.md
 82da3784b0da035217a68cafb7cadccdd4270d86 skills/upgrade/rules-merge.awk
 850f5ffd03b537b18091d128f8875efba574ae56 skills/sync/pull.sh
 869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
@@ -125,6 +124,7 @@ cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/per
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
+d3869131fcc10f0ed041d9f97fc71971713be9f5 skills/sync/push.sh
 d3dcd6a0820fa034aff3fc28d433156b71d5a013 skills/add-teammate/SKILL.md
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
@@ -133,6 +133,7 @@ da774305122fee0a951c18993bcc78034e007e7e skills/upgrade/CLI.md
 dbc8822988c482d63d86ccc0de526737dd0fc5df skills/nightly-review/run.sh
 dbf0207afdaeab5cf39ae56e8ecd02e27501e084 skills/skill-creator/eval-viewer/generate_review.py
 dd14da71981108680b19461d82631b3f256b1f52 skills/nightly-review/SKILL.md
+e194be6ef5dabe39368a33c90b7f99c8140a5708 skills/sync/push-check.md
 e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py
 e68801d84c1b94ee47bb961ca44673c93dc93dd6 .github/scripts/checkout.sh
@@ -162,5 +163,4 @@ fc1d44a9896c18eb8072f0083fcfb77a6c2ca7e2 skills/skill-creator/FOUNDATION.md
 fd1a6bbabdae0815b6d39562b13a89b2fd6ccd29 skills/nightly-review/review-prompt.md
 fdc3ac8fd6c0f73c30a2c60cbeaf9b02b50633de .github/scripts/host-read.sh
 fec538c223bf2360fa44d35c3d95b6b839c6ee7d skills/sync/sync.ps1
-fedb85f878cf6468b27c19b7ec06906f85feb421 skills/sync/push.sh
 ffef92c48b351a3ed036556ed32dda934e8cf41a skills/skill-creator/UPSTREAM_NOTICES.md

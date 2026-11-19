@@ -30,7 +30,7 @@ Apply them in this order. The first rule that matches decides.
    - systems or tools with their admins, logins, access levels or ways to connect (a "who has access to what" list, a "data access we need" table);
    - the company's accounts: host org, private repo names, plans, billing or ownership;
    - leadership decisions or a leadership meeting: hiring, pay, ownership, or strategy that only the owners discuss.
-   Reason, exactly: `belongs in an area (admin?)`. A plain mention ("we use QuickBooks") is fine. An all-hands meeting is fine. The company's map is fine: a page under `people/` (name, role, areas, `github:`) and `company-profile.md` (level, switches). Company memory (`memory/`) and company facts (`customers.md`, `offers.md`) are fine when they hold none of the above. Meetings and notes at the root are held after you by a path rule, so judge only the topic here.
+   Reason, exactly: `belongs in an area (admin?)`. A plain mention ("we use QuickBooks") is fine. An all-hands meeting is fine. The company's map is fine: a page under `people/` (name, role, areas, `github:`) and `company-profile.md` (level, switches). Company memory (`memory/`) and company facts (`customers.md`, `offers.md`) are fine when they hold none of the above. Meetings and notes at the root are held by a path rule before you see them, so judge only the topic here.
 7. **Company facts in a profile.** In `workspace`, a file under `profile/` (for example `profile/PROFILE.md`) that holds a company name, number or company detail. Hold. Reason: "company fact in a profile".
 8. **Everything else:** commit. Company facts in other workspace files are fine. Private-source notes in the workspace are fine.
 

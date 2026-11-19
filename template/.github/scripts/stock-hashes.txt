@@ -805,6 +805,7 @@ d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
 d2362198c28d85153565874829b579ca538554c2 skills/sync/sync.sh
 d2a846b4bf58c3307a9c90ee74f0c89bb2653ae2 skills/ingest/SKILL.md
 d2baab2efd09c2323542153a268a2f6e51419ff8 skills/remove-teammate/CLI.md
+d3869131fcc10f0ed041d9f97fc71971713be9f5 skills/sync/push.sh
 d3cdb462d1e8684781b211c7b13acf689ebbe71d .github/scripts/checkout.sh
 d3dcd6a0820fa034aff3fc28d433156b71d5a013 skills/add-teammate/SKILL.md
 d43745d6e973e5214b1387c6db01a31edb08b576 skills/upgrade/CLI.md
@@ -853,6 +854,7 @@ dfa772ce499b7e0de531e6788008c5c5b8d34e1a skills/nightly-review/review-prompt.md
 e07c02f939eade6d45af83412d8a7bc50a131c34 skills/sync/SKILL.md
 e0ba5549c0d4cad8125b1c05422b6730eb5f314b skills/remove-teammate/CLI.md
 e0d0e71cf87ca500380641684ef9a0db39e3f314 skills/remove-teammate/SKILL.md
+e194be6ef5dabe39368a33c90b7f99c8140a5708 skills/sync/push-check.md
 e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
 e1e31706b9c76e52f892b32bdc6f8565e4d0fca4 .github/scripts/review-rules.default.md
 e1e9831da6945c05bd86dcc018d487c7e32f2bff skills/remove-leak/SKILL.md
