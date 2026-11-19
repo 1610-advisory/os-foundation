@@ -1,0 +1,54 @@
+name: forgejo
+
+# The local Forgejo tier on a Linux runner: Acme Tier A, the checks workflow test, the team
+# Forgejo test and the sync Forgejo cases. No secrets: seats that need a vendor sign-in
+# print BLOCKED. Start it with a push to a forgejo-test/ branch, or by hand.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["forgejo-test/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  forgejo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q jq git-filter-repo openssl mawk gawk
+          git config --global user.name "CI Runner"
+          git config --global user.email "ci@acme.test"
+      - name: Forgejo up
+        run: |
+          bash tests/acme/forgejo/up.sh
+          bash tests/acme/forgejo/bootstrap.sh
+      - name: Checks workflow (tests/ci/run.sh)
+        id: ci
+        continue-on-error: true
+        run: bash tests/ci/run.sh 2>&1 | tee ci.txt; ! grep -q '^FAIL ' ci.txt
+      - name: Team Forgejo test
+        id: team
+        continue-on-error: true
+        run: bash tests/team/test_forgejo.sh
+      - name: Sync Forgejo cases and the awk scan
+        id: sync
+        continue-on-error: true
+        run: python3 -m unittest -v sync.test_sync.SyncForgejoTests sync.test_sync.SecretScanAwkTests
+        working-directory: tests
+      - name: Acme Tier A
+        id: acme
+        continue-on-error: true
+        run: bash tests/acme/run.sh --tier a 2>&1 | tee acme.txt; ! grep -qE '^S[0-9]+ FAIL' acme.txt
+      - name: Result
+        run: |
+          echo "ci=${{ steps.ci.outcome }} team=${{ steps.team.outcome }} sync=${{ steps.sync.outcome }} acme=${{ steps.acme.outcome }}"
+          [ -f ci.txt ] && grep -E '^(PASS|FAIL|BLOCKED|CI:)' ci.txt || true
+          [ -f acme.txt ] && grep -E '^S[0-9]+ (PASS|FAIL|BLOCKED)' acme.txt || true
+          test "${{ steps.ci.outcome }}${{ steps.team.outcome }}${{ steps.sync.outcome }}${{ steps.acme.outcome }}" = "successsuccesssuccesssuccess"
