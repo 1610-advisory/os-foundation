@@ -27,6 +27,6 @@ Example (made up):
 - Meeting recorder — call recordings and transcripts. Link: (the tool's web app). Maintained by: the office manager. Access: export. Status: verified 2026-01-15. Mode: copy. Copy goes to: library/raw/meeting-recorder/. Refreshed: manual. Edited in: the tool. Retention: delete-audio-after-transcript.
 ```
 
-A link is not proof of access. Copy a source only after a person says yes to that source. Never bulk-import on your own, and never say a copy stays current by itself. This version copies no CRM or accounting rows anywhere. People read records live through the system's own connector, which checks access. Later versions may add nightly table copies into the admin's library (exit and backup only), never into an area.
+A link is not proof of access. Copy a source only after a person says yes to that source. Never bulk-import on your own, and never say a copy stays current by itself. Records (customers, jobs, accounting lines) never become notes and never go in this folder. They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. People read them through that tool or the system's own connector, which checks access.
 
 Never record credentials. Keep restricted source entries in the relevant area's memory, following the company's sharing rules.

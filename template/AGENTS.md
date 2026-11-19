@@ -17,6 +17,7 @@ At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh stat
 | What | Where |
 |---|---|
 | Work facts (a customer prefers calls) | The area for that work |
+| Records and lists (customers, jobs) | A tool's data file, never markdown. The area's `datasets.md` says where. |
 | OS build, systems and access, connections, org and billing, leadership meetings | `areas/admin/` only. Never the shared root. |
 | A meeting | The area of the people in it. Ask "who should read this?" first. Solo: `meetings/` |
 | How the person works, drafts, sensitive work, private sources | [team] The workspace `users/<person>/` (voice and preferences: `profile/PROFILE.md`). Solo: `memory/`, or out of the repo. |
@@ -27,7 +28,7 @@ At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh stat
 
 **Share with the company** only when the person asks. Say who will read it. Wait for a clear yes. Then run `skills/sync/sync.sh propose share-<topic> <file>`. An owner says the last yes.
 
-Vendor memory is a cache only. The repo is the source.
+Vendor memory is only a cache.
 
 ## 4. Private sources
 
@@ -61,7 +62,7 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 - Notes and logs go on `sync/<person>/<computer>`. The nightly `sync` push puts them on its standing PR. An area PR merges by itself when the checks pass.
 - Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`: its own PR from `rules/<person>/<topic>`.
 - Every rules PR gets a review by a different model first (`review-rules.md`). Then the area director (area rules) or the admin (company-root rules) approves. GitHub never counts the author's own approval: see `skills/sync/SKILL.md`.
-- A failed review blocks the merge. Only the admin may override it, with the reason in the PR. Re-run a busy review.
+- A failed review blocks the merge. Only the admin may override it, with the reason in the PR.
 - **Waiting for owner.** A rules PR, or a PR that changes the company root, never merges by itself. Its check says "waiting for owner". Tell your person in plain words what it changes and who will read it. Wait for an explicit yes. An owner comments `/approve`. Never type `/approve` or `/override` yourself.
 - Make branches and PRs for the person. They need not know git.
 
@@ -93,14 +94,14 @@ Who you act for comes from `~/.config/{{COMPANY_SLUG}}-os/me`, checked by `sync`
 
 ### Right now
 
-<!-- Five lines at most. A path to a win in an area keeps it findable. -->
+<!-- Five lines at most. -->
 - (setup fills this in)
 
 ## Layout and skills
 
-- Shared files everyone reads: `company-profile.md`, `people/`, `templates/`, `skills/`, `memory/`, company fact files (`customers.md`, `offers.md`, `voice.md`). `inbox/` is capture only ([team]: it stays on this computer). Solo: `meetings/`, `decisions/`. [team] Older root `meetings/` and `decisions/` stay readable. Add nothing there. `areas/everyone/` holds company-wide meetings and shared tools.
-- `areas/<area>/`: each area is its **own git repo**, so a person without an area does not have it. `areas/admin/`: owners and the advisor only. Area work starts in the area folder.
-- Skills: `skills/<name>/SKILL.md` (company) and `areas/<area>/skills/`. When a request matches one, read it and follow it. Apps and hosting: `skills/app-setup/`. `skills/skill-creator/`: read `FOUNDATION.md` first. Company rules come before a skill's own steps. A skill grants no tools or outside models.
+- Shared files everyone reads: `company-profile.md`, `people/`, `templates/`, `skills/`, `memory/`, company fact files (`customers.md`, `offers.md`, `voice.md`). `inbox/` is capture only ([team]: it stays on this computer). Solo: `meetings/`, `decisions/`. [team] Older root `meetings/` and `decisions/` stay readable. Add nothing there.
+- `areas/<area>/`: each area is its **own git repo**, so a person without an area does not have it. `areas/admin/`: owners and the advisor only. Area work starts in the area folder. [app] Each area is also a kernel unit (same slug).
+- Skills: `skills/<name>/SKILL.md` (company) and `areas/<area>/skills/`. When a request matches one, read it and follow it. Tools: `skills/app-setup/`. [app] Live records: `skills/kernel-cli/` (`ops`). `skills/skill-creator/`: read `FOUNDATION.md` first. Company rules come before a skill's own steps. A skill grants no tools or outside models.
 
 ## Memory and logs
 

@@ -15,3 +15,4 @@ Some apps do not expand the import above. These rules hold in every session here
 - **Git only in this repo.** **Ask first** before you send, post, publish, pay or delete anything outside this folder.
 - **No working copy in a synced folder.** **Identity** never comes from a file in the repo.
 - **Sharing up:** company facts and memory go to the root (`../../`) only when a person asks.
+- **Records stay in their tool:** never in markdown here. `datasets.md` says where they are.

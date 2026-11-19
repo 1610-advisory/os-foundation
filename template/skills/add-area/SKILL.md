@@ -13,7 +13,7 @@ Run this from the company root.
 
 ## 1. Name
 
-Offer the usual list: **marketing, finance, sales, operations, people (HR), apps, everyone**, or other. A customer portal is an app: it goes at `areas/apps/portal/` (add `apps` first). **everyone** [team] holds company-wide meetings and shared tools; every person gets it and the admin directs it. Company facts and memory stay at the root, not in `everyone`. `admin` (leadership, systems and access, the OS build) comes with setup: owners and the advisor only.
+Offer the usual list: **marketing, finance, sales, operations, people (HR), apps, everyone**, or other. A customer portal is a tool: it gets its own repo and one record in the apps area (add `apps` first). Its code never goes in the company OS folder. **everyone** [team] holds company-wide meetings and shared tools; every person gets it and the admin directs it. Company facts and memory stay at the root, not in `everyone`. `admin` (leadership, systems and access, the OS build) comes with setup: owners and the advisor only.
 
 Pick a slug: lowercase, hyphens (`customer-service`). If `areas/{{AREA_SLUG}}/` exists, stop and ask. Never `os`, `user-<anything>`, or the name of the admin's private source repo: the area repo is `{{COMPANY_SLUG}}-{{AREA_SLUG}}`, and those names belong to the company repo, the workspaces and that private repo. Suggest `<name>-team` instead. `team-on.sh` refuses them too.
 
@@ -59,4 +59,6 @@ At `team`, the area must also get its place on the host. The scripts do it. Neve
 ## 5. Record it
 
 - Add the area to the "Areas:" line in the company `AGENTS.md`. Solo: commit that in the company repo. [team]: this is a rules file, so propose it with `skills/sync/sync.sh propose add-area-{{AREA_SLUG}} AGENTS.md`.
+- [app] Areas and kernel units are one list. The area's slug is its unit in the company kernel (the `admin` area too). Tell the admin to add the unit with the same slug, so its tools, datasets and locks match the area. Never make a unit with no area, or an area with no unit.
+- `datasets.md` starts empty. Fill a line when the area gets its first tool or dataset.
 - Tell the person how to open it: "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`."

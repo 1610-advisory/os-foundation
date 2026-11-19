@@ -11,6 +11,7 @@ Some apps do not expand the import above. These rules hold in every session here
 - **Private by default.** Write new material to the most private place that fits.
 - **Leadership and access material** (OS build, systems and access, connections, org and billing, leadership meetings) goes in `areas/admin/` only, never the shared root.
 - **[team] The root holds rules, company memory and company facts.** No meetings, notes or logs there. Share with the company only when the person asks, by `propose`.
+- **Records stay in their tool** (customers, jobs): never in markdown. A note names only the record's key.
 - **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go to an area: no quotes, no "X said in a DM".
 - **Changes.** Solo: commit to `main`. [team]: nobody writes to `main`. Rules files (`AGENTS.md`, `CLAUDE.md`, `skills/`) go by their own PR. A PR that waits for an owner: explain it in plain words and wait for a clear yes. Never type `/approve` or `/override` yourself.
 - **Git only in the repo you mean.** No destructive git (`git clean -x`, `git reset --hard`, `git rm -r` across `areas/`) at the company root.

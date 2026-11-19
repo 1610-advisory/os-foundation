@@ -13,6 +13,7 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 - **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go here: no quotes, no "X said in a DM".
 - **Private by default.** Leadership and access material (OS build, systems and access, connections, org and billing, leadership meetings) goes in `areas/admin/` only, never the shared root.
 - **Sharing wider is a person's choice.** Company facts and company memory live at the company root (`../../`). To move something to another area or the company root, say who will read it and wait for a clear yes. A root share goes by `propose` and waits for an owner's `/approve`. Never type `/approve` yourself.
+- **Records stay in their tool.** Customers, jobs and other records live in a tool's data file, never in markdown here. `datasets.md` lists where each one is and who may read it. A note about a record names only its key, in `records:` (`"crm:job:J-1042"`).
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
 - **Ask first** before you send, post, publish, pay or delete anything outside this folder.
 - **No working copy in a synced folder** (iCloud Drive, Dropbox, OneDrive, Google Drive).
@@ -30,18 +31,18 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 
 ## What this area does
 
-Software that {{COMPANY_NAME}} runs: automations, internal tools, integrations, and apps (a customer portal goes at `portal/`).
+The list of the tools {{COMPANY_NAME}} builds and runs: internal tools, automations, integrations and portals. One record per tool.
 
 ### Before building or hosting
 
-Read `../../skills/app-setup/SKILL.md` when planning an app, automation, hosting or software choice. It explains local vs hosted use, compares existing tools, Cloudflare, a self-managed VPS and other services, and gets approval for costs and external changes before deployment. Keep the decision and operating notes in this area or the app's own repo.
+Read `../../skills/app-setup/SKILL.md` when planning a tool, automation, hosting or software choice. It checks existing software first, says how a tool is declared and where it runs (the company's kernel, or the stopgap rule when there is none), and who approves.
 
-### One repo per app
+### One repo per tool
 
-- This folder is a repo for the small things: scripts, automations, and notes about the apps.
-- **Each real app is its own repo**, in a folder here (`portal/`, `quote-tool/`). This repo ignores it: add `/<app>/` to `.gitignore` here when you add one. Each app has its own access, so a contractor can get one app and nothing else.
-- Record each app in `apps.md`: name, what it does, where it runs, who has access. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
-- Code, config, and deploy notes live in the app's repo. Secrets never do.
+- This folder holds notes, skills with their scripts, and one record per tool. It holds no tool code and no data.
+- **Each tool is its own repo, outside the company OS folder.** Each tool has its own access, so a contractor can get one tool and nothing else.
+- Record each tool in `apps.md`: name, what it does, owning area, repo, pinned version, address, who may use it and status. Each data file it owns also gets a line in its owning area's `datasets.md`. Add a short line for it to `../../architecture.md` too (name and job only, no hosts or keys).
+- Code, config, and deploy notes live in the tool's repo. Secrets never do.
 
 ## Skills
 
@@ -49,7 +50,7 @@ Area skills live in `skills/` here. Company skills live in `../../skills/`: read
 
 | Skill | Use when someone says |
 |---|---|
-| `../../skills/app-setup/` (company skill) | "build an app", "make a portal", "host this", "use a VPS / Cloudflare", "which software should I use" |
+| `../../skills/app-setup/` (company skill) | "build an app", "build a tool", "make a portal", "host this", "where should this run", "which software should I use" |
 
 ## Folders
 

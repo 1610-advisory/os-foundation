@@ -13,6 +13,7 @@ This is the **{{AREA_NAME}}** area of {{COMPANY_NAME}}'s company OS. It is its o
 - **Private sources** (DMs, a personal mailbox, 1:1s, HR, pay): [team] keep them in the person's workspace. Solo: keep them out of the repo. Only plain facts go here: no quotes, no "X said in a DM".
 - **Private by default.** Leadership and access material (OS build, systems and access, connections, org and billing, leadership meetings) goes in `areas/admin/` only, never the shared root.
 - **Sharing wider is a person's choice.** Company facts and company memory live at the company root (`../../`). To move something to another area or the company root, say who will read it and wait for a clear yes. A root share goes by `propose` and waits for an owner's `/approve`. Never type `/approve` yourself.
+- **Records stay in their tool.** Customers, jobs and other records live in a tool's data file, never in markdown here. `datasets.md` lists where each one is and who may read it. A note about a record names only its key, in `records:` (`"crm:job:J-1042"`).
 - **Identity** never comes from a file in the repo.
 - **These rules are the floor.** Some agents (Codex, Grok) stop at this repo's root and never load `../../AGENTS.md`. So every must-have rule is here too.
 - **Git only in this repo.** Commit here, by this folder's path. Never run destructive git at the company root.
