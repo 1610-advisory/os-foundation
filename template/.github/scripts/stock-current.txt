@@ -96,6 +96,7 @@ a861d826b8a38e8a77a2667ae6e98d9a0ec3c0e1 skills/_host/forgejo.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
+af488e3a318e8e1869c9bdc27ceb542c8ee3dc52 skills/upgrade/upgrade.sh
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
 b401ef9b09785bfbefb51f6f345e99ac84963af7 skills/add-area/templates/_area/AGENTS.md
 b48e2800cf28411b7d0a9aa41a7b423961f4eaac skills/add-teammate/workspace/skills/README.md
@@ -140,7 +141,6 @@ e1275b166b6c4011ad4d22e889a3cf7d4300720c skills/add-area/templates/finance/AGENT
 e194be6ef5dabe39368a33c90b7f99c8140a5708 skills/sync/push-check.md
 e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
 e2e0c71bf2404997e1c14c9718aa65c99ea66afa skills/sync/push.sh
-e337e6a310166e945dac6781a5e6efb783f9d146 skills/upgrade/upgrade.sh
 e35986600c0803937991233fa382bf45517329fc skills/ingest/SKILL.md
 e569eb49d95ec7a79aab8b6640e4b12294b69943 skills/upgrade/root-router.sh
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py

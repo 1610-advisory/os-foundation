@@ -719,6 +719,7 @@ ad166d90e710c593246adcae774ae4427035643d skills/upgrade/SKILL.md
 ae207a68df108509e9740b04159d7d3047496676 skills/upgrade/upgrade.sh
 aed5d758b043de0b8c97d13ff154363cfdffdf54 skills/sync/CLI.md
 af07e22974cf9ebc68c64f45a6db9922c2df3c70 skills/nightly-review/CLI.md
+af488e3a318e8e1869c9bdc27ceb542c8ee3dc52 skills/upgrade/upgrade.sh
 af8048ff92b7374d1ab95ee922544c799fc5f966 skills/add-area/templates/_area/AGENTS.md
 afd8d097a9605641b9587a90bac2cd045e1aa5da skills/upgrade/CLI.md
 b03ada3a2084314997c07ba95519349a6fa75551 skills/add-area/templates/finance/AGENTS.md
