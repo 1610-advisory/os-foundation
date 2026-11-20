@@ -394,21 +394,31 @@ class GithubSecondRunTests(unittest.TestCase):
         self.org(base="read", member_repos=True, role="admin")
         proc = run(["org-settings"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout), {"base": "read", "member_repos": True, "owner": True})
+        self.assertEqual(json.loads(proc.stdout), {"base": "read", "member_repos": True, "repo_count": 0, "owner": True})
         self.assertEqual(self.writes(), [])
+
+    def test_org_settings_repo_count_is_public_plus_private(self):
+        # Review 1: team-on trusts the repo list only when it has this many names.
+        self.org(base="read", member_repos=True, role="admin")
+        (self.dir / "repos").write_text("acme-os\nacme-sales\n")
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(json.loads(proc.stdout)["repo_count"], 2)
+        (self.dir / "repo-count").write_text("5")
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(json.loads(proc.stdout)["repo_count"], 5)
 
     def test_org_settings_locked_keeps_false(self):
         self.org(base="none", member_repos=False, role="admin")
         proc = run(["org-settings"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout), {"base": "none", "member_repos": False, "owner": True})
+        self.assertEqual(json.loads(proc.stdout), {"base": "none", "member_repos": False, "repo_count": 0, "owner": True})
 
     def test_org_settings_not_owner_prints_nulls(self):
         # A member sees no settings. A person with no membership is not an owner either.
         self.org(role="member")
         proc = run(["org-settings"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(json.loads(proc.stdout), {"base": None, "member_repos": None, "owner": False})
+        self.assertEqual(json.loads(proc.stdout), {"base": None, "member_repos": None, "repo_count": None, "owner": False})
         (self.dir / "role").unlink()
         proc = run(["org-settings"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -423,7 +433,7 @@ class GithubSecondRunTests(unittest.TestCase):
         self.assertEqual(sent, {"default_repository_permission": "none", "members_can_create_repositories": False})
         self.assertNotIn("private", json.dumps(sent))
         after = run(["org-settings"], self.env)
-        self.assertEqual(json.loads(after.stdout), {"base": "none", "member_repos": False, "owner": True})
+        self.assertEqual(json.loads(after.stdout), {"base": "none", "member_repos": False, "repo_count": 0, "owner": True})
 
     def test_org_lock_refused_exits_non_zero(self):
         self.flag("org-lock-denied")
@@ -439,7 +449,7 @@ class GithubSecondRunTests(unittest.TestCase):
         }
         settings = run(["org-settings"], env)
         self.assertEqual(settings.returncode, 0, settings.stderr)
-        self.assertEqual(json.loads(settings.stdout), {"base": None, "member_repos": None, "owner": None})
+        self.assertEqual(json.loads(settings.stdout), {"base": None, "member_repos": None, "repo_count": None, "owner": None})
         lock = run(["org-lock"], env)
         self.assertEqual(lock.returncode, 0, lock.stderr)
         self.assertEqual(json.loads(lock.stdout), {"ok": True, "skipped": "forgejo"})

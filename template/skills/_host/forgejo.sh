@@ -274,7 +274,7 @@ cmd_plan_check() {
 # Forgejo has no base permission or member repo switch to read: all null, no call.
 cmd_org_settings() {
   [ -z "$POS1" ] || host_die 1 "too many arguments"
-  jq -nc '{base:null, member_repos:null, owner:null}'
+  jq -nc '{base:null, member_repos:null, repo_count:null, owner:null}'
 }
 
 cmd_org_lock() {

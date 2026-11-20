@@ -105,6 +105,14 @@ case "$method $path" in
     if [ -f "$dir/member-repos" ]; then
       org=$(printf '%s' "$org" | jq -c --argjson m "$(cat "$dir/member-repos")" '. + {members_can_create_repositories:$m}')
     fi
+    # The owner also sees the repo counts: by default the lines in repos (all private).
+    # repo-count: a different total (the token sees only part of the org).
+    if [ -f "$dir/base" ]; then
+      n=0
+      [ ! -f "$dir/repos" ] || n=$(awk 'NF { c++ } END { print c + 0 }' "$dir/repos")
+      [ ! -f "$dir/repo-count" ] || n=$(cat "$dir/repo-count")
+      org=$(printf '%s' "$org" | jq -c --argjson n "$n" '. + {public_repos:0, total_private_repos:$n}')
+    fi
     printf '%s\n' "$org"
     ;;
   "PATCH /orgs/acme")

@@ -110,6 +110,37 @@ run_on
 grep -qxF "$LOCKED" "$work/out" || { cat "$work/out" "$work/err" >&2; team_fail ".github repo: no lock line"; }
 patched || team_fail ".github repo: org-lock did not PATCH the org"
 
+# Review 1: the token sees only part of the org (the count says 3, the list has 2).
+# Not proven the company's own: the path line, no PATCH.
+fresh
+printf '%s\n' read > "$work/gh/base"
+printf '%s\n' true > "$work/gh/member-repos"
+printf '%s\n' admin > "$work/gh/role"
+printf '%s\n' acme-os acme-sales > "$work/gh/repos"
+printf '%s\n' 3 > "$work/gh/repo-count"
+run_on
+grep -qxF "$ASK" "$work/out" || { cat "$work/out" >&2; team_fail "part list: no path line"; }
+patched && team_fail "part list: team-on sent a PATCH"
+
+# The token sees no repo, but the org has some: no PATCH.
+fresh
+printf '%s\n' read > "$work/gh/base"
+printf '%s\n' true > "$work/gh/member-repos"
+printf '%s\n' admin > "$work/gh/role"
+printf '%s\n' 2 > "$work/gh/repo-count"
+run_on
+grep -qxF "$ASK" "$work/out" || { cat "$work/out" >&2; team_fail "empty list: no path line"; }
+patched && team_fail "empty list: team-on sent a PATCH"
+
+# A new, empty org (0 and 0): it can be locked.
+fresh
+printf '%s\n' read > "$work/gh/base"
+printf '%s\n' true > "$work/gh/member-repos"
+printf '%s\n' admin > "$work/gh/role"
+run_on
+grep -qxF "$LOCKED" "$work/out" || { cat "$work/out" "$work/err" >&2; team_fail "empty org: no lock line"; }
+patched || team_fail "empty org: org-lock did not PATCH the org"
+
 # An org with another company's repo: not the company's own. The path line, no PATCH.
 fresh
 printf '%s\n' read > "$work/gh/base"

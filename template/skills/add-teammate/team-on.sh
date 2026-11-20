@@ -108,7 +108,8 @@ if [ "$HOST_KIND" = "github" ]; then
   # Org settings: base permission "No permission", and members cannot make repos.
   # team-on changes them only for an org owner, in an org that is the company's own:
   # org_own is not "no", and every repo in the org is named <slug>-* (or is the org's
-  # own .github repo: profile and defaults). Else one line.
+  # own .github repo: profile and defaults), and that list is the whole org (its length
+  # equals the org's repo count). Else one line.
   # It never stops team-on.
   org_page="${HOST_URL:-https://github.com}"
   org_page="${org_page%/}/organizations/${ORG}/settings/member_privileges"
@@ -126,9 +127,13 @@ if [ "$HOST_KIND" = "github" ]; then
   else
     org_own=no
     if [ "$(os_answer_or org_own "$ANSWERS" "")" != "no" ] && [ "$org_owner" = "true" ]; then
-      if org_repos=$(os_host org-repos 2>/dev/null); then
-        org_foreign=$(printf '%s' "$org_repos" | jq -r --arg p "${SLUG}-" \
-          'if (.repos | type) == "array" then [.repos[] | select((startswith($p) or . == ".github") | not)] | length else -1 end' 2>/dev/null || printf '%s' -1)
+      # The token may see only part of the org (no repo scope, or a token for some
+      # repos). Trust the list only when its length equals the org's own repo count.
+      org_count=$(printf '%s' "$org_json" | jq -r 'if (.repo_count | type) == "number" then .repo_count else "unknown" end' 2>/dev/null || printf 'unknown')
+      if [ "$org_count" != "unknown" ] && org_repos=$(os_host org-repos 2>/dev/null); then
+        org_foreign=$(printf '%s' "$org_repos" | jq -r --arg p "${SLUG}-" --argjson n "$org_count" \
+          'if (.repos | type) != "array" or (.repos | length) != $n then -1
+           else [.repos[] | select((startswith($p) or . == ".github") | not)] | length end' 2>/dev/null || printf '%s' -1)
         [ "$org_foreign" != "0" ] || org_own=yes
       fi
     fi

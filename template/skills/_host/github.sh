@@ -464,8 +464,9 @@ cmd_plan_check() {
   jq -nc --arg plan "$plan" '{plan: $plan}'
 }
 
-# The org's base permission and member repo creation. Only an org owner sees them:
-# for anyone else the fields are null. owner is the signed-in person's own role.
+# The org's base permission, member repo creation and repo count (public + private).
+# Only an org owner sees them: for anyone else the fields are null. owner is the
+# signed-in person's own role.
 cmd_org_settings() {
   local body mem errf rc owner=null
   [ -z "$POS1" ] || host_die 1 "too many arguments"
@@ -488,6 +489,8 @@ cmd_org_settings() {
   printf '%s' "$body" | jq -c --argjson owner "$owner" '{
     base: (.default_repository_permission | if type == "string" then . else null end),
     member_repos: (.members_can_create_repositories | if type == "boolean" then . else null end),
+    repo_count: (if (.public_repos | type) == "number" and (.total_private_repos | type) == "number"
+      then .public_repos + .total_private_repos else null end),
     owner: $owner}'
 }
 
