@@ -271,6 +271,17 @@ cmd_plan_check() {
   jq -nc '{plan:null}'
 }
 
+# Forgejo has no base permission or member repo switch to read: all null, no call.
+cmd_org_settings() {
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  jq -nc '{base:null, member_repos:null, owner:null}'
+}
+
+cmd_org_lock() {
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  jq -nc '{ok:true, skipped:"forgejo"}'
+}
+
 cmd_whoami() {
   [ -z "$POS1" ] || host_die 1 "too many arguments"
   if ! fj_call GET "/user"; then
@@ -1111,6 +1122,8 @@ cmd_delete() {
 case "$VERB" in
   whoami) cmd_whoami ;;
   plan-check) cmd_plan_check ;;
+  org-settings) cmd_org_settings ;;
+  org-lock) cmd_org_lock ;;
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;

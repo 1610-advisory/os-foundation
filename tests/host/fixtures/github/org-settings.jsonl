@@ -1,0 +1,2 @@
+{"body":null,"method":"GET","path":"/orgs/acme"}
+{"body":null,"method":"GET","path":"/user/memberships/orgs/acme"}

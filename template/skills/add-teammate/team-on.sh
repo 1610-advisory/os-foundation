@@ -104,6 +104,40 @@ if [ "$HOST_KIND" = "github" ]; then
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || exit "$rc"
+
+  # Org settings: base permission "No permission", and members cannot make repos.
+  # team-on changes them only for an org owner, in an org that is the company's own:
+  # org_own is not "no", and every repo in the org is named <slug>-*. Else one line.
+  # It never stops team-on.
+  org_page="${HOST_URL:-https://github.com}"
+  org_page="${org_page%/}/organizations/${ORG}/settings/member_privileges"
+  org_ask="org settings: ask an org owner to set Base permissions to \"No permission\" and turn off repository creation for members: ${org_page}"
+  org_base=unknown
+  org_member=unknown
+  org_owner=false
+  if org_json=$(os_host org-settings 2>/dev/null); then
+    org_base=$(printf '%s' "$org_json" | jq -r 'if (.base | type) == "string" then .base else "unknown" end' 2>/dev/null || printf 'unknown')
+    org_member=$(printf '%s' "$org_json" | jq -r 'if .member_repos == true then "on" elif .member_repos == false then "off" else "unknown" end' 2>/dev/null || printf 'unknown')
+    org_owner=$(printf '%s' "$org_json" | jq -r 'if .owner == true then "true" else "false" end' 2>/dev/null || printf 'false')
+  fi
+  if [ "$org_base" = "none" ] && [ "$org_member" = "off" ]; then
+    printf '%s\n' "org settings: ok"
+  else
+    org_own=no
+    if [ "$(os_answer_or org_own "$ANSWERS" "")" != "no" ] && [ "$org_owner" = "true" ]; then
+      if org_repos=$(os_host org-repos 2>/dev/null); then
+        org_foreign=$(printf '%s' "$org_repos" | jq -r --arg p "${SLUG}-" \
+          'if (.repos | type) == "array" then [.repos[] | select(startswith($p) | not)] | length else -1 end' 2>/dev/null || printf '%s' -1)
+        [ "$org_foreign" != "0" ] || org_own=yes
+      fi
+    fi
+    if [ "$org_own" = "yes" ]; then
+      printf '%s\n' "org settings: base permission none, members cannot make repos (was: ${org_base}, ${org_member})"
+      os_host org-lock >/dev/null 2>&1 || printf '%s\n' "$org_ask"
+    else
+      printf '%s\n' "$org_ask"
+    fi
+  fi
 fi
 
 # Teams. A new company gets team names with its slug. A team that already grants another

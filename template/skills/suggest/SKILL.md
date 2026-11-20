@@ -1,11 +1,23 @@
 ---
 name: suggest
-description: Send an improvement back to the people who make os-foundation or a 1610 toolkit — a fix, a new skill, or an idea — with all company data removed, and only after the person reads the exact text. Use when someone says "I solved this", "I made this", "suggest this", "send this to 1610", or "this should be in the toolkit".
+description: Send an improvement back to the people who make os-foundation or a 1610 toolkit — a fix, a new skill, or an idea — with all company data removed, and only after the person reads the exact text. Use when someone says "tell 1610 ...", "I solved this", "I made this", "suggest this", "send this to 1610", or "this should be in the toolkit".
 ---
 
 # Suggest
 
 This company OS belongs to the company. Nothing goes back to 1610 unless the person sends it. This skill is how they send something on purpose.
+
+## Quick note: "tell 1610 X"
+
+For a short note about the OS itself (something confusing or broken), not a skill or a fix:
+
+1. Write the note in a few lines: what was confusing or broken, which step or skill, and the OS version (`os_version:` in `company-profile.md`). No company data, no names, no file contents, no paths that name the company.
+2. Show the person the full note. Say it goes to the people who make os-foundation.
+3. Only after a clear yes: save it to a temporary file outside the company folder and run `skills/suggest/tell.sh --file <file> --yes`. Never pass `--yes` before that yes.
+4. Tell the person the line it prints. `tell: not sent: ...` (exit 3) prints the note and an address: give both to the person to paste. The secret scan runs first; a hit sends nothing.
+5. Delete the temporary file. Add one line to the session log: "told 1610: <topic>". No company data.
+
+For a skill, a fix or a longer idea, use the steps below.
 
 ## 1. What and where
 

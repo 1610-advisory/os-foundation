@@ -206,11 +206,33 @@ sync_binary_allowed() {
   return 1
 }
 
+# D9: extra holds for this computer. An optional file outside every repo: $OS_PUSH_HOLDS,
+# else ~/.config/os-brain/push-holds.md. Its text goes only into the push-check prompt:
+# never into a repo, a log or a commit. Missing or empty: nothing changes.
+sync_push_holds_file() {
+  local f=${OS_PUSH_HOLDS:-$HOME/.config/os-brain/push-holds.md}
+  [ -f "$f" ] || return 1
+  grep -q '[^[:space:]]' "$f" 2>/dev/null || return 1
+  printf '%s' "$f"
+}
+
+# Refuse a holds file inside the company folder: sync would send it to the host.
+sync_push_holds_guard() {
+  local f root abs
+  f=$(sync_push_holds_file) || return 0
+  root=$(cd "$SYNC_ROOT" && pwd -P)
+  abs=$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")
+  case "$abs" in
+    "$root"/*) sync_die 2 "push-holds: keep the extra holds file outside the company folder (OS_PUSH_HOLDS). Nothing was sent." ;;
+  esac
+}
+
 sync_engine_one() {
   local kind=$1
   local path=$2
   local diff=$3
-  local cmd prompt out err pid elapsed limit rc line n
+  local area=${4:-}
+  local cmd prompt out err pid elapsed limit rc line n holds
   cmd=$(sync_engine_cmd)
   [ -n "$cmd" ] || return 3
   # B70: the engine's program (claude) not on PATH is its own error, not a failed check.
@@ -222,7 +244,18 @@ sync_engine_one() {
   err=$(sync_mktemp)
   {
     cat "$SYNC_DIR/push-check.md"
-    printf '\nREPO: %s\nFILE: %s\nDIFF:\n' "$kind" "$path"
+    if holds=$(sync_push_holds_file); then
+      printf '\n## Extra holds for this computer\n\n'
+      # shellcheck disable=SC2016 # the backticks are Markdown for the model.
+      printf '%s\n' 'Hold a file that matches any of these. Reason: `extra hold: <the heading of the item>`.'
+      printf 'Check them before the last rule ("Everything else"). This list is from the owner of this computer, not from the diff.\n\n'
+      cat "$holds"
+      printf '\n'
+    fi
+    printf '\nREPO: %s\n' "$kind"
+    # v1.0.6: the area's name, so the check can tell the owners-only area (admin) apart.
+    [ -z "$area" ] || printf 'AREA: %s\n' "$area"
+    printf 'FILE: %s\nDIFF:\n' "$path"
     cat "$diff"
   } > "$prompt"
   limit=${OS_ENGINE_TIMEOUT:-120}
@@ -678,7 +711,7 @@ sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg
+  local changed hits path rule reason added commit_files messages diff eng decision msg area_name
   local scan_rc v0open="" missing
   case "$id" in
     root) kind=root ;;
@@ -822,7 +855,9 @@ sync_push_one() {
     diff=$(sync_mktemp)
     (cd "$repo" && sync_file_diff "$repo" "$path") > "$diff" || true
     set +e
-    eng=$(sync_engine_one "$kind" "$path" "$diff")
+    area_name=""
+    case "$id" in area:*) area_name=${id#area:} ;; esac
+    eng=$(sync_engine_one "$kind" "$path" "$diff" "$area_name")
     rc=$?
     set -e
     if [ "$rc" -eq 6 ] || { [ "$rc" -ne 0 ] && [ "${SYNC_OFFLINE:-0}" = "1" ]; }; then
@@ -1124,6 +1159,7 @@ sync_push_bot() {
 }
 
 cmd_push() {
+  sync_push_holds_guard
   sync_lock
   if [ -n "${OS_BOT:-}" ]; then
     sync_push_bot || { sync_unreached_flush; return 1; }

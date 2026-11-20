@@ -19,6 +19,8 @@ GitHub: before any change it reads the `gh` sign-in scopes (`host.sh whoami`). I
 
 GitHub, next: `host.sh plan-check` reads the org plan. A Free org stops with exit 3, before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Rulesets on private repos need a paid plan. Only an org owner sees the plan, and team setup needs one. A hidden plan stops it the same way, before any change: `Could not read the plan of the GitHub org <org>: sign in as an org owner, then run this again. Team setup needs an org owner.`
 
+GitHub, next: `host.sh org-settings` reads two org settings: the base permission and member repo creation. Both locked (base `none`, members cannot make repos): it prints `org settings: ok`. Else, when the sign-in is an org owner and the org is the company's own, it locks them (`host.sh org-lock`) and prints `org settings: base permission none, members cannot make repos (was: <base>, <on|off>)`. The org is the company's own when `org_own` is not `no` and every repo in the org is named `<slug>-*`. Else, or when the lock fails, it prints `org settings: ask an org owner to set Base permissions to "No permission" and turn off repository creation for members: https://github.com/organizations/<org>/settings/member_privileges`. It never stops. Forgejo skips this check.
+
 Every create verb is safe to run twice: an existing repo, team, member, grant or ruleset is ok.
 
 ### Flags
@@ -42,6 +44,7 @@ One `key=value` per line. Blank lines and lines starting with `#` are ignored. S
 | `runner` | `runs-on` label. Default `ubuntu-latest`. |
 | `admin_slug` | Person slug of the admin. Default: the first `role=admin`. |
 | `company_slug` | Used only when `company-profile.md` still has a placeholder slug. |
+| `org_own` | `no`: the org also holds repos that are not this company's. team-on then never changes the org settings. It prints the settings link. Default: empty. |
 | `company_name` | Used in the hand-off and the workspace fill. Default: the profile heading. |
 | `person.<slug>.name` | Page title, for example `Ada Admin`. |
 | `person.<slug>.github` | Git host username. |

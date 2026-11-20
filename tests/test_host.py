@@ -20,6 +20,8 @@ BODY = ROOT / "tests" / "host" / "fixtures" / "pr-body.txt"
 VERBS = [
     "whoami",
     "plan-check",
+    "org-settings",
+    "org-lock",
     "create-repo",
     "repo-access",
     "protect",
@@ -213,6 +215,8 @@ class GithubDryRunTests(unittest.TestCase):
         cases = [
             ("whoami.jsonl", ["whoami"], None),
             ("plan-check.jsonl", ["plan-check"], None),
+            ("org-settings.jsonl", ["org-settings"], None),
+            ("org-lock.jsonl", ["org-lock"], None),
             ("create-repo.jsonl", ["create-repo", "acme-os", "--private"], None),
             ("repo-access.jsonl", ["repo-access", "acme-os"], None),
             ("protect.jsonl", ["protect", "acme-os", "--approvals", "0", "--code-owners"], None),
@@ -377,6 +381,68 @@ class GithubSecondRunTests(unittest.TestCase):
         "Could not read the plan of the GitHub org acme: sign in as an org owner, then run this again. "
         "Team setup needs an org owner."
     )
+
+    def org(self, base=None, member_repos=None, role=None):
+        if base is not None:
+            (self.dir / "base").write_text(base)
+        if member_repos is not None:
+            (self.dir / "member-repos").write_text(json.dumps(member_repos))
+        if role is not None:
+            (self.dir / "role").write_text(role)
+
+    def test_org_settings_owner_sees_both_settings(self):
+        self.org(base="read", member_repos=True, role="admin")
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"base": "read", "member_repos": True, "owner": True})
+        self.assertEqual(self.writes(), [])
+
+    def test_org_settings_locked_keeps_false(self):
+        self.org(base="none", member_repos=False, role="admin")
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"base": "none", "member_repos": False, "owner": True})
+
+    def test_org_settings_not_owner_prints_nulls(self):
+        # A member sees no settings. A person with no membership is not an owner either.
+        self.org(role="member")
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"base": None, "member_repos": None, "owner": False})
+        (self.dir / "role").unlink()
+        proc = run(["org-settings"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["owner"], False)
+
+    def test_org_lock_sends_no_private_only_field(self):
+        self.org(base="write", member_repos=True, role="admin")
+        proc = run(["org-lock"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"ok": True})
+        sent = json.loads((self.dir / "last-input").read_text())
+        self.assertEqual(sent, {"default_repository_permission": "none", "members_can_create_repositories": False})
+        self.assertNotIn("private", json.dumps(sent))
+        after = run(["org-settings"], self.env)
+        self.assertEqual(json.loads(after.stdout), {"base": "none", "member_repos": False, "owner": True})
+
+    def test_org_lock_refused_exits_non_zero(self):
+        self.flag("org-lock-denied")
+        proc = run(["org-lock"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertNotIn('"ok"', proc.stdout)
+
+    def test_forgejo_org_settings_and_lock_make_no_call(self):
+        # 127.0.0.1:9 answers nothing: a call would fail.
+        env = {
+            "OS_HOST": "forgejo", "OS_HOST_URL": "http://127.0.0.1:9", "OS_ORG": "acme",
+            "OS_SLUG": "acme", "OS_PROFILE": str(COMPANY), "FORGEJO_TOKEN": "fj-not-a-real-token",
+        }
+        settings = run(["org-settings"], env)
+        self.assertEqual(settings.returncode, 0, settings.stderr)
+        self.assertEqual(json.loads(settings.stdout), {"base": None, "member_repos": None, "owner": None})
+        lock = run(["org-lock"], env)
+        self.assertEqual(lock.returncode, 0, lock.stderr)
+        self.assertEqual(json.loads(lock.stdout), {"ok": True, "skipped": "forgejo"})
 
     def test_plan_check_paid_plan_is_ok(self):
         self.set_plan("team")
@@ -1130,7 +1196,7 @@ class GhApiPathTests(unittest.TestCase):
                 "FAKE_GH_ARGV": str(log),
             }
             cases = [
-                ["whoami"], ["plan-check"], ["repo-access", "acme-os"], ["unprotect", "acme-os"],
+                ["whoami"], ["plan-check"], ["org-settings"], ["org-lock"], ["repo-access", "acme-os"], ["unprotect", "acme-os"],
                 ["protect", "acme-os", "--approvals", "0", "--code-owners"],
                 ["secret-exists", "OS_REVIEW_KEY"], ["user-access", "acme-os", "ada"],
                 ["team-create", "writers"], ["team-add", "writers", "ada"], ["team-remove", "writers", "ada"],
