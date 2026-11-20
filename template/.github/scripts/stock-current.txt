@@ -5,6 +5,7 @@
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
 043ba353a48274a81083547a39084e6059b56f1f skills/sync/CLI.md
+050d03386779e34fcb6bde56ac81f53dbad48159 skills/add-teammate/CLI.md
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
@@ -103,7 +104,6 @@ b30b6e0de2ad9dc8dd4744435a193397510c7856 skills/lint/CLI.md
 b401ef9b09785bfbefb51f6f345e99ac84963af7 skills/add-area/templates/_area/AGENTS.md
 b48e2800cf28411b7d0a9aa41a7b423961f4eaac skills/add-teammate/workspace/skills/README.md
 b542dbf1dd1771a0ce60c4211335383d4b3c07b2 skills/reports/report-prompt.md
-b5621b68026e1336e3d2687490585fe588e86d25 skills/add-teammate/CLI.md
 b6eeaa2d4a34c1653069585c6c5603da39a5bdbe skills/skill-creator/references/schemas.md
 b73813f57dbca23c891be75d11a09e59a0674309 skills/sync/v0logs.sh
 b782dba0641919dc67e563edb3424c51773e37d0 skills/upgrade/refresh.sh
@@ -137,7 +137,6 @@ da7e71384c885275a7ae0371f3721bc1613dd5df skills/upgrade/CLI.md
 dbf0207afdaeab5cf39ae56e8ecd02e27501e084 skills/skill-creator/eval-viewer/generate_review.py
 dc443b5695fbab0d811ba0f478ce705b68f4f082 skills/upgrade/SKILL.md
 dd14da71981108680b19461d82631b3f256b1f52 skills/nightly-review/SKILL.md
-dec1b9ba878fea3f1e904370b9e4ee86ee729207 skills/add-teammate/team-on.sh
 e1275b166b6c4011ad4d22e889a3cf7d4300720c skills/add-area/templates/finance/AGENTS.md
 e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
 e35986600c0803937991233fa382bf45517329fc skills/ingest/SKILL.md
@@ -164,6 +163,7 @@ f48eac444656ddc41204aac1760a217951ce609e skills/skill-creator/scripts/package_sk
 f53decd53c24b9c02d6606dbd1cf87c0f280e1e3 skills/upgrade/v0-hashes.txt
 f76d8c9c79e968c1c61268401c41f3f34e45ab7e skills/sync/jobs/windows-daily.xml
 f8b197c9b6cf53be765b9a1b44d21caa71c3a389 skills/skill-creator/assets/eval_review.html
+fb0203921d36119e45334b96efe2236de5001283 skills/add-teammate/team-on.sh
 fc1d44a9896c18eb8072f0083fcfb77a6c2ca7e2 skills/skill-creator/FOUNDATION.md
 fd1a6bbabdae0815b6d39562b13a89b2fd6ccd29 skills/nightly-review/review-prompt.md
 fdc3ac8fd6c0f73c30a2c60cbeaf9b02b50633de .github/scripts/host-read.sh

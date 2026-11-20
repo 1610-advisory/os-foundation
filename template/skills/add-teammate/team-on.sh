@@ -107,7 +107,8 @@ if [ "$HOST_KIND" = "github" ]; then
 
   # Org settings: base permission "No permission", and members cannot make repos.
   # team-on changes them only for an org owner, in an org that is the company's own:
-  # org_own is not "no", and every repo in the org is named <slug>-*. Else one line.
+  # org_own is not "no", and every repo in the org is named <slug>-* (or is the org's
+  # own .github repo: profile and defaults). Else one line.
   # It never stops team-on.
   org_page="${HOST_URL:-https://github.com}"
   org_page="${org_page%/}/organizations/${ORG}/settings/member_privileges"
@@ -127,7 +128,7 @@ if [ "$HOST_KIND" = "github" ]; then
     if [ "$(os_answer_or org_own "$ANSWERS" "")" != "no" ] && [ "$org_owner" = "true" ]; then
       if org_repos=$(os_host org-repos 2>/dev/null); then
         org_foreign=$(printf '%s' "$org_repos" | jq -r --arg p "${SLUG}-" \
-          'if (.repos | type) == "array" then [.repos[] | select(startswith($p) | not)] | length else -1 end' 2>/dev/null || printf '%s' -1)
+          'if (.repos | type) == "array" then [.repos[] | select((startswith($p) or . == ".github") | not)] | length else -1 end' 2>/dev/null || printf '%s' -1)
         [ "$org_foreign" != "0" ] || org_own=yes
       fi
     fi

@@ -32,6 +32,7 @@
 048b094bce1e4e016cdec096fa9cf44d0db5447e skills/add-teammate/team-on.sh
 04c715a94b8eb68868b15dd32d744dfc90adfc3a skills/add-area/templates/marketing/AGENTS.md
 04d06a5f7d71cb0492feef0da7144b0b23e15e68 skills/add-teammate/CLI.md
+050d03386779e34fcb6bde56ac81f53dbad48159 skills/add-teammate/CLI.md
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 060b565c2ba914b6b632244781cf3d1403eee186 skills/undo-run/SKILL.md
 066e595afb9062f532768c6d976a092cb46eb216 skills/add-teammate/team-on.sh
@@ -1049,6 +1050,7 @@ fa16b2cb6b3c1a4b6370da930f835c272c198345 skills/upgrade/upgrade.sh
 fa8c64f5242d2764e7810a9dfdc4d2e781e1cde6 skills/sync/sync.sh
 fabba7fdc6bb95b103fe13559e0022c514c6e669 skills/add-area/SKILL.md
 fac8432b8f1cbe37cb61ae5f132fe366a5cfe524 skills/add-area/templates/_area/CLAUDE.md
+fb0203921d36119e45334b96efe2236de5001283 skills/add-teammate/team-on.sh
 fb2e80260f9837058f79758c57e2db16ea1b3a38 skills/add-area/templates/admin/AGENTS.md
 fb333dc605f5a94e5b3f6c98b1d2ee4fc47704b3 skills/nightly-review/SKILL.md
 fb356d77a9423b020ed117b9e2cb20720ccb4d9b skills/sync/reapply.sh

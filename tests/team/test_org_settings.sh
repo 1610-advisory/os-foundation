@@ -100,6 +100,16 @@ run_on
 grep -qxF "$ASK" "$work/out" || { cat "$work/out" >&2; team_fail "not owner: no path line"; }
 patched && team_fail "not owner: team-on sent a PATCH"
 
+# The org's own .github repo (profile and defaults) does not block the lock.
+fresh
+printf '%s\n' read > "$work/gh/base"
+printf '%s\n' true > "$work/gh/member-repos"
+printf '%s\n' admin > "$work/gh/role"
+printf '%s\n' .github acme-os acme-sales > "$work/gh/repos"
+run_on
+grep -qxF "$LOCKED" "$work/out" || { cat "$work/out" "$work/err" >&2; team_fail ".github repo: no lock line"; }
+patched || team_fail ".github repo: org-lock did not PATCH the org"
+
 # An org with another company's repo: not the company's own. The path line, no PATCH.
 fresh
 printf '%s\n' read > "$work/gh/base"
