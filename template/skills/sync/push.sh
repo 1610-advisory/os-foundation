@@ -273,6 +273,50 @@ sync_owner_line() {
   fi
 }
 
+# Review 5: the model saw the holds file, so its reason or commit message may repeat it.
+# Prints three lines: 1 when a holds line (not a heading) is in the reason or message,
+# the heading of that line's section, and 1 when $3 is one of the file's headings.
+sync_holds_scan() {
+  local f=$1 reason=$2 msg=$3 rh=$4
+  R=$reason M=$msg RH=$rh awk '
+    BEGIN { r = ENVIRON["R"]; m = ENVIRON["M"]; rh = ENVIRON["RH"]; hit = 0; hh = ""; cur = ""; known = 0 }
+    /^[[:space:]]*#/ {
+      h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[[:space:]]+$/, "", h)
+      if (h != "" && h == rh) known = 1
+      cur = h; next
+    }
+    {
+      l = $0; sub(/^[[:space:]]*([-*+]|[0-9]+\.)?[[:space:]]*/, "", l); sub(/[[:space:]]+$/, "", l)
+      if (length(l) < 3 || hit) next
+      if (index(r, l) || index(m, l)) { hit = 1; hh = cur }
+    }
+    END { print hit; print hh; print known }' "$f"
+}
+
+# Make the engine's reason and message safe to keep and to send. Sets reason and msg.
+sync_holds_scrub() {
+  local decision=$1 path=$2 f out leak lh known rh=""
+  f=$(sync_push_holds_file) || return 0
+  case "$reason" in
+    "extra hold:"*) rh=${reason#extra hold:}; rh=${rh# } ;;
+  esac
+  out=$(sync_holds_scan "$f" "$reason" "$msg" "$rh")
+  leak=$(printf '%s\n' "$out" | sed -n 1p)
+  lh=$(printf '%s\n' "$out" | sed -n 2p)
+  known=$(printf '%s\n' "$out" | sed -n 3p)
+  if [ "$decision" = "hold" ] && [ -n "$rh" ]; then
+    # A heading the file does not have is model text: keep none of it.
+    if [ "$known" = "1" ]; then reason="extra hold: ${rh}"; else reason="extra hold"; fi
+  fi
+  [ "$leak" = "1" ] || return 0
+  if [ "$decision" = "hold" ]; then
+    if [ -n "$lh" ]; then reason="extra hold: ${lh}"; else reason="extra hold"; fi
+    msg=""
+  else
+    msg="Update ${path}"
+  fi
+}
+
 sync_engine_one() {
   local kind=$1
   local path=$2
@@ -945,6 +989,7 @@ sync_push_one() {
     decision=$(printf '%s' "$eng" | jq -r '.decision')
     reason=$(printf '%s' "$eng" | jq -r '.reason')
     msg=$(printf '%s' "$eng" | jq -r '.message')
+    sync_holds_scrub "$decision" "$path"
     # push-check.md rule 5 is a path rule here: the model does not get to overrule it.
     if [ "$decision" = "hold" ] && [ "$reason" = "$WORKSPACE_REASON" ] && sync_not_workspace_only "$kind" "$path"; then
       decision=commit

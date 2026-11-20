@@ -3088,6 +3088,30 @@ class ExtraHoldsTests(unittest.TestCase):
         self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
 
 
+    def test_model_text_from_the_list_is_never_kept_or_sent(self):
+        # Review 5: the reason and the commit message never carry a line of the list.
+        self.seed_origin()
+        self.capture()
+        self.default_file().write_text(HOLDS_TEXT)
+        (self.company / "a.md").write_text("LEAK-REASON\n")
+        (self.company / "b.md").write_text("LEAK-MESSAGE\n")
+        (self.company / "c.md").write_text("BAD-HEADING\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        status = self.sync("status").stdout
+        self.assertIn("a.md", status)
+        self.assertIn("extra hold: Fee lines", status)
+        self.assertIn("c.md", status)
+        self.assertNotIn("words the model made up", status)
+        self.assertIn("b.md", self.tree(SEAT_REF))
+        sent = run(["git", "--git-dir", str(self.tmp / "origin.git"), "log", "--all", "--format=%B"],
+                   env=self.env).stdout
+        self.assertIn("Update b.md", sent)
+        held = (self.home / ".config" / "acme-os" / "state").rglob("*")
+        local = "".join(p.read_text(errors="ignore") for p in held if p.is_file())
+        for text in (status, sent, local, self.sync_log(), result.stdout, result.stderr):
+            self.assertNotIn("HOLDS-PRIVATE-TEXT", text)
+
     def assert_stopped(self, result):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("push-holds: keep the extra holds file outside the company folder", result.stderr)
