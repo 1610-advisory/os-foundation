@@ -7,6 +7,7 @@ The text after this prompt gives you:
 ```
 REPO: root | area | workspace
 AREA: <the area's name> (only when REPO is area)
+OWNER: <slug> (<name>) of the person who owns the workspace (only when REPO is workspace)
 FILE: <path inside that repo>
 DIFF:
 <the diff of that one file>
@@ -27,7 +28,7 @@ Apply them in this order. The first rule that matches decides.
    - A file under an area's `drafts/` folder. That folder is shared copy in progress for the area: it goes to the area with the other notes, and everyone who reads the area sees it. Go on to rule 6. (A person's private draft belongs in their workspace `drafts/`.)
 
    Rules 1, 3 and 4 still apply to both folders.
-6. **A named person's job outside admin.** A note about a named person's job, pay, performance, hiring or firing (a review, a raise, a warning, a plan to hire or let go). In `root`, and in any area other than `admin` (the owners-only area; see the `AREA:` line): hold. In `workspace`: hold only when it is about another named person, not the person who owns the workspace. Reason, exactly: `person note: belongs in admin`. A role or a task with a name ("Mia owns the March report") is fine. In the `admin` area, go on.
+6. **A named person's job outside admin.** A note about a named person's job, pay, performance, hiring or firing (a review, a raise, a warning, a plan to hire or let go). In `root`, and in any area other than `admin` (the owners-only area; see the `AREA:` line): hold. In `workspace`: hold only when it is about a named person other than the owner on the `OWNER:` line. A note about the owner's own job is fine there. No `OWNER:` line: hold. Reason, exactly: `person note: belongs in admin`. A role or a task with a name ("Mia owns the March report") is fine. In the `admin` area, go on.
 7. **Leadership and access at the shared root.** In `root` only. Everyone in the company reads the root. Hold a file that holds any of these:
    - systems or tools with their admins, logins, access levels or ways to connect (a "who has access to what" list, a "data access we need" table);
    - the company's accounts: host org, private repo names, plans, billing or ownership;

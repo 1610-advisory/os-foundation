@@ -3088,6 +3088,41 @@ class ExtraHoldsTests(unittest.TestCase):
         self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
 
 
+    def sub_repo(self, rel):
+        bare = self.tmp / (rel.replace("/", "-") + ".git")
+        path = self.company / rel
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        path.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(path)], env=self.env, check=True)
+        run(["git", "-C", str(path), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (path / "README.md").write_text("seed\n")
+        run(["git", "-C", str(path), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+        return path
+
+    def test_workspace_gets_owner_and_area_gets_area(self):
+        # Review 3: rule 6 needs to know whose workspace it is, and which area.
+        self.seed_origin()
+        (self.company / ".gitignore").write_text("users/\nareas/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore")
+        self.git("push", "-q", "origin", "main")
+        ws = self.sub_repo("users/mia")
+        area = self.sub_repo("areas/sales")
+        log = self.capture()
+        (ws / "goals.md").write_text("my goals\n")
+        (area / "plan.md").write_text("a sales plan\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prompts = log.read_text().split("\n----\n")
+        ws_prompt = [p for p in prompts if "FILE: goals.md" in p]
+        area_prompt = [p for p in prompts if "FILE: plan.md" in p]
+        self.assertTrue(ws_prompt and area_prompt, prompts)
+        self.assertIn("\nREPO: workspace\nOWNER: mia (Mia Member)\nFILE: goals.md\n", ws_prompt[0])
+        self.assertIn("\nREPO: area\nAREA: sales\nFILE: plan.md\n", area_prompt[0])
+        self.assertNotIn("\nOWNER: ", area_prompt[0].split("```")[-1])
+
 class PersonNoteRuleTests(unittest.TestCase):
     """v1.0.6 (D9 hold 2): the push check holds a named person's job note outside admin."""
 
@@ -3099,7 +3134,7 @@ class PersonNoteRuleTests(unittest.TestCase):
         self.assertLess(rule, check.index("**Leadership and access at the shared root.**"))
         self.assertLess(rule, check.index("**Everything else:** commit."))
         for words in ("job, pay, performance, hiring or firing", "`admin` (the owners-only area",
-                      "not the person who owns the workspace"):
+                      "other than the owner on the `OWNER:` line", "No `OWNER:` line: hold."):
             self.assertIn(words, check)
 
     def test_fixtures_have_fake_names_and_an_answer_each(self):
@@ -3128,11 +3163,13 @@ class PersonNoteRuleTests(unittest.TestCase):
                 continue
             name, repo, decision, reason = line.split("\t")
             kind, _, area = repo.partition(":")
+            owner = ""
             if kind == "workspace":
-                area = ""
+                owner, area = area + " (Mia Member)", ""
             path = "notes/" + name
             body = "".join("+" + l + "\n" for l in (base / name).read_text().splitlines())
             prompt = check + "\nREPO: %s\n" % kind + ("AREA: %s\n" % area if area else "")
+            prompt += "OWNER: %s\n" % owner if owner else ""
             prompt += "FILE: %s\nDIFF:\n--- /dev/null\n+++ b/%s\n%s" % (path, path, body)
             out = subprocess.run(shlex.split(os.environ["OS_LIVE_ENGINE"]), input=prompt,
                                  capture_output=True, text=True, timeout=180)

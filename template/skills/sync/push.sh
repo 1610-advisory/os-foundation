@@ -227,11 +227,34 @@ sync_push_holds_guard() {
   esac
 }
 
+# v1.0.6 (review 3): who owns this workspace, for push-check rule 6: "<slug> (<name>)".
+# The name is the title (first "# " line) of the person's page in people/, else the slug.
+sync_owner_line() {
+  local me f name=""
+  me=$(sync_me)
+  [ -n "$me" ] || return 0
+  for f in "$SYNC_ROOT"/people/*.md; do
+    [ -f "$f" ] || continue
+    if awk 'BEGIN { fm = 0 } /^---[[:space:]]*$/ { fm++; if (fm == 2) exit; next }
+      fm == 1 && /^slug:/ { sub(/^slug:[[:space:]]*/, ""); sub(/[[:space:]]*#.*$/, ""); gsub(/["'\'']/, ""); print; exit }' "$f" \
+      | grep -qxF "$me"; then
+      name=$(awk 'BEGIN { fm = 0 } /^---[[:space:]]*$/ { fm++; next } fm >= 2 && /^# / { sub(/^# /, ""); print; exit }' "$f")
+      break
+    fi
+  done
+  if [ -n "$name" ] && [ "$name" != "Title" ]; then
+    printf '%s (%s)' "$me" "$name"
+  else
+    printf '%s' "$me"
+  fi
+}
+
 sync_engine_one() {
   local kind=$1
   local path=$2
   local diff=$3
   local area=${4:-}
+  local owner=${5:-}
   local cmd prompt out err pid elapsed limit rc line n holds
   cmd=$(sync_engine_cmd)
   [ -n "$cmd" ] || return 3
@@ -255,6 +278,7 @@ sync_engine_one() {
     printf '\nREPO: %s\n' "$kind"
     # v1.0.6: the area's name, so the check can tell the owners-only area (admin) apart.
     [ -z "$area" ] || printf 'AREA: %s\n' "$area"
+    [ -z "$owner" ] || printf 'OWNER: %s\n' "$owner"
     printf 'FILE: %s\nDIFF:\n' "$path"
     cat "$diff"
   } > "$prompt"
@@ -711,7 +735,7 @@ sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg area_name
+  local changed hits path rule reason added commit_files messages diff eng decision msg area_name owner_line
   local scan_rc v0open="" missing
   case "$id" in
     root) kind=root ;;
@@ -856,8 +880,12 @@ sync_push_one() {
     (cd "$repo" && sync_file_diff "$repo" "$path") > "$diff" || true
     set +e
     area_name=""
-    case "$id" in area:*) area_name=${id#area:} ;; esac
-    eng=$(sync_engine_one "$kind" "$path" "$diff" "$area_name")
+    owner_line=""
+    case "$id" in
+      area:*) area_name=${id#area:} ;;
+      workspace) owner_line=$(sync_owner_line) ;;
+    esac
+    eng=$(sync_engine_one "$kind" "$path" "$diff" "$area_name" "$owner_line")
     rc=$?
     set -e
     if [ "$rc" -eq 6 ] || { [ "$rc" -ne 0 ] && [ "${SYNC_OFFLINE:-0}" = "1" ]; }; then
