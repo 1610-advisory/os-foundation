@@ -1,6 +1,6 @@
 ---
 name: sync
-description: Keeps this computer and the company host in step. Pulls every 15 minutes, pushes each night through a secret scan and a commit-or-hold check, and proposes rules changes on their own pull requests. Use at the start of every session [team], when someone asks "why was my file held", "did my work go up", "sync now", "propose this rule", or when a teammate's computer needs its jobs.
+description: Keeps this computer and the company host in step. Pulls every 15 minutes, pushes each night through a secret scan and a commit-or-hold check, and proposes rules changes on their own pull requests. Use at the start of every session [team], at sign-off (the end of a task or session), when someone asks "why was my file held", "did my work go up", "sync now", "propose this rule", or when a teammate's computer needs its jobs.
 ---
 
 # Sync
@@ -38,6 +38,16 @@ Before other work, from the company root:
 
 If the pull fails, say so and go on. If it prints `another sync is running`, tell the person that line, try once more later, then stop. Never delete the lock. Never fix git by hand. No vendor hooks. Chat-only agents skip this: they read from the host.
 
+## Sign-off and "sync now"
+
+Push runs at three moments, with the same checks each time (D11):
+
+- **Sign-off.** At the end of a task or session, run `skills/sync/sync.sh push`. This is the normal way notes go up.
+- **"Sync now."** When the person asks, run the same command.
+- **Each night.** The job is the safety net for a session closed with no sign-off.
+
+Tell the person the lines it prints: each `pr:`, `waiting for owner:` and `offline:` line, and each held file with its reason (`status` lists them). Do not push after every turn: other computers pull every 15 minutes, each push costs a model check, and notes in the middle of a task are not finished. A rules change never waits for the push: propose it at once (below).
+
 ## When a file is held
 
 Say what happened and the fix. Offer to do it. If the person says no, the file stays held here.
@@ -50,6 +60,8 @@ Say what happened and the fix. Offer to do it. If the person says no, the file s
 | Private source | Rewrite as a plain company fact with no quote and no source, or move it to the workspace. |
 | Belongs in the workspace | Move it to `users/<person>/`. |
 | `belongs in an area (admin?)` | Leadership, systems and access, billing or ownership. Move it to `areas/admin/` (or the area it is about). Never share it to the root. |
+| `person note: belongs in admin` | A named person's job, pay, performance, hiring or firing. Move it to `areas/admin/`. In the workspace: keep only your own; move a note about someone else to `areas/admin/`. |
+| `extra hold: <heading>` | It matches a hold the owner of this computer set (`push-holds.md`, see `CLI.md`). Remove that part, or keep the file here. Never show or copy the holds file. |
 | `root is for rules, company memory and company facts: ...` | A meeting, note, decision or log at the root. Move it to the area it is about (company-wide meetings: `areas/everyone/`), or to the workspace. Logs of root work go to the workspace `memory/logs/`. If the person wants everyone in the company to read it: say so in plain words, wait for a clear yes, then `propose share-<topic> <file>`. |
 | Company fact in a profile | Move the fact to an area note. The profile keeps voice and preferences. |
 | `binary file: add it by hand with a pull request` | Write a note with a link to the file's own system. If it must be in the repo, ask the admin. |
@@ -110,7 +122,7 @@ A failed review blocks the merge. Read the findings in plain words and offer a f
 
 ## Commands
 
-From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs as a job; by hand only when the person asks. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
+From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs at sign-off, when the person says "sync now", and as the nightly job. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
 
 Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Exit 2: `propose` failed: `propose refused: secret scan error`, or `propose fail <repo>: <step>` for a `fetch`, `worktree`, `commit`, `push` or `open-pr` step, then one `opened: <repo> <n>` line for each pull request this run already opened. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 

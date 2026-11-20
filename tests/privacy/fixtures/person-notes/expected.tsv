@@ -1,0 +1,10 @@
+# file	repo	decision	reason (made-up names and company; a bench for the push check)
+review-root.md	root	hold	person note: belongs in admin
+raise-sales.md	area:sales	hold	person note: belongs in admin
+hire-admin.md	area:admin	commit	ok
+let-go-sales.md	area:sales	hold	person note: belongs in admin
+own-goals-workspace.md	workspace:mia	commit	ok
+other-workspace.md	workspace:mia	hold	person note: belongs in admin
+task-owner-sales.md	area:sales	commit	ok
+roles-root.md	root	commit	ok
+pay-root.md	root	hold	person note: belongs in admin

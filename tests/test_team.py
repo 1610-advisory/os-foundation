@@ -66,6 +66,9 @@ class TeamScripts(unittest.TestCase):
     def test_teams(self):
         run_script("test_teams.sh")
 
+    def test_org_settings(self):
+        run_script("test_org_settings.sh")
+
 
 class UpgradeScripts(unittest.TestCase):
     def test_rules_merge(self):

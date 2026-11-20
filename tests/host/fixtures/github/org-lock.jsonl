@@ -1,0 +1,1 @@
+{"body":{"default_repository_permission":"none","members_can_create_repositories":false},"method":"PATCH","path":"/orgs/acme"}

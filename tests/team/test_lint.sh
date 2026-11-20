@@ -145,4 +145,67 @@ set -e
 [ "$rc" -eq 1 ] || team_fail "dangling link should fail"
 printf '%s\n' "$out" | grep -q 'target is missing' || team_fail "dangling link was accepted"
 
+# Org settings: team on GitHub, not with --ci. A stub host prints FAKE_ORG_JSON.
+mkdir -p "$work/hostbin"
+cat > "$work/hostbin/host.sh" << 'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$FAKE_HOST_LOG"
+case "$1" in
+  org-settings)
+    if [ -n "${FAKE_ORG_FAIL:-}" ]; then
+      printf '%s\n' "host is offline" >&2
+      exit 5
+    fi
+    printf '%s\n' "$FAKE_ORG_JSON"
+    ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod 700 "$work/hostbin/host.sh"
+gho="$work/gho"
+cp -R "$pass" "$gho"
+awk '{ print } /^host: none$/ { print "org: acme" }' "$pass/company-profile.md" \
+  | sed 's/^host: none$/host: github/' > "$gho/company-profile.md"
+grep -qx 'org: acme' "$gho/company-profile.md" || team_fail "org line was not added"
+grep -qx 'host: github' "$gho/company-profile.md" || team_fail "host line was not changed"
+page="https://github.com/organizations/acme/settings/member_privileges"
+export OS_HOST_SH="$work/hostbin/host.sh" FAKE_HOST_LOG="$work/host.log" OS_LINT_NO_GROK=1
+: > "$FAKE_HOST_LOG"
+lint_org() {
+  set +e
+  out=$(OS_VERSION_URL="file://$work/unrel" "$lint" "$@" --root "$gho")
+  rc=$?
+  set -e
+}
+# Open settings: two findings with the settings link.
+FAKE_ORG_JSON='{"base":"read","member_repos":true,"owner":true}' lint_org
+[ "$rc" -eq 1 ] || team_fail "open org settings should exit 1 ($rc): $out"
+printf '%s\n' "$out" | grep -qxF "finding: org settings: base permission is read, not \"No permission\": $page" || team_fail "missing base finding: $out"
+printf '%s\n' "$out" | grep -qxF "finding: org settings: members can make repos. Turn it off: $page" || team_fail "missing member repos finding: $out"
+# Locked: nothing about the org.
+FAKE_ORG_JSON='{"base":"none","member_repos":false,"owner":true}' lint_org
+[ "$rc" -eq 0 ] || team_fail "locked org should pass ($rc): $out"
+if printf '%s\n' "$out" | grep -q 'org settings'; then
+  team_fail "locked org printed a line: $out"
+fi
+# Not an owner: the settings are hidden. One notice, not a finding.
+want_notice="notice: org settings: could not read them (sign in as an org owner, or you are offline). An org owner checks them: $page"
+FAKE_ORG_JSON='{"base":null,"member_repos":null,"owner":false}' lint_org
+[ "$rc" -eq 0 ] || team_fail "hidden settings should not be a finding ($rc): $out"
+[ "$(printf '%s\n' "$out" | grep -c 'org settings')" -eq 1 ] || team_fail "hidden settings: want one line: $out"
+printf '%s\n' "$out" | grep -qxF "$want_notice" || team_fail "missing not-owner notice: $out"
+# Offline: the same notice.
+FAKE_ORG_FAIL=1 lint_org
+[ "$rc" -eq 0 ] || team_fail "offline should not be a finding ($rc): $out"
+printf '%s\n' "$out" | grep -qxF "$want_notice" || team_fail "missing offline notice: $out"
+# --ci: no host call, no org line.
+: > "$FAKE_HOST_LOG"
+FAKE_ORG_JSON='{"base":"read","member_repos":true,"owner":true}' lint_org --ci
+[ "$rc" -eq 0 ] || team_fail "--ci must skip the org check ($rc): $out"
+[ ! -s "$FAKE_HOST_LOG" ] || team_fail "--ci called the host: $(cat "$FAKE_HOST_LOG")"
+# host: none makes no host call either.
+FAKE_ORG_JSON='{"base":"read","member_repos":true,"owner":true}' OS_VERSION_URL="file://$work/unrel" "$lint" --root "$pass" >/dev/null || true
+[ ! -s "$FAKE_HOST_LOG" ] || team_fail "host none called the host: $(cat "$FAKE_HOST_LOG")"
+unset OS_HOST_SH
+
 printf '%s\n' "PASS lint"

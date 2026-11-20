@@ -26,11 +26,13 @@ Checks the company folder. Exit 0 when nothing is wrong. Exit 1 when there is a 
 5. Agent rules files are under 10,000 characters: `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, and `bots/*/BOT.md`, at the root and in each area. Other files under `skills/` are not sized here. `skill-creator` ships a longer `SKILL.md` on purpose.
 6. No `{{...}}` outside `skills/` and `library/` (the admin's private repo of copies).
 7. A simple check that `users/<person>/profile/PROFILE.md` does not contain the company slug or the company name from the profile heading. The nightly check is the real one.
+8. Team on GitHub, not with `--ci`: the org settings, read by `skills/_host/host.sh org-settings`. The base permission must be `none` ("No permission"). Members must not be able to make repos. Each open setting is a finding with the settings link. `OS_LINT_NO_HOST=1` skips this check.
 
 ## Notices (not findings, not with `--ci`)
 
 - One line when `https://1610.sh/os/version` is a newer stable semver than `os_version`. Timeout 5 seconds. Offline is silent. The body is one `text/plain` line: `vX.Y.Z`, or `unreleased` (no notice). A prerelease is never newer than a stable.
 - One `notice: grok:` line per folder (the company folder and each area repo) that the Grok CLI does not trust, when `grok` and `jq` are installed. Grok loads none of an untrusted folder's rules. `OS_LINT_NO_GROK=1` skips it.
+- One `notice: org settings:` line when lint cannot read the org settings: the sign-in is not an org owner, or the host is offline. Team on GitHub only.
 - One bot-offer sentence after 14 days of use, once, when `bots` is off. State files live under `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/state/`. There is no dream offer.
 
 ## Exit codes
@@ -54,6 +56,8 @@ finding: switch: dream
 finding: size: AGENTS.md
 finding: placeholder: company-profile.md
 finding: profile: users/ada/profile/PROFILE.md
+finding: org settings: base permission is read, not "No permission": https://github.com/organizations/acme/settings/member_privileges
+finding: org settings: members can make repos. Turn it off: https://github.com/organizations/acme/settings/member_privileges
 ```
 
 Notices:
@@ -61,5 +65,6 @@ Notices:
 ```
 notice: a newer os-foundation version exists: vX.Y.Z
 notice: grok: <folder> is not trusted, so Grok reads none of its rules there. Start grok in that folder once and trust it.
+notice: org settings: could not read them (sign in as an org owner, or you are offline). An org owner checks them: https://github.com/organizations/acme/settings/member_privileges
 offer: You have used this OS for two weeks. A bot can run jobs for you. Ask to add one.
 ```

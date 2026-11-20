@@ -750,6 +750,8 @@ Verbs:
   team-remove <team> <user>
   team-repos <team>
   org-repos
+  org-settings                   (base permission, member repo creation, owner)
+  org-lock                       (base permission none, members cannot make repos)
   grant <name> <user|team:<team>> <read|write|admin>
   revoke <name> <user|team:<team>>
   org-remove <user>

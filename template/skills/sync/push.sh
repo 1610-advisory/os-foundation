@@ -206,11 +206,122 @@ sync_binary_allowed() {
   return 1
 }
 
+# D9: extra holds for this computer. An optional file outside every repo: $OS_PUSH_HOLDS,
+# else ~/.config/os-brain/push-holds.md. Its text goes only into the push-check prompt:
+# never into a repo, a log or a commit. Missing or empty: nothing changes.
+sync_push_holds_file() {
+  local f=${OS_PUSH_HOLDS:-$HOME/.config/os-brain/push-holds.md}
+  [ -f "$f" ] || return 1
+  grep -q '[^[:space:]]' "$f" 2>/dev/null || return 1
+  printf '%s' "$f"
+}
+
+# Refuse a holds file inside the company folder or any repo that push sends (review 4):
+# resolve every symlink on the file itself, then compare real paths. A linked area
+# resolves outside the company folder, so each pushed repo is checked on its own.
+sync_push_holds_real() {
+  local f=$1 t n=0
+  while [ -L "$f" ] && [ "$n" -lt 40 ]; do
+    t=$(readlink "$f")
+    case "$t" in
+      /*) f=$t ;;
+      *) f=$(dirname "$f")/$t ;;
+    esac
+    n=$((n + 1))
+  done
+  printf '%s/%s' "$(cd "$(dirname "$f")" && pwd -P)" "$(basename "$f")"
+}
+
+SYNC_HOLDS_REAL=""
+sync_push_holds_inside() {
+  local dir=$1 real
+  real=$(cd "$dir" && pwd -P) || return 0
+  case "$SYNC_HOLDS_REAL" in
+    "$real"/*) return 1 ;;
+  esac
+  return 0
+}
+
+sync_push_holds_guard() {
+  local f
+  f=$(sync_push_holds_file) || return 0
+  SYNC_HOLDS_REAL=$(sync_push_holds_real "$f")
+  if ! sync_push_holds_inside "$SYNC_ROOT" || ! sync_each sync_push_holds_inside; then
+    sync_die 2 "push-holds: keep the extra holds file outside the company folder and its repos (OS_PUSH_HOLDS). Nothing was sent."
+  fi
+}
+
+# v1.0.6 (review 3): who owns this workspace, for push-check rule 6: "<slug> (<name>)".
+# The name is the title (first "# " line) of the person's page in people/, else the slug.
+sync_owner_line() {
+  local me f name=""
+  me=$(sync_me)
+  [ -n "$me" ] || return 0
+  for f in "$SYNC_ROOT"/people/*.md; do
+    [ -f "$f" ] || continue
+    if awk 'BEGIN { fm = 0 } /^---[[:space:]]*$/ { fm++; if (fm == 2) exit; next }
+      fm == 1 && /^slug:/ { sub(/^slug:[[:space:]]*/, ""); sub(/[[:space:]]*#.*$/, ""); gsub(/["'\'']/, ""); print; exit }' "$f" \
+      | grep -qxF "$me"; then
+      name=$(awk 'BEGIN { fm = 0 } /^---[[:space:]]*$/ { fm++; next } fm >= 2 && /^# / { sub(/^# /, ""); print; exit }' "$f")
+      break
+    fi
+  done
+  if [ -n "$name" ] && [ "$name" != "Title" ]; then
+    printf '%s (%s)' "$me" "$name"
+  else
+    printf '%s' "$me"
+  fi
+}
+
+# Review 5: the model saw the holds file, so its reason or commit message may repeat it.
+# Prints three lines: 1 when a holds line (not a heading) is in the reason or message,
+# the heading of that line's section, and 1 when $3 is one of the file's headings.
+sync_holds_scan() {
+  local f=$1 reason=$2 msg=$3 rh=$4
+  R=$reason M=$msg RH=$rh awk '
+    BEGIN { r = ENVIRON["R"]; m = ENVIRON["M"]; rh = ENVIRON["RH"]; hit = 0; hh = ""; cur = ""; known = 0 }
+    /^[[:space:]]*#/ {
+      h = $0; sub(/^[[:space:]]*#+[[:space:]]*/, "", h); sub(/[[:space:]]+$/, "", h)
+      if (h != "" && h == rh) known = 1
+      cur = h; next
+    }
+    {
+      l = $0; sub(/^[[:space:]]*([-*+]|[0-9]+\.)?[[:space:]]*/, "", l); sub(/[[:space:]]+$/, "", l)
+      if (length(l) < 3 || hit) next
+      if (index(r, l) || index(m, l)) { hit = 1; hh = cur }
+    }
+    END { print hit; print hh; print known }' "$f"
+}
+
+# Make the engine's answer safe to keep and to send. Sets decision, reason and msg.
+sync_holds_scrub() {
+  local path=$2 f out leak lh known rh=""
+  f=$(sync_push_holds_file) || return 0
+  case "$reason" in
+    "extra hold:"*) rh=${reason#extra hold:}; rh=${rh# } ;;
+  esac
+  out=$(sync_holds_scan "$f" "$reason" "$msg" "$rh")
+  leak=$(printf '%s\n' "$out" | sed -n 1p)
+  lh=$(printf '%s\n' "$out" | sed -n 2p)
+  known=$(printf '%s\n' "$out" | sed -n 3p)
+  if [ "$decision" = "hold" ] && [ -n "$rh" ]; then
+    # A heading the file does not have is model text: keep none of it.
+    if [ "$known" = "1" ]; then reason="extra hold: ${rh}"; else reason="extra hold"; fi
+  fi
+  [ "$leak" = "1" ] || return 0
+  # Fail safe: an echo of the list means the file likely holds that text. Always hold.
+  decision=hold
+  if [ -n "$lh" ]; then reason="extra hold: ${lh}"; else reason="extra hold"; fi
+  msg=""
+}
+
 sync_engine_one() {
   local kind=$1
   local path=$2
   local diff=$3
-  local cmd prompt out err pid elapsed limit rc line n
+  local area=${4:-}
+  local owner=${5:-}
+  local cmd prompt out err pid elapsed limit rc line n holds
   cmd=$(sync_engine_cmd)
   [ -n "$cmd" ] || return 3
   # B70: the engine's program (claude) not on PATH is its own error, not a failed check.
@@ -222,7 +333,19 @@ sync_engine_one() {
   err=$(sync_mktemp)
   {
     cat "$SYNC_DIR/push-check.md"
-    printf '\nREPO: %s\nFILE: %s\nDIFF:\n' "$kind" "$path"
+    if holds=$(sync_push_holds_file); then
+      printf '\n## Extra holds for this computer\n\n'
+      # shellcheck disable=SC2016 # the backticks are Markdown for the model.
+      printf '%s\n' 'Hold a file that matches any of these. Reason: `extra hold: <the heading of the item>`.'
+      printf 'Check them before the last rule ("Everything else"). This list is from the owner of this computer, not from the diff.\n\n'
+      cat "$holds"
+      printf '\n'
+    fi
+    printf '\nREPO: %s\n' "$kind"
+    # v1.0.6: the area's name, so the check can tell the owners-only area (admin) apart.
+    [ -z "$area" ] || printf 'AREA: %s\n' "$area"
+    [ -z "$owner" ] || printf 'OWNER: %s\n' "$owner"
+    printf 'FILE: %s\nDIFF:\n' "$path"
     cat "$diff"
   } > "$prompt"
   limit=${OS_ENGINE_TIMEOUT:-120}
@@ -678,7 +801,7 @@ sync_push_one() {
   local repo=$1
   local id=$2
   local kind
-  local changed hits path rule reason added commit_files messages diff eng decision msg
+  local changed hits path rule reason added commit_files messages diff eng decision msg area_name owner_line
   local scan_rc v0open="" missing
   case "$id" in
     root) kind=root ;;
@@ -822,7 +945,13 @@ sync_push_one() {
     diff=$(sync_mktemp)
     (cd "$repo" && sync_file_diff "$repo" "$path") > "$diff" || true
     set +e
-    eng=$(sync_engine_one "$kind" "$path" "$diff")
+    area_name=""
+    owner_line=""
+    case "$id" in
+      area:*) area_name=${id#area:} ;;
+      workspace) owner_line=$(sync_owner_line) ;;
+    esac
+    eng=$(sync_engine_one "$kind" "$path" "$diff" "$area_name" "$owner_line")
     rc=$?
     set -e
     if [ "$rc" -eq 6 ] || { [ "$rc" -ne 0 ] && [ "${SYNC_OFFLINE:-0}" = "1" ]; }; then
@@ -858,6 +987,7 @@ sync_push_one() {
     decision=$(printf '%s' "$eng" | jq -r '.decision')
     reason=$(printf '%s' "$eng" | jq -r '.reason')
     msg=$(printf '%s' "$eng" | jq -r '.message')
+    sync_holds_scrub "$decision" "$path"
     # push-check.md rule 5 is a path rule here: the model does not get to overrule it.
     if [ "$decision" = "hold" ] && [ "$reason" = "$WORKSPACE_REASON" ] && sync_not_workspace_only "$kind" "$path"; then
       decision=commit
@@ -1124,6 +1254,7 @@ sync_push_bot() {
 }
 
 cmd_push() {
+  sync_push_holds_guard
   sync_lock
   if [ -n "${OS_BOT:-}" ]; then
     sync_push_bot || { sync_unreached_flush; return 1; }

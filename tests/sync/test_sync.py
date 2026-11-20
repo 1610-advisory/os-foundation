@@ -2987,6 +2987,261 @@ class SyncFixTests(unittest.TestCase):
         self.assertNotIn("sync/mia", heads.stdout)
 
 
+CAPTURE = ROOT / "tests" / "fakes" / "engine-capture.sh"
+HOLDS_TEXT = "## Fee lines\nA line that names what we charge (HOLDS-PRIVATE-TEXT).\n"
+
+
+class ExtraHoldsTests(unittest.TestCase):
+    """v1.0.6 (D9 hold 1): extra holds for this computer, from a file outside every repo."""
+
+    setUp = SyncFixTests.setUp
+    tearDown = SyncFixTests.tearDown
+    sync = SyncFixTests.sync
+    seed_origin = SyncFixTests.seed_origin
+    git = SyncFixTests.git
+    sync_log = SyncFixTests.sync_log
+    tree = SyncFixTests.tree
+
+    def capture(self):
+        log = self.tmp / "prompts.txt"
+        self.env["OS_SYNC_ENGINE"] = str(CAPTURE)
+        self.env["OS_TEST_PROMPT_LOG"] = str(log)
+        return log
+
+    def default_file(self):
+        f = self.home / ".config" / "os-brain" / "push-holds.md"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        return f
+
+    def test_present_goes_into_the_prompt_and_holds(self):
+        self.seed_origin()
+        log = self.capture()
+        self.default_file().write_text(HOLDS_TEXT)
+        (self.company / "ok.md").write_text("a shop note\n")
+        (self.company / "fees.md").write_text("EXTRA-LIST-MATCH a price line\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prompt = log.read_text()
+        self.assertIn("## Extra holds for this computer", prompt)
+        self.assertIn("Hold a file that matches any of these. Reason: `extra hold: <the heading of the item>`.", prompt)
+        self.assertIn("HOLDS-PRIVATE-TEXT", prompt)
+        # The list comes before the file, so the diff cannot pose as the list.
+        self.assertLess(prompt.index("## Extra holds for this computer"), prompt.index("\nREPO: root\n"))
+        tree = self.tree(SEAT_REF)
+        self.assertIn("ok.md", tree)
+        self.assertNotIn("fees.md", tree)
+        status = self.sync("status").stdout
+        self.assertIn("extra hold: Fee lines", status)
+        # The list's text never reaches a log, a reason, a commit or the host.
+        everything = [status, self.sync_log(), result.stdout, result.stderr,
+                      self.git("log", "--all", "--format=%B").stdout,
+                      run(["git", "--git-dir", str(self.tmp / "origin.git"), "log", "--all", "-p"], env=self.env).stdout]
+        for text in everything:
+            self.assertNotIn("HOLDS-PRIVATE-TEXT", text)
+
+    def test_env_path_wins(self):
+        self.seed_origin()
+        log = self.capture()
+        other = self.tmp / "elsewhere" / "holds.md"
+        other.parent.mkdir()
+        other.write_text("## Other list\nENV-HOLDS-TEXT\n")
+        self.default_file().write_text(HOLDS_TEXT)
+        self.env["OS_PUSH_HOLDS"] = str(other)
+        (self.company / "ok.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prompt = log.read_text()
+        self.assertIn("ENV-HOLDS-TEXT", prompt)
+        self.assertNotIn("HOLDS-PRIVATE-TEXT", prompt)
+
+    def test_missing_changes_nothing(self):
+        self.seed_origin()
+        log = self.capture()
+        (self.company / "ok.md").write_text("a shop note EXTRA-LIST-MATCH\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("Extra holds for this computer", log.read_text())
+        self.assertIn("ok.md", self.tree(SEAT_REF))
+
+    def test_empty_changes_nothing(self):
+        self.seed_origin()
+        log = self.capture()
+        self.default_file().write_text("\n  \n")
+        (self.company / "ok.md").write_text("a shop note EXTRA-LIST-MATCH\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("Extra holds for this computer", log.read_text())
+        self.assertIn("ok.md", self.tree(SEAT_REF))
+
+    def test_a_list_inside_the_company_folder_stops_the_push(self):
+        self.seed_origin()
+        self.capture()
+        inside = self.company / "push-holds.md"
+        inside.write_text(HOLDS_TEXT)
+        self.env["OS_PUSH_HOLDS"] = str(inside)
+        (self.company / "ok.md").write_text("a shop note\n")
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("push-holds: keep the extra holds file outside the company folder", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+        self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
+
+
+    def test_model_text_from_the_list_is_never_kept_or_sent(self):
+        # Review 5: the reason and the commit message never carry a line of the list.
+        self.seed_origin()
+        self.capture()
+        self.default_file().write_text(HOLDS_TEXT)
+        (self.company / "a.md").write_text("LEAK-REASON\n")
+        (self.company / "b.md").write_text("LEAK-MESSAGE\n")
+        (self.company / "c.md").write_text("BAD-HEADING\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        status = self.sync("status").stdout
+        self.assertIn("a.md", status)
+        self.assertIn("extra hold: Fee lines", status)
+        self.assertIn("c.md", status)
+        self.assertNotIn("words the model made up", status)
+        # The check said commit, but its message repeated the list: held, never sent.
+        self.assertIn("b.md", status)
+        self.assertNotIn("b.md", self.tree(SEAT_REF))
+        self.assertTrue((self.company / "b.md").exists())
+        self.assertEqual(status.count("extra hold: Fee lines"), 2, status)
+        sent = run(["git", "--git-dir", str(self.tmp / "origin.git"), "log", "--all", "--format=%B"],
+                   env=self.env).stdout
+        held = (self.home / ".config" / "acme-os" / "state").rglob("*")
+        local = "".join(p.read_text(errors="ignore") for p in held if p.is_file())
+        for text in (status, sent, local, self.sync_log(), result.stdout, result.stderr):
+            self.assertNotIn("HOLDS-PRIVATE-TEXT", text)
+
+    def assert_stopped(self, result):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("push-holds: keep the extra holds file outside the company folder", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+
+    def test_a_symlink_into_the_company_folder_stops_the_push(self):
+        # Review 4: the default file is a link to a file in the company folder.
+        self.seed_origin()
+        self.capture()
+        inside = self.company / "notes-holds.md"
+        inside.write_text(HOLDS_TEXT)
+        self.default_file().symlink_to(inside)
+        (self.company / "ok.md").write_text("a shop note\n")
+        self.assert_stopped(self.sync("push"))
+
+    def test_a_list_in_a_linked_area_stops_the_push(self):
+        # Review 4: areas/sales is a link to a checkout outside the company folder.
+        self.seed_origin()
+        self.capture()
+        (self.company / ".gitignore").write_text("areas/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore")
+        self.git("push", "-q", "origin", "main")
+        real = self.tmp / "elsewhere-sales"
+        bare = self.tmp / "sales.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(real)], env=self.env, check=True)
+        run(["git", "-C", str(real), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (self.company / "areas").mkdir()
+        (self.company / "areas" / "sales").symlink_to(real)
+        (real / "push-holds.md").write_text(HOLDS_TEXT)
+        self.env["OS_PUSH_HOLDS"] = str(self.company / "areas" / "sales" / "push-holds.md")
+        result = self.sync("push")
+        self.assert_stopped(result)
+        self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
+
+    def sub_repo(self, rel):
+        bare = self.tmp / (rel.replace("/", "-") + ".git")
+        path = self.company / rel
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        path.mkdir(parents=True)
+        run(["git", "init", "-q", "-b", "main", str(path)], env=self.env, check=True)
+        run(["git", "-C", str(path), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (path / "README.md").write_text("seed\n")
+        run(["git", "-C", str(path), "add", "README.md"], env=self.env, check=True)
+        run(["git", "-C", str(path), "commit", "-q", "-m", "seed"], env=self.env, check=True)
+        run(["git", "-C", str(path), "push", "-q", "origin", "main"], env=self.env, check=True)
+        return path
+
+    def test_workspace_gets_owner_and_area_gets_area(self):
+        # Review 3: rule 6 needs to know whose workspace it is, and which area.
+        self.seed_origin()
+        (self.company / ".gitignore").write_text("users/\nareas/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore")
+        self.git("push", "-q", "origin", "main")
+        ws = self.sub_repo("users/mia")
+        area = self.sub_repo("areas/sales")
+        log = self.capture()
+        (ws / "goals.md").write_text("my goals\n")
+        (area / "plan.md").write_text("a sales plan\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prompts = log.read_text().split("\n----\n")
+        ws_prompt = [p for p in prompts if "FILE: goals.md" in p]
+        area_prompt = [p for p in prompts if "FILE: plan.md" in p]
+        self.assertTrue(ws_prompt and area_prompt, prompts)
+        self.assertIn("\nREPO: workspace\nOWNER: mia (Mia Member)\nFILE: goals.md\n", ws_prompt[0])
+        self.assertIn("\nREPO: area\nAREA: sales\nFILE: plan.md\n", area_prompt[0])
+        self.assertNotIn("\nOWNER: ", area_prompt[0].split("```")[-1])
+
+class PersonNoteRuleTests(unittest.TestCase):
+    """v1.0.6 (D9 hold 2): the push check holds a named person's job note outside admin."""
+
+    def test_rule_text_and_order(self):
+        check = (SYNC / "push-check.md").read_text()
+        self.assertIn("Reason, exactly: `person note: belongs in admin`.", check)
+        rule = check.index("A named person's job outside admin")
+        self.assertLess(check.index("**Private sources**"), rule)
+        self.assertLess(rule, check.index("**Leadership and access at the shared root.**"))
+        self.assertLess(rule, check.index("**Everything else:** commit."))
+        for words in ("job, pay, performance, hiring or firing", "`admin` (the owners-only area",
+                      "other than the owner on the `OWNER:` line", "No `OWNER:` line: hold."):
+            self.assertIn(words, check)
+
+    def test_fixtures_have_fake_names_and_an_answer_each(self):
+        base = ROOT / "tests" / "privacy" / "fixtures" / "person-notes"
+        rows = [l.split("\t") for l in (base / "expected.tsv").read_text().splitlines()
+                if l and not l.startswith("#")]
+        self.assertGreaterEqual(len(rows), 8)
+        files = {p.name for p in base.glob("*.md")}
+        self.assertEqual(files, {r[0] for r in rows})
+        for name, repo, decision, reason in rows:
+            self.assertIn(repo, ("root", "area:admin", "area:sales", "workspace:mia"))
+            self.assertIn(decision, ("commit", "hold"))
+            if decision == "hold":
+                self.assertEqual(reason, "person note: belongs in admin")
+
+
+    @unittest.skipUnless(os.environ.get("OS_LIVE_ENGINE"), "set OS_LIVE_ENGINE to a push-check command to run the bench")
+    def test_live_engine_bench(self):
+        # Opt-in: the real model on the made-up notes. Prompt as push.sh builds it.
+        import shlex
+        base = ROOT / "tests" / "privacy" / "fixtures" / "person-notes"
+        check = (SYNC / "push-check.md").read_text()
+        misses = []
+        for line in (base / "expected.tsv").read_text().splitlines():
+            if not line or line.startswith("#"):
+                continue
+            name, repo, decision, reason = line.split("\t")
+            kind, _, area = repo.partition(":")
+            owner = ""
+            if kind == "workspace":
+                owner, area = area + " (Mia Member)", ""
+            path = "notes/" + name
+            body = "".join("+" + l + "\n" for l in (base / name).read_text().splitlines())
+            prompt = check + "\nREPO: %s\n" % kind + ("AREA: %s\n" % area if area else "")
+            prompt += "OWNER: %s\n" % owner if owner else ""
+            prompt += "FILE: %s\nDIFF:\n--- /dev/null\n+++ b/%s\n%s" % (path, path, body)
+            out = subprocess.run(shlex.split(os.environ["OS_LIVE_ENGINE"]), input=prompt,
+                                 capture_output=True, text=True, timeout=180)
+            got = json.loads([l for l in out.stdout.splitlines() if l.strip()][-1])
+            if got["decision"] != decision or (decision == "hold" and got["reason"] != reason):
+                misses.append("%s: want %s/%s, got %s/%s" % (name, decision, reason, got["decision"], got["reason"]))
+        self.assertEqual(misses, [])
+
 class SyncForgejoTests(unittest.TestCase):
     def test_forgejo_cases(self):
         cache = Path.home() / ".cache" / "os-foundation" / "forgejo"

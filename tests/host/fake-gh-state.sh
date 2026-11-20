@@ -93,12 +93,49 @@ case "$method $path" in
     printf '%s\n' '{"allow_auto_merge":true}'
     ;;
   "GET /orgs/acme")
-    # Only an org owner sees .plan. No plan file: the answer has no plan.
+    # Only an org owner sees .plan and the member settings. No plan file: no plan.
+    # base: default_repository_permission. member-repos: members_can_create_repositories.
+    org='{"login":"acme"}'
     if [ -f "$dir/plan" ]; then
-      jq -nc --arg plan "$(cat "$dir/plan")" '{login:"acme", plan:{name:$plan}}'
-    else
-      printf '%s\n' '{"login":"acme"}'
+      org=$(jq -nc --arg plan "$(cat "$dir/plan")" '{login:"acme", plan:{name:$plan}}')
     fi
+    if [ -f "$dir/base" ]; then
+      org=$(printf '%s' "$org" | jq -c --arg b "$(cat "$dir/base")" '. + {default_repository_permission:$b}')
+    fi
+    if [ -f "$dir/member-repos" ]; then
+      org=$(printf '%s' "$org" | jq -c --argjson m "$(cat "$dir/member-repos")" '. + {members_can_create_repositories:$m}')
+    fi
+    # The owner also sees the repo counts: by default the lines in repos (all private).
+    # repo-count: a different total (the token sees only part of the org).
+    if [ -f "$dir/base" ]; then
+      n=0
+      [ ! -f "$dir/repos" ] || n=$(awk 'NF { c++ } END { print c + 0 }' "$dir/repos")
+      [ ! -f "$dir/repo-count" ] || n=$(cat "$dir/repo-count")
+      org=$(printf '%s' "$org" | jq -c --argjson n "$n" '. + {public_repos:0, total_private_repos:$n}')
+    fi
+    printf '%s\n' "$org"
+    ;;
+  "PATCH /orgs/acme")
+    [ ! -f "$dir/org-lock-denied" ] || refuse 403 "Must be an organization owner."
+    if grep -q 'members_can_create_private_repositories' "$dir/last-input" 2>/dev/null; then
+      refuse 422 "Validation Failed"
+    fi
+    jq -r '.default_repository_permission // empty' "$dir/last-input" > "$dir/base"
+    jq -c '.members_can_create_repositories' "$dir/last-input" > "$dir/member-repos"
+    printf '%s\n' '{"login":"acme"}'
+    ;;
+  "GET /orgs/acme/repos?per_page=100&page=1")
+    # repos: one repo name per line. No file: an empty org.
+    if [ -f "$dir/repos" ]; then
+      jq -Rsc 'split("\n") | map(select(length > 0)) | map({name:.})' < "$dir/repos"
+    else
+      printf '%s\n' '[]'
+    fi
+    ;;
+  "GET /user/memberships/orgs/acme")
+    # role: admin (an org owner) or member. No role file: not a member (404).
+    [ -f "$dir/role" ] || refuse 404 "Not Found"
+    jq -nc --arg r "$(cat "$dir/role")" '{state:"active", role:$r}'
     ;;
   "GET /repos/acme/acme-os/rulesets?per_page=100&page=1")
     [ ! -f "$dir/rulesets-free" ] || refuse 403 "Upgrade to GitHub Pro or make this repository public to enable this feature."

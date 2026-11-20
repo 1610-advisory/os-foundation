@@ -466,6 +466,14 @@ $bashArgs = @($syncSh)
 if ($Rest) {
   $bashArgs += $Rest
 }
+# v1.0.6: extra holds for this computer. Git Bash may use another home folder, so pass
+# the file from the Windows user folder when OS_PUSH_HOLDS is not set. Never in a repo.
+if (-not $env:OS_PUSH_HOLDS -and $env:USERPROFILE) {
+  $holds = Join-Path $env:USERPROFILE '.config\os-brain\push-holds.md'
+  if (Test-Path -LiteralPath $holds -PathType Leaf) {
+    $env:OS_PUSH_HOLDS = $holds -replace '\\', '/'
+  }
+}
 & $bash @bashArgs
 $code = $LASTEXITCODE
 if ($null -eq $code) {
