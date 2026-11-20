@@ -12,7 +12,7 @@ Sends the note as plain text to https://1610.sh/os/feedback (at most 2,000 chara
 --yes means the person read this exact note and said yes. Without it, nothing is sent.
 The note goes through the secret scan first. A hit sends nothing.
 If the address does not answer, the note and a place to paste it are printed instead.
-Exit 0: sent. Exit 1: usage, empty or too long. Exit 2: secret scan hit or error.
+Exit 0: sent. Exit 1: usage, empty or too long. Exit 2: secret scan hit, error or missing.
 Exit 3: not sent (no network, or the address is not there); paste it by hand.
 EOF
 }
@@ -43,15 +43,18 @@ fi
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 SCAN="$DIR/../sync/secret-scan.sh"
-if [ -f "$SCAN" ]; then
-  set +e
-  bash "$SCAN" --files -- "$FILE" >/dev/null 2>&1
-  rc=$?
-  set -e
-  if [ "$rc" -ne 0 ]; then
-    printf 'tell: not sent: the secret scan flagged the note (or could not run). Remove the secret and show the note again.\n' >&2
-    exit 2
-  fi
+# No scan, no send: a missing scanner is an error, the same as in push.
+if [ ! -f "$SCAN" ]; then
+  printf 'tell: not sent: the secret scan (skills/sync/secret-scan.sh) is missing.\n' >&2
+  exit 2
+fi
+set +e
+bash "$SCAN" --files -- "$FILE" >/dev/null 2>&1
+rc=$?
+set -e
+if [ "$rc" -ne 0 ]; then
+  printf 'tell: not sent: the secret scan flagged the note (or could not run). Remove the secret and show the note again.\n' >&2
+  exit 2
 fi
 
 URL=${OS_FEEDBACK_URL:-https://1610.sh/os/feedback}

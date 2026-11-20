@@ -89,6 +89,25 @@ class TellTests(unittest.TestCase):
         self.assertNotIn(token, r.stdout + r.stderr)
         self.assertFalse(self.log.exists())
 
+    def test_a_missing_scan_sends_nothing(self):
+        # A copy of tell.sh with no skills/sync/secret-scan.sh next to it.
+        lone = self.tmp / "skills" / "suggest"
+        lone.mkdir(parents=True)
+        (lone / "tell.sh").write_text(TELL.read_text())
+        r = subprocess.run(["bash", str(lone / "tell.sh"), "--file", str(self.note), "--yes"],
+                           env=dict(self.env, FAKE_CODE="200"), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("secret scan", r.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_a_scan_error_sends_nothing(self):
+        r = subprocess.run(["bash", str(TELL), "--file", str(self.note), "--yes"],
+                           env=dict(self.env, FAKE_CODE="200", OS_SECRET_SCAN="gitleaks",
+                                    PATH=str(self.tmp / "bin") + ":/usr/bin:/bin"),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertFalse(self.log.exists())
+
 
 class WordingTests(unittest.TestCase):
     def test_sign_off_sync(self):
