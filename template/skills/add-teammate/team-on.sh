@@ -133,8 +133,12 @@ if [ "$HOST_KIND" = "github" ]; then
       fi
     fi
     if [ "$org_own" = "yes" ]; then
-      printf '%s\n' "org settings: base permission none, members cannot make repos (was: ${org_base}, ${org_member})"
-      os_host org-lock >/dev/null 2>&1 || printf '%s\n' "$org_ask"
+      # The "was" line only after the lock worked; a refused lock prints only the ask line.
+      if os_host org-lock >/dev/null 2>&1; then
+        printf '%s\n' "org settings: base permission none, members cannot make repos (was: ${org_base}, ${org_member})"
+      else
+        printf '%s\n' "$org_ask"
+      fi
     else
       printf '%s\n' "$org_ask"
     fi

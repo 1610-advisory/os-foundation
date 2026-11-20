@@ -131,14 +131,15 @@ run_on "$work/answers-no"
 grep -qxF "$ASK" "$work/out" || { cat "$work/out" >&2; team_fail "org_own no: no path line"; }
 patched && team_fail "org_own no: team-on sent a PATCH"
 
-# org-lock refused: team-on goes on and prints the path line.
+# org-lock refused: team-on goes on and prints only the path line.
 fresh
 printf '%s\n' read > "$work/gh/base"
 printf '%s\n' true > "$work/gh/member-repos"
 printf '%s\n' admin > "$work/gh/role"
 touch "$work/gh/org-lock-denied"
 run_on
-grep -qxF "$LOCKED" "$work/out" || { cat "$work/out" >&2; team_fail "refused: no lock line"; }
+# Review 2: no "was" line when the lock did not work: the org is not locked.
+grep -q 'members cannot make repos' "$work/out" && { cat "$work/out" >&2; team_fail "refused: lock line printed"; }
 grep -qxF "$ASK" "$work/out" || { cat "$work/out" >&2; team_fail "refused: no path line"; }
 grep -q 'could not read the teams on the host' "$work/err" || { cat "$work/err" >&2; team_fail "refused: team-on stopped at org-lock"; }
 
