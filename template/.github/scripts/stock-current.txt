@@ -4,7 +4,6 @@
 00d14f381d0750fdfa41c0b360e20838f08f6ec3 skills/add-teammate/lib.sh
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
-043ba353a48274a81083547a39084e6059b56f1f skills/sync/CLI.md
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
@@ -38,6 +37,7 @@
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
 43f107ae9c816ec0acc8ebc441fda5d738e1c1d0 .github/scripts/review-rules.default.md
+45eb343b6cf32e4cd42d87d1328cd42a6eb916aa skills/sync/push.sh
 4a113c3778f079a4a43cf8b22e551bf20368b304 skills/add-bot/templates/BOT.md
 4ce8d68d3d41c818d66466f7c4355870e8b1cf99 .github/scripts/tools/host/lib.sh
 4ce8d68d3d41c818d66466f7c4355870e8b1cf99 skills/_host/lib.sh
@@ -46,7 +46,6 @@
 4f674302a9901b195fe58ef9135f4f0618ce8e71 skills/add-teammate/sweep.sh
 4f881c52d1f72f4cfb720e339e2d35c3058d01a9 skills/skill-creator/LICENSE.txt
 51b6a07dd57174197a937034b7eecebd5768ff8a skills/skill-creator/scripts/utils.py
-5230d34cf328f441cff3245343a488d453203ac8 skills/sync/push-check.md
 53dc991b44933048031a2d7070f3127be4993c8b skills/sync/collect.sh
 5444082f2d271717c401208d204995834d80a97b skills/upgrade/v0/areas/apps/AGENTS.md
 558ab05c0a9a8bb062ef4c51823d4d76c3acf7c4 skills/skill-creator/agents/grader.md
@@ -82,6 +81,7 @@
 879efdc459c33da3fc70d0441c864ba320cd5763 skills/upgrade/rules.sh
 8a983cc3bedbd8c9342a675810ee99909803cbf9 skills/nightly-review/CLI.md
 8aa59ab35cf71bc53f35789bbc1942869033740d skills/upgrade/v0/CLAUDE.md
+8bb309beda22c8afab98e0ca2d44f048342b86c2 skills/sync/push-check.md
 90189b5e12f29e3371b4023af860b9115d03f213 skills/add-teammate/CLI.md
 93da4e55c6c4f150c3dd9441a368bc6c18cacd2f skills/reports/run.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
@@ -90,6 +90,7 @@
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
+a04f7c78bc309ff992ee7a69dda3b4b7080487ce skills/sync/CLI.md
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
 a77888633d83b4e687a015431902bde6a6eb7383 .github/scripts/tools-release
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
@@ -142,7 +143,6 @@ e1ad4389c4dfa3d51bed6d8012f50102fde48857 skills/add-bot/add-bot.sh
 e35986600c0803937991233fa382bf45517329fc skills/ingest/SKILL.md
 e569eb49d95ec7a79aab8b6640e4b12294b69943 skills/upgrade/root-router.sh
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py
-e5d13f34ea796f073a4b3b9194b9fcee5f7df29b skills/sync/push.sh
 e68801d84c1b94ee47bb961ca44673c93dc93dd6 .github/scripts/checkout.sh
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/inbox/.gitkeep
 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 skills/add-area/templates/_area/meetings/.gitkeep
