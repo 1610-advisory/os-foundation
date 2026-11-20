@@ -37,7 +37,6 @@
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
 43f107ae9c816ec0acc8ebc441fda5d738e1c1d0 .github/scripts/review-rules.default.md
-45eb343b6cf32e4cd42d87d1328cd42a6eb916aa skills/sync/push.sh
 4a113c3778f079a4a43cf8b22e551bf20368b304 skills/add-bot/templates/BOT.md
 4ce8d68d3d41c818d66466f7c4355870e8b1cf99 .github/scripts/tools/host/lib.sh
 4ce8d68d3d41c818d66466f7c4355870e8b1cf99 skills/_host/lib.sh
@@ -90,7 +89,6 @@
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
-a04f7c78bc309ff992ee7a69dda3b4b7080487ce skills/sync/CLI.md
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
 a77888633d83b4e687a015431902bde6a6eb7383 .github/scripts/tools-release
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
@@ -98,6 +96,7 @@ aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 abc733b5cd53e5c037214fe41a0329a4f7fce6ac skills/lint/SKILL.md
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
 af488e3a318e8e1869c9bdc27ceb542c8ee3dc52 skills/upgrade/upgrade.sh
+af57455ef7934bc586560eb95c51178842ad5df0 skills/sync/CLI.md
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
 b30b6e0de2ad9dc8dd4744435a193397510c7856 skills/lint/CLI.md
 b401ef9b09785bfbefb51f6f345e99ac84963af7 skills/add-area/templates/_area/AGENTS.md
@@ -132,6 +131,7 @@ d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
+d80851118132c5c5811f50ed6c9f0a997d10205e skills/sync/push.sh
 d84efcc000d7d1901514c37ee878e3f99b741a39 skills/add-area/templates/admin/AGENTS.md
 d94f97f52ee36eecb35937f982104a57ec21098b skills/add-area/templates/_area/datasets.md
 da7e71384c885275a7ae0371f3721bc1613dd5df skills/upgrade/CLI.md

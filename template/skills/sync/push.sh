@@ -293,9 +293,9 @@ sync_holds_scan() {
     END { print hit; print hh; print known }' "$f"
 }
 
-# Make the engine's reason and message safe to keep and to send. Sets reason and msg.
+# Make the engine's answer safe to keep and to send. Sets decision, reason and msg.
 sync_holds_scrub() {
-  local decision=$1 path=$2 f out leak lh known rh=""
+  local path=$2 f out leak lh known rh=""
   f=$(sync_push_holds_file) || return 0
   case "$reason" in
     "extra hold:"*) rh=${reason#extra hold:}; rh=${rh# } ;;
@@ -309,12 +309,10 @@ sync_holds_scrub() {
     if [ "$known" = "1" ]; then reason="extra hold: ${rh}"; else reason="extra hold"; fi
   fi
   [ "$leak" = "1" ] || return 0
-  if [ "$decision" = "hold" ]; then
-    if [ -n "$lh" ]; then reason="extra hold: ${lh}"; else reason="extra hold"; fi
-    msg=""
-  else
-    msg="Update ${path}"
-  fi
+  # Fail safe: an echo of the list means the file likely holds that text. Always hold.
+  decision=hold
+  if [ -n "$lh" ]; then reason="extra hold: ${lh}"; else reason="extra hold"; fi
+  msg=""
 }
 
 sync_engine_one() {

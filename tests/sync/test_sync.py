@@ -3103,10 +3103,13 @@ class ExtraHoldsTests(unittest.TestCase):
         self.assertIn("extra hold: Fee lines", status)
         self.assertIn("c.md", status)
         self.assertNotIn("words the model made up", status)
-        self.assertIn("b.md", self.tree(SEAT_REF))
+        # The check said commit, but its message repeated the list: held, never sent.
+        self.assertIn("b.md", status)
+        self.assertNotIn("b.md", self.tree(SEAT_REF))
+        self.assertTrue((self.company / "b.md").exists())
+        self.assertEqual(status.count("extra hold: Fee lines"), 2, status)
         sent = run(["git", "--git-dir", str(self.tmp / "origin.git"), "log", "--all", "--format=%B"],
                    env=self.env).stdout
-        self.assertIn("Update b.md", sent)
         held = (self.home / ".config" / "acme-os" / "state").rglob("*")
         local = "".join(p.read_text(errors="ignore") for p in held if p.is_file())
         for text in (status, sent, local, self.sync_log(), result.stdout, result.stderr):
