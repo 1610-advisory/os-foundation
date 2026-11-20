@@ -216,15 +216,39 @@ sync_push_holds_file() {
   printf '%s' "$f"
 }
 
-# Refuse a holds file inside the company folder: sync would send it to the host.
-sync_push_holds_guard() {
-  local f root abs
-  f=$(sync_push_holds_file) || return 0
-  root=$(cd "$SYNC_ROOT" && pwd -P)
-  abs=$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")
-  case "$abs" in
-    "$root"/*) sync_die 2 "push-holds: keep the extra holds file outside the company folder (OS_PUSH_HOLDS). Nothing was sent." ;;
+# Refuse a holds file inside the company folder or any repo that push sends (review 4):
+# resolve every symlink on the file itself, then compare real paths. A linked area
+# resolves outside the company folder, so each pushed repo is checked on its own.
+sync_push_holds_real() {
+  local f=$1 t n=0
+  while [ -L "$f" ] && [ "$n" -lt 40 ]; do
+    t=$(readlink "$f")
+    case "$t" in
+      /*) f=$t ;;
+      *) f=$(dirname "$f")/$t ;;
+    esac
+    n=$((n + 1))
+  done
+  printf '%s/%s' "$(cd "$(dirname "$f")" && pwd -P)" "$(basename "$f")"
+}
+
+SYNC_HOLDS_REAL=""
+sync_push_holds_inside() {
+  local dir=$1 real
+  real=$(cd "$dir" && pwd -P) || return 0
+  case "$SYNC_HOLDS_REAL" in
+    "$real"/*) return 1 ;;
   esac
+  return 0
+}
+
+sync_push_holds_guard() {
+  local f
+  f=$(sync_push_holds_file) || return 0
+  SYNC_HOLDS_REAL=$(sync_push_holds_real "$f")
+  if ! sync_push_holds_inside "$SYNC_ROOT" || ! sync_each sync_push_holds_inside; then
+    sync_die 2 "push-holds: keep the extra holds file outside the company folder and its repos (OS_PUSH_HOLDS). Nothing was sent."
+  fi
 }
 
 # v1.0.6 (review 3): who owns this workspace, for push-check rule 6: "<slug> (<name>)".

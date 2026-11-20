@@ -3088,6 +3088,43 @@ class ExtraHoldsTests(unittest.TestCase):
         self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
 
 
+    def assert_stopped(self, result):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("push-holds: keep the extra holds file outside the company folder", result.stderr)
+        heads = run(["git", "ls-remote", "--heads", str(self.tmp / "origin.git")], env=self.env)
+        self.assertNotIn("sync/mia", heads.stdout)
+
+    def test_a_symlink_into_the_company_folder_stops_the_push(self):
+        # Review 4: the default file is a link to a file in the company folder.
+        self.seed_origin()
+        self.capture()
+        inside = self.company / "notes-holds.md"
+        inside.write_text(HOLDS_TEXT)
+        self.default_file().symlink_to(inside)
+        (self.company / "ok.md").write_text("a shop note\n")
+        self.assert_stopped(self.sync("push"))
+
+    def test_a_list_in_a_linked_area_stops_the_push(self):
+        # Review 4: areas/sales is a link to a checkout outside the company folder.
+        self.seed_origin()
+        self.capture()
+        (self.company / ".gitignore").write_text("areas/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore")
+        self.git("push", "-q", "origin", "main")
+        real = self.tmp / "elsewhere-sales"
+        bare = self.tmp / "sales.git"
+        run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], env=self.env, check=True)
+        run(["git", "init", "-q", "-b", "main", str(real)], env=self.env, check=True)
+        run(["git", "-C", str(real), "remote", "add", "origin", str(bare)], env=self.env, check=True)
+        (self.company / "areas").mkdir()
+        (self.company / "areas" / "sales").symlink_to(real)
+        (real / "push-holds.md").write_text(HOLDS_TEXT)
+        self.env["OS_PUSH_HOLDS"] = str(self.company / "areas" / "sales" / "push-holds.md")
+        result = self.sync("push")
+        self.assert_stopped(result)
+        self.assertNotIn("HOLDS-PRIVATE-TEXT", result.stdout + result.stderr)
+
     def sub_repo(self, rel):
         bare = self.tmp / (rel.replace("/", "-") + ".git")
         path = self.company / rel
