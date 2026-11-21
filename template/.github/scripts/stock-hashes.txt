@@ -754,6 +754,7 @@ acd098adf2e34aa19296559e5841d69ce6f17c3c skills/upgrade/upgrade.sh
 ace24dfaf8dcd825427f0580205a5f4d3847d161 skills/add-area/templates/_area/AGENTS.md
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
 ad166d90e710c593246adcae774ae4427035643d skills/upgrade/SKILL.md
+ad833cb8bed9d20aa87357dec669b6510d423a65 skills/handover/SKILL.md
 ae207a68df108509e9740b04159d7d3047496676 skills/upgrade/upgrade.sh
 aed5d758b043de0b8c97d13ff154363cfdffdf54 skills/sync/CLI.md
 af07e22974cf9ebc68c64f45a6db9922c2df3c70 skills/nightly-review/CLI.md
@@ -903,6 +904,7 @@ d3869131fcc10f0ed041d9f97fc71971713be9f5 skills/sync/push.sh
 d3cdb462d1e8684781b211c7b13acf689ebbe71d .github/scripts/checkout.sh
 d3dcd6a0820fa034aff3fc28d433156b71d5a013 skills/add-teammate/SKILL.md
 d43745d6e973e5214b1387c6db01a31edb08b576 skills/upgrade/CLI.md
+d470f10e25501f91fc03cdf41d564a14d679e9d8 skills/handover/handover.sh
 d4fcbaa3debbc570466792d2d4122a8f80a4eea2 skills/upgrade/SKILL.md
 d5e1ddc98e82e0452dcfd5f8f900f52d4cd0d609 skills/add-bot/git-guard.sh
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh

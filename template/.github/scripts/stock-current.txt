@@ -22,7 +22,6 @@
 23dbbbb0548b514bad67859e72598ee6660cc4f1 skills/sync/jobs/linux.service
 264b1ca75a73cfe9e6e8ece3c204360d3f971635 skills/sync/sync.ps1
 266097706084b4c78cd1d6b9c87e1af37ba751f6 skills/add-bot/git-credential-os-bot
-2a269a7ba01d944ecb6e7d3d24f6e376ae9f3383 skills/handover/handover.sh
 2a50e0563d4bee8ec958385fdd2ba47bf29b8fb9 skills/privacy/places.md
 2ab9a7c5388e822beb11fef41c7fb78fbabe4fd9 skills/add-area/templates/everyone/AGENTS.md
 2bc4ce80ec2255f07abb34d5f12916fff22a8b1f skills/app-setup/SKILL.md
@@ -91,6 +90,7 @@ aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 ab9cf4ef7a883f48da020f5d2e3d9c6206fdfb9a skills/add-teammate/SKILL.md
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
+ad833cb8bed9d20aa87357dec669b6510d423a65 skills/handover/SKILL.md
 af57455ef7934bc586560eb95c51178842ad5df0 skills/sync/CLI.md
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
 b401ef9b09785bfbefb51f6f345e99ac84963af7 skills/add-area/templates/_area/AGENTS.md
@@ -113,7 +113,6 @@ c45ddeef9d6e10e029e4c054eb549c47489ae3eb skills/add-area/templates/apps/apps.md
 c4e1667c6f899b090774fa75c1fce82870b58d54 skills/sync/jobs/linux-admin.service
 c57de4fcf6b52a55734f216623fd8448c521bc03 .github/scripts/tools-release
 c624b382ef73bb8e7b19fa3599934c7179911e78 .github/scripts/model-review.sh
-c7369d2a20be97c0ed7de52a327b6666b9bea650 skills/handover/SKILL.md
 c8bc16c0f444e0fd8a3267bd8608ae749230a426 skills/write-skill/SKILL.md
 c95e6390bd839197cd230e8fcd005841bc2a4f89 skills/remove-teammate/remove.sh
 c9d0144d44b4e0ce39304bc001a9bc10d961be40 .github/scripts/tools/host/host.sh
@@ -126,6 +125,7 @@ cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/per
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
+d470f10e25501f91fc03cdf41d564a14d679e9d8 skills/handover/handover.sh
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
 d80851118132c5c5811f50ed6c9f0a997d10205e skills/sync/push.sh

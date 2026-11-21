@@ -113,7 +113,17 @@ EOF
 ${repos}
 EOF
   mv "$RECORD" "$CFG/handover-undone-$(date -u +%Y%m%dT%H%M%SZ).json"
-  printf '%s\n' "undo: done. ${rec_holder} still holds the company. An owner of ${rec_to} deletes the archived copies before the next handover."
+  printf '%s\n' "undo: done. ${rec_holder} still holds the company. An owner of ${rec_to} deletes the archived copies before the next handover. This script never runs these:"
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    if [ "$HOST_KIND" = "github" ]; then
+      printf 'delete: gh repo delete %s/%s\n' "$rec_to" "$r"
+    else
+      printf 'delete: %s/%s/%s/settings (Danger Zone: Delete this repository)\n' "${HOST_URL%/}" "$rec_to" "$r"
+    fi
+  done << EOF
+${repos}
+EOF
   exit 0
 fi
 
@@ -192,6 +202,11 @@ for d in "$ROOT"/areas/* "$ROOT"/library "$ROOT"/users/*; do
   esac
   check_repo "$d" "$rel"
 done
+
+# The admin page moves from main, so it must be there now (not only on this computer).
+ADMIN_REL=${ADMIN_PAGE#"$ROOT"/}
+git -C "$ROOT" cat-file -e "refs/remotes/origin/main:${ADMIN_REL}" 2>/dev/null \
+  || os_die 2 "${ADMIN_REL} is not on main in ${HOLDER}/${REPO_NAMES[0]}: merge it first, then run this again"
 
 # Step 2: the company's own org is there, on a paid plan, and the admin is an owner.
 step 2 "check ${TO_ORG}: it exists, its plan, ${ADMIN_GH} is an owner, no repo of the same name"

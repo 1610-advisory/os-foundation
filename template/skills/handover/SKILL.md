@@ -28,7 +28,7 @@ Tell the holder's owner, plainly:
 4. Do the `manual:` line: point the kernel's GitHub team link at the new org. The script does not do that.
 5. When the company admin says the new repos work, run it with `--archive`. It archives the holder copies. It never deletes them.
 
-Something wrong before `--archive`: run `--undo`. It archives the copies in the new org (never deletes them) and forgets the handover. The holder copies were not changed. An owner of the new org deletes the archived copies before the next try.
+Something wrong before `--archive`: run `--undo`. It archives the copies in the new org (never deletes them) and forgets the handover. The holder copies were not changed. It prints one `delete:` line per copy. Give those lines to an owner of the new org: they delete the archived copies before the next try. Never run them yourself.
 
 ## What it prints
 
@@ -36,7 +36,9 @@ Something wrong before `--archive`: run `--undo`. It archives the copies in the 
 - `ok: <repo> (<holder>/<name>)`: that repo is clean and pushed.
 - `skip: users/<slug> (a holder person's workspace ...)`: it stays.
 - `left out: people/<page> (holder page)`: it stays.
+- `<page> is not on main in <holder>/<repo>: merge it first ...`: the company admin's page is only on this computer or a branch. Merge it, then run again.
 - `pushed: <org>/<name>`: the copy is in the new org.
+- `delete: ...` (after `--undo`): the command for an owner of the new org. Not run.
 - `this folder still points at <holder>`: the holder's folder is not changed. The company admin clones from the new org.
 
 The record of the handover is in `~/.config/<slug>-os/handover.json`. Flags and exits: `handover.sh --help`.

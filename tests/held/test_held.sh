@@ -210,14 +210,26 @@ areas: [marketing]
 EOF
 git -C "$work/acme" add "people/Ada Admin.md"
 git -C "$work/acme" commit -q -m "People: Ada"
-git -C "$work/acme" push -q origin HEAD:main
-git -C "$work/acme" fetch -q origin
 handover() {
   set +e
   (cd "$work/acme" && bash skills/handover/handover.sh "$@") >"$work/h.out" 2>"$work/h.err"
   hrc=$?
   set -e
 }
+# The admin page pushed on a branch, not merged to main: the dry run stops with one line.
+git -C "$work/acme" branch -q -m main notes
+git -C "$work/acme" push -q origin notes
+git -C "$work/acme" branch -q main HEAD~1
+handover --to-org acme-own --admin ada
+if ! { [ "$hrc" -eq 2 ] && grep -qx 'people/Ada Admin.md is not on main in holder-co/acme-os: merge it first, then run this again' "$work/h.err"; }; then
+  team_fail "admin page not on main: exit $hrc $(cat "$work/h.err")"
+fi
+git -C "$work/acme" checkout -q main
+git -C "$work/acme" merge -q --ff-only notes
+git -C "$work/acme" branch -q -D notes
+git -C "$work/acme" push -q origin --delete notes
+git -C "$work/acme" push -q origin HEAD:main
+git -C "$work/acme" fetch -q origin
 
 # Stops before any change.
 printf 'x\n' >> "$work/acme/areas/marketing/plan.md"
@@ -273,6 +285,8 @@ handover --undo
 [ "$hrc" -eq 0 ] || team_fail "--undo exit $hrc: $(cat "$work/h.err")"
 [ "$(state "s['orgs']['acme-own']['repos']['acme-os']['archived']")" = "True" ] || team_fail "undo did not archive the new copy"
 [ "$(state "'acme-os' in s['orgs']['acme-own']['repos']")" = "True" ] || team_fail "undo deleted a repo"
+grep -qx 'delete: gh repo delete acme-own/acme-os' "$work/h.out" || team_fail "undo prints no delete command: $(cat "$work/h.out")"
+grep -q 'gh repo delete' "$FAKE_GH_DIR/gh.log" && team_fail "undo ran a delete"
 [ "$(state "s['orgs']['$HOLDER']['repos']['acme-os']['archived']")" = "False" ] || team_fail "undo touched the holder copy"
 handover --to-org acme-own --admin ada
 if ! { [ "$hrc" -eq 2 ] && grep -q 'acme-own/acme-os is already there' "$work/h.err"; }; then team_fail "go into used org: exit $hrc"; fi
