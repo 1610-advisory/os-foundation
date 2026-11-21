@@ -11,7 +11,12 @@ and 0.9.
 Usage:
   python3 tests/classifier/run.py
   python3 tests/classifier/run.py --model gemma4:31b
+  python3 tests/classifier/run.py --set hard --model qwen3.6:35b
   python3 tests/classifier/run.py --summarize
+
+The main set writes tests/classifier/RESULTS.md. The hard set prints a
+summary and leaves that file alone. Hard-set raw replies go in
+tests/classifier/hard/raw/.
 """
 
 from __future__ import annotations
@@ -24,36 +29,57 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-NOTES = ROOT / "notes"
-LABELS = ROOT / "labels.csv"
 PROMPT_PATH = ROOT / "prompt.md"
-RAW = ROOT / "raw"
 RESULTS = ROOT / "RESULTS.md"
 OLLAMA = "http://localhost:11434/api/generate"
 MODELS = ("gemma4:31b", "qwen3.6:35b")
 THRESHOLDS = (0.5, 0.7, 0.9)
 CLASSES = ("clean", "fee", "candid", "other-client", "person")
 LABELS_OK = set(CLASSES)
+# Hard notes are long. 8192 covers the prompt plus a 1,500-word note.
+HARD_NUM_CTX = 8192
+
+
+def set_paths(name: str) -> dict:
+    if name == "main":
+        return {
+            "notes": ROOT / "notes",
+            "labels": ROOT / "labels.csv",
+            "raw": ROOT / "raw",
+            "expect": 50,
+            "num_ctx": None,
+            "write_results": True,
+        }
+    if name == "hard":
+        return {
+            "notes": ROOT / "hard" / "notes",
+            "labels": ROOT / "hard" / "labels.csv",
+            "raw": ROOT / "hard" / "raw",
+            "expect": 40,
+            "num_ctx": HARD_NUM_CTX,
+            "write_results": False,
+        }
+    raise SystemExit(f"unknown set: {name}")
 
 
 def slug(model: str) -> str:
     return model.replace(":", "-").replace("/", "-")
 
 
-def load_labels() -> list[tuple[str, str]]:
+def load_labels(labels_path: Path, notes_dir: Path, expect: int) -> list[tuple[str, str]]:
     rows = []
-    for line in LABELS.read_text().splitlines():
+    for line in labels_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("file,"):
             continue
         file, expected = [part.strip() for part in line.split(",", 1)]
         if expected not in LABELS_OK:
             raise SystemExit(f"bad label for {file}: {expected}")
-        if not (NOTES / file).is_file():
+        if not (notes_dir / file).is_file():
             raise SystemExit(f"missing note: {file}")
         rows.append((file, expected))
-    if len(rows) != 50:
-        raise SystemExit(f"expected 50 notes, found {len(rows)}")
+    if len(rows) != expect:
+        raise SystemExit(f"expected {expect} notes, found {len(rows)}")
     return rows
 
 
@@ -109,7 +135,10 @@ def parse_response(text: str) -> tuple[str | None, float | None]:
     return label, score
 
 
-def generate(model: str, prompt: str, timeout: int) -> dict:
+def generate(model: str, prompt: str, timeout: int, num_ctx: int | None) -> dict:
+    options: dict = {"temperature": 0, "num_predict": 80}
+    if num_ctx is not None:
+        options["num_ctx"] = num_ctx
     body = {
         "model": model,
         "prompt": prompt,
@@ -117,7 +146,7 @@ def generate(model: str, prompt: str, timeout: int) -> dict:
         "stream": False,
         "think": False,
         "keep_alive": "30m",
-        "options": {"temperature": 0, "num_predict": 80},
+        "options": options,
     }
     data = json.dumps(body).encode()
     req = urllib.request.Request(
@@ -127,13 +156,15 @@ def generate(model: str, prompt: str, timeout: int) -> dict:
         return json.loads(resp.read().decode())
 
 
-def classify_one(model: str, prompt: str, note: str, timeout: int) -> dict:
+def classify_one(
+    model: str, prompt: str, note: str, timeout: int, num_ctx: int | None
+) -> dict:
     full = prompt.rstrip() + "\n\n## Note\n\n" + note
     last_error = "no attempt"
     for _ in range(2):
         started = time.perf_counter()
         try:
-            out = generate(model, full, timeout)
+            out = generate(model, full, timeout, num_ctx)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last_error = str(exc)
             continue
@@ -154,25 +185,33 @@ def classify_one(model: str, prompt: str, note: str, timeout: int) -> dict:
     return {"ok": False, "error": last_error, "seconds": None, "label": None, "score": None}
 
 
-def warmup(model: str, timeout: int) -> None:
+def warmup(model: str, timeout: int, num_ctx: int | None) -> None:
     prompt = 'Reply with JSON only: {"label":"clean","score":0.5}'
-    classify_one(model, prompt, "warmup", timeout)
+    classify_one(model, prompt, "warmup", timeout, num_ctx)
 
 
-def run_model(model: str, rows: list[tuple[str, str]], prompt: str, timeout: int) -> None:
-    RAW.mkdir(parents=True, exist_ok=True)
-    path = RAW / f"{slug(model)}.jsonl"
+def run_model(
+    model: str,
+    rows: list[tuple[str, str]],
+    prompt: str,
+    timeout: int,
+    notes_dir: Path,
+    raw_dir: Path,
+    num_ctx: int | None,
+) -> None:
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    path = raw_dir / f"{slug(model)}.jsonl"
     done = load_done(path)
     pending = [row for row in rows if row[0] not in done]
     print(f"{model}: {len(done)} done, {len(pending)} to run", flush=True)
     if not pending:
         return
     print(f"{model}: warmup", flush=True)
-    warmup(model, timeout)
+    warmup(model, timeout, num_ctx)
     with path.open("a") as handle:
         for index, (file, expected) in enumerate(pending, start=1):
-            note = (NOTES / file).read_text()
-            result = classify_one(model, prompt, note, timeout)
+            note = (notes_dir / file).read_text()
+            result = classify_one(model, prompt, note, timeout, num_ctx)
             record = {
                 "model": model,
                 "file": file,
@@ -200,8 +239,8 @@ def held(row: dict, threshold: float) -> bool:
     return label != "clean" and score >= threshold
 
 
-def load_raw(model: str) -> list[dict]:
-    path = RAW / f"{slug(model)}.jsonl"
+def load_raw(model: str, raw_dir: Path) -> list[dict]:
+    path = raw_dir / f"{slug(model)}.jsonl"
     if not path.is_file():
         return []
     latest: dict[str, dict] = {}
@@ -218,7 +257,7 @@ def pct(num: int, den: int) -> str:
     return f"{num}/{den} ({100.0 * num / den:.0f}%)"
 
 
-def summarize(models: list[str]) -> str:
+def summarize(models: list[str], raw_dir: Path, expect: int) -> str:
     lines = ["# Leak classifier results", ""]
     lines.append(
         "Local Ollama only (`format: json`, `think: false`, temperature 0). "
@@ -227,13 +266,14 @@ def summarize(models: list[str]) -> str:
     )
     lines.append("")
     for model in models:
-        rows = load_raw(model)
+        rows = load_raw(model, raw_dir)
         lines.append(f"## {model}")
         lines.append("")
-        if len(rows) != 50:
-            lines.append(f"Incomplete run: {len(rows)} of 50 notes.")
+        if len(rows) != expect:
+            lines.append(f"Incomplete run: {len(rows)} of {expect} notes.")
             lines.append("")
             continue
+        n_clean = sum(1 for row in rows if row["expected"] == "clean")
         seconds = [row["seconds"] for row in rows if row.get("seconds") is not None]
         mean = sum(seconds) / len(seconds) if seconds else 0
         lines.append(f"Seconds per note: {mean:.1f} (n={len(seconds)}).")
@@ -251,7 +291,7 @@ def summarize(models: list[str]) -> str:
                 if row["expected"] in ("fee", "person") and not held(row, threshold)
             ]
             lines.append(
-                f"| {threshold:.1f} | {len(false_holds)}/20 | {held_count('fee')} | "
+                f"| {threshold:.1f} | {len(false_holds)}/{n_clean} | {held_count('fee')} | "
                 f"{held_count('person')} | {held_count('candid')} | {held_count('other-client')} | "
                 f"{len(fee_person)} |"
             )
@@ -312,18 +352,35 @@ def summarize(models: list[str]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", action="append", dest="models")
+    parser.add_argument("--set", dest="set_name", choices=("main", "hard"), default="main")
     parser.add_argument("--summarize", action="store_true")
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
+    chosen = set_paths(args.set_name)
     models = args.models or list(MODELS)
     if not args.summarize:
-        rows = load_labels()
+        rows = load_labels(chosen["labels"], chosen["notes"], chosen["expect"])
         prompt = PROMPT_PATH.read_text()
         for model in models:
-            run_model(model, rows, prompt, args.timeout)
-    text = summarize(models if args.models else list(MODELS))
-    RESULTS.write_text(text)
-    print(f"wrote {RESULTS}", flush=True)
+            run_model(
+                model,
+                rows,
+                prompt,
+                args.timeout,
+                chosen["notes"],
+                chosen["raw"],
+                chosen["num_ctx"],
+            )
+    text = summarize(
+        models if args.models else list(MODELS),
+        chosen["raw"],
+        chosen["expect"],
+    )
+    if chosen["write_results"]:
+        RESULTS.write_text(text)
+        print(f"wrote {RESULTS}", flush=True)
+    else:
+        print(text, flush=True)
 
 
 if __name__ == "__main__":
