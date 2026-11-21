@@ -607,6 +607,7 @@ c8bc16c0f444e0fd8a3267bd8608ae749230a426 skills/write-skill/SKILL.md
 c8e0e9cb752300d12fbbd6bc3e0347c5d3b5e44b skills/add-area/templates/apps/AGENTS.md
 c9043ec6b3375350141bac98f7c4e734cee794ec skills/add-teammate/SKILL.md
 c95e6390bd839197cd230e8fcd005841bc2a4f89 skills/remove-teammate/remove.sh
+c961bc9a7d10e1d3c904d547c8db2eb62ed8bdc4 skills/remote-setup/SKILL.md
 c9b178e52469e7bbe997a26e43e99ca3c52fbaed skills/add-teammate/add-person.sh
 c9c101f3c1336fb4ec880e766ee96c6068771380 skills/upgrade/SKILL.md
 c9d0144d44b4e0ce39304bc001a9bc10d961be40 .github/scripts/tools/host/host.sh
@@ -642,6 +643,7 @@ d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
 d2362198c28d85153565874829b579ca538554c2 skills/sync/sync.sh
 d2a846b4bf58c3307a9c90ee74f0c89bb2653ae2 skills/ingest/SKILL.md
+d334502630647231a0e498d87a69299b88ef7c39 skills/remote-setup/check.ps1
 d3869131fcc10f0ed041d9f97fc71971713be9f5 skills/sync/push.sh
 d3cdb462d1e8684781b211c7b13acf689ebbe71d .github/scripts/checkout.sh
 d3dcd6a0820fa034aff3fc28d433156b71d5a013 skills/add-teammate/SKILL.md

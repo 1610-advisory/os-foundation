@@ -28,14 +28,20 @@ Find the company root from the company rules. Call it `<root>`. `<slug>` is the 
 Run the check before you change anything:
 
 ```bash
-bash <root>/skills/remote-setup/check.sh
+bash <root>/skills/remote-setup/check.sh          # Mac or Linux
 ```
+```powershell
+powershell -ExecutionPolicy Bypass -File <root>\skills\remote-setup\check.ps1   # Windows
+```
+
+On Windows, use a normal PowerShell window in Windows Terminal. Do not use "Run as administrator".
 
 Tell the person each `FAIL` and `ASK` line in plain words. Fix only the failed items, in the order below.
 
 ## 1. Claude Code
 
 1. Check it is installed: `claude --version`. If not, install it from the official Claude Code page (ask first).
+   - Windows: Claude Code needs Git for Windows first (`winget install --id Git.Git -e`). Then install Claude Code with the PowerShell command on the official page. Close and open the terminal after each install.
 2. Check the sign-in: `claude auth status`. `authMethod` must be `claude.ai`. An API key does not work with Remote Control. If needed, the person runs `claude` and types `/login`, then picks their Claude account (Pro, Max, Team or Enterprise).
 3. Turn on Remote Control for every new session. Add this line to `~/.claude/settings.json`. Add the line. Never replace the file:
    ```json
@@ -63,6 +69,11 @@ Herdr keeps terminal sessions alive. Closing the window does not stop them.
    pane=$(printf '%s' "$ws" | sed -n 's/.*"root_pane":{[^}]*"pane_id":"\([^"]*\)".*/\1/p')
    herdr agent start <slug>-os --kind claude --pane "$pane" --timeout 60000 -- --name "<slug> OS" --remote-control "<slug> OS"
    ```
+   Windows (PowerShell):
+   ```powershell
+   $ws = herdr workspace create --cwd "<root>" --label "<slug> OS" --no-focus | ConvertFrom-Json
+   herdr agent start <slug>-os --kind claude --pane $ws.result.root_pane.pane_id --timeout 60000 -- --name "<slug> OS" --remote-control "<slug> OS"
+   ```
    The name must start with a letter: lowercase letters, digits, `-` or `_`.
 3. If the start says `agent_not_ready`, read the screen: `herdr agent read <slug>-os --lines 40`. Help the person answer the folder-trust question for their own company folder. Stop at any other question and tell them.
 4. Test from the phone: open the Claude app, find "<slug> OS" in the session list, and ask "Which folder are you in?". The answer must be `<root>`.
@@ -81,8 +92,19 @@ A sleeping computer drops the session. Ask before each change. Explain the cost 
 - Stop sleep: `sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target`
 - Lid on power: set `HandleLidSwitchExternalPower=ignore` in `/etc/systemd/logind.conf`, then `sudo systemctl restart systemd-logind`.
 
-**Windows**
-- Settings → System → Power: on power, "Sleep" = Never. Lid close on power = "Do nothing".
+**Windows** (no administrator window needed)
+- On power, never sleep or hibernate:
+  ```powershell
+  powercfg /change standby-timeout-ac 0
+  powercfg /change hibernate-timeout-ac 0
+  ```
+- A laptop: on power, closing the lid does nothing:
+  ```powershell
+  powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
+  powercfg /setactive SCHEME_CURRENT
+  ```
+  The same settings are in Settings → System → Power, and Control Panel → Power Options → "Choose what closing the lid does".
+- Windows Update restarts the computer. Set "Active hours" (Settings → Windows Update → Advanced options) to the hours the person works. After a restart, someone signs in once (section 5).
 
 ## 5. Start again after a reboot or crash
 
@@ -122,7 +144,16 @@ systemctl --user daemon-reload && systemctl --user enable --now herdr.service
 sudo loginctl enable-linger "$USER"
 ```
 
-**Windows.** Herdr on Windows has limits. Add a shortcut to `herdr` in the Startup folder (`shell:startup`). Check by hand after a restart.
+**Windows** (ask first). A shortcut in the person's Startup folder starts Herdr, minimized, at each sign-in. No administrator window is needed:
+```powershell
+$h = (Get-Command herdr).Source
+$lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Company OS Herdr.lnk'
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+$s.TargetPath = $h; $s.Arguments = 'server'; $s.WindowStyle = 7; $s.WorkingDirectory = "<root>"
+$s.Save()
+```
+Windows does not start anything before a sign-in. After a restart, someone signs in once. Then Herdr starts and brings back the session.
+Herdr on Windows: it keeps sessions after the window closes. Do not run it as administrator (an administrator server refuses normal windows). Windows may show a SmartScreen warning the first time, because Herdr is not signed. The person checks the publisher and says yes.
 
 ## 6. Same account on phone and computer
 
@@ -132,10 +163,7 @@ The phone app shows only sessions of the account it is signed in to. `check.sh` 
 
 Run the check again and show the result:
 
-```bash
-bash <root>/skills/remote-setup/check.sh
-```
+Run the same check as in section 0 (`check.sh`, or `check.ps1` on Windows).
 
 Each line is `PASS`, `FAIL` (with the fix) or `ASK` (the person checks it by eye). Done means: no `FAIL`, and the person said yes to each `ASK`. Then do one real test: close the terminal window, lock the phone, wait one minute, and send a message to "<slug> OS" from the phone.
-
-On Windows, `check.sh` runs in Git Bash, but some checks say `ASK`. Go through sections 4 and 5 by hand.
+If the restart test matters (it usually does), restart the computer once, sign in, wait two minutes, and send a message from the phone again.
