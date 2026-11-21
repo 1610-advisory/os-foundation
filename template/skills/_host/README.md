@@ -31,7 +31,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `repo-access <name>` | `{"access":"ok"}` or `{"access":"no-access"}` |
 | `protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]` | Protect `main`. See the rules below. |
 | `unprotect <name>` | Lift the rule on `main` (`rule_name` or `branch_name`). Deletes that rule by its name. No matching rule: already unprotected, exit 0. `protect` restores it. GitHub: first removes a v0 classic rule on `main` (it would refuse a push too; 404 is fine), then the `main` and `rules-review` rulesets. `protect` puts the v1 rulesets back, not the classic rule. |
-| `secret-exists <name>` | `{"exists":true}` or `{"exists":false}`. Never prints the value. |
+| `secret-exists <name> [--repo <repo>]...` | `{"exists":true}` or `{"exists":false}`. Never prints the value. With `--repo`: the repo secrets, `{"exists":<every repo has it>,"repos":{"<repo>":true}}`. |
 | `user-access <repo> <user>` | `{"access":"none"\|"read"\|"write"\|"admin"\|"invited"}`. A missing user is `none`. GitHub: a pending repo invite is `invited`, because the person gets access the moment they accept. If the invite list cannot be read, it exits non-zero, never `none`. |
 | `team-create <team>` | Create an org team. An existing team is ok: it prints that team. |
 | `team-add <team> <user>` | Add a user to a team |
@@ -56,7 +56,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `drop-logs <name>` | The old v0 `logs` branch: lift the classic protection v0 put on it, then delete it. Only `logs`, never `main`. It reads the repo first: a repo it cannot see stops with a line that names it (exit 3). After the delete it reads the branch again: still there is exit 3, and only a branch the host confirms is gone counts (`deleted:false` when it was gone before). If the rule went and the delete then failed, the line says the old protection is already off and to run `drop-logs` again. For the admin, once every teammate has moved (upgrade `SKILL.md` section 11, step 7). |
 | `pr-status <name> <number>` | `{"state","merged","checks":[{"name","state"}],"approved"}`. GitHub reads the checks through the GraphQL `statusCheckRollup`, which a fine-grained token can read (Commit statuses and Actions read). REST check-runs is the fallback. States are lower case. |
 | `pr-comment <name> <number> --body-file <file>` | Comment on the pull request |
-| `set-secret <name>` | Set an org Actions secret. The value is on stdin. |
+| `set-secret <name> [--repo <repo>]...` | Set an org Actions secret. The value is on stdin. With `--repo`: set it on each named repo instead, never on the org. |
 | `get-token [--bot <bot>]` | Print a token for git over HTTPS |
 | `purge-request <name>` | GitHub: print the support-request text. Forgejo: drop unreachable objects where the API allows it. |
 | `delete-repo <name> --yes-test-only` | Tests only. Refuses unless `OS_TEST_MODE=1`. |
@@ -88,3 +88,7 @@ Forgejo bot: `token_path` in `BOT.md`, or `<config>/<slug>-os/bots/<bot>/token`.
 `HOST_DRY_RUN=1` on GitHub prints each call as one JSON object per line and changes nothing. The object has `method`, `path` and `body`. A real run updates an existing ruleset or pull request of the same name. The dry run prints the create call so the output does not depend on live state.
 
 `auto-merge` records `gh pr merge <number> --repo <org>/<name> --auto --merge`. That is the one GitHub verb that is not a `gh api` call. Dry-run records that same line every time. It does not know whether auto-merge is already on. A real second call exits 0 with `{"auto_merge":"already"}`: Forgejo when the merge response is 409 and the message says already scheduled, GitHub when `gh` says already enabled. Any other error is unchanged. `set-secret` records the org secret call with the value redacted. A real run uses `gh secret set` because the seal step is not in `openssl`.
+
+## Held mode
+
+`host_mode: held` in `company-profile.md` (or `OS_HOST_MODE=held`): the repos sit in an advisor firm's org (the holder), with other companies' repos. Every adapter refuses `org-lock` (exit 1), and `set-secret` and `secret-exists` without `--repo` (exit 1): an org secret is readable from every repo in that org. Each `--repo` must start with `<slug>-`. Nothing is sent before these checks.

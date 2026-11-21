@@ -9,6 +9,8 @@ os_version: {{OS_VERSION}}
 host: none                  # none | github | forgejo (add-teammate sets it)
 host_url: ""                # Forgejo base URL. Empty for github.com.
 org: ""                     # host org that owns the repos (add-teammate sets it)
+host_mode: own              # own | held. held: the repos sit in an advisor firm's org until handover
+holder_org: ""              # held only: that advisor firm's org (the holder)
 sync_engine: ""             # headless command for the nightly check, for example: claude -p --model haiku (add-teammate sets it)
 runner: ubuntu-latest       # runs-on label for the checks workflow
 ---

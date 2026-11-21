@@ -4,6 +4,8 @@
 
 You are helping the **owner of one business** build a **company OS**: a folder on their computer that holds the company's memory, so they (and any agent they open there) can find things fast and work the company's way. It belongs to them. Toolkits and connections are optional and come later. Do what is most useful for them first.
 
+**Held mode.** An advisor firm may build a company OS for a client before the client buys it. Then the repos sit in the advisor's GitHub org, only the advisor's people see them, and nothing org-wide changes there. At purchase, `skills/handover` moves a fresh copy to the company's own org (`skills/add-teammate/SKILL.md`).
+
 ## Read next
 
 1. Read **`start-core.md`**: the interview, tone, safety rules, and build steps.

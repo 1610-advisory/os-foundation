@@ -33,6 +33,7 @@ fi
 if [ "$parse_rc" -ne 0 ]; then
   exit "$parse_rc"
 fi
+host_held_guard "$VERB"
 
 GH_HOSTNAME=""
 if [ -n "${OS_HOST_URL:-}" ]; then
@@ -692,8 +693,33 @@ cmd_user_access() {
   jq -nc --arg access "$access" '{access:$access}'
 }
 
+# One secret GET. Prints true or false. 403: exit 4 (the sign-in cannot read it).
+host_secret_get() {
+  local path=$1 what=$2 out err code
+  out=$(host_mktemp)
+  err=$(host_mktemp)
+  set +e
+  host_gh_api "$path" --method GET >"$out" 2>"$err"
+  code=$?
+  set -e
+  if [ "$code" -eq 0 ]; then
+    printf '%s\n' true
+    return 0
+  fi
+  if grep -q 'HTTP 404' "$err"; then
+    printf '%s\n' false
+    return 0
+  fi
+  if grep -q 'HTTP 403' "$err"; then
+    host_scrub_file "$err" >&2
+    host_die 4 "cannot read ${what} secrets: sign in as an org owner"
+  fi
+  host_scrub_file "$err" >&2
+  host_die 3 "host error"
+}
+
 cmd_secret_exists() {
-  local name out err code
+  local name repo got all=true per="{}"
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
@@ -702,30 +728,31 @@ cmd_secret_exists() {
     *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
   esac
   name=$POS1
+  if [ -n "$REPOS" ]; then
+    # Repo secrets: exists only when every named repo has it.
+    host_repo_lines >/dev/null
+    while IFS= read -r repo; do
+      [ -n "$repo" ] || continue
+      if host_dry; then
+        host_emit GET "$(host_repo "$repo")/actions/secrets/${name}"
+        continue
+      fi
+      got=$(host_secret_get "$(host_repo "$repo")/actions/secrets/${name}" repo) || exit $?
+      [ "$got" = "true" ] || all=false
+      per=$(printf '%s' "$per" | jq -c --arg r "$repo" --argjson v "$got" '. + {($r): $v}')
+    done << EOF
+$(host_repo_lines)
+EOF
+    host_dry && return 0
+    jq -nc --argjson all "$all" --argjson per "$per" '{exists:$all, repos:$per}'
+    return 0
+  fi
   if host_dry; then
     host_emit GET "/orgs/${OS_ORG}/actions/secrets/${name}"
     return 0
   fi
-  out=$(host_mktemp)
-  err=$(host_mktemp)
-  set +e
-  host_gh_api "/orgs/${OS_ORG}/actions/secrets/${name}" --method GET >"$out" 2>"$err"
-  code=$?
-  set -e
-  if [ "$code" -eq 0 ]; then
-    jq -nc '{exists:true}'
-    return 0
-  fi
-  if grep -q 'HTTP 404' "$err"; then
-    jq -nc '{exists:false}'
-    return 0
-  fi
-  if grep -q 'HTTP 403' "$err"; then
-    host_scrub_file "$err" >&2
-    host_die 4 "cannot read org secrets: sign in as an org owner"
-  fi
-  host_scrub_file "$err" >&2
-  host_die 3 "host error"
+  got=$(host_secret_get "/orgs/${OS_ORG}/actions/secrets/${name}" org) || exit $?
+  jq -nc --argjson v "$got" '{exists:$v}'
 }
 
 cmd_team_create() {
@@ -1341,8 +1368,19 @@ cmd_pr_comment() {
     | jq -c '{ok:true, id:.id}'
 }
 
+# gh secret set reads the value from stdin. Never in argv, never in a variable.
+host_gh_secret_set() {
+  local name=$1 secret_file=$2 err=$3
+  shift 3
+  if [ -n "$GH_HOSTNAME" ]; then
+    gh secret set "$name" "$@" --hostname "$GH_HOSTNAME" < "$secret_file" >"$err" 2>&1
+  else
+    gh secret set "$name" "$@" < "$secret_file" >"$err" 2>&1
+  fi
+}
+
 cmd_set_secret() {
-  local name secret_file body
+  local name secret_file body repo done_list=""
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
@@ -1350,9 +1388,21 @@ cmd_set_secret() {
     *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
   esac
   name=$POS1
+  # Check the repo names before the key is asked for.
+  [ -z "$REPOS" ] || host_repo_lines >/dev/null
   secret_file=$(host_mktemp)
   host_read_secret "$secret_file" "$name"
   if host_dry; then
+    if [ -n "$REPOS" ]; then
+      body=$(jq -nc '{encrypted_value:"<redacted>", key_id:"<public-key>"}')
+      while IFS= read -r repo; do
+        [ -n "$repo" ] || continue
+        host_emit PUT "$(host_repo "$repo")/actions/secrets/${name}" "$body"
+      done << EOF
+$(host_repo_lines)
+EOF
+      return 0
+    fi
     body=$(jq -nc '{encrypted_value:"<redacted>", key_id:"<public-key>", visibility:"all"}')
     host_emit PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body"
     return 0
@@ -1360,12 +1410,29 @@ cmd_set_secret() {
   host_require_bin gh
   local err code
   err=$(host_mktemp)
-  set +e
-  if [ -n "$GH_HOSTNAME" ]; then
-    gh secret set "$name" --org "$OS_ORG" --visibility all --hostname "$GH_HOSTNAME" < "$secret_file" >"$err" 2>&1
-  else
-    gh secret set "$name" --org "$OS_ORG" --visibility all < "$secret_file" >"$err" 2>&1
+  if [ -n "$REPOS" ]; then
+    # One key, set on each repo of this company. Only those repos can read it.
+    while IFS= read -r repo; do
+      [ -n "$repo" ] || continue
+      set +e
+      host_gh_secret_set "$name" "$secret_file" "$err" --repo "${OS_ORG}/${repo}"
+      code=$?
+      set -e
+      if [ "$code" -ne 0 ]; then
+        host_scrub_file "$err" "$secret_file" >&2
+        [ -z "$done_list" ] || printf 'set-secret: set on %s before this error\n' "$done_list" >&2
+        GH_STATUS=$(host_classify_gh "$err" "$code")
+        exit "$GH_STATUS"
+      fi
+      done_list="${done_list:+${done_list}, }${repo}"
+    done << EOF
+$(host_repo_lines)
+EOF
+    jq -nc --arg name "$name" --arg repos "$done_list" '{ok:true, name:$name, repos:($repos | split(", "))}'
+    return 0
   fi
+  set +e
+  host_gh_secret_set "$name" "$secret_file" "$err" --org "$OS_ORG" --visibility all
   code=$?
   set -e
   if [ "$code" -ne 0 ]; then

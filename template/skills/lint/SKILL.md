@@ -24,6 +24,7 @@ What each check means:
 The script may also print lines that are not findings. They do not change the exit code. Pass each on in one line:
 - **`notice:`** a newer os-foundation version exists. Say it, then: "Say 'upgrade the OS' when you want it." Nothing else. Offline, nothing is printed.
 - **`notice: grok:`** the Grok CLI does not trust that folder, so it reads none of its rules. Tell the person to start `grok` there once and trust it. Only for people who use Grok.
+- **`held:`** held mode (the repos sit in an advisor firm's org). A name without the slug, no owner on record, old host scripts, or a repo with no review key of its own. Each line says the fix. Never set the key on the holder org.
 - **`notice: org settings:`** lint could not read the org settings: the sign-in is not an org owner, or offline. Pass on the link: an org owner checks them there.
 - **`offer:`** the bot offer. One sentence, once, after two weeks of use, when the `bots` switch is off. Say it as printed. Do not repeat it. If the person asks about bots before then, give the same sentence.
 

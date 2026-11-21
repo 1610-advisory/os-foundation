@@ -249,9 +249,17 @@ host_load_context() {
     fi
     OS_SLUG=$val
   fi
+  # Held mode (v1.1): the repos sit in an advisor firm's org (the holder) until handover.
+  if [ -z "${OS_HOST_MODE:-}" ]; then
+    val=""
+    if [ -n "$file" ]; then
+      val=$(host_profile_raw "$file" host_mode 2>/dev/null) || true
+    fi
+    OS_HOST_MODE=${val:-own}
+  fi
 
   OS_HOST_URL=${OS_HOST_URL%/}
-  export OS_HOST OS_HOST_URL OS_ORG OS_SLUG
+  export OS_HOST OS_HOST_URL OS_ORG OS_SLUG OS_HOST_MODE
   if [ -z "${OS_HOST}" ]; then
     host_die 1 "host is not set. Run add-teammate first."
   fi
@@ -261,6 +269,45 @@ host_require_org() {
   if [ -z "${OS_ORG:-}" ]; then
     host_die 1 "org is not set"
   fi
+}
+
+host_held() {
+  [ "${OS_HOST_MODE:-own}" = "held" ]
+}
+
+# Held mode: the org belongs to the holder, and other companies' repos sit in it.
+# Never change org settings there, and never use an org secret: every repo in the
+# org could read it. A secret goes on each repo of this company (--repo).
+host_held_guard() {
+  host_held || return 0
+  case "$1" in
+    org-lock)
+      host_die 1 "held mode: the org settings belong to the holder org. Nothing was changed."
+      ;;
+    set-secret|secret-exists)
+      if [ -z "${REPOS:-}" ]; then
+        host_die 1 "held mode: an org secret is readable from every repo in the holder org. Name each repo with --repo <name>. Nothing was changed."
+      fi
+      ;;
+  esac
+}
+
+# The repos named with --repo, one per line. Each must have the company slug in front.
+host_repo_lines() {
+  local r
+  while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    host_require_name "repo" "$r"
+    if host_held && [ -n "${OS_SLUG:-}" ]; then
+      case "$r" in
+        "${OS_SLUG}"-*) ;;
+        *) host_die 1 "held mode: repo ${r} does not start with ${OS_SLUG}-" ;;
+      esac
+    fi
+    printf '%s\n' "$r"
+  done << EOF
+${REPOS:-}
+EOF
 }
 
 host_require_name() {
@@ -333,6 +380,7 @@ host_parse_args() {
   TITLE=""
   BODY_FILE=""
   BOT=""
+  REPOS=""
   YES=0
   POS1=""
   POS2=""
@@ -391,6 +439,16 @@ ${2}"
         BOT=$2
         shift 2
         ;;
+      --repo)
+        [ $# -ge 2 ] || host_die 1 "--repo needs a repo name"
+        if [ -z "$REPOS" ]; then
+          REPOS=$2
+        else
+          REPOS="${REPOS}
+${2}"
+        fi
+        shift 2
+        ;;
       --help|-h)
         return 2
         ;;
@@ -423,7 +481,7 @@ ${2}"
     esac
     shift
   done
-  : "$PRIVATE $PUSH $CODE_OWNERS $YES $SOURCE $CHECKS $APPROVALS $HEAD $BASE $TITLE $BODY_FILE $BOT $POS1 $POS2 $POS3"
+  : "$PRIVATE $PUSH $CODE_OWNERS $YES $SOURCE $CHECKS $APPROVALS $HEAD $BASE $TITLE $BODY_FILE $BOT $REPOS $POS1 $POS2 $POS3"
 }
 
 host_read_body_file() {
@@ -743,7 +801,7 @@ Verbs:
   repo-access <name>
   protect <name> [--check <ctx>]... [--code-owners] [--approvals 0]
   unprotect <name>
-  secret-exists <name>
+  secret-exists <name> [--repo <repo>]...   (held mode: --repo is required)
   user-access <repo> <user>
   team-create <team>
   team-add <team> <user>
@@ -751,7 +809,7 @@ Verbs:
   team-repos <team>
   org-repos
   org-settings                   (base permission, member repo creation, owner)
-  org-lock                       (base permission none, members cannot make repos)
+  org-lock                       (base permission none, members cannot make repos; refused in held mode)
   grant <name> <user|team:<team>> <read|write|admin>
   revoke <name> <user|team:<team>>
   org-remove <user>
@@ -768,7 +826,7 @@ Verbs:
   drop-logs <name>               (the old v0 logs branch: lift its rule, delete it)
   pr-status <name> <number>
   pr-comment <name> <number> --body-file <file>
-  set-secret <name>              (value on stdin)
+  set-secret <name> [--repo <repo>]...      (value on stdin; held mode: --repo is required)
   get-token [--bot <bot>]
   purge-request <name>
   delete-repo <name> --yes-test-only

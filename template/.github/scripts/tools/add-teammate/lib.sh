@@ -561,8 +561,22 @@ os_area_name_ok() {
 # one org never share a team. A v1 company whose plain team "company" already grants its
 # repo keeps the plain names. Call os_team_names <slug> once, before the names are used.
 OS_TEAM_PREFIX=""
+# own or held. OS_HOST_MODE wins, then host_mode in OS_PROFILE. Default own.
+os_host_mode() {
+  local mode=${OS_HOST_MODE:-}
+  if [ -z "$mode" ] && [ -n "${OS_PROFILE:-}" ] && [ -f "${OS_PROFILE}" ]; then
+    mode=$(os_fm_get "$OS_PROFILE" host_mode 2>/dev/null || true)
+  fi
+  printf '%s\n' "${mode:-own}"
+}
+
 os_team_names() {
   local slug=$1 out
+  # Held mode: other companies share the holder org. Always the slug in front.
+  if [ "$(os_host_mode)" = "held" ]; then
+    OS_TEAM_PREFIX="${slug}-"
+    return 0
+  fi
   if ! out=$(os_host team-repos company); then
     os_die 3 "could not read the teams on the host"
   fi
@@ -969,7 +983,7 @@ os_write_workspace() {
 }
 
 os_write_person_page() {
-  local root=$1 slug=$2 name=$3 github=$4 email=$5 role=$6 areas=$7 manager=$8
+  local root=$1 slug=$2 name=$3 github=$4 email=$5 role=$6 areas=$7 manager=$8 holder=${9:-}
   local page dir area_yaml a first old_role
   dir="$root/people"
   mkdir -p "$dir"
@@ -1009,6 +1023,10 @@ os_write_person_page() {
     if [ -n "$manager" ]; then
       os_fm_set "$page" manager "$manager"
     fi
+    # Held mode: the holder's person is the owner on record until handover.
+    if [ "$holder" = "true" ]; then
+      os_fm_set "$page" holder true
+    fi
   else
     cat > "$page" << EOF
 ---
@@ -1034,17 +1052,65 @@ terms_accepted: ""
 
 ## Notes
 EOF
+    if [ "$holder" = "true" ]; then
+      os_fm_set "$page" holder true
+    fi
   fi
   printf '%s\n' "$page"
 }
 
 # The one safe way to set the review key: host.sh asks for it and hides it (v1.0.2).
 # The host and org go in front, so it works before team-on writes them to the profile.
+# Held mode: pass the company's repo names after the url. The key goes on each repo,
+# never on the holder org (every repo there could read an org secret).
 os_review_command() {
-  local host=$1 org=$2 url=${3:-} env
+  local host=$1 org=$2 url=${3:-} env flags="" r
+  shift 3 2>/dev/null || shift $#
   env="OS_HOST=${host} OS_ORG=${org}"
   [ "$host" != "forgejo" ] || [ -z "$url" ] || env="${env} OS_HOST_URL=${url}"
-  printf '%s\n' "review-command: ${env} skills/_host/host.sh set-secret OS_REVIEW_KEY (it asks for the key and does not show it)"
+  if [ "$(os_host_mode)" = "held" ]; then
+    env="${env} OS_HOST_MODE=held"
+    for r in "$@"; do
+      flags="${flags} --repo ${r}"
+    done
+  fi
+  printf '%s\n' "review-command: ${env} skills/_host/host.sh set-secret OS_REVIEW_KEY${flags} (it asks for the key and does not show it)"
+}
+
+# Held mode: the company's repos that run the checks (root and areas), one per line.
+os_held_check_repos() {
+  local root=$1 slug=$2 a
+  os_company_repo "$slug"
+  printf '\n'
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    os_area_repo "$slug" "$a"
+    printf '\n'
+  done << EOF
+$(os_areas_on_disk "$root")
+EOF
+}
+
+# Held mode settings: host_mode and holder_org from the answers, else the profile.
+# Sets OS_HOST_MODE and OS_HOLDER_ORG. Stops on a bad value.
+os_held_settings() {
+  local answers=$1 profile=$2 mode holder
+  mode=$(os_answer_or host_mode "$answers" "")
+  [ -n "$mode" ] || mode=$(os_fm_get "$profile" host_mode 2>/dev/null || true)
+  mode=${mode:-own}
+  case "$mode" in
+    own|held) ;;
+    *) os_die 2 "host_mode must be own or held" ;;
+  esac
+  holder=$(os_answer_or holder_org "$answers" "")
+  [ -n "$holder" ] || holder=$(os_fm_get "$profile" holder_org 2>/dev/null || true)
+  holder=$(os_unquote "$holder")
+  if [ "$mode" = "held" ] && [ -z "$holder" ]; then
+    os_die 2 "host_mode is held: holder_org is required (the advisor firm's org that holds the repos)"
+  fi
+  OS_HOST_MODE=$mode
+  OS_HOLDER_ORG=$holder
+  export OS_HOST_MODE OS_HOLDER_ORG
 }
 
 # The person in the answers whose github (or Forgejo login) is LOGIN. Empty when none is.
@@ -1059,10 +1125,14 @@ os_me_for_login() {
   done
 }
 
+# Held mode: pass the repo names. The key must be on each one.
 os_review_state() {
-  local out rc
+  local out rc args=() r
+  for r in "$@"; do
+    args+=(--repo "$r")
+  done
   set +e
-  out=$(os_host secret-exists OS_REVIEW_KEY 2>/dev/null)
+  out=$(os_host secret-exists OS_REVIEW_KEY ${args[@]+"${args[@]}"} 2>/dev/null)
   rc=$?
   set -e
   # 4: the sign-in may not read org secrets. The key may be there.

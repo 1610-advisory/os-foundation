@@ -56,6 +56,12 @@ os_refuse_synced "$ROOT"
 HOST_KIND=$(os_answer_or host "$ANSWERS" "")
 HOST_URL=$(os_answer_or host_url "$ANSWERS" "")
 ORG=$(os_answer_or org "$ANSWERS" "")
+# Held mode (v1.1): the repos sit in the holder's org until handover. org is that org.
+os_held_settings "$ANSWERS" "$ROOT/company-profile.md"
+if [ "$OS_HOST_MODE" = "held" ]; then
+  [ -n "$ORG" ] || ORG=$OS_HOLDER_ORG
+  [ "$ORG" = "$OS_HOLDER_ORG" ] || os_die 2 "host_mode is held: org (${ORG}) must be holder_org (${OS_HOLDER_ORG})"
+fi
 ENGINE=$(os_answer_or sync_engine "$ANSWERS" "")
 RUNNER=$(os_answer_or runner "$ANSWERS" "ubuntu-latest")
 [ -n "$HOST_KIND" ] || os_die 2 "host is required"
@@ -105,6 +111,10 @@ if [ "$HOST_KIND" = "github" ]; then
   set -e
   [ "$rc" -eq 0 ] || exit "$rc"
 
+  if [ "$OS_HOST_MODE" = "held" ]; then
+    # The org is the holder's, and other companies sit in it: never touch its settings.
+    printf '%s\n' "org settings: held mode, not changed (they belong to the holder org ${ORG})"
+  fi
   # Org settings: base permission "No permission", and members cannot make repos.
   # team-on changes them only for an org owner, in an org that is the company's own:
   # org_own is not "no", and every repo in the org is named <slug>-* (or is the org's
@@ -117,12 +127,16 @@ if [ "$HOST_KIND" = "github" ]; then
   org_base=unknown
   org_member=unknown
   org_owner=false
-  if org_json=$(os_host org-settings 2>/dev/null); then
+  if [ "$OS_HOST_MODE" = "held" ]; then
+    :
+  elif org_json=$(os_host org-settings 2>/dev/null); then
     org_base=$(printf '%s' "$org_json" | jq -r 'if (.base | type) == "string" then .base else "unknown" end' 2>/dev/null || printf 'unknown')
     org_member=$(printf '%s' "$org_json" | jq -r 'if .member_repos == true then "on" elif .member_repos == false then "off" else "unknown" end' 2>/dev/null || printf 'unknown')
     org_owner=$(printf '%s' "$org_json" | jq -r 'if .owner == true then "true" else "false" end' 2>/dev/null || printf 'false')
   fi
-  if [ "$org_base" = "none" ] && [ "$org_member" = "off" ]; then
+  if [ "$OS_HOST_MODE" = "held" ]; then
+    :
+  elif [ "$org_base" = "none" ] && [ "$org_member" = "off" ]; then
     printf '%s\n' "org settings: ok"
   else
     org_own=no
@@ -167,6 +181,10 @@ ADMIN=$(os_answer_or admin_slug "$ANSWERS" "")
 if [ -z "$ADMIN" ]; then
   ADMIN=$(os_person_slugs "$ANSWERS" | while IFS= read -r s; do
     role=$(os_answer_or "person.${s}.role" "$ANSWERS" "")
+    # Held mode: the owner on record is the holder's admin (holder=true).
+    if [ "$OS_HOST_MODE" = "held" ] && [ "$(os_answer_or "person.${s}.holder" "$ANSWERS" "")" != "true" ]; then
+      continue
+    fi
     if [ "$role" = "admin" ]; then
       printf '%s\n' "$s"
       break
@@ -174,12 +192,23 @@ if [ -z "$ADMIN" ]; then
   done)
 fi
 [ -n "$ADMIN" ] || os_die 2 "name an admin"
+if [ "$OS_HOST_MODE" = "held" ] && [ "$(os_answer_or "person.${ADMIN}.holder" "$ANSWERS" "")" != "true" ]; then
+  os_die 2 "host_mode is held: the admin must be the holder's person (person.${ADMIN}.holder=true) until handover"
+fi
 
 ADMIN_GH=$(os_answer_or "person.${ADMIN}.github" "$ANSWERS" "")
 [ -n "$ADMIN_GH" ] || os_die 2 "admin github username is required"
 
 # Review key never enters this process. Print the command, then check existence only.
-os_review_command "$HOST_KIND" "$ORG" "$HOST_URL"
+HELD_REPOS=()
+if [ "$OS_HOST_MODE" = "held" ]; then
+  while IFS= read -r r; do
+    [ -n "$r" ] && HELD_REPOS+=("$r")
+  done << EOF
+$(os_held_check_repos "$ROOT" "$SLUG")
+EOF
+fi
+os_review_command "$HOST_KIND" "$ORG" "$HOST_URL" ${HELD_REPOS[@]+"${HELD_REPOS[@]}"}
 REVIEW_VENDOR=$(os_answer_or review_vendor "$ANSWERS" "")
 REVIEW_KIND=$(os_answer_or review_kind "$ANSWERS" "")
 REVIEW_MODEL=$(os_answer_or review_model "$ANSWERS" "")
@@ -198,7 +227,7 @@ case "$REVIEW_KIND" in
   second-vendor|same-vendor) ;;
   *) os_die 2 "review_kind must be second-vendor or same-vendor" ;;
 esac
-REVIEW=$(os_review_state)
+REVIEW=$(os_review_state ${HELD_REPOS[@]+"${HELD_REPOS[@]}"})
 case "$REVIEW" in
   key-set)
     if [ "$REVIEW_KIND" = "same-vendor" ]; then
@@ -238,6 +267,8 @@ os_fm_set "$ROOT/company-profile.md" level "team"
 os_fm_set "$ROOT/company-profile.md" host "$HOST_KIND"
 os_fm_set "$ROOT/company-profile.md" host_url "$(os_yaml_quote "$HOST_URL")"
 os_fm_set "$ROOT/company-profile.md" org "$ORG"
+os_fm_set "$ROOT/company-profile.md" host_mode "$OS_HOST_MODE"
+os_fm_set "$ROOT/company-profile.md" holder_org "$(os_yaml_quote "$OS_HOLDER_ORG")"
 os_fm_set "$ROOT/company-profile.md" sync_engine "$(os_yaml_quote "$ENGINE")"
 os_fm_set "$ROOT/company-profile.md" runner "$RUNNER"
 
@@ -251,10 +282,11 @@ while IFS= read -r slug; do
   role=$(os_answer_or "person.${slug}.role" "$ANSWERS" "")
   areas=$(os_answer_or "person.${slug}.areas" "$ANSWERS" "")
   manager=$(os_answer_or "person.${slug}.manager" "$ANSWERS" "")
+  holder=$(os_answer_or "person.${slug}.holder" "$ANSWERS" "")
   [ -n "$name" ] || os_die 2 "person ${slug} needs a name"
   [ -n "$gh" ] || os_die 2 "person ${slug} needs a github username"
   [ -n "$role" ] || os_die 2 "person ${slug} needs a role"
-  ROOT_PATHS+=("$(os_write_person_page "$ROOT" "$slug" "$name" "$gh" "$email" "$role" "$areas" "$manager")")
+  ROOT_PATHS+=("$(os_write_person_page "$ROOT" "$slug" "$name" "$gh" "$email" "$role" "$areas" "$manager" "$holder")")
 done << EOF
 $(os_person_slugs "$ANSWERS")
 EOF
