@@ -64,6 +64,7 @@
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 657fdbbfc58c696100ed33d87cc9f51fccb98a88 skills/_host/README.md
+6fbe31ac263cbd08f454c91549a3b8e7f39fca4e skills/remote-setup/check.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
 766d28fc167a2f572bde972669e7a259ecef2252 skills/app-setup/SKILL.md
@@ -87,6 +88,7 @@
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer
+9a8e8e07caf6ddb08034b71ab65851f45d37e0c0 skills/remote-setup/SKILL.md
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
