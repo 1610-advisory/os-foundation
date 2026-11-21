@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEAM = ROOT / "tests" / "team"
 UPGRADE = ROOT / "tests" / "upgrade"
+HELD = ROOT / "tests" / "held"
 
 
 def run_script(name, folder=TEAM):
@@ -82,6 +83,12 @@ class UpgradeScripts(unittest.TestCase):
 
     def test_root_router(self):
         run_script("test_root_router.sh", UPGRADE)
+
+
+class HeldScripts(unittest.TestCase):
+    def test_held(self):
+        # v1.1 held mode: two companies in one holder org, lint, handover.
+        run_script("test_held.sh", HELD)
 
 
 if __name__ == "__main__":

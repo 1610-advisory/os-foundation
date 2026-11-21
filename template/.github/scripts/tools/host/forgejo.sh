@@ -36,6 +36,7 @@ fi
 if [ "$parse_rc" -ne 0 ]; then
   exit "$parse_rc"
 fi
+host_held_guard "$VERB"
 
 host_require_bin curl
 host_require_bin jq
@@ -457,7 +458,7 @@ cmd_unprotect() {
 }
 
 cmd_secret_exists() {
-  local name
+  local name repo all=true per="{}" got
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
@@ -465,6 +466,40 @@ cmd_secret_exists() {
     *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
   esac
   name=$POS1
+  if [ -n "$REPOS" ]; then
+    # Repo secrets: Forgejo lists the names (never the values). Exists only when every
+    # named repo has it.
+    host_repo_lines >/dev/null
+    while IFS= read -r repo; do
+      [ -n "$repo" ] || continue
+      if [ "${HOST_DRY_RUN:-}" = "1" ]; then
+        host_emit_call GET "$(host_repo "$repo")/actions/secrets"
+        continue
+      fi
+      if ! fj_call GET "$(host_repo "$repo")/actions/secrets"; then
+        fj_offline
+      fi
+      case "$FJ_HTTP" in
+        200)
+          if printf '%s' "$FJ_BODY" | jq -e --arg n "$name" '[.[]? | (.name // "") | ascii_upcase] | index($n | ascii_upcase) != null' >/dev/null 2>&1; then
+            got=true
+          else
+            got=false
+          fi
+          ;;
+        404) got=false ;;
+        401|403) host_die 4 "cannot read repo secrets: sign in as a repo admin" ;;
+        *) fj_fail ;;
+      esac
+      [ "$got" = "true" ] || all=false
+      per=$(printf '%s' "$per" | jq -c --arg r "$repo" --argjson v "$got" '. + {($r): $v}')
+    done << EOF
+$(host_repo_lines)
+EOF
+    [ "${HOST_DRY_RUN:-}" = "1" ] && return 0
+    jq -nc --argjson all "$all" --argjson per "$per" '{exists:$all, repos:$per}'
+    return 0
+  fi
   if [ "${HOST_DRY_RUN:-}" = "1" ]; then
     host_emit_call GET "/orgs/${OS_ORG}/actions/secrets/${name}"
     return 0
@@ -1026,7 +1061,7 @@ cmd_pr_comment() {
 }
 
 cmd_set_secret() {
-  local name secret_file body
+  local name secret_file body path paths="" done_list=""
   [ -n "$POS1" ] || host_die 1 "secret name is required"
   [ -z "$POS2" ] || host_die 1 "too many arguments"
   host_require_org
@@ -1034,20 +1069,41 @@ cmd_set_secret() {
     *[!A-Za-z0-9_]*) host_die 1 "secret name has invalid characters" ;;
   esac
   name=$POS1
+  if [ -n "$REPOS" ]; then
+    # One key, set on each repo of this company. Only those repos can read it.
+    host_repo_lines >/dev/null
+    paths=$(host_repo_lines | while IFS= read -r r; do printf '%s\n' "$(host_repo "$r")/actions/secrets/${name}"; done)
+  else
+    paths="/orgs/${OS_ORG}/actions/secrets/${name}"
+  fi
   secret_file=$(host_mktemp)
   host_read_secret "$secret_file" "$name"
-  # The body holds the value: no xtrace while it is in a variable or an argument.
-  host_xtrace_off
-  body=$(jq -nc --rawfile data "$secret_file" '{data:$data}')
-  if ! fj_call PUT "/orgs/${OS_ORG}/actions/secrets/${name}" "$body" "$secret_file"; then
-    host_die 5 "host is offline"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    # The body holds the value: no xtrace while it is in a variable or an argument.
+    host_xtrace_off
+    body=$(jq -nc --rawfile data "$secret_file" '{data:$data}')
+    if ! fj_call PUT "$path" "$body" "$secret_file"; then
+      host_die 5 "host is offline"
+    fi
+    body=""
+    host_xtrace_restore
+    case "$FJ_HTTP" in
+      201|204) ;;
+      *)
+        [ -z "$done_list" ] || printf 'set-secret: set on %s before this error\n' "$done_list" >&2
+        fj_fail "$secret_file"
+        ;;
+    esac
+    done_list="${done_list:+${done_list}, }${path}"
+  done << EOF
+${paths}
+EOF
+  if [ -n "$REPOS" ]; then
+    jq -nc --arg name "$name" --arg repos "$(host_repo_lines | paste -sd, - | sed 's/,/, /g')" '{ok:true, name:$name, repos:($repos | split(", "))}'
+  else
+    jq -nc --arg name "$name" '{ok:true, name:$name}'
   fi
-  body=""
-  host_xtrace_restore
-  case "$FJ_HTTP" in
-    201|204) jq -nc --arg name "$name" '{ok:true, name:$name}' ;;
-    *) fj_fail "$secret_file" ;;
-  esac
 }
 
 cmd_get_token() {

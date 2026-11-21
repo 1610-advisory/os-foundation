@@ -26,7 +26,8 @@ Checks the company folder. Exit 0 when nothing is wrong. Exit 1 when there is a 
 5. Agent rules files are under 10,000 characters: `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, and `bots/*/BOT.md`, at the root and in each area. Other files under `skills/` are not sized here. `skill-creator` ships a longer `SKILL.md` on purpose.
 6. No `{{...}}` outside `skills/` and `library/` (the admin's private repo of copies).
 7. A simple check that `users/<person>/profile/PROFILE.md` does not contain the company slug or the company name from the profile heading. The nightly check is the real one.
-8. Team on GitHub, not with `--ci`: the org settings, read by `skills/_host/host.sh org-settings`. The base permission must be `none` ("No permission"). Members must not be able to make repos. Each open setting is a finding with the settings link. `OS_LINT_NO_HOST=1` skips this check.
+8. Held mode (`host_mode: held`): `holder_org` is set and `org` is the same; every repo's origin starts with `<slug>-`; at team level a people page has `role: admin` and `holder: true`; `skills/_host` refuses org-wide calls (it has the held guard). Not with `--ci`, at team level: each repo has its own `OS_REVIEW_KEY` (`host.sh secret-exists --repo`). An org secret is never used in held mode. The org settings check below is skipped: those settings are the holder's. `OS_LINT_NO_HOST=1` skips the key check.
+9. Team on GitHub, not with `--ci`: the org settings, read by `skills/_host/host.sh org-settings`. The base permission must be `none` ("No permission"). Members must not be able to make repos. Each open setting is a finding with the settings link. `OS_LINT_NO_HOST=1` skips this check.
 
 ## Notices (not findings, not with `--ci`)
 

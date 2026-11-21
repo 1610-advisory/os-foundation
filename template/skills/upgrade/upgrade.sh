@@ -1285,8 +1285,17 @@ if [ "$HOST_ON" -eq 1 ]; then
   esac
 fi
 if [ "$TEAM_ON" -eq 1 ]; then
-  os_review_command "$UP_HOST" "$UP_ORG" "$UP_HOST_URL"
-  if [ "$(os_review_state)" != "key-set" ]; then
+  # Held mode: the key is on each of this company's repos, never on the holder org.
+  up_held=()
+  if [ "$(OS_PROFILE="$ROOT/company-profile.md" os_host_mode)" = "held" ]; then
+    while IFS= read -r r; do
+      [ -n "$r" ] && up_held+=("$r")
+    done << EOF
+$(os_held_check_repos "$ROOT" "$SLUG")
+EOF
+  fi
+  OS_PROFILE="$ROOT/company-profile.md" os_review_command "$UP_HOST" "$UP_ORG" "$UP_HOST_URL" ${up_held[@]+"${up_held[@]}"}
+  if [ "$(os_review_state ${up_held[@]+"${up_held[@]}"})" != "key-set" ]; then
     printf '%s\n' "no review key yet: the checks fail until the admin runs the review command above"
   fi
   checks_on_main "$ROOT" "$(os_company_repo "$SLUG")"

@@ -169,6 +169,52 @@ else
     *) finding "host: $HOST" ;;
   esac
 
+  # Held mode (v1.1): the repos sit in an advisor firm's org (the holder) until handover.
+  HOST_MODE=$(os_fm_get "$PROFILE" host_mode 2>/dev/null || true)
+  HOST_MODE=${HOST_MODE:-own}
+  case "$HOST_MODE" in
+    own|held) ;;
+    *) finding "host_mode: $HOST_MODE (own or held)" ;;
+  esac
+  if [ "$HOST_MODE" = "held" ]; then
+    held_slug=$(os_fm_get "$PROFILE" company_slug 2>/dev/null || true)
+    held_org=$(os_unquote "$(os_fm_get "$PROFILE" org 2>/dev/null || true)")
+    held_holder=$(os_unquote "$(os_fm_get "$PROFILE" holder_org 2>/dev/null || true)")
+    if [ -z "$held_holder" ]; then
+      finding "held: holder_org is empty in company-profile.md"
+    elif [ -n "$held_org" ] && [ "$held_org" != "$held_holder" ]; then
+      finding "held: org (${held_org}) is not holder_org (${held_holder})"
+    fi
+    # Names: every repo of this company starts with the slug, so two companies in one
+    # holder org never collide.
+    for d in "$ROOT" "$ROOT"/areas/* "$ROOT"/users/*; do
+      [ -e "$d/.git" ] || continue
+      url=$(git -C "$d" remote get-url origin 2>/dev/null || true)
+      [ -n "$url" ] || continue
+      name=$(basename "$url" .git)
+      case "$name" in
+        "${held_slug}"-*) ;;
+        *) finding "held: repo ${name} (${d#"$ROOT"/}) does not start with ${held_slug}-" ;;
+      esac
+    done
+    # Owner on record: the holder's admin, until handover.
+    held_owner=0
+    for page in "$ROOT"/people/*.md; do
+      [ -f "$page" ] || continue
+      if [ "$(os_fm_get "$page" holder 2>/dev/null || true)" = "true" ] \
+        && [ "$(os_fm_get "$page" role 2>/dev/null || true)" = "admin" ]; then
+        held_owner=1
+      fi
+    done
+    if [ "$held_owner" -eq 0 ] && { [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; }; then
+      finding "held: no owner on record: a people page with role: admin and holder: true"
+    fi
+    # No org-wide change: the host scripts here must refuse org settings and org secrets.
+    if [ -f "$ROOT/skills/_host/lib.sh" ] && ! grep -q 'host_held_guard' "$ROOT/skills/_host/lib.sh"; then
+      finding "held: skills/_host is older than held mode and could change the holder org's settings: run the upgrade refresh"
+    fi
+  fi
+
   SWITCHES=$(os_fm_get "$PROFILE" switches 2>/dev/null || true)
   allowed=" bots traces cloud-handoff mdx-reports benchmarks "
   if [ -f "$ROOT/scale.md" ]; then
@@ -291,6 +337,52 @@ if [ "$CI" -eq 0 ] && [ -f "$PROFILE" ]; then
   fi
 
   LEVEL=$(os_fm_get "$PROFILE" level 2>/dev/null || true)
+  # Held mode (v1.1): the repos sit in an advisor firm's org (the holder) until handover.
+  HOST_MODE=$(os_fm_get "$PROFILE" host_mode 2>/dev/null || true)
+  HOST_MODE=${HOST_MODE:-own}
+  case "$HOST_MODE" in
+    own|held) ;;
+    *) finding "host_mode: $HOST_MODE (own or held)" ;;
+  esac
+  if [ "$HOST_MODE" = "held" ]; then
+    held_slug=$(os_fm_get "$PROFILE" company_slug 2>/dev/null || true)
+    held_org=$(os_unquote "$(os_fm_get "$PROFILE" org 2>/dev/null || true)")
+    held_holder=$(os_unquote "$(os_fm_get "$PROFILE" holder_org 2>/dev/null || true)")
+    if [ -z "$held_holder" ]; then
+      finding "held: holder_org is empty in company-profile.md"
+    elif [ -n "$held_org" ] && [ "$held_org" != "$held_holder" ]; then
+      finding "held: org (${held_org}) is not holder_org (${held_holder})"
+    fi
+    # Names: every repo of this company starts with the slug, so two companies in one
+    # holder org never collide.
+    for d in "$ROOT" "$ROOT"/areas/* "$ROOT"/users/*; do
+      [ -e "$d/.git" ] || continue
+      url=$(git -C "$d" remote get-url origin 2>/dev/null || true)
+      [ -n "$url" ] || continue
+      name=$(basename "$url" .git)
+      case "$name" in
+        "${held_slug}"-*) ;;
+        *) finding "held: repo ${name} (${d#"$ROOT"/}) does not start with ${held_slug}-" ;;
+      esac
+    done
+    # Owner on record: the holder's admin, until handover.
+    held_owner=0
+    for page in "$ROOT"/people/*.md; do
+      [ -f "$page" ] || continue
+      if [ "$(os_fm_get "$page" holder 2>/dev/null || true)" = "true" ] \
+        && [ "$(os_fm_get "$page" role 2>/dev/null || true)" = "admin" ]; then
+        held_owner=1
+      fi
+    done
+    if [ "$held_owner" -eq 0 ] && { [ "$LEVEL" = "team" ] || [ "$LEVEL" = "app" ]; }; then
+      finding "held: no owner on record: a people page with role: admin and holder: true"
+    fi
+    # No org-wide change: the host scripts here must refuse org settings and org secrets.
+    if [ -f "$ROOT/skills/_host/lib.sh" ] && ! grep -q 'host_held_guard' "$ROOT/skills/_host/lib.sh"; then
+      finding "held: skills/_host is older than held mode and could change the holder org's settings: run the upgrade refresh"
+    fi
+  fi
+
   SWITCHES=$(os_fm_get "$PROFILE" switches 2>/dev/null || true)
   SWITCHES=$(printf '%s' "$SWITCHES" | tr -d '[]' | tr ',' ' ')
   bots_on=0
@@ -336,7 +428,27 @@ fi
 if [ "$CI" -eq 0 ] && [ -z "${OS_LINT_NO_HOST:-}" ] && [ -f "$PROFILE" ] && os_have jq; then
   org_level=$(os_fm_get "$PROFILE" level 2>/dev/null || true)
   org_host=$(os_fm_get "$PROFILE" host 2>/dev/null || true)
-  if { [ "$org_level" = "team" ] || [ "$org_level" = "app" ]; } && [ "$org_host" = "github" ]; then
+  org_mode=$(os_fm_get "$PROFILE" host_mode 2>/dev/null || true)
+  if [ "$org_mode" = "held" ]; then
+    # The org settings are the holder's. Check instead that each repo has its own review
+    # key: no org secret is used in held mode.
+    if { [ "$org_level" = "team" ] || [ "$org_level" = "app" ]; } && org_bin=$(os_find_host "$ROOT" "$DIR"); then
+      held_args=()
+      while IFS= read -r r; do
+        [ -n "$r" ] && held_args+=(--repo "$r")
+      done << EOF
+$(os_held_check_repos "$ROOT" "$(os_fm_get "$PROFILE" company_slug 2>/dev/null || true)")
+EOF
+      if held_json=$(OS_PROFILE="$PROFILE" OS_HOST_MODE=held bash "$org_bin" secret-exists OS_REVIEW_KEY ${held_args[@]+"${held_args[@]}"} 2>/dev/null); then
+        held_missing=$(printf '%s' "$held_json" | jq -r '[.repos // {} | to_entries[] | select(.value != true) | .key] | join(", ")' 2>/dev/null || true)
+        if [ -n "$held_missing" ]; then
+          finding "held: no review key on ${held_missing}. Set it on each repo, never on the holder org: skills/_host/host.sh set-secret OS_REVIEW_KEY --repo <repo>"
+        fi
+      else
+        printf '%s\n' "notice: held: could not read the repo review keys (sign in as a repo admin, or you are offline)"
+      fi
+    fi
+  elif { [ "$org_level" = "team" ] || [ "$org_level" = "app" ]; } && [ "$org_host" = "github" ]; then
     org_name=$(os_fm_get "$PROFILE" org 2>/dev/null || true)
     org_url=$(os_fm_get "$PROFILE" host_url 2>/dev/null || true)
     org_page="${org_url:-https://github.com}"

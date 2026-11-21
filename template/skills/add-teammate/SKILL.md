@@ -9,6 +9,8 @@ Access works by repo. A teammate gets the company repo, their own private worksp
 
 For each part: ask one question at a time, with a suggested answer. Write the answers file (flags and keys: `skills/add-teammate/CLI.md`). Run the script. Explain the result in plain words. Never put a password, token or key in the answers file or in the chat.
 
+**Held mode.** An advisor firm may hold the company's repos in its own GitHub org until the company buys the OS. Only the advisor's people see them, and team setup changes nothing org-wide there. At handover, `skills/handover/SKILL.md` moves a fresh copy to the company's own org.
+
 ## Part A — on the admin's computer
 
 ### A1. Check first
@@ -23,12 +25,13 @@ For each part: ask one question at a time, with a suggested answer. Write the an
    > The team level needs a GitHub organization on the **Team plan** (paid). The Free plan cannot enforce review on private repos. On Free, any change could go into `main` with no check.
 
    No organization yet: help make one at github.com/organizations/new on the Team plan. Do not go on with a Free organization.
-3. **Organization name.** The repos belong to the company, not to one person.
+3. **Organization name.** The repos belong to the company, not to one person. Ask first: "Is this company's GitHub org its own, or is it held by an advisor's org for now?" Own: `host_mode=own`. Held: `host_mode=held`, `holder_org=<the advisor's org>`, and `org` is that org.
 4. **Sign-in.** GitHub: the admin runs `gh auth login` in the browser, then `gh auth refresh -s admin:org,workflow`. `admin:org` lets setup make teams and check the org review key. `workflow` lets it push the checks workflow. Forgejo: the admin puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600). Never you.
 5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
 8. **Own org.** GitHub only. Does the org hold any repos that are not this company's? Yes: put `org_own=no` in the answers. Then setup never changes the org settings.
+9. **Held mode only.** The admin is the advisor firm's owner: `role=admin` and `holder=true` (the owner on record until handover). The company's own people are not added yet. Their people pages may be written as notes.
 
 ### A3. The review key
 
@@ -47,6 +50,8 @@ No key at all: say plainly: "No review key: every pull request fails the model r
 ```
 OS_HOST=<host> OS_ORG=<org> skills/_host/host.sh set-secret OS_REVIEW_KEY
 ```
+
+Held mode: never set it on the holder org (every repo there could read it). Copy the `review-command:` line from `team-on.sh`: it adds `OS_HOST_MODE=held` and one `--repo <repo>` per repo.
 
 Never run it for them, ask for the key in the chat, or read it back.
 

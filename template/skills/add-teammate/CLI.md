@@ -19,6 +19,8 @@ GitHub: before any change it reads the `gh` sign-in scopes (`host.sh whoami`). I
 
 GitHub, next: `host.sh plan-check` reads the org plan. A Free org stops with exit 3, before any change: `This GitHub org is on the Free plan. Team setup needs GitHub Team (rulesets for private repos). Upgrade the plan, then run this again.` Rulesets on private repos need a paid plan. Only an org owner sees the plan, and team setup needs one. A hidden plan stops it the same way, before any change: `Could not read the plan of the GitHub org <org>: sign in as an org owner, then run this again. Team setup needs an org owner.`
 
+Held mode (`host_mode=held`): it prints `org settings: held mode, not changed (they belong to the holder org <org>)` and makes no org-settings call. Team names always have the slug in front (`<slug>-company`, `<slug>-area-<area>`). The review key goes on each repo, never on the org: `review-command:` names each repo with `--repo`, and the key check reads the repo secrets.
+
 GitHub, next: `host.sh org-settings` reads two org settings: the base permission and member repo creation. Both locked (base `none`, members cannot make repos): it prints `org settings: ok`. Else, when the sign-in is an org owner and the org is the company's own, it locks them (`host.sh org-lock`) and, only when that worked, prints `org settings: base permission none, members cannot make repos (was: <base>, <on|off>)`. The org is the company's own when `org_own` is not `no` and every repo in the org is named `<slug>-*` (the org's own `.github` repo is allowed), and that list is the whole org: its length equals the org's repo count (public plus private). A sign-in that sees only part of the org gets the ask line. Else, or when the lock fails (then with no `was` line), it prints `org settings: ask an org owner to set Base permissions to "No permission" and turn off repository creation for members: https://github.com/organizations/<org>/settings/member_privileges`. It never stops. Forgejo skips this check.
 
 Every create verb is safe to run twice: an existing repo, team, member, grant or ruleset is ok.
@@ -44,6 +46,8 @@ One `key=value` per line. Blank lines and lines starting with `#` are ignored. S
 | `runner` | `runs-on` label. Default `ubuntu-latest`. |
 | `admin_slug` | Person slug of the admin. Default: the first `role=admin`. |
 | `company_slug` | Used only when `company-profile.md` still has a placeholder slug. |
+| `host_mode` | `own` (default) or `held`. `held`: the repos sit in an advisor firm's org (the holder) until handover. Default: `host_mode` in `company-profile.md`, else `own`. |
+| `holder_org` | `held` only, and required there: the holder's org. `org` must be the same, or empty (then it is `holder_org`). |
 | `org_own` | `no`: the org also holds repos that are not this company's. team-on then never changes the org settings. It prints the settings link. Default: empty. |
 | `company_name` | Used in the hand-off and the workspace fill. Default: the profile heading. |
 | `person.<slug>.name` | Page title, for example `Ada Admin`. |
@@ -52,6 +56,7 @@ One `key=value` per line. Blank lines and lines starting with `#` are ignored. S
 | `person.<slug>.role` | `admin`, `director`, or `writer`. |
 | `person.<slug>.areas` | Comma list of area slugs. |
 | `person.<slug>.manager` | Optional slug. Used later if this person leaves. |
+| `person.<slug>.holder` | `true`: a person of the holder (held mode). In held mode the admin must be one: the owner on record until handover. Their page gets `holder: true`. |
 | `area.<area>.director` | Person slug. Default: the admin. |
 | `review_vendor` | `anthropic`, `openai`, `xai`, or `openrouter`. Optional. |
 | `review_kind` | `second-vendor` or `same-vendor`. Default: `second-vendor` when a vendor is set, otherwise `same-vendor`. |
