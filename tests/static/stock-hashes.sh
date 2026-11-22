@@ -35,6 +35,9 @@ case "${1:-}" in
         git -C "$ROOT" ls-tree -r "$commit" -- template/skills template/.github
       done | awk '$2 == "blob" { sub("^template/", "", $4); print $3, $4 }'
       current
+      # Keep every line already listed: release branches are squash-merged, so their
+      # history is not on main, and a company on an older release must still match.
+      [ -f "$LIST" ] && grep -E '^[0-9a-f]{40} ' "$LIST"
     } | grep -v -e ' skills/upgrade/stock-hashes.txt$' -e ' .github/scripts/stock-hashes.txt$' -e ' .github/scripts/stock-current.txt$' | LC_ALL=C sort -u > "$tmp"
     {
       printf '%s\n' "# git blob id and path of every stock file the template has shipped"

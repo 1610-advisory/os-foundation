@@ -65,6 +65,7 @@
 6fbe31ac263cbd08f454c91549a3b8e7f39fca4e skills/remote-setup/check.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
+79b8d6655ac7e90db484d5362be31fe41ff83a60 skills/upgrade/upgrade.sh
 7ad6ef16a31463912488951db20b5137657fd660 skills/add-teammate/add-person.sh
 7b00ed77448037a79be829918d389910be02f360 skills/undo-run/undo-run.sh
 7b4d16bf4ef2f76ce92bbf7fd48cfdda73527a60 skills/add-bot/run.sh
@@ -97,7 +98,6 @@ aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f skills/sync/secret-scan.sh
 abc733b5cd53e5c037214fe41a0329a4f7fce6ac skills/lint/SKILL.md
 ad0e24605bdafa7e8ffc4620b93b8fd670aae591 skills/add-area/templates/_area/.gitignore
-af488e3a318e8e1869c9bdc27ceb542c8ee3dc52 skills/upgrade/upgrade.sh
 af57455ef7934bc586560eb95c51178842ad5df0 skills/sync/CLI.md
 b1d8cc00e644e7fbd2c4e40f2634022eae3a62b1 skills/add-teammate/workspace/CLAUDE.md
 b30b6e0de2ad9dc8dd4744435a193397510c7856 skills/lint/CLI.md
