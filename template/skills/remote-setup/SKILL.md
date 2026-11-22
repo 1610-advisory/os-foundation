@@ -118,15 +118,17 @@ cat > ~/Library/LaunchAgents/com.company-os.herdr.plist <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.company-os.herdr</string>
-  <key>ProgramArguments</key><array><string>$H</string><string>server</string></array>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>"$H" status server 2>/dev/null | grep -q 'status: running' || exec "$H" server</string></array>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>30</integer>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>$(dirname "$H"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>
 </dict></plist>
 EOF
+plutil -lint ~/Library/LaunchAgents/com.company-os.herdr.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.company-os.herdr.plist
 ```
-If Herdr was already running, the new job may exit at once. That is fine: it starts Herdr at the next sign-in.
+How it behaves: at sign-in it starts the Herdr server. If Herdr already runs, it does nothing (a second `herdr server` exits with "already running", so the guard checks first). If the server crashes, launchd starts it again after 30 seconds. `herdr server stop` stays stopped until the next sign-in. Remove it with `launchctl bootout gui/$(id -u)/com.company-os.herdr` and delete the file.
 
 **Linux** (ask first). A user service, and linger so it runs without a sign-in:
 ```bash
@@ -135,8 +137,9 @@ cat > ~/.config/systemd/user/herdr.service <<EOF
 [Unit]
 Description=Herdr server
 [Service]
-ExecStart=$(command -v herdr) server
-Restart=always
+ExecStart=/bin/sh -c '"$(command -v herdr)" status server 2>/dev/null | grep -q "status: running" || exec "$(command -v herdr)" server'
+Restart=on-failure
+RestartSec=30
 [Install]
 WantedBy=default.target
 EOF
@@ -152,7 +155,7 @@ $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
 $s.TargetPath = $h; $s.Arguments = 'server'; $s.WindowStyle = 7; $s.WorkingDirectory = "<root>"
 $s.Save()
 ```
-Windows does not start anything before a sign-in. After a restart, someone signs in once. Then Herdr starts and brings back the session.
+If Herdr already runs, the shortcut's `herdr server` stops at once with "already running". That is fine. Windows does not restart Herdr after a crash: the person runs `herdr` again. Windows does not start anything before a sign-in. After a restart, someone signs in once. Then Herdr starts and brings back the session.
 Herdr on Windows: it keeps sessions after the window closes. Do not run it as administrator (an administrator server refuses normal windows). Windows may show a SmartScreen warning the first time, because Herdr is not signed. The person checks the publisher and says yes.
 
 ## 6. Same account on phone and computer

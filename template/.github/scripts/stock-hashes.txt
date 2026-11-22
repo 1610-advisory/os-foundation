@@ -445,6 +445,7 @@
 8bb85df6d099753b7e5e7edb95c22f3908c588f9 skills/add-area/templates/_area/CLAUDE.md
 8c1f5a0915ff8626cfd7b193a24eda9084d9e8f7 skills/add-teammate/add-person.sh
 8ce534bca2974684281be7965678df4be99a5e60 skills/sync/push-check.md
+8d11b8cceed05ab113121d88690713deb0dbe056 skills/remote-setup/SKILL.md
 8d142f7e09245f136b90c32a2dfc1ae4342cba16 .github/scripts/tools-release
 8de7e41c255d1c3528ff776a3ee0996fc5e57631 skills/add-bot/lib.sh
 8e27a5a8ba3986f92e361b4162a65d358fc854f6 skills/add-teammate/workspace/AGENTS.md
