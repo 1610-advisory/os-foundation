@@ -62,6 +62,7 @@
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 6b517f08ea8d4be3d27e7f4ec7972f4f07571a40 .github/scripts/tools/host/github.sh
 6b517f08ea8d4be3d27e7f4ec7972f4f07571a40 skills/_host/github.sh
+6fbe31ac263cbd08f454c91549a3b8e7f39fca4e skills/remote-setup/check.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
 7ad6ef16a31463912488951db20b5137657fd660 skills/add-teammate/add-person.sh
@@ -81,6 +82,7 @@
 8a983cc3bedbd8c9342a675810ee99909803cbf9 skills/nightly-review/CLI.md
 8aa59ab35cf71bc53f35789bbc1942869033740d skills/upgrade/v0/CLAUDE.md
 8bb309beda22c8afab98e0ca2d44f048342b86c2 skills/sync/push-check.md
+8d11b8cceed05ab113121d88690713deb0dbe056 skills/remote-setup/SKILL.md
 90189b5e12f29e3371b4023af860b9115d03f213 skills/add-teammate/CLI.md
 93da4e55c6c4f150c3dd9441a368bc6c18cacd2f skills/reports/run.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
@@ -129,6 +131,7 @@ cf81ceff96aa1060243e97b34906b90a4e0c2b38 skills/add-area/templates/marketing/per
 d0f3c372e7e8832296d0b9cbc1cfd6696063b094 skills/undo-run/SKILL.md
 d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
+d334502630647231a0e498d87a69299b88ef7c39 skills/remote-setup/check.ps1
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
 d80851118132c5c5811f50ed6c9f0a997d10205e skills/sync/push.sh
