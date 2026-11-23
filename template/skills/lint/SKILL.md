@@ -19,10 +19,12 @@ What each check means:
 4. **Rules file size.** Each `AGENTS.md`, `CLAUDE.md`, `review-rules.md` and `bots/*/BOT.md` must be under 10,000 characters. Agents may cut a longer file. Move detail into a skill.
 5. **Placeholders.** No `{{...}}` left outside `skills/`. A skill's `{{...}}` is filled when it runs. `library/` is skipped: it is the admin's private repo of copies.
 6. **Profile.** [team] `users/<person>/profile/PROFILE.md` must not hold the company name or slug. This is a simple check. The nightly check is the real one.
+7. **Org settings.** [team] GitHub only. The org base permission must be "No permission", and members must not make repos. Else anyone in the org may read every repo, or make one outside the checks. Only an org owner changes them, on the link in the finding.
 
-The script may also print two lines that are not findings. They do not change the exit code. Pass each on in one line:
+The script may also print lines that are not findings. They do not change the exit code. Pass each on in one line:
 - **`notice:`** a newer os-foundation version exists. Say it, then: "Say 'upgrade the OS' when you want it." Nothing else. Offline, nothing is printed.
 - **`notice: grok:`** the Grok CLI does not trust that folder, so it reads none of its rules. Tell the person to start `grok` there once and trust it. Only for people who use Grok.
+- **`notice: org settings:`** lint could not read the org settings: the sign-in is not an org owner, or offline. Pass on the link: an org owner checks them there.
 - **`offer:`** the bot offer. One sentence, once, after two weeks of use, when the `bots` switch is off. Say it as printed. Do not repeat it. If the person asks about bots before then, give the same sentence.
 
 Never offer the dream pass. It is not available.

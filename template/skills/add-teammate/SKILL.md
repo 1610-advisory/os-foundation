@@ -28,6 +28,7 @@ For each part: ask one question at a time, with a suggested answer. Write the an
 5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
+8. **Own org.** GitHub only. Does the org hold any repos that are not this company's? Yes: put `org_own=no` in the answers. Then setup never changes the org settings.
 
 ### A3. The review key
 
@@ -59,6 +60,8 @@ Never run it for them, ask for the key in the chat, or read it back.
    - `weaker review: same vendor`: say it plainly. The key works.
    - `could not check the review key: sign in as an org owner`: the key may be set, but this sign-in cannot read org secrets. The admin runs `gh auth refresh -s admin:org`, then run `team-on.sh` again.
    - `This GitHub org is on the Free plan...`: it stopped before any change. Team setup protects private repos with rulesets, and GitHub Free has none. The admin moves the org to GitHub Team, then run it again. There is no Free-plan team mode. Solo works on any plan.
+   - `org settings: base permission none, members cannot make repos (was: ...)`: GitHub only. Say it plainly: org members now see only the repos their teams give them, and cannot make repos.
+   - `org settings: ask an org owner to set Base permissions to "No permission" ...`: GitHub only. Give the admin the link. An org owner sets both settings on that page. Setup went on.
    - `the gh sign-in needs admin:org and workflow`: it stopped before any change. The admin runs `gh auth refresh -s admin:org,workflow`, then run it again.
    - `push refused for <repo>: the sign-in cannot write workflow files`: same fix, then run it again. The second run pushes the repo it left empty before it protects it.
    - `invite: <login> is not an org member; adding them to <team> sends an org invite ...`: GitHub only. Tell the admin that person gets an org invite email, and must accept it before they join. No new seat if they already use one as a collaborator.

@@ -38,6 +38,8 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `team-remove <team> <user>` | Remove a user from a team |
 | `team-repos <team>` | The repos the team grants: `{"team":...,"exists":true,"repos":[...]}`. A missing team: `{"exists":false,"repos":[]}`. |
 | `org-repos` | Every repo in the org: `{"repos":[...]}`. A list it cannot read exits non-zero. |
+| `org-settings` | `{"base":"read"\|"write"\|"admin"\|"none","member_repos":true\|false,"repo_count":<n>,"owner":true\|false}`. GitHub reads `/orgs/<org>`: `base` is the base permission (`default_repository_permission`), `member_repos` is member repo creation (`members_can_create_repositories`). `owner` is true when `/user/memberships/orgs/<org>` says `admin`. `repo_count` is `public_repos` + `total_private_repos`. Only an org owner sees the settings and the count: for anyone else they are `null`. Forgejo: all are `null`, with no call. |
+| `org-lock` | GitHub: set the base permission to `none` and turn off repo creation for members, in one PATCH of `/orgs/<org>`. `{"ok":true}`. It never sends a "private repos only" field: GitHub Team answers 422 for that. Needs an org owner. Forgejo: `{"ok":true,"skipped":"forgejo"}`, with no call. |
 | `grant <name> <user\|team:<team>> <read\|write\|admin>` | Grant repo access |
 | `revoke <name> <user\|team:<team>>` | Revoke repo access |
 | `org-remove <user>` | Remove a user from the org |

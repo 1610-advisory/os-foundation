@@ -2,6 +2,21 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.6 — 2026-11-22
+
+Safer pushes, sync at sign-off, tighter org settings, and phone access to a live session.
+
+- **Notes about a person's job stay in admin.** The push check holds a note about a named person's job, pay, performance, hiring or firing in the root and in every area except `admin` (reason `person note: belongs in admin`). In a workspace, only a note about another named person is held.
+- **Extra holds for this computer.** An optional file outside every repo (`$OS_PUSH_HOLDS`, else `~/.config/os-brain/push-holds.md`) adds holds for this computer only. Its text never goes to a log, a commit or the host. A holds file inside the company folder stops the push.
+- **Sync at sign-off and on "sync now".** The nightly push stays as the safety net.
+- **Org settings in team-on.** When the person owns the org and every repo is the company's, team-on sets the base permission to none and turns off member repo creation, after one line. Otherwise it prints the settings link. Lint reports both.
+- **"Tell 1610".** The suggest skill drafts a short note with no company data, shows it, and sends it only on a yes. Until 1610.sh takes notes, it prints the note and where to paste it.
+- **SECURITY.md.** Report security problems in private through GitHub.
+- **app-setup.** An owner's agent makes a tool repo when an owner asks. Members do not make repos.
+- **New skill: `remote-setup`.** Reach Claude Code from your phone (Remote Control) in a session that stays alive. It installs and checks Claude Code and Herdr, starts the company session with Remote Control on, keeps the computer awake, starts Herdr again after a restart, and checks each item: `check.sh` (Mac, Linux) or `check.ps1` (Windows) prints PASS, FAIL with the fix, or ASK.
+- **Stock lists keep every release.** `stock-hashes.sh --write` keeps the lines already listed, so a company on an older release still matches as shipped.
+- The check tools are release `2026112001`.
+
 ## v1.0.5 — 2026-11-19
 
 The root is the company's front door, and each area keeps its own records list.

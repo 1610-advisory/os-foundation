@@ -56,6 +56,8 @@ Write it in TypeScript, with React for screens. Generate `tool.json` from the co
 ## 4. Where it lives
 
 - Each tool has its own repo and one owning area. A tool for the whole company is owned by the `everyone` area. The company owns the repo, in its own GitHub organisation. Never copy the tool into another repo.
+- An owner's agent makes the tool repo, when an owner asks. Members do not make repos (the org turns that off). A member who wants a tool asks an owner.
+- Code goes in the tool's own repo, never in the company OS folder or an area repo.
 - Tool code and data never go in the company OS folder, not even in an ignored subfolder.
 - The folder gets one record for the tool in the Apps area's `apps.md`: name, job, owning area, repo, pinned version, address, who may use it, status. Add each data file to the owning area's dataset list.
 - The plan, the code and how to run it go in the tool's repo. Secrets never do.
