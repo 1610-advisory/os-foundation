@@ -8,7 +8,7 @@ Read `level:` and `switches:` in `company-profile.md` first. Skip rules for a hi
 
 ## 2. Pull before work [team]
 
-At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh status`. Tell the person each held file and its reason, one line each. If the pull fails, say so and go on. No vendor hooks. Chat-only agents read from the host.
+At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh status`. Tell the person each held file and its reason. If the pull fails, say so and go on. No vendor hooks. Chat-only agents read from the host.
 
 ## 3. What goes where
 
@@ -18,13 +18,13 @@ At session start, run `skills/sync/sync.sh pull`, then `skills/sync/sync.sh stat
 |---|---|
 | Work facts (a customer prefers calls) | The area for that work |
 | Records and lists (customers, jobs) | A tool's data file, never markdown. The area's `datasets.md` says where. |
-| OS build, systems and access, connections, org and billing, leadership meetings | `areas/admin/` only. Never the shared root. |
+| OS build, systems and access, connections, org and billing, leadership meetings, a named person's job or pay | `areas/admin/` only. Never the shared root. |
 | A meeting | The area of the people in it. Ask "who should read this?" first. Solo: `meetings/` |
 | How the person works, drafts, sensitive work, private sources | [team] The workspace `users/<person>/` (voice and preferences: `profile/PROFILE.md`). Solo: `memory/`, or out of the repo. |
 | A better way to do a job | [team] The skill or rules file, by its own PR (section 7). Solo: edit the skill and commit. |
 | Personal-life facts (health, family, home, beliefs) | Nowhere. Never write them. |
 
-[team] **The company root holds rules, company memory and company facts**: rules files, `people/`, `company-profile.md`, `templates/`, `memory/` (how we work here), and fact files such as `customers.md`. Never meetings, notes, decisions or logs: company-wide meetings go in `areas/everyone/` when it exists, else ask the person which area. Log root work in the workspace `memory/logs/`. Sync holds other root content. Every root change waits for an owner's `/approve`.
+[team] **The company root holds rules, company memory and company facts**: rules files, `people/`, `company-profile.md`, `templates/`, `memory/` (how we work here), and fact files such as `customers.md`. Never meetings, notes, decisions or logs: company-wide meetings go in `areas/everyone/` when it exists, else ask the person which area. Sync holds other root content. Every root change waits for an owner's `/approve`.
 
 **Share with the company** only when the person asks. Say who will read it. Wait for a clear yes. Then run `skills/sync/sync.sh propose share-<topic> <file>`. An owner says the last yes.
 
@@ -59,11 +59,11 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 
 [team]:
 - Nobody writes to `main`, the admin included.
-- Notes and logs go on `sync/<person>/<computer>`. The nightly `sync` push puts them on its standing PR. An area PR merges by itself when the checks pass.
+- Notes and logs go on `sync/<person>/<computer>` and its standing PR. At sign-off, or on "sync now", run `skills/sync/sync.sh push` and tell the person its lines. The nightly push is the safety net. An area PR merges by itself when the checks pass.
 - Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`: its own PR from `rules/<person>/<topic>`.
-- Every rules PR gets a review by a different model first (`review-rules.md`). Then the area director (area rules) or the admin (company-root rules) approves. GitHub never counts the author's own approval: see `skills/sync/SKILL.md`.
+- A different model reviews every rules PR first (`review-rules.md`). Then the area director (area rules) or the admin (root rules) approves: see `skills/sync/SKILL.md`.
 - A failed review blocks the merge. Only the admin may override it, with the reason in the PR.
-- **Waiting for owner.** A rules PR, or a PR that changes the company root, never merges by itself. Its check says "waiting for owner". Tell your person in plain words what it changes and who will read it. Wait for an explicit yes. An owner comments `/approve`. Never type `/approve` or `/override` yourself.
+- **Waiting for owner.** A rules PR, or a PR that changes the company root, never merges by itself. Its check says "waiting for owner". Tell your person what it changes and who will read it. Wait for a clear yes. An owner comments `/approve`. Never type `/approve` or `/override` yourself.
 - Make branches and PRs for the person. They need not know git.
 
 ## 8. Folder units

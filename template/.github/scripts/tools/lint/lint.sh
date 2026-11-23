@@ -330,6 +330,38 @@ if [ "$CI" -eq 0 ] && [ -z "${OS_LINT_NO_GROK:-}" ] && os_have grok && os_have j
   done
 fi
 
+# GitHub org settings: base permission "No permission", and members cannot make repos.
+# Not with --ci: the check job's token cannot read them. Only an org owner sees them, so
+# a person who is not an owner, or offline, gets one notice, not a finding.
+if [ "$CI" -eq 0 ] && [ -z "${OS_LINT_NO_HOST:-}" ] && [ -f "$PROFILE" ] && os_have jq; then
+  org_level=$(os_fm_get "$PROFILE" level 2>/dev/null || true)
+  org_host=$(os_fm_get "$PROFILE" host 2>/dev/null || true)
+  if { [ "$org_level" = "team" ] || [ "$org_level" = "app" ]; } && [ "$org_host" = "github" ]; then
+    org_name=$(os_fm_get "$PROFILE" org 2>/dev/null || true)
+    org_url=$(os_fm_get "$PROFILE" host_url 2>/dev/null || true)
+    org_page="${org_url:-https://github.com}"
+    org_page="${org_page%/}/organizations/${org_name}/settings/member_privileges"
+    org_base=unknown
+    org_member=unknown
+    if [ -n "$org_name" ] && org_bin=$(os_find_host "$ROOT" "$DIR") \
+      && org_json=$(OS_PROFILE="$PROFILE" OS_HOST=github OS_ORG="$org_name" OS_HOST_URL="$org_url" \
+        bash "$org_bin" org-settings 2>/dev/null); then
+      org_base=$(printf '%s' "$org_json" | jq -r 'if (.base | type) == "string" then .base else "unknown" end' 2>/dev/null || printf 'unknown')
+      org_member=$(printf '%s' "$org_json" | jq -r 'if .member_repos == true then "on" elif .member_repos == false then "off" else "unknown" end' 2>/dev/null || printf 'unknown')
+    fi
+    if [ "$org_base" = "unknown" ] || [ "$org_member" = "unknown" ]; then
+      printf 'notice: org settings: could not read them (sign in as an org owner, or you are offline). An org owner checks them: %s\n' "$org_page"
+    else
+      if [ "$org_base" != "none" ]; then
+        finding "org settings: base permission is ${org_base}, not \"No permission\": ${org_page}"
+      fi
+      if [ "$org_member" = "on" ]; then
+        finding "org settings: members can make repos. Turn it off: ${org_page}"
+      fi
+    fi
+  fi
+fi
+
 if [ "$FINDINGS" -ne 0 ]; then
   exit 1
 fi

@@ -464,6 +464,52 @@ cmd_plan_check() {
   jq -nc --arg plan "$plan" '{plan: $plan}'
 }
 
+# The org's base permission, member repo creation and repo count (public + private).
+# Only an org owner sees them: for anyone else the fields are null. owner is the
+# signed-in person's own role.
+cmd_org_settings() {
+  local body mem errf rc owner=null
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  host_require_bin jq
+  if host_dry; then
+    host_emit GET "/orgs/${OS_ORG}"
+    host_emit GET "/user/memberships/orgs/${OS_ORG}"
+    return 0
+  fi
+  body=$(host_gh_ok GET "/orgs/${OS_ORG}") || exit $?
+  errf=$(host_mktemp)
+  rc=0
+  mem=$(host_gh_call GET "/user/memberships/orgs/${OS_ORG}" 2>"$errf") || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    owner=$(printf '%s' "$mem" | jq -c '(.state // "") == "active" and (.role // "") == "admin"')
+  elif grep -q 'HTTP 404' "$errf"; then
+    owner=false
+  fi
+  printf '%s' "$body" | jq -c --argjson owner "$owner" '{
+    base: (.default_repository_permission | if type == "string" then . else null end),
+    member_repos: (.members_can_create_repositories | if type == "boolean" then . else null end),
+    repo_count: (if (.public_repos | type) == "number" and (.total_private_repos | type) == "number"
+      then .public_repos + .total_private_repos else null end),
+    owner: $owner}'
+}
+
+# Base permission none, and members cannot make repos. Never a "private only" field:
+# GitHub Team answers 422 for members_can_create_private_repositories.
+cmd_org_lock() {
+  local body
+  [ -z "$POS1" ] || host_die 1 "too many arguments"
+  host_require_org
+  host_require_bin jq
+  body=$(jq -nc '{default_repository_permission:"none", members_can_create_repositories:false}')
+  if host_dry; then
+    host_emit PATCH "/orgs/${OS_ORG}" "$body"
+    return 0
+  fi
+  host_gh_ok PATCH "/orgs/${OS_ORG}" "$body" >/dev/null
+  jq -nc '{ok:true}'
+}
+
 cmd_protect() {
   local name main_body review_body
   host_need_name
@@ -1412,6 +1458,8 @@ cmd_delete() {
 case "$VERB" in
   whoami) cmd_whoami ;;
   plan-check) cmd_plan_check ;;
+  org-settings) cmd_org_settings ;;
+  org-lock) cmd_org_lock ;;
   create-repo) cmd_create_repo ;;
   repo-access) cmd_repo_access ;;
   protect) cmd_protect ;;
