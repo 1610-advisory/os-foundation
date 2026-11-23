@@ -10,8 +10,10 @@ usage() {
   cat << 'EOF'
 Usage: run.sh [--date YYYY-MM-DD] [--week YYYY-Www] [--daily] [--root DIR]
 
-Write reports/YYYY-MM-DD-to-decide.md when it is not empty, reports/YYYY-Www.md
-per area, and reports/YYYY-Www-company.md in the company repo.
+Write reports/YYYY-MM-DD-to-decide.md when it is not empty, and reports/YYYY-Www.md,
+in each area. Write the company pages, reports/YYYY-MM-DD-to-decide-company.md and
+reports/YYYY-Www-company.md, in the owners' area (report_area: in
+company-profile.md, default admin). Nothing is written at the company root.
 The file is the delivery. This script does not send mail or chat.
 EOF
 }
@@ -75,7 +77,13 @@ nr_lock
 trap 'nr_unlock; nr_tmp_cleanup' EXIT
 
 if [ -z "$WEEK" ]; then
-  WEEK=$(nr_iso_week "$NR_DATE")
+  # The job runs at 03:30. On a Monday the new week has no work yet, so the
+  # weekly pages are for the week that just ended. Tuesday on, the current week.
+  if [ "$(nr_dow "$NR_DATE")" = "1" ]; then
+    WEEK=$(nr_iso_week "$(nr_date_add "$NR_DATE" -1)")
+  else
+    WEEK=$(nr_iso_week "$NR_DATE")
+  fi
 fi
 
 DO_DAILY=1
@@ -134,24 +142,62 @@ rp_failed() {
   jq -e --arg r "$rel" '.failed_repos | index($r) != null' "$DIGEST" >/dev/null 2>&1
 }
 
-rp_rules_waiting() {
-  local repo=$1 base=$2 ref short
-  git -C "$repo" for-each-ref --format='%(refname)' \
-    'refs/heads/rules' 'refs/remotes/origin/rules' >/dev/null 2>&1 || true
-  git -C "$repo" for-each-ref --format='%(objectname) %(refname:short)' | while IFS=' ' read -r _sha short; do
-    case "$short" in
-      rules/*|origin/rules/*) ;;
-      *) continue ;;
-    esac
-    if git -C "$repo" merge-base --is-ancestor "$short" "$base" 2>/dev/null; then
-      continue
+# True when the branch's changes are already on BASE. A squash or rebase merge leaves
+# no ancestry, so compare content: the files the branch changed are the same on BASE,
+# or BASE has a commit with the same patch.
+rp_rules_merged() {
+  local repo=$1 ref=$2 base=$3 mb pid c f
+  local files=()
+  if git -C "$repo" merge-base --is-ancestor "$ref" "$base" 2>/dev/null; then
+    return 0
+  fi
+  mb=$(git -C "$repo" merge-base "$ref" "$base" 2>/dev/null) || return 1
+  while IFS= read -r f; do
+    [ -n "$f" ] && files+=("$f")
+  done < <(git -C "$repo" diff --name-only "$mb" "$ref" 2>/dev/null)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  if git -C "$repo" diff --quiet "$base" "$ref" -- "${files[@]}" 2>/dev/null; then
+    return 0
+  fi
+  pid=$(git -C "$repo" diff "$mb" "$ref" | git patch-id --stable | awk '{ print $1 }')
+  [ -n "$pid" ] || return 1
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    if [ "$(git -C "$repo" show "$c" | git patch-id --stable | awk '{ print $1 }')" = "$pid" ]; then
+      return 0
     fi
-    printf '%s\n' "$short"
-  done
+  done < <(git -C "$repo" log --no-merges --format=%H "$mb..$base" -- "${files[@]}")
+  return 1
 }
 
+# One line per rules branch not yet on BASE, by branch name. A branch that is both
+# local and on origin is one line; the origin copy is the one that counts.
+rp_rules_waiting() {
+  local repo=$1 base=$2 short name ref
+  git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/rules refs/remotes/origin/rules \
+    | while IFS= read -r short; do
+        case "$short" in
+          origin/rules/*) printf '%s\t%s\n' "${short#origin/}" "0" ;;
+          rules/*) printf '%s\t%s\n' "$short" "1" ;;
+        esac
+      done | sort -t "$(printf '\t')" -k1,1 -k2,2n | awk -F '\t' '!seen[$1]++ { print $1 "\t" $2 }' \
+    | while IFS="$(printf '\t')" read -r name local_only; do
+        if [ "$local_only" = "0" ]; then
+          ref="origin/$name"
+        else
+          ref="$name"
+        fi
+        if rp_rules_merged "$repo" "$ref" "$base"; then
+          continue
+        fi
+        printf '%s\n' "$name"
+      done
+}
+
+# rp_write_decide REPO REL BASE [OUTDIR] [SUFFIX]
+# REPO is where the flags and rules branches come from. OUTDIR is the repo the file goes in.
 rp_write_decide() {
-  local repo=$1 rel=$2 base=$3 tmp cap area
+  local repo=$1 rel=$2 base=$3 outdir=${4:-$1} suffix=${5:-} tmp cap area
   area=$(nr_area_of "$rel")
   tmp=$(mktemp)
   : > "$tmp"
@@ -180,8 +226,8 @@ rp_write_decide() {
     rm -f "$tmp"
     return 0
   fi
-  out="$repo/reports/${NR_DATE}-to-decide.md"
-  mkdir -p "$repo/reports"
+  out="$outdir/reports/${NR_DATE}-to-decide${suffix}.md"
+  mkdir -p "$outdir/reports"
   {
     rp_front "decide" "To decide, ${NR_DATE}" "$(printf 'date: %s\narea: %s' "$NR_DATE" "$area")"
     printf '# To decide\n\n'
@@ -353,15 +399,23 @@ rp_week_sections() {
   fi
 }
 
+# rp_write_weekly REPO REL BASE START END [OUTDIR]
 rp_write_weekly() {
-  local repo=$1 rel=$2 base=$3 start=$4 end=$5 area facts counts c l p input line body
+  local repo=$1 rel=$2 base=$3 start=$4 end=$5 outdir=${6:-$1} area facts counts c l p input line body
   area=$(nr_area_of "$rel")
   facts=$(mktemp)
-  counts=$(rp_week_facts "$repo" "$start" "$end" "$facts" "$base")
+  if [ "$rel" = "." ]; then
+    # The company page holds only the per-area counts. It reads no company facts.
+    counts="0 0 0"
+  else
+    counts=$(rp_week_facts "$repo" "$start" "$end" "$facts" "$base")
+  fi
   c=$(printf '%s' "$counts" | awk '{ print $1 }')
   l=$(printf '%s' "$counts" | awk '{ print $2 }')
   p=$(printf '%s' "$counts" | awk '{ print $3 }')
   if [ "$rel" != "." ] && [ "$c" = "0" ] && [ "$l" = "0" ]; then
+    # A quiet area gets no page, but it keeps its row on the company page.
+    printf '| %s | 0 | 0 | 0 |\n' "$area" >> "$NR_AREA_COUNTS"
     rm -f "$facts"
     return 0
   fi
@@ -399,7 +453,7 @@ rp_write_weekly() {
     summary_note="The summary did not run."
   fi
   # An area may have no reports/ folder yet (S7): make it before writing.
-  mkdir -p "$repo/reports"
+  mkdir -p "$outdir/reports"
   {
     rp_front "week" "What happened in ${area}, week ${WEEK}" \
       "$(printf 'week: %s\narea: %s' "$WEEK" "$area")"
@@ -410,7 +464,10 @@ rp_write_weekly() {
     fi
     if [ "$rel" = "." ]; then
       printf '%s\n\n' "Counts only. Area sentences stay in the area report."
-      if [ -f "$NR_AREA_COUNTS" ]; then
+      if ! awk -F '|' '{ c = $3; l = $4; gsub(/ /, "", c); gsub(/ /, "", l); if ((c ~ /^[0-9]+$/ && c > 0) || (l ~ /^[0-9]+$/ && l > 0)) found = 1 } END { exit !found }' "$NR_AREA_COUNTS"; then
+        printf '%s\n\n' "No area work yet this week."
+      fi
+      if [ -s "$NR_AREA_COUNTS" ]; then
         if rp_mdx; then
           printf '<Table>\n\n'
         fi
@@ -429,7 +486,7 @@ rp_write_weekly() {
       printf '| %s | %s | %s | %s |\n' "$area" "$c" "$l" "$p" >> "$NR_AREA_COUNTS"
     fi
     printf '\n%s\n' "$(rp_delivery_line)"
-  } > "$repo/reports/${WEEK}$([ "$rel" = "." ] && printf '%s' "-company").md"
+  } > "$outdir/reports/${WEEK}$([ "$rel" = "." ] && printf '%s' "-company").md"
   rm -f "$facts" "$body" "$engine_file"
 }
 
@@ -500,6 +557,18 @@ END=${span#* }
 NR_AREA_COUNTS=$(mktemp)
 : > "$NR_AREA_COUNTS"
 
+# Company pages go to the owners' area: the company root is the shared root, and
+# everyone reads it. report_area: in company-profile.md names the area (default admin).
+REPORT_AREA=$(nr_profile report_area | head -n 1 || true)
+[ -n "$REPORT_AREA" ] || REPORT_AREA="admin"
+case "$REPORT_AREA" in
+  *[!a-z0-9-]*|-*) nr_die "run.sh: report_area must be an area name, such as admin" ;;
+esac
+REPORT_DIR="$NR_ROOT/areas/$REPORT_AREA"
+REPORT_BASE=""
+PUBLISH=$(mktemp)
+: > "$PUBLISH"
+
 rp_one() {
   local repo=$1 rel=$2 base
   set +e
@@ -508,15 +577,22 @@ rp_one() {
   set -e
   if [ "$rc" -ne 0 ]; then
     NR_FAILED=1
+    if [ "$DO_WEEKLY" = "1" ]; then
+      printf '| %s | not read | not read | not read |\n' "$(nr_area_of "$rel")" >> "$NR_AREA_COUNTS"
+    fi
     return 0
   fi
   if [ "$DO_DAILY" = "1" ]; then
     rp_write_decide "$repo" "$rel" "$base"
   fi
-  if [ "$DO_WEEKLY" = "1" ] && [ "$rel" != "." ]; then
+  if [ "$DO_WEEKLY" = "1" ]; then
     rp_write_weekly "$repo" "$rel" "$base" "$START" "$END"
   fi
-  rp_publish_repo "$repo" "$rel" "$base"
+  if [ "$repo" = "$REPORT_DIR" ]; then
+    REPORT_BASE=$base
+  fi
+  # Publish after the company pages, so the owners' area gets one commit.
+  printf '%s\t%s\t%s\n' "$repo" "$rel" "$base" >> "$PUBLISH"
 }
 
 for dir in "$NR_ROOT"/areas/*; do
@@ -527,29 +603,36 @@ for dir in "$NR_ROOT"/areas/*; do
 done
 
 if [ -d "$NR_ROOT/.git" ] || [ -f "$NR_ROOT/.git" ]; then
-  if [ "$DO_DAILY" = "1" ]; then
+  if [ ! -d "$REPORT_DIR/.git" ] && [ ! -f "$REPORT_DIR/.git" ]; then
+    printf 'reports: company pages not written: areas/%s is not checked out here. Check out that area, or set report_area: in company-profile.md to the owners'"'"' area.\n' "$REPORT_AREA" >&2
+    NR_FAILED=1
+  elif [ -z "$REPORT_BASE" ]; then
+    printf 'reports: company pages not written: areas/%s could not be read.\n' "$REPORT_AREA" >&2
+    NR_FAILED=1
+  else
     set +e
     base=$(nr_sync_base "$NR_ROOT")
     rc=$?
     set -e
-    if [ "$rc" -eq 0 ]; then
-      rp_write_decide "$NR_ROOT" "." "$base"
-    fi
-  fi
-  if [ "$DO_WEEKLY" = "1" ]; then
-    set +e
-    base=$(nr_sync_base "$NR_ROOT")
-    rc=$?
-    set -e
-    if [ "$rc" -eq 0 ]; then
-      mkdir -p "$NR_ROOT/reports"
-      rp_write_weekly "$NR_ROOT" "." "$base" "$START" "$END"
-      rp_publish_repo "$NR_ROOT" "." "$base"
+    if [ "$rc" -ne 0 ]; then
+      NR_FAILED=1
+    else
+      if [ "$DO_DAILY" = "1" ]; then
+        rp_write_decide "$NR_ROOT" "." "$base" "$REPORT_DIR" "-company"
+      fi
+      if [ "$DO_WEEKLY" = "1" ]; then
+        rp_write_weekly "$NR_ROOT" "." "$base" "$START" "$END" "$REPORT_DIR"
+      fi
     fi
   fi
 fi
 
-rm -f "$NR_AREA_COUNTS"
+while IFS="$(printf '\t')" read -r repo rel base || [ -n "${repo:-}" ]; do
+  [ -n "${repo:-}" ] || continue
+  rp_publish_repo "$repo" "$rel" "$base"
+done < "$PUBLISH"
+
+rm -f "$NR_AREA_COUNTS" "$PUBLISH"
 if [ "$NR_FAILED" = "1" ]; then
   exit 2
 fi

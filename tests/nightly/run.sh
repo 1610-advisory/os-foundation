@@ -8,6 +8,7 @@ ORG=acme
 # Per-run names so two runs do not share a repo. Cleanup deletes only these.
 COMPANY_REPO="nightly-t-$$-os"
 AREA_REPO="nightly-t-$$-finance"
+ADMIN_REPO="nightly-t-$$-admin"
 
 if ! curl -fsS --max-time 5 "$URL/api/v1/version" >/dev/null 2>&1; then
   printf '%s\n' "BLOCKED: Forgejo is not up"
@@ -45,6 +46,8 @@ export GIT_COMMITTER_EMAIL="mia@example.com"
 
 company="$box/acme"
 area="$company/areas/finance"
+admin="$company/areas/admin"
+mkdir -p "$admin/notes"
 mkdir -p "$company/skills" "$company/people" "$area/notes" "$area/memory/logs" \
   "$company/users/mia/profile" "$company/users/mia/drafts"
 cp -R "$ROOT/template/skills/nightly-review" "$company/skills/nightly-review"
@@ -142,6 +145,13 @@ git -C "$area" add -A
 GIT_AUTHOR_DATE="2026-10-24T12:00:00" GIT_COMMITTER_DATE="2026-10-24T12:00:00" \
   git -C "$area" -c user.name="Mia Member" -c user.email="mia@example.com" \
   commit -q -m "Seed the area"
+# The owners' area: the company pages go here (report_area, default admin).
+printf '%s\n' "# Admin" > "$admin/notes/README.md"
+git -C "$admin" init -q -b main
+git -C "$admin" add -A
+GIT_AUTHOR_DATE="2026-10-01T12:00:00" GIT_COMMITTER_DATE="2026-10-01T12:00:00" \
+  git -C "$admin" -c user.name="Ada Admin" -c user.email="ada@example.com" \
+  commit -q -m "Seed the admin area"
 git -C "$company" init -q -b main
 git -C "$company" add company-profile.md people
 GIT_AUTHOR_DATE="2026-10-23T12:00:00" GIT_COMMITTER_DATE="2026-10-23T12:00:00" \
@@ -157,11 +167,13 @@ drop_repo() {
 }
 drop_repo "$AREA_REPO"
 drop_repo "$COMPANY_REPO"
+drop_repo "$ADMIN_REPO"
 # shellcheck disable=SC2064
-trap 'drop_repo "$AREA_REPO"; drop_repo "$COMPANY_REPO"; rm -rf "$box"' EXIT
+trap 'drop_repo "$AREA_REPO"; drop_repo "$ADMIN_REPO"; drop_repo "$COMPANY_REPO"; rm -rf "$box"' EXIT
 
 bash "$host" create-repo "$COMPANY_REPO" --source "$company" --push >/dev/null
 bash "$host" create-repo "$AREA_REPO" --source "$area" --push >/dev/null
+bash "$host" create-repo "$ADMIN_REPO" --source "$admin" --push >/dev/null
 
 review_out="$box/review.out"
 set +e
@@ -241,6 +253,13 @@ if printf '%s\n' "$weekly" | grep -F 'PROFILE-BAIT-PHRASE' >/dev/null; then
 fi
 if printf '%s\n' "$weekly" | grep -E -i '(^|[^A-Za-z])(rank|ranking|ranked|score|scores|leaderboard|rating)([^A-Za-z]|$)' >/dev/null; then
   fail "ranking word in the weekly report"
+fi
+# The company page is in the owners' area repo, never at the company root.
+auth_git "$admin" fetch origin "review/2026-10-24" >/dev/null || fail "no review branch in the admin area repo"
+git -C "$admin" show "origin/review/2026-10-24:reports/2026-W43-company.md" | grep -F '| finance |' >/dev/null \
+  || fail "company page is not in the admin area repo"
+if auth_git "$company" ls-remote --exit-code origin "refs/heads/review/2026-10-24" >/dev/null 2>&1; then
+  fail "a report branch was pushed to the company repo"
 fi
 
 # Wait until the report pull request has merged, then add one more commit.

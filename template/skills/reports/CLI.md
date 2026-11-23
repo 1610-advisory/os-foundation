@@ -8,9 +8,9 @@
 skills/reports/run.sh [--date YYYY-MM-DD] [--week YYYY-Www] [--daily] [--root DIR]
 ```
 
-Run it from the company root. With no flags it writes the daily "to decide" file and the weekly pages for the local date. `--daily` writes only the daily file. `--week` writes that week (and the daily file unless `--daily` is also the only extra flag). `--date` and `OS_NOW` work the same way as nightly review.
+Run it from the company root. With no flags it writes the daily "to decide" file and the weekly pages for the local date. On a Monday, with no `--week`, the weekly pages are for the week that just ended. `--daily` writes only the daily file. `--week` writes that week (and the daily file unless `--daily` is also the only extra flag). `--date` and `OS_NOW` work the same way as nightly review.
 
-Exit `0` when the files that should exist were written, including a quiet day. Exit `1` on a bad flag. Exit `2` when a push did not finish. Solo prints `skipped: solo` and exits `0`.
+Exit `0` when the files that should exist were written, including a quiet day. Exit `1` on a bad flag or a bad `report_area:`. Exit `2` when a push did not finish, an area could not be read, or the owners' area is not checked out (`reports: company pages not written: areas/<area> is not checked out here. ...`). Solo prints `skipped: solo` and exits `0`.
 
 ## OS job
 
@@ -24,9 +24,12 @@ skills/reports/run.sh
 
 | File | Where | When |
 |---|---|---|
-| `reports/YYYY-MM-DD-to-decide.md` | each area, and the company root if the root has flags | only when the file would not be empty |
+| `reports/YYYY-MM-DD-to-decide.md` | each area | only when the file would not be empty |
+| `reports/YYYY-MM-DD-to-decide-company.md` | the owners' area | only when the company repo has flags or rules branches waiting |
 | `reports/YYYY-Www.md` | each area that had actions, commits, or logs that week | weekly |
-| `reports/YYYY-Www-company.md` | company root | weekly |
+| `reports/YYYY-Www-company.md` | the owners' area | weekly |
+
+Nothing is written at the company root. The owners' area is `areas/<report_area>`. `report_area:` in `company-profile.md` names it. It is `admin` when the key is missing. The value must be a plain area name (`a-z`, `0-9`, `-`). The company files carry `-company` in the name, so they never replace the owners' own area reports. They go up with that area's files, in one commit on its `review/<date>` branch. Every run publishes each area it wrote, `--daily` too.
 
 Week labels are ISO weeks, Monday start, such as `2026-W43`.
 
@@ -42,7 +45,9 @@ The weekly area file is "what happened". Sections, in this order:
 
 These come from git and the review digest. Counts and links only. No workspace content. No scores. No ranking. A `Possible leak:` line is not copied into any report file.
 
-The company page has plain counts per area. It does not copy area sentences into the company repo.
+The company page has plain counts per area: one row for each area repo checked out, in name order. A quiet area has zeros. An area whose fetch failed has `not read`. When no row has a commit or a log file, the page says `No area work yet this week.` It does not copy area sentences.
+
+Rules branches: each `rules/*` name is listed once. When the branch is on `origin`, the `origin` copy is the one that counts. A branch is not waiting when its tip is in `main`, when the files it changed are the same on `main`, or when `main` has a commit with the same patch (a squash merge). Git only: no host call.
 
 ## Sources
 
