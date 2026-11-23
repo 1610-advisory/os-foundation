@@ -2,23 +2,37 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
-## Unreleased
+## v1.0.7 — 2026-11-24
 
-The nightly review writes nothing new at the company root. A company gets this after the next release and `upgrade --refresh`.
+Nightly reports leave the company root, no merge on failing checks during an upgrade, projects inside areas, and a steadier phone session. A company gets this with `upgrade --refresh`.
 
-- **Report pages go to the owners' area.** The company "to decide" page and the weekly company page are now `areas/<report_area>/reports/YYYY-MM-DD-to-decide-company.md` and `YYYY-Www-company.md` (`report_area:` in `company-profile.md`, default `admin`). Before, they went to `reports/` at the company root, and the root review (check 7) failed the nightly pull request. `--daily` publishes them too. If that area is not checked out, the job prints a clear line and exits 2. It writes nothing at the root.
+**Reports and the nightly review (#66, #70)**
+- **Report pages go to the owners' area.** The company "to decide" page and the weekly company page are now `areas/<report_area>/reports/YYYY-MM-DD-to-decide-company.md` and `YYYY-Www-company.md` (`report_area:` in `company-profile.md`, default `admin`). Before, they went to `reports/` at the company root, and the root review (check 7) failed the nightly pull request. They now go by that area's own review pull request, so no owner `/approve` is needed each night. If that area is not checked out, the job prints a clear line and exits 2. It writes nothing at the root.
+- **`--daily` publishes.** A daily-only run now publishes every report it writes.
+- **The company page has a row for each area.** A quiet area shows zeros, and an area the job could not read shows `not read`. With no area work yet, the page says `No area work yet this week.` On a Monday the weekly pages are for the week that just ended.
+- **Rules changes waiting, once each.** A rules branch shows once, even when it is both local and on the host. A branch already merged by squash or rebase no longer shows as waiting.
 - **No log fold at the company root.** The fold summary is a log. At the root it was a new file that check 7 fails. Areas still fold their old logs.
 - **A `write` fix never adds a file.** It only replaces a duplicated note that is already there.
-- Old "Review <date>" pull requests at the company root that hold `reports/` files are not closed by this change. Close them by hand.
-- **No merge on failing checks during an upgrade lift (#69).** At team level, `upgrade` and `upgrade --refresh` lift protection on `main` for one push of the check tools. While it was off, an open pull request with auto-merge on could merge even with failing checks. Now, before the lift, each repo's open pull requests into `main` with auto-merge on get it turned off (`auto-merge: paused <repo>#<n>`). After protection is back, it goes back on (`auto-merge: restored <repo>#<n>`). If protection cannot be put back, auto-merge stays off and the run says so. If a pull request cannot be paused, the run stops before any lift. `--dry-run` lists them (`auto-merge: would pause <repo>#<n>`).
+- Old "Review <date>" pull requests at the company root that hold `reports/` files are not closed by this release. Close them by hand.
+
+**Upgrade (#78, issue #69)**
+- **No merge on failing checks during an upgrade lift.** At team level, `upgrade` and `upgrade --refresh` lift protection on `main` for one push of the check tools. While it was off, an open pull request with auto-merge on could merge even with failing checks. Now, before the lift, each repo's open pull requests into `main` with auto-merge on get it turned off (`auto-merge: paused <repo>#<n>`). After protection is back, it goes back on (`auto-merge: restored <repo>#<n>`). If protection cannot be put back, auto-merge stays off and the run says so. If a pull request cannot be paused, the run stops before any lift. `--dry-run` lists them (`auto-merge: would pause <repo>#<n>`).
 - **The checks-on-main push uses the newest `main`.** It fetches again just before the lift and builds again if `main` moved. If the push is still not a fast-forward, it builds on the new `main` and pushes once more.
 - Host layer: `open-prs` now gives `base` and `auto_merge` for each pull request (`null` on Forgejo, which cannot say). `auto-merge-off` gives `was`: `on` when auto-merge was on before the call.
+
+**Sync (#75)**
+- **A workspace push no longer stops on its own rules files.** The range check before a push held `AGENTS.md`, `skills/*/SKILL.md`, `bots/*/BOT.md` and `bots/*/skills/*` in a commit in `users/<person>/`, with `rules file: propose it with sync.sh propose`. `propose` refuses `users/` paths, so the person had no way out. The workspace is the person's own, so its rules files are not held, as the docs say. The secret scan and every other check still run on a workspace. Areas, the company root and bot runs still hold rules files.
+
+**Areas (#73)**
+- **Projects inside areas.** A piece of work that takes many sessions gets a folder `areas/<area>/projects/<slug>/`, started from `templates/project/`: `AGENTS.md` (what it is and how to work in it), a running `LOG.md`, `status.json`, `decisions/` (short ADRs) and `compare/` (comparison matrices). Tool code still goes to its own tool repo. New areas list the folder; for an existing area, copy the one line from `skills/add-area/templates/_area/AGENTS.md` if you want it.
+
+**Remote setup (#72, #77)**
 - **Herdr starts with no window on Windows.** The remote-setup Startup shortcut now runs `herdr server` through `conhost.exe --headless`, the same way the sync jobs run. No minimized window stays in the taskbar, so the person cannot stop the session by closing it. `check.ps1` reports an older shortcut and says how to fix it.
 - **Company defaults for Claude Code.** remote-setup now sets `autoCompactWindow` to 400000 in `~/.claude/settings.json`, with no question. The value is in one file, `skills/remote-setup/defaults.txt`. `set-settings.sh` (Mac, Linux) and `set-settings.ps1` (Windows) add it and keep every other key. They make the file if it is missing, print the old and the new value, and change nothing when the file is not valid JSON. `check.sh` and `check.ps1` show the value and fail when it is not the default. A new value in `defaults.txt` reaches each company with the next `upgrade --refresh`; run `set-settings` again on each computer.
 - **Restart a session and keep the chat.** The remote-setup skill has a new section 8. A short script in another Herdr pane sends `/exit`, then starts Claude again with `--resume` and the same session id. The phone keeps the same chat. Herdr gives the session id and the pane id. Pane ids change after Herdr restarts.
 - **Do not start `herdr server` from an agent's shell.** The server stops when that shell closes. The remote-setup skill now says to start it through the LaunchAgent, the user service or the Startup shortcut.
-- **Projects inside areas.** A piece of work that takes many sessions gets a folder `areas/<area>/projects/<slug>/`, started from `templates/project/`: `AGENTS.md` (what it is and how to work in it), a running `LOG.md`, `status.json`, `decisions/` (short ADRs) and `compare/` (comparison matrices). Tool code still goes to its own tool repo. New areas list the folder; for an existing area, copy the one line from `skills/add-area/templates/_area/AGENTS.md` if you want it.
-- **A workspace push no longer stops on its own rules files.** The range check before a push held `AGENTS.md`, `skills/*/SKILL.md`, `bots/*/BOT.md` and `bots/*/skills/*` in a commit in `users/<person>/`, with `rules file: propose it with sync.sh propose`. `propose` refuses `users/` paths, so the person had no way out. The workspace is the person's own, so its rules files are not held, as the docs say. The secret scan and every other check still run on a workspace. Areas, the company root and bot runs still hold rules files.
+
+- The check tools are release `2026112401`.
 
 ## v1.0.6 — 2026-11-22
 
