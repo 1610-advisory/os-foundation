@@ -11,6 +11,7 @@ host_url: ""                # Forgejo base URL. Empty for github.com.
 org: ""                     # host org that owns the repos (add-teammate sets it)
 sync_engine: ""             # headless command for the nightly check, for example: claude -p --model haiku (add-teammate sets it)
 runner: ubuntu-latest       # runs-on label for the checks workflow
+report_area: admin          # the owners' area. The nightly reports write the company pages there, never at the shared root.
 ---
 
 # {{COMPANY_NAME}}

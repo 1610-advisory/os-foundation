@@ -1,6 +1,6 @@
 ---
 name: reports
-description: Director and admin reports. A daily "to decide" page per area (only when there is something to decide), a weekly "what happened" page per area, and a weekly company page for the admin. Shows actions and plain counts, never workspace content, and never ranks people. Use when someone asks "what happened this week", "what do I need to decide", "where is my report", "send me the report", or to run a report by hand.
+description: Director and admin reports. A daily "to decide" page per area (only when there is something to decide), a weekly "what happened" page per area, and a weekly company page for the admin in the owners' area. Shows actions and plain counts, never workspace content, and never ranks people. Use when someone asks "what happened this week", "what do I need to decide", "where is my report", "send me the report", or to run a report by hand.
 ---
 
 # Reports
@@ -13,11 +13,14 @@ This skill is for `team` and `app`. At `team` an OS job runs it on the admin's c
 
 | Report | When | File |
 |---|---|---|
-| To decide | Daily, only when not empty | `reports/YYYY-MM-DD-to-decide.md` in each area (and the company repo when it has flags) |
+| To decide | Daily, only when not empty | `reports/YYYY-MM-DD-to-decide.md` in each area |
+| Company to decide | Daily, only when the company repo has flags | `reports/YYYY-MM-DD-to-decide-company.md` in the owners' area |
 | What happened | Weekly | `reports/YYYY-Www.md` in each area that had work that week |
-| Company page | Weekly, for the admin | `reports/YYYY-Www-company.md` in the company repo |
+| Company page | Weekly, for the admin | `reports/YYYY-Www-company.md` in the owners' area |
 
-Weeks are ISO weeks that start on Monday, such as `2026-W43`.
+Weeks are ISO weeks that start on Monday, such as `2026-W43`. The job runs each night and rewrites the week's pages. On a Monday it writes the week that just ended. From Tuesday it writes the current week.
+
+**The company pages never go at the company root.** Everyone reads the root. The company pages go in the owners' area: `areas/admin/` by default, or the area that `report_area:` in `company-profile.md` names. They go by that area's own `review/<date>` pull request, like any area report. If that area is not checked out on the admin's computer, the job writes no company page. It prints `reports: company pages not written: areas/<area> is not checked out here. ...` and exits 2. Check out the area, or set `report_area:`.
 
 **To decide** lists what needs a person in that area: the nightly review's flags, and rules branches not yet merged. One line each. If the review did not run, it says `The review did not run.` Nothing to decide: no file that day.
 
@@ -28,7 +31,9 @@ Weeks are ISO weeks that start on Monday, such as `2026-W43`.
 4. **Contradictions:** review flags that say two notes disagree. Path and summary only. If none, one line says so.
 5. **Counts:** commits merged, people with actions, and log files.
 
-**Company page** has plain counts per area. It does not copy area sentences into the company repo.
+**Company page** has plain counts per area, one row for each area checked out, a quiet area too (zeros). An area the job could not read says `not read`. When no area has work yet that week, the page says `No area work yet this week.` It does not copy area sentences.
+
+**Rules changes waiting** lists each `rules/*` branch once, by name, even when it is both local and on `origin`. A branch whose changes are already on `main` is not listed, also when it was merged by squash or rebase.
 
 ## How it runs
 

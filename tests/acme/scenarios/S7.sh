@@ -33,6 +33,8 @@ export OS_NOW="$day"
 osf_me "$slug" ada
 osf_write_token_file "$slug" acme-admin
 osf_seed_area "$dest" marketing
+# The owners' area: setup always makes it. The company pages go here.
+osf_seed_area "$dest" admin
 printf '%s\n' "See [[Missing Person]] for the widget." > "$dest/areas/marketing/notes/widget.md"
 printf '%s\n' "Confirm the sample price before we print it." > "$dest/areas/marketing/notes/price.md"
 git -C "$dest/areas/marketing" add notes
@@ -44,10 +46,11 @@ bash "$dest/skills/add-teammate/team-on.sh" --answers "$work/answers" >"$work/te
 export OS_COMPANY_ROOT="$dest"
 bash "$dest/skills/nightly-review/run.sh" --date "$day" --root "$dest" >"$work/review.log" 2>&1 \
   || osf_result "S7 FAIL nightly review"
-bash "$dest/skills/reports/run.sh" --date "$day" --root "$dest" >"$work/reports.log" 2>&1 \
+# The work is from today. Name the week: on a Monday the default is the week that just ended.
+week=$(date +%G-W%V)
+bash "$dest/skills/reports/run.sh" --date "$day" --week "$week" --root "$dest" >"$work/reports.log" 2>&1 \
   || osf_result "S7 FAIL reports"
 
-week=$(date +%G-W%V)
 # Reports publishes on review/<date> and then removes the working-tree copy.
 osf_host S7 file "$org" "${slug}-marketing" "reports/${day}-to-decide.md" --ref "review/${day}"
 decide=$(cat "$OSF_HOST_JSON")
@@ -62,6 +65,18 @@ osf_host S7 file "$org" "${slug}-marketing" "reports/${week}.md" --ref "review/$
 weekly=$(cat "$OSF_HOST_JSON")
 if [ "$OSF_HOST_RC" -ne 0 ]; then
   osf_result "S7 FAIL weekly report is not on the host"
+fi
+osf_host S7 file "$org" "${slug}-admin" "reports/${week}-company.md" --ref "review/${day}"
+company_page=$(cat "$OSF_HOST_JSON")
+if [ "$OSF_HOST_RC" -ne 0 ]; then
+  osf_result "S7 FAIL company page is not in the admin area repo"
+fi
+if ! printf '%s\n' "$company_page" | grep -q 'marketing'; then
+  osf_result "S7 FAIL company page has no marketing row"
+fi
+osf_host S7 file "$org" "${slug}-os" "reports/${week}-company.md" --ref "review/${day}"
+if [ "$OSF_HOST_RC" -eq 0 ]; then
+  osf_result "S7 FAIL company page is at the company root"
 fi
 osf_host S7 file "$org" "${slug}-marketing" notes/widget.md --ref "review/${day}"
 fixed=$(cat "$OSF_HOST_JSON")

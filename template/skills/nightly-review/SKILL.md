@@ -32,7 +32,7 @@ It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `C
 - If the same flag is still open on a later day, it goes to the approver: the area director from `people/`, or the admin if the area has none. Company-repo flags go to the admin.
 - Each approver gets **one daily digest**, grouped by area, capped at 20 items. Overflow is one line: `and N more`.
 - `Decision:` lines from the day's logs (the "agent decides and logs" tier) are listed first.
-- The digest becomes the area's daily "to decide" report (`reports` skill).
+- The digest becomes the area's daily "to decide" report (`reports` skill). Company-repo flags go in the company "to decide" report, in the owners' area (`areas/admin/` by default), never at the company root.
 
 **A possible leak** (a secret, a personal-life fact, or a private-source quote on `main`) is a flag that starts with `Possible leak:`. It goes to the admin's digest only, on the admin's computer. It is never written into a repo file, a report, or a pull request title or body. It is never fixed: an edit does not remove it from history. The admin runs `remove-leak`.
 

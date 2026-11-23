@@ -155,6 +155,17 @@ EOF
   init_git "$area"
 }
 
+# The owners' area: the company pages go here (report_area, default admin).
+seed_admin() {
+  local admin=$1
+  mkdir -p "$admin/notes"
+  printf '%s\n' "# Admin" > "$admin/notes/README.md"
+  git -C "$admin" init -q -b main
+  git -C "$admin" add -A
+  GIT_AUTHOR_DATE="2026-10-01T12:00:00" GIT_COMMITTER_DATE="2026-10-01T12:00:00" \
+    git -C "$admin" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Seed the admin area"
+}
+
 run_env() {
   local home=$1
   export HOME="$home/home"
@@ -185,6 +196,7 @@ main_case() {
   git -C "$company" add company-profile.md people
   git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" \
     -c committer.date="2026-10-23T12:00:00" commit -q -m "Add the company pages"
+  seed_admin "$company/areas/admin"
   bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
   show "$area" "review/2026-10-24" "notes/widget.md" | grep -F '[[Ada Admin]]' >/dev/null
   if show "$area" "review/2026-10-24" "notes/widget.md" | grep -F '[[Ada]].' >/dev/null; then
@@ -220,7 +232,16 @@ main_case() {
   if printf '%s\n' "$weekly" | grep -E -i '(^|[^A-Za-z])(rank|ranking|ranked|score|scores|leaderboard|rating)([^A-Za-z]|$)' >/dev/null; then
     fail "ranking word in the weekly report"
   fi
-  show "$company" "review/2026-10-24" "reports/2026-W43-company.md" | grep -F 'finance' >/dev/null
+  # The company page is in the owners' area, with a row for every area (a quiet one too).
+  local cpage
+  cpage=$(show "$company/areas/admin" "review/2026-10-24" "reports/2026-W43-company.md")
+  printf '%s\n' "$cpage" | grep -F '| finance |' >/dev/null || fail "no finance row on the company page"
+  printf '%s\n' "$cpage" | grep -F '| admin | 0 | 0 | 0 |' >/dev/null || fail "no row for the quiet admin area"
+  if git -C "$company" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    fail "a report branch was made in the company repo"
+  fi
+  [ ! -e "$company/reports" ] || fail "a reports folder was made at the company root"
+  [ -z "$(git -C "$company/areas/admin" status --porcelain)" ] || fail "the admin checkout is not clean"
   pass "clear error, judgment, fold, weekly report"
   rm -rf "$box"
 }
@@ -646,6 +667,144 @@ tools_case() {
   rm -rf "$box"
 }
 
+# Company pages go to the owners' area named by report_area. --daily publishes the company
+# to-decide file too. A missing owners' area is a clear error, not a root file.
+company_pages_case() {
+  local box company area admin out rc digest
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  awk 'NR > 1 && /^---$/ && !done { print "report_area: leaders"; done = 1 } { print }' \
+    "$company/company-profile.md" > "$box/profile" && mv "$box/profile" "$company/company-profile.md"
+  area="$company/areas/finance"
+  seed_area "$area"
+  git -C "$company" init -q -b main
+  git -C "$company" add company-profile.md people
+  git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Add the company pages"
+  admin="$company/areas/leaders"
+  seed_admin "$admin"
+  digest="$XDG_CONFIG_HOME/acme-os/state/digests"
+  mkdir -p "$digest"
+  cat > "$digest/2026-10-24.json" << 'EOF2'
+{"date":"2026-10-24","review_ran":true,"failed_repos":[],"items":[{"repo":".","path":"customers.md","summary":"COMPANY-FLAG check the customer list.","audience":"ada","kind":"flag"}]}
+EOF2
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --daily
+  show "$admin" "review/2026-10-24" "reports/2026-10-24-to-decide-company.md" | grep -F 'COMPANY-FLAG' >/dev/null \
+    || fail "--daily did not publish the company to-decide file in the owners' area"
+  if git -C "$admin" cat-file -e "review/2026-10-24:reports/2026-10-24-to-decide.md" 2>/dev/null; then
+    fail "the company flags went into the owners' own to-decide file"
+  fi
+  if git -C "$admin" cat-file -e "review/2026-10-24:reports/2026-W43-company.md" 2>/dev/null; then
+    fail "--daily wrote the weekly company page"
+  fi
+  if git -C "$area" show "review/2026-10-24:reports/2026-10-24-to-decide.md" 2>/dev/null | grep -F 'COMPANY-FLAG' >/dev/null; then
+    fail "a company flag went into an area report"
+  fi
+  if git -C "$company" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    fail "a report branch was made in the company repo"
+  fi
+  [ ! -e "$company/reports" ] || fail "a reports folder was made at the company root"
+  pass "company to-decide in the owners' area, with --daily"
+
+  rm -rf "$admin"
+  set +e
+  out=$(bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "a missing owners' area should exit 2, got $rc"
+  printf '%s\n' "$out" | grep -F 'company pages not written: areas/leaders is not checked out here' >/dev/null \
+    || fail "no clear line for a missing owners' area: $out"
+  [ ! -e "$company/reports" ] || fail "a missing owners' area put reports at the company root"
+  git -C "$area" cat-file -e "review/2026-10-24:reports/2026-W43.md" || fail "the area report was not written"
+  pass "missing owners' area is a clear error"
+  rm -rf "$box"
+}
+
+# On a Monday the weekly pages are for the week that just ended. A week with no
+# area work yet says so on the company page.
+monday_case() {
+  local box company area admin cpage
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  git -C "$company" init -q -b main
+  git -C "$company" add company-profile.md people
+  git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Add the company pages"
+  admin="$company/areas/admin"
+  seed_admin "$admin"
+  # 2026-10-26 is the Monday of 2026-W44. The work was in 2026-W43.
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-26
+  show "$area" "review/2026-10-26" "reports/2026-W43.md" | grep -F 'Filed the widget note.' >/dev/null \
+    || fail "Monday did not write the week that just ended"
+  cpage=$(show "$admin" "review/2026-10-26" "reports/2026-W43-company.md")
+  printf '%s\n' "$cpage" | grep -F '| finance | 1 |' >/dev/null || fail "Monday company page has no finance row"
+  if printf '%s\n' "$cpage" | grep -F 'No area work yet' >/dev/null; then
+    fail "Monday company page says no work"
+  fi
+  if git -C "$admin" cat-file -e "review/2026-10-26:reports/2026-W44-company.md" 2>/dev/null; then
+    fail "Monday wrote the new week"
+  fi
+  # Wednesday of 2026-W44: no area work yet.
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-28
+  cpage=$(show "$admin" "review/2026-10-28" "reports/2026-W44-company.md")
+  printf '%s\n' "$cpage" | grep -F 'No area work yet this week.' >/dev/null || fail "no 'No area work yet' line: $cpage"
+  pass "Monday writes the week that just ended"
+  rm -rf "$box"
+}
+
+# A rules branch merged by squash is not waiting. A branch that is local and on
+# origin is one line.
+rules_waiting_case() {
+  local box company area bare decide
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  bare="$box/finance.git"
+  git init -q --bare "$bare"
+  git -C "$area" remote add origin "$bare"
+  git -C "$area" push -q origin main
+  # Merged by squash: two commits on the branch, one squash commit on main.
+  git -C "$area" checkout -q -b rules/ada/done
+  printf '%s\n' "Rule one." >> "$area/AGENTS.md"
+  git -C "$area" commit -q -am "Rule one"
+  printf '%s\n' "Rule two." >> "$area/AGENTS.md"
+  git -C "$area" commit -q -am "Rule two"
+  git -C "$area" push -q origin rules/ada/done
+  git -C "$area" checkout -q main
+  git -C "$area" merge -q --squash rules/ada/done
+  git -C "$area" commit -q -m "Rules: done (#1)"
+  # Main moves on after the squash.
+  printf '%s\n' "Later note." > "$area/notes/later.md"
+  git -C "$area" add notes/later.md
+  git -C "$area" commit -q -m "Later note"
+  # Still open, local and on origin.
+  git -C "$area" checkout -q -b rules/ada/open main
+  printf '%s\n' "Rule three." >> "$area/AGENTS.md"
+  git -C "$area" commit -q -am "Rule three"
+  git -C "$area" push -q origin rules/ada/open
+  git -C "$area" checkout -q main
+  git -C "$area" push -q origin main
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --daily
+  decide=$(show "$area" "review/2026-10-24" "reports/2026-10-24-to-decide.md")
+  [ "$(printf '%s\n' "$decide" | grep -c -F 'Rules change waiting: rules/ada/open')" = "1" ] \
+    || fail "open rules branch not listed once: $decide"
+  if printf '%s\n' "$decide" | grep -F 'origin/' >/dev/null; then
+    fail "an origin ref is listed: $decide"
+  fi
+  if printf '%s\n' "$decide" | grep -F 'rules/ada/done' >/dev/null; then
+    fail "a squash-merged rules branch is listed as waiting: $decide"
+  fi
+  pass "rules waiting: squash merge and duplicates"
+  rm -rf "$box"
+}
+
 main_case
 engine_down_case
 leak_case
@@ -658,6 +817,9 @@ solo_case
 bots_case
 mdx_case
 no_decide_case
+company_pages_case
+monday_case
+rules_waiting_case
 ( argv_case )
 inbox_case
 tools_case
