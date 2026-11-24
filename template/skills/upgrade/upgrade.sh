@@ -271,13 +271,16 @@ review_rules_on_main() {
   printf '%s\n' " and review-rules.md"
 }
 
-checks_on_main() {
-  local dir=$1 repo=$2 tmp err owners first f done_line main_rel new_rel rules_added
-  if ! os_with_git_token git -C "$dir" fetch origin; then
-    os_die 3 "could not fetch ${repo}"
-  fi
-  tmp=$(mktemp -d)
-  git -C "$dir" worktree add -q --detach "$tmp/main" origin/main
+# Build the checks-on-main commit in $CHECKS_TMP/main, on origin/main as last fetched.
+# Run again when main moved (#69). Sets CHECKS_LINE, CHECKS_BASE (the main it built on)
+# and CHECKS_PUSH (0: main already has it all, nothing to push).
+checks_build() {
+  local dir=$1 repo=$2 tmp=$CHECKS_TMP owners first f main_rel new_rel rules_added
+  checks_done "$dir"
+  mkdir -p "$tmp"
+  CHECKS_BASE=$(git -C "$dir" rev-parse origin/main)
+  CHECKS_PUSH=1
+  git -C "$dir" worktree add -q --detach "$tmp/main" "$CHECKS_BASE"
   if [ -f "$tmp/main/.github/workflows/checks.yml" ] \
     && [ -f "$tmp/main/.github/scripts/checkout.sh" ] \
     && [ -f "$tmp/main/.github/scripts/tools/secret-scan.sh" ] \
@@ -303,27 +306,22 @@ checks_on_main() {
     rules_added=$(review_rules_on_main "$tmp/main")
     if [ -n "$rules_added" ] && git -C "$tmp/main" diff --cached --quiet -- .github; then
       author_env git -C "$tmp/main" commit -q -m "Upgrade: review-rules.md on main"
-      done_line="checks-on-main: ${repo} added review-rules.md to main"
+      CHECKS_LINE="checks-on-main: ${repo} added review-rules.md to main"
     elif git -C "$tmp/main" diff --cached --quiet; then
       if [ "$main_rel" -gt "$new_rel" ]; then
-        done_line="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
+        CHECKS_LINE="checks-on-main: ${repo} already: kept the check tools on main (release ${main_rel}; this upgrade has ${new_rel})"
       else
-        done_line="checks-on-main: ${repo} already"
+        CHECKS_LINE="checks-on-main: ${repo} already"
       fi
     elif [ "$main_rel" -lt "$new_rel" ]; then
       author_env git -C "$tmp/main" commit -q -m "Upgrade: update check tools on main"
-      done_line="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})${rules_added}"
+      CHECKS_LINE="checks-on-main: ${repo} updated the check tools on main (release ${main_rel} to ${new_rel})${rules_added}"
     else
       author_env git -C "$tmp/main" commit -q -m "Upgrade: add stock texts to the stock lists on main"
-      done_line="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the stock lists${rules_added}"
+      CHECKS_LINE="checks-on-main: ${repo} kept the check tools on main (release ${main_rel}) and added this release's stock texts to the stock lists${rules_added}"
     fi
-    if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$(git -C "$dir" rev-parse origin/main)" ]; then
-      git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-      rm -rf "$tmp"
-      printf '%s\n' "$done_line"
-      reprotect "$repo"
-      printf 'protected: %s\n' "$repo"
-      return 0
+    if [ "$(git -C "$tmp/main" rev-parse HEAD)" = "$CHECKS_BASE" ]; then
+      CHECKS_PUSH=0
     fi
   else
     mkdir -p "$tmp/main/.github/workflows"
@@ -360,61 +358,209 @@ checks_on_main() {
     fi
     git -C "$tmp/main" add -- .github/workflows/checks.yml .github/scripts .github/review.conf
     rules_added=$(review_rules_on_main "$tmp/main")
-    done_line="checks-on-main: ${repo}${rules_added:+ (with review-rules.md)}"
+    CHECKS_LINE="checks-on-main: ${repo}${rules_added:+ (with review-rules.md)}"
     author_env git -C "$tmp/main" commit -q -m "Upgrade: check tools on main"
+  fi
+}
+
+# Remove the checks-on-main work folder, if there is one.
+CHECKS_TMP=""
+checks_done() {
+  [ -n "$CHECKS_TMP" ] || return 0
+  git -C "$1" worktree remove --force "$CHECKS_TMP/main" >/dev/null 2>&1 || true
+  rm -rf "$CHECKS_TMP/main"
+}
+
+# #69: while protection is off, an open pull request with auto-merge on can merge, even
+# with failing checks. checks_on_main turns auto-merge off on each one before the lift,
+# and back on once protection is back. These are the ones it turned off, for one repo.
+AUTOMERGE_REPO=""
+AUTOMERGE_PAUSED=""
+
+# Open pull requests into main that auto-merge could merge: "<n> on", or "<n> unknown"
+# when the host cannot say (Forgejo). Fails when the host cannot list them.
+automerge_queued() {
+  local prs
+  prs=$(os_host_try open-prs "$1" 2>/dev/null) || return 1
+  printf '%s' "$prs" | jq -r '(.prs // [])[] | select((.base // "main") == "main") | select(.auto_merge != false)
+    | "\(.number) \(if .auto_merge == true then "on" else "unknown" end)"'
+}
+
+# Turn auto-merge off on each queued pull request, before any lift. If one cannot be
+# turned off, put back the ones already off and stop: protection was never lifted.
+automerge_pause() {
+  local repo=$1 list n state out was
+  AUTOMERGE_REPO=$repo
+  AUTOMERGE_PAUSED=""
+  if ! list=$(automerge_queued "$repo"); then
+    os_die 3 "stopped before lifting protection on ${repo}: could not list its open pull requests, to turn auto-merge off on them first. Protection was not lifted. Run upgrade again."
+  fi
+  while read -r n state; do
+    [ -n "$n" ] || continue
+    if ! out=$(os_host_try auto-merge-off "$repo" "$n" 2>/dev/null); then
+      automerge_restore
+      os_die 3 "stopped before lifting protection on ${repo}: could not turn auto-merge off on ${repo}#${n}. Protection was not lifted. Turn auto-merge off on that pull request by hand (or close it), then run upgrade again."
+    fi
+    was=$(printf '%s' "$out" | jq -r '.was // empty' 2>/dev/null || true)
+    if [ -z "$was" ]; then
+      was=off
+      [ "$state" != "on" ] || was=on
+    fi
+    if [ "$was" = "on" ]; then
+      AUTOMERGE_PAUSED="${AUTOMERGE_PAUSED:+$AUTOMERGE_PAUSED }$n"
+      printf 'auto-merge: paused %s#%s\n' "$repo" "$n"
+    fi
+  done <<< "$list"
+}
+
+# --dry-run: the pull requests a real run would pause.
+automerge_would_pause() {
+  local repo=$1 list n state
+  if ! list=$(automerge_queued "$repo"); then
+    printf 'auto-merge: could not list the open pull requests of %s. A real run stops there, before it lifts protection.\n' "$repo"
+    return 0
+  fi
+  while read -r n state; do
+    [ -n "$n" ] || continue
+    if [ "$state" = "on" ]; then
+      printf 'auto-merge: would pause %s#%s\n' "$repo" "$n"
+    else
+      printf 'auto-merge: would pause %s#%s if a merge is scheduled on it\n' "$repo" "$n"
+    fi
+  done <<< "$list"
+}
+
+# Protection is back on: turn auto-merge on again for each paused pull request.
+automerge_restore() {
+  local n repo=$AUTOMERGE_REPO
+  for n in $AUTOMERGE_PAUSED; do
+    if os_host_try auto-merge "$repo" "$n" >/dev/null 2>&1; then
+      printf 'auto-merge: restored %s#%s\n' "$repo" "$n"
+    else
+      printf 'auto-merge: could not restore %s#%s. Turn it on again: skills/_host/host.sh auto-merge %s %s\n' "$repo" "$n" "$repo" "$n"
+    fi
+  done
+  AUTOMERGE_PAUSED=""
+}
+
+# Protection is still off: auto-merge stays off, so nothing merges on failing checks.
+automerge_not_restored() {
+  local n repo=$AUTOMERGE_REPO
+  for n in $AUTOMERGE_PAUSED; do
+    printf 'auto-merge: not restored %s#%s, because protection on %s is off. Protect it first, then: skills/_host/host.sh auto-merge %s %s\n' \
+      "$repo" "$n" "$repo" "$repo" "$n" >&2
+  done
+  AUTOMERGE_PAUSED=""
+}
+
+# main already has the check tools: no lift. Protect with the v1 rules all the same.
+checks_no_push() {
+  local dir=$1 repo=$2
+  checks_done "$dir"
+  printf '%s\n' "$CHECKS_LINE"
+  reprotect "$repo"
+  printf 'protected: %s\n' "$repo"
+  automerge_restore
+}
+
+checks_on_main() {
+  local dir=$1 repo=$2 err try=1
+  if ! os_with_git_token git -C "$dir" fetch origin; then
+    os_die 3 "could not fetch ${repo}"
+  fi
+  CHECKS_TMP=$(mktemp -d)
+  checks_build "$dir" "$repo"
+  if [ "$CHECKS_PUSH" -eq 0 ]; then
+    checks_no_push "$dir" "$repo"
+    return 0
+  fi
+  automerge_pause "$repo"
+  # #69: a pull request can merge while this runs. Build on the newest main, so the push
+  # is a fast-forward.
+  if ! os_with_git_token up_git_quiet -C "$dir" fetch origin; then
+    checks_done "$dir"
+    automerge_restore
+    os_die 3 "could not fetch ${repo} again before the push. Protection was not lifted. Run upgrade again."
+  fi
+  if [ "$(git -C "$dir" rev-parse origin/main)" != "$CHECKS_BASE" ]; then
+    checks_build "$dir" "$repo"
+    if [ "$CHECKS_PUSH" -eq 0 ]; then
+      checks_no_push "$dir" "$repo"
+      return 0
+    fi
   fi
   # unprotect lifts the v1 rulesets and, on GitHub, the v0 classic rule. Both would
   # refuse this push. From here until protect, every way out puts protection back
   # (upgrade_on_exit covers a stop this function does not catch).
   UNPROTECTED=$repo
   os_host unprotect "$repo" >/dev/null
-  err=$(mktemp)
-  if ! os_with_git_token up_git_err "$err" -C "$tmp/main" push origin HEAD:refs/heads/main; then
+  while true; do
+    err=$(mktemp)
+    if os_with_git_token up_git_err "$err" -C "$CHECKS_TMP/main" push origin HEAD:refs/heads/main; then
+      rm -f "$err"
+      break
+    fi
+    # main moved after the last fetch: build once more on the new main, and push again.
+    if [ "$try" -eq 1 ] && grep -qiE 'non-fast-forward|fetch first' "$err" \
+      && os_with_git_token up_git_quiet -C "$dir" fetch origin; then
+      rm -f "$err"
+      try=2
+      printf 'checks-on-main: %s: main moved during the push. Building again on the new main.\n' "$repo"
+      checks_build "$dir" "$repo"
+      [ "$CHECKS_PUSH" -eq 1 ] || break
+      continue
+    fi
     cat "$err" >&2
-    git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-    rm -rf "$tmp"
+    checks_done "$dir"
     reprotect "$repo"
+    automerge_restore
     if grep -qi 'workflow' "$err"; then
       rm -f "$err"
       os_die 3 "push refused for ${repo}: the sign-in cannot write workflow files. Add the workflow scope: gh auth refresh -s workflow. Then run upgrade again. Protection on ${repo} is back on."
     fi
     rm -f "$err"
     os_die 3 "could not put the check tools on main of ${repo}. Protection on ${repo} is back on. Fix the push, then run upgrade again."
-  fi
-  rm -f "$err"
-  git -C "$dir" worktree remove --force "$tmp/main" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
+  done
+  checks_done "$dir"
   os_with_git_token up_git_quiet -C "$dir" fetch origin || true
-  printf '%s\n' "$done_line"
+  printf '%s\n' "$CHECKS_LINE"
   reprotect "$repo"
   printf 'protected: %s\n' "$repo"
+  automerge_restore
 }
 
-# Protect main with the v1 rules. If that fails, say plainly that main is open.
+# Protect main with the v1 rules. If that fails, say plainly that main is open, and keep
+# auto-merge off on the paused pull requests.
 reprotect() {
   local repo=$1
   UNPROTECTED=""
   if ! os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null; then
+    automerge_not_restored
     os_die 3 "PROTECTION IS OFF on ${repo}: run skills/_host/host.sh protect ${repo} --code-owners --approvals 0"
   fi
 }
 
 # Any exit between unprotect and protect (a host error, set -e) protects main again,
-# or prints that main is open.
+# or prints that main is open. Paused auto-merge goes back on only with protection on.
 UNPROTECTED=""
 upgrade_on_exit() {
   local rc=$? repo=$UNPROTECTED
   # This trap replaces the one add-teammate/lib.sh set. The temp folder goes last: protect
   # below still needs it.
   if [ -z "$repo" ]; then
+    if [ -n "$AUTOMERGE_PAUSED" ]; then
+      automerge_restore >&2
+    fi
     os_cleanup
     return "$rc"
   fi
   UNPROTECTED=""
   if os_host_try protect "$repo" --code-owners --approvals 0 >/dev/null 2>&1; then
     printf 'upgrade stopped. Protection on %s is back on.\n' "$repo" >&2
+    automerge_restore >&2
   else
     printf 'PROTECTION IS OFF on %s: run skills/_host/host.sh protect %s --code-owners --approvals 0\n' "$repo" "$repo" >&2
+    automerge_not_restored
   fi
   [ "$rc" -ne 0 ] || rc=3
   os_cleanup

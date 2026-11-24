@@ -599,9 +599,12 @@ class GithubSecondRunTests(unittest.TestCase):
         # Round 4 (B38-GQL): off only when a second read shows no auto-merge.
         proc = run(["auto-merge-off", "acme-os", "4"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        # #69: "was" says what the caller turns back on later.
+        self.assertEqual(json.loads(proc.stdout)["was"], "off")
         self.flag("auto-on")
         proc = run(["auto-merge-off", "acme-os", "4"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["was"], "on")
         self.assertFalse((self.dir / "auto-on").exists())
         self.flag("auto-on")
         self.flag("disable-ignored")
@@ -617,8 +620,9 @@ class GithubSecondRunTests(unittest.TestCase):
             json.loads(proc.stdout),
             {
                 "prs": [
-                    {"number": 4, "head": "sync/ada", "body": "Ada: keep this.\r\n<!-- sync:files -->"},
-                    {"number": 5, "head": "rules/ada/x", "body": ""},
+                    {"number": 4, "head": "sync/ada", "base": "main", "auto_merge": True,
+                     "body": "Ada: keep this.\r\n<!-- sync:files -->"},
+                    {"number": 5, "head": "rules/ada/x", "base": None, "auto_merge": False, "body": ""},
                 ]
             },
         )

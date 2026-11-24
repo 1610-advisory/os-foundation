@@ -1094,7 +1094,7 @@ cmd_open_prs() {
     return 0
   fi
   all=$(host_gh_all "$(host_repo "$POS1")/pulls?state=open") || exit $?
-  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref, body:(.body // "")}]}'
+  printf '%s' "$all" | jq -c '{prs: [.[] | {number:.number, head:.head.ref, base:(.base.ref // null), auto_merge:(.auto_merge != null), body:(.body // "")}]}'
 }
 
 # The old v0 logs branch (B61). v0 Part A protected it on paid plans (no deletion, admins
@@ -1171,7 +1171,7 @@ cmd_close_pr() {
 
 # Turn auto-merge off. A pull request with none is already off.
 cmd_auto_merge_off() {
-  local pr id q
+  local pr id q was=off
   host_need_number
   if host_dry; then
     host_emit GET "$(host_repo "$POS1")/pulls/${POS2}"
@@ -1179,6 +1179,7 @@ cmd_auto_merge_off() {
   fi
   pr=$(host_gh_ok GET "$(host_repo "$POS1")/pulls/${POS2}")
   if [ "$(printf '%s' "$pr" | jq -r '.auto_merge == null')" = "false" ]; then
+    was=on
     id=$(printf '%s' "$pr" | jq -r '.node_id // empty')
     [ -n "$id" ] || host_die 3 "pull request has no id"
     q=$(jq -nc --arg id "$id" \
@@ -1190,7 +1191,7 @@ cmd_auto_merge_off() {
       host_die 3 "auto-merge is still on for pull request ${POS2}"
     fi
   fi
-  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
+  jq -nc --arg name "$POS1" --argjson number "$POS2" --arg was "$was" '{ok:true, name:$name, number:$number, auto_merge:"off", was:$was}'
 }
 
 host_require_branch() {
