@@ -532,6 +532,7 @@
 7462c673ed6e5268ca8d7171370bbe01abb1764b .github/scripts/tools/add-teammate/lib.sh
 7462c673ed6e5268ca8d7171370bbe01abb1764b skills/add-teammate/lib.sh
 74b15336925f04f0843631c83e7fe107cd0bd9b2 skills/nightly-review/run.sh
+74cc0b150e2f483e90f4d8c587004c9736e7bcc1 skills/sync/push.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 754f69d0d0a7605e21dec25033231e32ff2d1799 .github/scripts/run-checks.sh
 7565326fbcf69ba95ecf44c13c8f19b9a8a5c62d skills/upgrade/refresh.sh

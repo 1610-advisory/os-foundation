@@ -12,6 +12,7 @@ The nightly review writes nothing new at the company root. A company gets this a
 - Old "Review <date>" pull requests at the company root that hold `reports/` files are not closed by this change. Close them by hand.
 - **Herdr starts with no window on Windows.** The remote-setup Startup shortcut now runs `herdr server` through `conhost.exe --headless`, the same way the sync jobs run. No minimized window stays in the taskbar, so the person cannot stop the session by closing it. `check.ps1` reports an older shortcut and says how to fix it.
 - **Projects inside areas.** A piece of work that takes many sessions gets a folder `areas/<area>/projects/<slug>/`, started from `templates/project/`: `AGENTS.md` (what it is and how to work in it), a running `LOG.md`, `status.json`, `decisions/` (short ADRs) and `compare/` (comparison matrices). Tool code still goes to its own tool repo. New areas list the folder; for an existing area, copy the one line from `skills/add-area/templates/_area/AGENTS.md` if you want it.
+- **A workspace push no longer stops on its own rules files.** The range check before a push held `AGENTS.md`, `skills/*/SKILL.md`, `bots/*/BOT.md` and `bots/*/skills/*` in a commit in `users/<person>/`, with `rules file: propose it with sync.sh propose`. `propose` refuses `users/` paths, so the person had no way out. The workspace is the person's own, so its rules files are not held, as the docs say. The secret scan and every other check still run on a workspace. Areas, the company root and bot runs still hold rules files.
 
 ## v1.0.6 — 2026-11-22
 
