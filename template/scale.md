@@ -22,24 +22,23 @@ All are off by default. v1 ships them as a written plan: turning one on is host 
 
 Phone access to your own computer (an always-on session on a computer that already holds the copy) adds no copy. It is allowed at every size and needs no switch.
 
-## Projects (not in v1)
+## Projects
 
-A project is one piece of work with an end and a done test that takes many agent sessions. Examples: "move the company to the team level", "build the year-end report pack".
+A project is one piece of work with an end and a done test that takes many agent sessions. Examples: "move the company to the team level", "build the finance dashboards".
 
-The shape, when it ships:
-
-- A folder `projects/<slug>/` inside the area that owns the work.
-- `PROJECT.md` is the entry file: goal, owner, areas touched, done test. It may carry an `authority:` field. That field may only tighten the approval tiers, never loosen them.
-- `status.json`: a list of items. Agents only mark an item pass or fail.
-- `progress.md`: where the last session stopped.
-- Any other files the work needs.
-- A cross-area project has one owning area. The company root keeps only one index line: name, owning area, state.
+- A folder `areas/<area>/projects/<slug>/` inside the area that owns the work. Start it from `templates/project/`.
+- `AGENTS.md` (and a `CLAUDE.md` that imports it) is the entry file: what the project is, how to work in it, owner, areas touched, done test, tool repo links, state. Any agent opened in the folder reads it by itself. It may add rules that tighten the area's rules, never loosen them.
+- `LOG.md`: the running dev log, newest entry on top: what was done, what is open, the next step. The area's daily logs stay in `memory/logs/`.
+- `status.json`: a list of items. Agents only mark an item pass or fail. The nightly reports show a failed item as stuck work.
+- `decisions/`: one short ADR per decision. `compare/`: comparison matrices.
+- Tool code goes to its own tool repo (`skills/app-setup/`). The project folder holds only planning and memory.
+- `projects/README.md` in the area lists its projects, one line each: name, owner, state. A cross-area project has one owning area.
 
 A new session reads these files and goes on, with no "where was I" questions. When the done test passes, the project closes.
 
-A project never changes who can read. A client of an outside firm is not a project: a client is a company with its own folder.
+A project never changes who can read: it is in its area's repo. A client of an outside firm is not a project: a client is a company with its own folder.
 
-Why not in v1: the pattern is not proven yet. It is piloted for two weeks in one area first. It passes if long agent runs finish with fewer restarts and fewer "where was I" questions, judged from the run logs.
+Pilot: the first project runs in one area for two weeks. It passes if long agent runs finish with fewer restarts and fewer "where was I" questions, judged from the run logs.
 
 ## Outside-party device checklist
 
