@@ -48,7 +48,15 @@ Tell the person each `FAIL` and `ASK` line in plain words. Fix only the failed i
    "remoteControlAtStartup": true
    ```
    Or the person runs `claude`, types `/config`, and turns on Remote Control at startup.
-4. Run `claude` once in `<root>` and trust the folder. Then exit.
+4. Set the company defaults for Claude Code (no need to ask). The values are in `skills/remote-setup/defaults.txt` (now `autoCompactWindow`). The script keeps every other setting, makes the file if it is missing, and prints the old and the new value:
+   ```bash
+   bash <root>/skills/remote-setup/set-settings.sh
+   ```
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File <root>\skills\remote-setup\set-settings.ps1
+   ```
+   If it says the file is not valid JSON, it changed nothing. Show the person the file and fix it together.
+5. Run `claude` once in `<root>` and trust the folder. Then exit.
 
 ## 2. Herdr
 
@@ -63,6 +71,7 @@ Herdr keeps terminal sessions alive. Closing the window does not stop them.
 ## 3. Start the company session
 
 1. Start Herdr once: `herdr` (the person can close the window after; it keeps running).
+   Never start `herdr server` from an agent's own shell. The server stops when that shell closes. Start it through the LaunchAgent (Mac), the user service (Linux) or the Startup shortcut (Windows), in section 5.
 2. Make a workspace and start Claude in it, with Remote Control on and a clear name:
    ```bash
    ws=$(herdr workspace create --cwd "<root>" --label "<slug> OS" --no-focus)
@@ -172,3 +181,27 @@ Run the same check as in section 0 (`check.sh`, or `check.ps1` on Windows).
 
 Each line is `PASS`, `FAIL` (with the fix) or `ASK` (the person checks it by eye). Done means: no `FAIL`, and the person said yes to each `ASK`. Then do one real test: close the terminal window, lock the phone, wait one minute, and send a message to "<slug> OS" from the phone.
 If the restart test matters (it usually does), restart the computer once, sign in, wait two minutes, and send a message from the phone again.
+
+## 8. Restart the session and keep the chat
+
+Use this to restart Claude (for example after an update) and keep the same chat on the phone. Claude comes back with `--resume` and the same session id.
+
+Run the script from a **different** Herdr pane. The session cannot restart itself: `/exit` would stop the script too. Herdr gives the session id and the pane id: `herdr agent get <slug>-os` shows them as `agent_session` → `value` and `pane_id`. Pane ids change after Herdr restarts, so read them again each time. Do not reuse an old id.
+
+Mac or Linux:
+```bash
+info=$(herdr agent get <slug>-os)
+sid=$(printf '%s' "$info" | sed -n 's/.*"agent_session":{[^}]*"value":"\([^"]*\)".*/\1/p')
+pane=$(printf '%s' "$info" | sed -n 's/.*"pane_id":"\([^"]*\)".*/\1/p')
+herdr agent prompt <slug>-os "/exit"
+herdr pane wait-output "$pane" --match "claude --resume" --timeout 60000
+herdr agent start <slug>-os --kind claude --pane "$pane" --timeout 60000 -- --resume "$sid" --name "<slug> OS" --remote-control "<slug> OS"
+```
+Windows (PowerShell):
+```powershell
+$a = (herdr agent get <slug>-os | ConvertFrom-Json).result.agent
+herdr agent prompt <slug>-os "/exit"
+herdr pane wait-output $a.pane_id --match "claude --resume" --timeout 60000
+herdr agent start <slug>-os --kind claude --pane $a.pane_id --timeout 60000 -- --resume $a.agent_session.value --name "<slug> OS" --remote-control "<slug> OS"
+```
+If `sid` or the pane id is empty, stop. Herdr does not see the session. Start it again with section 3. Test from the phone: the same "<slug> OS" chat answers, with the earlier messages still there.
