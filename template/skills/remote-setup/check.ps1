@@ -74,8 +74,14 @@ if ($admin) { Ask "This window runs as administrator. Run Herdr and Claude in a 
 
 # 3. Start after a reboot
 $startup = [Environment]::GetFolderPath('Startup')
-if (Test-Path (Join-Path $startup 'Company OS Herdr.lnk')) {
-  Pass "Herdr starts by itself at sign-in."
+$lnk = Join-Path $startup 'Company OS Herdr.lnk'
+if (Test-Path $lnk) {
+  $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+  if (((Split-Path $sc.TargetPath -Leaf) -eq 'conhost.exe') -and ($sc.Arguments -match '--headless') -and ($sc.Arguments -match 'herdr') -and ($sc.Arguments -match '\bserver\b')) {
+    Pass "Herdr starts by itself at sign-in, with no window."
+  } else {
+    Fail "The Herdr startup shortcut opens a window (closing it can stop the session)." "make the shortcut again (section 5); it starts Herdr through conhost --headless."
+  }
 } else {
   Fail "Herdr does not start by itself after a restart." "add the Startup shortcut (section 5)."
 }

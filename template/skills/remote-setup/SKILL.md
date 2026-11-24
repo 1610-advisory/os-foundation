@@ -147,15 +147,17 @@ systemctl --user daemon-reload && systemctl --user enable --now herdr.service
 sudo loginctl enable-linger "$USER"
 ```
 
-**Windows** (ask first). A shortcut in the person's Startup folder starts Herdr, minimized, at each sign-in. No administrator window is needed:
+**Windows** (ask first). A shortcut in the person's Startup folder starts Herdr at each sign-in, with no window (`conhost.exe --headless`, the same way the sync jobs run). No administrator window is needed:
 ```powershell
 $h = (Get-Command herdr).Source
 $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Company OS Herdr.lnk'
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
-$s.TargetPath = $h; $s.Arguments = 'server'; $s.WindowStyle = 7; $s.WorkingDirectory = "<root>"
+$s.TargetPath = Join-Path $env:WINDIR 'System32\conhost.exe'
+$s.Arguments = "--headless `"$h`" server"; $s.WorkingDirectory = "<root>"
 $s.Save()
 ```
-If Herdr already runs, the shortcut's `herdr server` stops at once with "already running". That is fine. Windows does not restart Herdr after a crash: the person runs `herdr` again. Windows does not start anything before a sign-in. After a restart, someone signs in once. Then Herdr starts and brings back the session.
+No window opens, so nothing stays in the taskbar for the person to close by mistake. If Herdr already runs, the shortcut's `herdr server` stops at once with "already running". That is fine. Windows does not restart Herdr after a crash: the person runs `herdr` again. Windows does not start anything before a sign-in. After a restart, someone signs in once. Then Herdr starts and brings back the session.
+An older shortcut that starts `herdr.exe` minimized: run the lines above again. They replace it.
 Herdr on Windows: it keeps sessions after the window closes. Do not run it as administrator (an administrator server refuses normal windows). Windows may show a SmartScreen warning the first time, because Herdr is not signed. The person checks the publisher and says yes.
 
 ## 6. Same account on phone and computer

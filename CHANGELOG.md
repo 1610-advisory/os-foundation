@@ -10,6 +10,7 @@ The nightly review writes nothing new at the company root. A company gets this a
 - **No log fold at the company root.** The fold summary is a log. At the root it was a new file that check 7 fails. Areas still fold their old logs.
 - **A `write` fix never adds a file.** It only replaces a duplicated note that is already there.
 - Old "Review <date>" pull requests at the company root that hold `reports/` files are not closed by this change. Close them by hand.
+- **Herdr starts with no window on Windows.** The remote-setup Startup shortcut now runs `herdr server` through `conhost.exe --headless`, the same way the sync jobs run. No minimized window stays in the taskbar, so the person cannot stop the session by closing it. `check.ps1` reports an older shortcut and says how to fix it.
 
 ## v1.0.6 — 2026-11-22
 
