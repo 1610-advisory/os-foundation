@@ -3187,6 +3187,99 @@ class ExtraHoldsTests(unittest.TestCase):
         self.assertIn("\nREPO: area\nAREA: sales\nFILE: plan.md\n", area_prompt[0])
         self.assertNotIn("\nOWNER: ", area_prompt[0].split("```")[-1])
 
+class WorkspaceRulesTests(unittest.TestCase):
+    """v1.0.7: a person's workspace holds its own rules files. Commits there are not held."""
+
+    setUp = SyncFixTests.setUp
+    tearDown = SyncFixTests.tearDown
+    sync = SyncFixTests.sync
+    seed_origin = SyncFixTests.seed_origin
+    git = SyncFixTests.git
+    sync_log = SyncFixTests.sync_log
+    sub_repo = ExtraHoldsTests.sub_repo
+
+    RULES = {
+        "bots/x/BOT.md": "# Bot x\n",
+        "bots/x/skills/y.md": "a bot skill\n",
+        "AGENTS.md": "# my rules\n",
+        "skills/z/SKILL.md": "a skill\n",
+    }
+
+    def ready(self, rel):
+        self.seed_origin()
+        (self.company / ".gitignore").write_text("users/\nareas/\n")
+        self.git("add", ".gitignore")
+        self.git("commit", "-q", "-m", "ignore")
+        self.git("push", "-q", "origin", "main")
+        return self.sub_repo(rel)
+
+    def commit_files(self, repo, files):
+        for rel, text in files.items():
+            path = repo / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        run(["git", "-C", str(repo), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(repo), "commit", "-q", "-m", "local work"], env=self.env, check=True)
+
+    def remote_files(self, rel, ref="main"):
+        bare = self.tmp / (rel.replace("/", "-") + ".git")
+        return run(["git", "--git-dir", str(bare), "ls-tree", "-r", "--name-only", ref],
+                   env=self.env).stdout.split()
+
+    def test_workspace_commit_with_rules_files_pushes(self):
+        ws = self.ready("users/mia")
+        self.commit_files(ws, self.RULES)
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        names = self.remote_files("users/mia")
+        for rel in self.RULES:
+            self.assertIn(rel, names)
+        self.assertNotIn("rules file: propose it", self.sync("status").stdout)
+
+    def test_area_rules_files_are_still_held(self):
+        area = self.ready("areas/sales")
+        for rel, text in self.RULES.items():
+            path = area / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (area / "plan.md").write_text("a sales plan\n")
+        result = self.sync("push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
+        status = self.sync("status").stdout
+        names = self.remote_files("areas/sales", SEAT_BRANCH)
+        self.assertIn("plan.md", names)
+        for rel in self.RULES:
+            self.assertIn(rel + ": rules file: propose it with sync.sh propose", status)
+            self.assertNotIn(rel, names)
+
+    def test_area_commit_with_a_rules_file_still_stops(self):
+        # The range check, on its own: a commit sync did not make stops first, so call it.
+        area = self.ready("areas/sales")
+        self.commit_files(area, {"bots/x/BOT.md": "# Bot x\n"})
+        script = ('source "$1/lib.sh"; source "$1/push.sh"; '
+                  'sync_check_range "$2" area:sales origin/main..HEAD "$3"')
+        for kind in ("area", "root", ""):
+            with self.subTest(kind=kind):
+                result = run(["bash", "-c", script, "x", str(SYNC), str(area), kind],
+                             env=self.env, cwd=self.company)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        ws = run(["bash", "-c", script, "x", str(SYNC), str(area), "workspace"],
+                 env=self.env, cwd=self.company)
+        self.assertEqual(ws.returncode, 0, ws.stdout + ws.stderr)
+
+    def test_workspace_commit_with_a_secret_still_stops(self):
+        ws = self.ready("users/mia")
+        self.commit_files(ws, {"AGENTS.md": "# my rules\n", "notes.md": f"token = {SECRET}\n"})
+        result = self.sync("push")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        names = self.remote_files("users/mia")
+        self.assertNotIn("notes.md", names)
+        self.assertNotIn("AGENTS.md", names)
+        self.assertIn("secret", self.sync("status").stdout)
+        for text in (result.stdout, result.stderr, self.sync_log(), self.sync("status").stdout):
+            self.assertNotIn(SECRET, text)
+
+
 class PersonNoteRuleTests(unittest.TestCase):
     """v1.0.6 (D9 hold 2): the push check holds a named person's job note outside admin."""
 

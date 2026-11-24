@@ -571,9 +571,11 @@ sync_commit_local() {
 }
 
 # Rules paths and secret blobs in a range of commits. Return 1 before any push. Person
-# and bot push the same way: check the range, then push it as it is.
+# and bot push the same way: check the range, then push it as it is. A person's
+# workspace (repo kind "workspace") holds its own rules files, so they are not held
+# there. The secret scan runs for every kind.
 sync_check_range() {
-  local repo=$1 id=$2 range=$3
+  local repo=$1 id=$2 range=$3 repo_kind=${4:-}
   local list line path sha kind dir n scanner rc blob
   list=$(sync_mktemp)
   set +e
@@ -587,7 +589,7 @@ sync_check_range() {
   # -z keeps both sides of a rename and does not quote a path.
   while IFS= read -r -d '' path || [ -n "$path" ]; do
     [ -n "$path" ] || continue
-    if sync_hold_rules "$path"; then
+    if [ "$repo_kind" != "workspace" ] && sync_hold_rules "$path"; then
       sync_range_fail "$id" "rules file: propose it with sync.sh propose"
       return 1
     fi
@@ -664,7 +666,7 @@ sync_push_commits() {
     sync_log "push offline ${id} committed here, not sent"
     return 1
   fi
-  sync_check_range "$repo" "$id" "origin/main..HEAD" || return 1
+  sync_check_range "$repo" "$id" "origin/main..HEAD" "$kind" || return 1
   if [ "$kind" = "workspace" ]; then
     if ! sync_push_ref "$repo" HEAD refs/heads/main 0 >/dev/null 2>&1; then
       sync_apply_fail "$id" "could not reach origin"

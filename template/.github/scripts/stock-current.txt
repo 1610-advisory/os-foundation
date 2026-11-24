@@ -66,6 +66,7 @@
 6cd2af94cd3bfd82042c09f4d9394b80550a1381 skills/remote-setup/check.ps1
 6f1da741c8263a479f349ca7923ce02e9aa6ba92 skills/reports/CLI.md
 6fbe31ac263cbd08f454c91549a3b8e7f39fca4e skills/remote-setup/check.sh
+74cc0b150e2f483e90f4d8c587004c9736e7bcc1 skills/sync/push.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
 79b8d6655ac7e90db484d5362be31fe41ff83a60 skills/upgrade/upgrade.sh
@@ -136,7 +137,6 @@ d15ad7bcc09ddc630d7133a1bfe4930c0950e715 skills/add-bot/CLI.md
 d20bad08f5fbe63c65286eba151194e387d1555a .github/scripts/owner-gate.sh
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
-d80851118132c5c5811f50ed6c9f0a997d10205e skills/sync/push.sh
 d94f97f52ee36eecb35937f982104a57ec21098b skills/add-area/templates/_area/datasets.md
 da7e71384c885275a7ae0371f3721bc1613dd5df skills/upgrade/CLI.md
 dbf0207afdaeab5cf39ae56e8ecd02e27501e084 skills/skill-creator/eval-viewer/generate_review.py
