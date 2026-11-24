@@ -390,8 +390,9 @@ nr_apply_in_wt() {
     elif [ "$action" = "write" ]; then
       content=$(mktemp)
       printf '%s' "$line" | jq -r '.fix.content // ""' > "$content"
-      parent=$(dirname "$wt/$path")
-      if [ -d "$parent" ]; then
+      # A write replaces a duplicated note. It never adds a new file (at the company
+      # root, a new file is a root finding).
+      if [ -f "$wt/$path" ]; then
         mv "$content" "$wt/$path"
       else
         rm -f "$content"
@@ -465,7 +466,9 @@ nr_plan_repo() {
       return 1
     fi
   fi
-  if ! nr_fold_plan "$repo" "$rel" "$base"; then
+  # No fold at the company root: a summary there is a new log on the shared root, and the
+  # root review (check 7) fails it. Logs of root work belong in a workspace or an area.
+  if [ "$rel" != "." ] && ! nr_fold_plan "$repo" "$rel" "$base"; then
     printf '%s\n' "$rel" >> "$NR_FAILED_REPOS"
     rm -f "$commits"
     return 1

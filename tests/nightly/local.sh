@@ -805,6 +805,46 @@ rules_waiting_case() {
   rm -rf "$box"
 }
 
+# The company root is the shared root. The nightly review must not add a file there:
+# no log fold summary, and no "write" fix at a new path (check 7 fails both).
+root_no_new_files_case() {
+  local box company area changed
+  box=$(mktemp -d)
+  company="$box/acme"
+  run_env "$box"
+  make_company "$company" team "[]"
+  area="$company/areas/finance"
+  seed_area "$area"
+  seed_admin "$company/areas/admin"
+  mkdir -p "$company/memory/logs" "$company/notes"
+  printf '%s\n' "Old root action from September." > "$company/memory/logs/2026-09-01-ada.md"
+  git -C "$company" init -q -b main
+  git -C "$company" add company-profile.md people memory
+  GIT_AUTHOR_DATE="2026-09-01T12:00:00" GIT_COMMITTER_DATE="2026-09-01T12:00:00" \
+    git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" commit -q -m "Add the company pages"
+  printf '%s\n' "# Customers" "WRITE-NEW" > "$company/customers.md"
+  git -C "$company" add customers.md
+  git -C "$company" -c user.name="Ada Admin" -c user.email="ada@example.com" \
+    -c committer.date="2026-10-23T12:00:00" commit -q -m "Add the customer list"
+  bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
+  bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24
+  changed=""
+  if git -C "$company" show-ref --verify --quiet refs/heads/review/2026-10-24; then
+    changed=$(git -C "$company" diff --name-only main review/2026-10-24)
+  fi
+  [ -z "$changed" ] || fail "the review changed files at the company root: $changed"
+  git -C "$company" cat-file -e "main:memory/logs/2026-09-01-ada.md" || fail "a root log was removed"
+  [ ! -e "$company/memory/logs/2026-09-summary.md" ] || fail "a fold summary was written at the company root"
+  [ ! -e "$company/notes/brand-new.md" ] || fail "a write fix added a file at the company root"
+  [ ! -e "$company/reports" ] || fail "a reports folder was made at the company root"
+  # The area still folds its own old logs.
+  git -C "$area" cat-file -e "review/2026-10-24:memory/logs/2026-09-summary.md" || fail "the area fold did not run"
+  show "$company/areas/admin" "review/2026-10-24" "reports/2026-W43-company.md" >/dev/null \
+    || fail "the company page is not in the owners' area"
+  pass "nothing new at the company root (fold, write fix, reports)"
+  rm -rf "$box"
+}
+
 main_case
 engine_down_case
 leak_case
@@ -820,6 +860,7 @@ no_decide_case
 company_pages_case
 monday_case
 rules_waiting_case
+root_no_new_files_case
 ( argv_case )
 inbox_case
 tools_case

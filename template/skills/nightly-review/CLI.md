@@ -140,7 +140,7 @@ The digest includes the sentence `The review did not run.`
 
 ## Log fold
 
-A log `memory/logs/YYYY-MM-DD-<slug>.md` whose date is more than 30 days before the run date is folded into `memory/logs/YYYY-MM-summary.md` (one file per month per repo). The originals are removed on that branch. Git history keeps them. A file exactly 30 days old is kept.
+A log `memory/logs/YYYY-MM-DD-<slug>.md` whose date is more than 30 days before the run date is folded into `memory/logs/YYYY-MM-summary.md` (one file per month per repo). The originals are removed on that branch. Git history keeps them. A file exactly 30 days old is kept. The company root is not folded. The review never adds a new file there: a `write` fix only replaces a file that is already there.
 
 ## Identity
 

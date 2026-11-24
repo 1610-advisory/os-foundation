@@ -422,6 +422,7 @@
 5f0553580f7987f9e6f5bfcc831d43edccf92c41 skills/sync/jobs/macos-calendar.plist
 5f8bb47c7f059b77b68d99a6035dd316cc33add9 skills/sync/push.sh
 5f8c57db40451134ffe1423ced24bcf9985b8f20 skills/connect-tool/SKILL.md
+5fa4a20da3f8cd61e7770b782a98801bdb3275c9 skills/nightly-review/CLI.md
 5fb1dc28d1cee672a755c9627f9f084f206c7e46 .github/scripts/tools/add-teammate/lib.sh
 5fb1dc28d1cee672a755c9627f9f084f206c7e46 skills/add-teammate/lib.sh
 5fe004619fee604de2b7f879dec5b0ea8ce05010 skills/upgrade/upgrade.sh
@@ -704,6 +705,7 @@
 9f982256f92c91fcc67b518171173b41229aa506 skills/sync/sync.ps1
 a02fae685a63bcfd40fa07c10bf2d3153a08f946 skills/sync/CLI.md
 a04f7c78bc309ff992ee7a69dda3b4b7080487ce skills/sync/CLI.md
+a0a87e9786c85f1bd21cc37b2459159ac6db0c65 skills/nightly-review/SKILL.md
 a0d7cdc23ef343161f58d480a0a240196f2de026 skills/sync/push-check.md
 a0f42954963429c483c9b29a8e16c5b914e5c9fe skills/add-teammate/CLI.md
 a1041a1d0cb9a391214273c6272391bd43df0f26 skills/upgrade/upgrade.sh
@@ -720,6 +722,7 @@ a3dc988dc78f8c37f30da9bad908845a03b2e1c2 skills/sync/push.sh
 a42d71227cb801c6dd48692b19933d41bc266031 skills/nightly-review/CLI.md
 a49056d6214ab6aa873873afcd954accb048d660 skills/nightly-review/review-prompt.md
 a4a21bc23255d5b1897a4ae872e299a6b432a267 skills/upgrade/SKILL.md
+a4a41c886b142658c0e068849e34db4153e0ef17 skills/nightly-review/run.sh
 a4afbb34ea96c0cabc68a659b134fb382b1d75c0 skills/add-teammate/CLI.md
 a52c6aef4857c96023fa7720bb76cc4b9d588069 skills/add-teammate/SKILL.md
 a5a0cc9b1c8344021a4ca2531df59a6582934908 skills/add-bot/CLI.md

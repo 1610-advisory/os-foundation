@@ -59,6 +59,15 @@ if printf '%s' "$input" | grep -q 'POSSIBLE-LEAK'; then
     fix: {action: "replace", old: "SECRET-LINE", new: "gone"}
   }]')
 fi
+if printf '%s' "$input" | grep -q 'WRITE-NEW'; then
+  findings=$(printf '%s' "$findings" | jq -c '. + [{
+    kind: "clear-error",
+    path: "notes/brand-new.md",
+    summary: "Duplicate note.",
+    author: "ada",
+    fix: {action: "write", content: "See [[customers]].\n"}
+  }]')
+fi
 if printf '%s' "$input" | grep -q 'MANY-FLAGS'; then
   findings=$(jq -nc '[
     {kind:"judgment", path:"notes/a.md", summary:"Flag one.", author:"mia"},
