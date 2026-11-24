@@ -35,6 +35,18 @@ else
   fail "Remote Control is not on at startup." "add \"remoteControlAtStartup\": true to ~/.claude/settings.json, or turn it on in /config."
 fi
 
+# The Claude Code settings remote-setup sets (defaults.txt).
+while IFS='=' read -r key want; do
+  key=${key%$'\r'}; want=${want%$'\r'}
+  case "$key" in ''|'#'*) continue ;; esac
+  have=$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\([^,}[:space:]]*\).*/\1/p" "$HOME/.claude/settings.json" 2>/dev/null | head -1)
+  if [ "$have" = "$want" ]; then
+    pass "Claude Code setting $key is $want."
+  else
+    fail "Claude Code setting $key is ${have:-not set} (the default is $want)." "bash $ROOT/skills/remote-setup/set-settings.sh"
+  fi
+done < "$(dirname "$0")/defaults.txt"
+
 # 2. Herdr
 if command -v herdr >/dev/null 2>&1; then
   pass "Herdr is installed ($(herdr --version 2>/dev/null | head -1))."

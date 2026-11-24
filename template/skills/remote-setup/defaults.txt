@@ -1,0 +1,5 @@
+# Claude Code settings that remote-setup sets in ~/.claude/settings.json on each computer.
+# One setting a line: name=value. The value is a JSON number, true or false.
+# Change a value here once. Each company gets it with the next upgrade --refresh.
+# set-settings.sh, set-settings.ps1, check.sh and check.ps1 all read this file.
+autoCompactWindow=400000

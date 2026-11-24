@@ -46,6 +46,23 @@ if ((Test-Path $settings) -and ((Get-Content $settings -Raw) -match '"remoteCont
   Fail "Remote Control is not on at startup." "add `"remoteControlAtStartup`": true to $settings, or turn it on in /config."
 }
 
+# The Claude Code settings remote-setup sets (defaults.txt).
+$set = $null
+if (Test-Path $settings) { try { $set = [IO.File]::ReadAllText($settings) | ConvertFrom-Json -ErrorAction Stop } catch { $set = $null } }
+foreach ($line in [IO.File]::ReadAllLines((Join-Path $PSScriptRoot 'defaults.txt'))) {
+  $line = $line.Trim()
+  if ($line -eq '' -or $line.StartsWith('#') -or -not $line.Contains('=')) { continue }
+  $key, $want = $line -split '=', 2
+  $have = $null
+  if ($set -and $set.PSObject.Properties[$key]) { $have = $set.PSObject.Properties[$key].Value | ConvertTo-Json -Compress }
+  if ($have -eq $want) {
+    Pass "Claude Code setting $key is $want."
+  } else {
+    $shown = if ($null -ne $have) { $have } else { 'not set' }
+    Fail "Claude Code setting $key is $shown (the default is $want)." "powershell -ExecutionPolicy Bypass -File $Root\skills\remote-setup\set-settings.ps1"
+  }
+}
+
 # 2. Herdr
 if (Has 'herdr') {
   Pass "Herdr is installed ($((herdr --version 2>$null) | Select-Object -First 1))."
