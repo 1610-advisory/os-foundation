@@ -892,7 +892,7 @@ cmd_open_prs() {
       fj_offline
     fi
     fj_ok
-    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref, body:(.body // "")}]')
+    all=$(jq -n --argjson a "$all" --argjson b "$FJ_BODY" '$a + [$b[] | {number:.number, head:.head.ref, base:(.base.ref // null), auto_merge:null, body:(.body // "")}]')
     n=$(printf '%s' "$FJ_BODY" | jq 'length')
     if [ "$n" -lt 50 ]; then
       break
@@ -962,12 +962,19 @@ cmd_close_pr() {
 
 # Cancel a scheduled merge. 404: none was scheduled, so it is already off.
 cmd_auto_merge_off() {
+  local was=on
   host_need_number
   if ! fj_call DELETE "$(host_repo "$POS1")/pulls/${POS2}/merge"; then
     fj_offline
   fi
-  [ "$FJ_HTTP" = "404" ] || fj_ok
-  jq -nc --arg name "$POS1" --argjson number "$POS2" '{ok:true, name:$name, number:$number, auto_merge:"off"}'
+  # The pull request list does not say if a merge is scheduled. The cancel does: 404 is
+  # none, so "was" tells the caller what to turn back on.
+  if [ "$FJ_HTTP" = "404" ]; then
+    was=off
+  else
+    fj_ok
+  fi
+  jq -nc --arg name "$POS1" --argjson number "$POS2" --arg was "$was" '{ok:true, name:$name, number:$number, auto_merge:"off", was:$was}'
 }
 
 cmd_pr_status() {

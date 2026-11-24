@@ -63,6 +63,8 @@ case "$1" in
       shift
     done
     printf '%s\n' '{"number":5,"url":"http://example.test/5"}' ;;
+  # #69: no open pull request with auto-merge queued, so checks-on-main pauses none.
+  open-prs) printf '%s\n' '{"prs":[]}' ;;
   auto-merge-off)
     [ "${FAKE_AMOFF:-ok}" = "ok" ] || { printf '%s\n' "auto-merge is still on" >&2; exit 3; }
     printf '%s\n' '{"ok":true}' ;;

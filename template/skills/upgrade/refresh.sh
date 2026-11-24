@@ -188,6 +188,7 @@ refresh_one() {
   if [ "$REFRESH_TEAM" -eq 1 ]; then
     if [ "$DRY" -eq 1 ]; then
       printf 'change: checks-on-main %s\n' "$label"
+      automerge_would_pause "$(basename "$(git -C "$dir" remote get-url origin)" .git)"
     else
       checks_on_main "$dir" "$(basename "$(git -C "$dir" remote get-url origin)" .git)"
     fi
