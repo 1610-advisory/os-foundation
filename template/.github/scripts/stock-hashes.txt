@@ -485,6 +485,7 @@
 6c845852fface0a178b14f30ea5a8d2f72be2930 .github/scripts/tools/add-teammate/lib.sh
 6c845852fface0a178b14f30ea5a8d2f72be2930 skills/add-teammate/lib.sh
 6cab9f558bd543ad2c594f3a762c0a74edc7c966 skills/nightly-review/review-prompt.md
+6cd2af94cd3bfd82042c09f4d9394b80550a1381 skills/remote-setup/check.ps1
 6cf375d03b97ec104176481b4d28cb3268248c4e skills/sync/jobs.sh
 6d50739e8d2fab78c331c42fbb356d79993f7c0b skills/remove-teammate/remove.sh
 6d56c8f415be8e0094cb96b832f2818113f598ad skills/nightly-review/lib.sh
@@ -659,6 +660,7 @@
 93a6b6afe5763f8e6dba221503f318aa68b89869 skills/add-teammate/join.sh
 93da4e55c6c4f150c3dd9441a368bc6c18cacd2f skills/reports/run.sh
 93efb44998a1f6c274e0873600ba8ed55ef82f50 skills/remove-leak/remove-leak.sh
+945702fff89191e935cd4dab30a5c5f952fabc91 skills/remote-setup/SKILL.md
 94a25af4729f2b4956f921e7f4cda355b599b912 skills/reports/run.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
