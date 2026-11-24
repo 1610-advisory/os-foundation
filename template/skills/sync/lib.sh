@@ -433,7 +433,7 @@ sync_is_rules() {
     AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS|company-rules.md|area-rules.md) return 0 ;;
   esac
   case "$path" in
-    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|bots/*/BOT.md) return 0 ;;
+    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|automations/*/AUTOMATION.md) return 0 ;;
   esac
   return 1
 }
@@ -575,13 +575,33 @@ sync_git_login() {
   printf '%s\n' "git"
 }
 
+# Before the rename, add-bot wrote a git credential wrapper on the automation's box that
+# runs skills/add-bot/git-credential-os-bot with OS_BOT set. The pull that renames the skill
+# removes that path. Point the wrapper at the new helper: only that one file, and only
+# when it names the old path.
+sync_fix_automation_wrapper() {
+  local wrap="$SYNC_CONFIG/git-credential" tmp
+  [ -f "$wrap" ] || return 0
+  grep -q '/skills/add-bot/git-credential-os-bot' "$wrap" 2>/dev/null || return 0
+  [ -x "$SYNC_ROOT/skills/add-automation/git-credential-os-automation" ] || return 0
+  tmp="$wrap.tmp.$$"
+  if ! sed -e 's#/skills/add-bot/git-credential-os-bot#/skills/add-automation/git-credential-os-automation#' \
+    -e 's#^export OS_BOT=#export OS_AUTOMATION=#' "$wrap" > "$tmp"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  chmod 700 "$tmp"
+  mv "$tmp" "$wrap"
+  sync_log "pull automation credential wrapper moved to add-automation"
+}
+
 sync_token() {
   local me token err rc
   me=$(sync_me)
   err=$(sync_mktemp)
   set +e
-  if [ -n "$me" ] && [ -f "$SYNC_ROOT/bots/$me/BOT.md" ]; then
-    token=$("$HOST_SH" get-token --bot "$me" 2>"$err" | tr -d '\r\n')
+  if [ -n "$me" ] && [ -f "$SYNC_ROOT/automations/$me/AUTOMATION.md" ]; then
+    token=$("$HOST_SH" get-token --automation "$me" 2>"$err" | tr -d '\r\n')
     rc=$?
   else
     token=$("$HOST_SH" get-token 2>"$err" | tr -d '\r\n')

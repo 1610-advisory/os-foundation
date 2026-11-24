@@ -10,11 +10,11 @@ if [ -d "$root/.git" ] || [ -f "$root/.git" ]; then
   i=$((i + 1))
   printf 'note %s\n' "$i" > "$root/notes/run-note-${i}.md"
   git -C "$root" add "notes/run-note-${i}.md"
-  git -C "$root" commit -m "Bot note ${i}"
+  git -C "$root" commit -m "Automation note ${i}"
   i=$((i + 1))
   printf 'note %s\n' "$i" > "$root/notes/run-note-${i}.md"
   git -C "$root" add "notes/run-note-${i}.md"
-  git -C "$root" commit -m "Bot note ${i}"
+  git -C "$root" commit -m "Automation note ${i}"
 fi
 area="$root/areas/marketing"
 if [ -d "$area/.git" ] || [ -f "$area/.git" ]; then
@@ -22,5 +22,5 @@ if [ -d "$area/.git" ] || [ -f "$area/.git" ]; then
   i=$((i + 1))
   printf 'note %s\n' "$i" > "$area/notes/run-note-${i}.md"
   git -C "$area" add "notes/run-note-${i}.md"
-  git -C "$area" commit -m "Bot note ${i}"
+  git -C "$area" commit -m "Automation note ${i}"
 fi

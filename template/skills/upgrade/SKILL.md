@@ -58,6 +58,7 @@ What an upgrade may add or change:
 - the v1 rules in `AGENTS.md` and `CLAUDE.md`, in the company folder and in each area,
 - new stock skills, and new files inside a stock skill,
 - `.gitattributes`, only when the folder has none.
+- the bots to automations rename (v1.0.8, refresh only): `bots/<name>/BOT.md` moves to `automations/<name>/AUTOMATION.md`, `bots` becomes `automations` in `switches:`, and the stock `bots` names in `CODEOWNERS`, `AGENTS.md`, `CLAUDE.md` and `review-rules.md` follow. Read each `rename:` line to the person. A person's own bots in their workspace are never touched.
 - `joining-terms.md`, `scale.md` and `review-rules.md`, only when the folder has none (`change: add <file>`; a team plan names `review-rules.md` on its own line). The company name is filled in. Join needs `joining-terms.md`. A refresh adds them the same way.
 
 What it never changes:

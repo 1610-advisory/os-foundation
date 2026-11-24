@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat << 'EOF'
-Usage: sync.sh install-jobs --bot
+Usage: sync.sh install-jobs --automation
        sync.sh push
 
 Test double. OS_SYNC_RECORD=1 records the command and does not push.
@@ -25,13 +25,13 @@ fi
 
 case "$cmd" in
   install-jobs)
-    [ "${2:-}" = "--bot" ] || {
-      printf '%s\n' "install-jobs needs --bot" >&2
+    [ "${2:-}" = "--automation" ] || {
+      printf '%s\n' "install-jobs needs --automation" >&2
       exit 1
     }
     if [ -n "${OS_JOBS_DIR:-}" ]; then
       mkdir -p "$OS_JOBS_DIR"
-      printf '%s\n' "bot" > "${OS_JOBS_DIR}/installed"
+      printf '%s\n' "automation" > "${OS_JOBS_DIR}/installed"
     fi
     exit 0
     ;;
@@ -62,11 +62,11 @@ slug=$(awk '
   }
 ' "$profile")
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/${slug}-os"
-bot=$(tr -d '[:space:]' < "${cfg}/me")
+automation=$(tr -d '[:space:]' < "${cfg}/me")
 host="${OS_HOST_SH:-${root}/skills/_host/host.sh}"
 export OS_PROFILE="$profile"
 export OS_GIT_TOKEN
-OS_GIT_TOKEN=$(bash "$host" get-token --bot "$bot")
+OS_GIT_TOKEN=$(bash "$host" get-token --automation "$automation")
 OS_GIT_USER=$(bash "$host" whoami | jq -r '.login // empty')
 [ -n "$OS_GIT_USER" ] || exit 4
 export OS_GIT_USER
@@ -83,14 +83,14 @@ EOF
 
 push_one() {
   local path=$1 name pr number status merged i
-  git -C "$path" show-ref --verify --quiet "refs/heads/sync/${bot}" || return 0
+  git -C "$path" show-ref --verify --quiet "refs/heads/sync/${automation}" || return 0
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
-    git -C "$path" -c credential.helper= push -u origin "sync/${bot}"
+    git -C "$path" -c credential.helper= push -u origin "sync/${automation}"
   name=$(git -C "$path" remote get-url origin)
   name=${name%.git}
   name=${name%/}
   name=${name##*/}
-  pr=$(bash "$host" open-pr "$name" --head "sync/${bot}" --base main --title "sync: ${bot}")
+  pr=$(bash "$host" open-pr "$name" --head "sync/${automation}" --base main --title "sync: ${automation}")
   number=$(printf '%s' "$pr" | jq -r '.number')
   bash "$host" auto-merge "$name" "$number" >/dev/null
   i=0

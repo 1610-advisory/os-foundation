@@ -1,8 +1,8 @@
 # undo-run CLI
 
-The prose skill asks for the run id. The script does the work. Read `add-bot/CLI.md` for the bot page keys, the run id, and the trailers.
+The prose skill asks for the run id. The script does the work. Read `add-automation/CLI.md` for the automation page keys, the run id, and the trailers.
 
-The `bots` switch must be on. If it is off, the script refuses and changes nothing.
+The `automations` switch must be on. If it is off, the script refuses and changes nothing.
 
 ```
 undo-run.sh <run-id> [--root <dir>]
@@ -11,7 +11,7 @@ undo-run.sh --help
 
 Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `company-profile.md`.
 
-`<run-id>` is the `Run-Id` trailer from the bot run. It is a plain name: letters, digits, `.`, `_`, and `-`.
+`<run-id>` is the `Run-Id` trailer from the automation run. It is a plain name: letters, digits, `.`, `_`, and `-`.
 
 ## What it does
 
@@ -24,7 +24,7 @@ Run it from the company root, or pass `--root`. `OS_PROFILE` may point at `compa
 
 The revert runs in a temporary worktree from `origin/main`. The live checkout is not touched. If a revert conflicts, the script removes that worktree, stops for that repo, and changes nothing there. It prints `conflict:` and continues with the other repos. Exit 3 means at least one repo conflicted. Repos that reverted still have their pull requests.
 
-A commit matches only when `git interpret-trailers --parse` shows `Run-Id` equal to the argument and the author email is the bot email on a bot page. A copied trailer on another person's commit is not reverted. Trailers are not proof. The pull request is the check. The script prints every SHA it reverts.
+A commit matches only when `git interpret-trailers --parse` shows `Run-Id` equal to the argument and the author email is the automation email on an automation page. A copied trailer on another person's commit is not reverted. Trailers are not proof. The pull request is the check. The script prints every SHA it reverts.
 
 The revert commit does not reuse the original `Run-Id`. Its message is:
 
@@ -36,7 +36,7 @@ Reverts: <run-id>
 
 It does not print a diff. It does not print a token.
 
-The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call is `get-token --bot <bot>`. The token goes to git through an environment variable and a password helper script. It is not put in the remote URL or in a child argument list.
+The push token comes from `host.sh get-token`. When `OS_AUTOMATION` is set, that call is `get-token --automation <automation>`. The token goes to git through an environment variable and a password helper script. It is not put in the remote URL or in a child argument list.
 
 ## Exit codes
 
@@ -50,4 +50,4 @@ The push token comes from `host.sh get-token`. When `OS_BOT` is set, that call i
 
 ## Related
 
-`add-bot/run.sh` makes the run id and the trailers `Run-Id` and `Bot-Owner`. See `add-bot/CLI.md`.
+`add-automation/run.sh` makes the run id and the trailers `Run-Id` and `Automation-Owner`. See `add-automation/CLI.md`.

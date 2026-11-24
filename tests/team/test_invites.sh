@@ -2,7 +2,7 @@
 # B30: remove.sh cancels pending invites for a person who never accepted, and says
 # revoked: only when the org invite and every repo invite are gone. GitHub adapter, fake gh.
 # Round 2: a list error is not checked (62), an area not checked out here still counts (63),
-# org membership is read again (64), and a bots/ change gets no auto-merge (65).
+# org membership is read again (64), and a automations/ change gets no auto-merge (65).
 set -euo pipefail
 
 # shellcheck disable=SC1091
@@ -351,33 +351,33 @@ cp "$work/state0/repo/acme-marketing.json" "$work/state/repo/acme-marketing.json
 out=$("$root/template/skills/_host/host.sh" user-access acme-marketing acme-member-m)
 [ "$(printf '%s' "$out" | jq -r '.access')" = "invited" ] || team_fail "a pending invite is not access: $out"
 
-# 65. A bots/ change on GitHub: no auto-merge (it hides the bypass box), one merge-by-hand line.
-mkdir -p "$co/bots/digest"
-printf '%s\n' "---" "owner: mia" "---" "# Digest" > "$co/bots/digest/BOT.md"
+# 65. A automations/ change on GitHub: no auto-merge (it hides the bypass box), one merge-by-hand line.
+mkdir -p "$co/automations/digest"
+printf '%s\n' "---" "owner: mia" "---" "# Digest" > "$co/automations/digest/AUTOMATION.md"
 git -C "$co" add -A
-git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m bot
+git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m automation
 git -C "$co" push -q origin main
 : > "$FAKE_HOST_LOG"
 set +e
 "$root/template/skills/remove-teammate/remove.sh" --root "$co" --person mia \
-  --date 2026-10-29 > "$work/bot.out" 2> "$work/bot.err"
+  --date 2026-10-29 > "$work/automation.out" 2> "$work/automation.err"
 rc=$?
 set -e
-[ "$rc" -eq 0 ] || { cat "$work/bot.out" "$work/bot.err" >&2; team_fail "bot remove exit $rc"; }
-grep -qx 'bot-owner: ada' "$work/bot.out" || team_fail "bot owner not moved: $(cat "$work/bot.out")"
-grep -q '^merge-by-hand: acme-os 4: it changes bots/' "$work/bot.out" || team_fail "no merge-by-hand line"
-# Item 4 and B38: the first run (no bot) turned auto-merge on for this branch's pull
+[ "$rc" -eq 0 ] || { cat "$work/automation.out" "$work/automation.err" >&2; team_fail "automation remove exit $rc"; }
+grep -qx 'automation-owner: ada' "$work/automation.out" || team_fail "automation owner not moved: $(cat "$work/automation.out")"
+grep -q '^merge-by-hand: acme-os 4: it changes automations/' "$work/automation.out" || team_fail "no merge-by-hand line"
+# Item 4 and B38: the first run (no automation) turned auto-merge on for this branch's pull
 # request. The second run turns it off, and says a plain merge works for the only owner.
 grep -q '^auto-merge-off acme-os 4' "$FAKE_HOST_LOG" || team_fail "item 4: auto-merge was not turned off"
-grep -q 'When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick' "$work/bot.out" || team_fail "B38: merge-by-hand text"
-grep -q '^auto-merge' "$work/bot.out" && team_fail "auto-merge line on a bots/ change"
-grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a bots/ change"
-grep -q 'so it will not merge by itself' "$work/bot.out" || team_fail "B38-LINE: no will-not-merge text"
+grep -q 'When the admin is the only code owner, a plain merge works. If GitHub asks for a review, tick' "$work/automation.out" || team_fail "B38: merge-by-hand text"
+grep -q '^auto-merge' "$work/automation.out" && team_fail "auto-merge line on a automations/ change"
+grep -q '^auto-merge ' "$FAKE_HOST_LOG" && team_fail "auto-merge was turned on for a automations/ change"
+grep -q 'so it will not merge by itself' "$work/automation.out" || team_fail "B38-LINE: no will-not-merge text"
 
 # B38-LINE: auto-merge-off fails. The line must not say it will not merge by itself.
-mkdir -p "$co/bots/alerts"
-printf '%s\n' "---" "owner: mia" "---" "# Alerts" > "$co/bots/alerts/BOT.md"
-git -C "$co" add bots/alerts
+mkdir -p "$co/automations/alerts"
+printf '%s\n' "---" "owner: mia" "---" "# Alerts" > "$co/automations/alerts/AUTOMATION.md"
+git -C "$co" add automations/alerts
 git -C "$co" -c user.name=t -c user.email=t@example.test commit -q -m bot2
 git -C "$co" push -q origin main
 set +e
@@ -386,7 +386,7 @@ FAKE_AMOFF=fail "$root/template/skills/remove-teammate/remove.sh" --root "$co" -
 rc=$?
 set -e
 [ "$rc" -eq 0 ] || { cat "$work/amoff.out" "$work/amoff.err" >&2; team_fail "amoff remove exit $rc"; }
-grep -q '^merge-by-hand: acme-os 4: it changes bots/, but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.' "$work/amoff.out" \
+grep -q '^merge-by-hand: acme-os 4: it changes automations/, but auto-merge may still be on, so it may merge by itself: open it and click "Disable auto-merge" first.' "$work/amoff.out" \
   || { cat "$work/amoff.out" >&2; team_fail "B38-LINE: no may-merge line"; }
 grep -q 'will not merge by itself' "$work/amoff.out" && team_fail "B38-LINE: says it will not merge by itself after a failure"
 

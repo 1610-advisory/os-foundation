@@ -1,4 +1,4 @@
-"""Run the bots shell suite. Token values must not appear in the output."""
+"""Run the automations shell suite. Token values must not appear in the output."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-RUN = ROOT / "tests" / "bots" / "run.sh"
+RUN = ROOT / "tests" / "automations" / "run.sh"
 
 
 def _secret_files():
     home = Path.home()
     cache = home / ".cache" / "os-foundation" / "forgejo"
-    paths = [cache / "admin-token", cache / "tokens" / "acme-admin", cache / "tokens" / "acme-bot"]
+    paths = [cache / "admin-token", cache / "tokens" / "acme-admin", cache / "tokens" / "acme-automation"]
     return [path for path in paths if path.is_file()]
 
 
@@ -34,12 +34,12 @@ class BotsTests(unittest.TestCase):
         for path in _secret_files():
             secret = path.read_text(encoding="utf-8").strip()
             if secret and secret in safe:
-                self.fail("secret appeared in bots test output")
+                self.fail("secret appeared in automations test output")
             if secret:
                 safe = safe.replace(secret, "[redacted]")
         if proc.returncode != 0:
             self.fail(safe)
-        self.assertIn("PASS bots suite", proc.stdout)
+        self.assertIn("PASS automations suite", proc.stdout)
 
 
 if __name__ == "__main__":

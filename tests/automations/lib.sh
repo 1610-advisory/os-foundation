@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared helpers for bots tests. Source this file. Do not run it.
+# Shared helpers for automations tests. Source this file. Do not run it.
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   printf '%s\n' "Source this file. Do not run it." >&2
@@ -29,12 +29,12 @@ bots_need() {
 }
 
 bots_git_env() {
-  export GIT_AUTHOR_NAME="Acme Bot"
-  export GIT_AUTHOR_EMAIL="acme.bot@acme.test"
-  export GIT_COMMITTER_NAME="Acme Bot"
-  export GIT_COMMITTER_EMAIL="acme.bot@acme.test"
-  git config --global user.name "Acme Bot"
-  git config --global user.email "acme.bot@acme.test"
+  export GIT_AUTHOR_NAME="Acme Automation"
+  export GIT_AUTHOR_EMAIL="acme.automation@acme.test"
+  export GIT_COMMITTER_NAME="Acme Automation"
+  export GIT_COMMITTER_EMAIL="acme.automation@acme.test"
+  git config --global user.name "Acme Automation"
+  git config --global user.email "acme.automation@acme.test"
   git config --global commit.gpgsign false
   git config --global init.defaultBranch main
 }
@@ -42,17 +42,17 @@ bots_git_env() {
 bots_copy_skills() {
   local root=$1 repo
   repo=$(bots_repo)
-  mkdir -p "$root/skills/add-bot" "$root/skills/undo-run" "$root/skills/sync"
-  cp "$repo/template/skills/add-bot/add-bot.sh" "$root/skills/add-bot/"
-  cp "$repo/template/skills/add-bot/lib.sh" "$root/skills/add-bot/"
-  cp "$repo/template/skills/add-bot/run.sh" "$root/skills/add-bot/"
-  cp "$repo/template/skills/add-bot/git-credential-os-bot" "$root/skills/add-bot/"
-  cp "$repo/template/skills/add-bot/git-guard.sh" "$root/skills/add-bot/"
-  chmod 700 "$root/skills/add-bot/git-guard.sh"
+  mkdir -p "$root/skills/add-automation" "$root/skills/undo-run" "$root/skills/sync"
+  cp "$repo/template/skills/add-automation/add-automation.sh" "$root/skills/add-automation/"
+  cp "$repo/template/skills/add-automation/lib.sh" "$root/skills/add-automation/"
+  cp "$repo/template/skills/add-automation/run.sh" "$root/skills/add-automation/"
+  cp "$repo/template/skills/add-automation/git-credential-os-automation" "$root/skills/add-automation/"
+  cp "$repo/template/skills/add-automation/git-guard.sh" "$root/skills/add-automation/"
+  chmod 700 "$root/skills/add-automation/git-guard.sh"
   cp "$repo/template/skills/undo-run/undo-run.sh" "$root/skills/undo-run/"
-  cp "$repo/tests/bots/fixtures/sync.sh" "$root/skills/sync/sync.sh"
-  chmod 700 "$root/skills/add-bot/add-bot.sh" "$root/skills/add-bot/run.sh"
-  chmod 700 "$root/skills/add-bot/git-credential-os-bot" "$root/skills/sync/sync.sh"
+  cp "$repo/tests/automations/fixtures/sync.sh" "$root/skills/sync/sync.sh"
+  chmod 700 "$root/skills/add-automation/add-automation.sh" "$root/skills/add-automation/run.sh"
+  chmod 700 "$root/skills/add-automation/git-credential-os-automation" "$root/skills/sync/sync.sh"
   chmod 700 "$root/skills/undo-run/undo-run.sh"
 }
 
@@ -129,10 +129,10 @@ case "${1:-}" in
     printf 'unit-token-%s\n' "$n"
     ;;
   whoami)
-    printf '%s\n' '{"login":"acme-bot"}'
+    printf '%s\n' '{"login":"acme-automation"}'
     ;;
   open-pr)
-    printf '%s\n' '{"number":7,"url":"http://localhost:3300/acme/bots-os/pulls/7"}'
+    printf '%s\n' '{"number":7,"url":"http://localhost:3300/acme/automations-os/pulls/7"}'
     ;;
   grant|auto-merge|repo-access)
     printf '%s\n' '{"ok":true}'

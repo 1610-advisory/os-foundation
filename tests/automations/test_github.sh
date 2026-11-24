@@ -21,7 +21,7 @@ export XDG_CONFIG_HOME="$tmp/config"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME"
 
 root="$tmp/company"
-mkdir -p "$root/bots/helper" "$root/skills"
+mkdir -p "$root/automations/helper" "$root/skills"
 cp -R "$host_dir" "$root/skills/_host"
 chmod 700 "$root/skills/_host/host.sh"
 cat > "$root/company-profile.md" << 'EOF'
@@ -31,7 +31,7 @@ summary: "Acme Co"
 updated: 2026-10-24
 company_slug: acme
 level: team
-switches: [bots]
+switches: [automations]
 os_version: v1
 host: github
 host_url: ""
@@ -45,11 +45,11 @@ EOF
 key="$tmp/fixture.pem"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$key" >/dev/null 2>&1
 chmod 600 "$key"
-cat > "$root/bots/helper/BOT.md" << EOF
+cat > "$root/automations/helper/AUTOMATION.md" << EOF
 ---
-type: bot
+type: automation
 summary: "Helper"
-bot: helper
+automation: helper
 owner: ada
 app_id: 100
 installation_id: 200
@@ -60,7 +60,7 @@ Helper.
 EOF
 
 out=$(OS_PROFILE="$root/company-profile.md" HOST_DRY_RUN=1 \
-  bash "$root/skills/_host/host.sh" get-token --bot helper)
+  bash "$root/skills/_host/host.sh" get-token --automation helper)
 printf '%s\n' "$out" | jq -e '.method == "POST" and .path == "/app/installations/200/access_tokens"' >/dev/null
 if printf '%s\n' "$out" | grep -q 'Bearer'; then
   bots_fail "dry-run printed a token"

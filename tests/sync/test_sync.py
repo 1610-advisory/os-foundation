@@ -3836,7 +3836,7 @@ class QuickPullTests(unittest.TestCase):
         self.assertEqual(lines[0], "os-sync-state 1")
         self.assertEqual(lines[1], "full 1700000000")
         self.assertEqual(lines[2], "me mia")
-        self.assertEqual(lines[3], "bot 0")
+        self.assertEqual(lines[3], "automation 0")
         self.assertTrue(self.line_for(".").startswith("repo ok "))
         self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
         self.assertTrue(self.line_for("users/mia").startswith("repo ok "))

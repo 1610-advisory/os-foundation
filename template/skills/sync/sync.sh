@@ -41,7 +41,7 @@ Commands:
   seat
   re-apply [list | done <repo> <path> | ask <repo> <path> <question>]
   set-aside <repo> <path> <mine-file|-> <base-file|->   (join uses it)
-  install-jobs [--admin] [--bot]
+  install-jobs [--admin] [--automation]
   uninstall-jobs
   helper
   collect

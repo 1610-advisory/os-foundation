@@ -1,5 +1,5 @@
 #!/bin/bash
-# Git wrapper for a bot run. A push may only write sync/<bot> or undo/*.
+# Git wrapper for an automation run. A push may only write sync/<automation> or undo/*.
 set -euo pipefail
 
 real=${OS_REAL_GIT:-}
@@ -13,8 +13,8 @@ fi
 
 guard_log() {
   printf '%s\n' "$*" >&2
-  if [ -n "${OS_BOT_LOG:-}" ]; then
-    printf '%s\n' "$*" >> "$OS_BOT_LOG"
+  if [ -n "${OS_AUTOMATION_LOG:-}" ]; then
+    printf '%s\n' "$*" >> "$OS_AUTOMATION_LOG"
   fi
 }
 
@@ -44,15 +44,15 @@ guard_is_main() {
   esac
 }
 
-# Allow only refs/heads/sync/<bot> and refs/heads/undo/*. Wildcards are not allowed.
+# Allow only refs/heads/sync/<automation> and refs/heads/undo/*. Wildcards are not allowed.
 guard_allowed() {
-  local short=$1 bot=${OS_BOT:-}
+  local short=$1 automation=${OS_AUTOMATION:-}
   short=${short#refs/heads/}
   case "$short" in
     *'*'*|*'?'*|*'['*) return 1 ;;
     undo/*) return 0 ;;
   esac
-  if [ -n "$bot" ] && [ "$short" = "sync/${bot}" ]; then
+  if [ -n "$automation" ] && [ "$short" = "sync/${automation}" ]; then
     return 0
   fi
   return 1
@@ -196,7 +196,7 @@ $specs
 EOF
 fi
 
-if [ -n "${OS_BOT_HOOKS:-}" ]; then
-  exec "$real" -c "core.hooksPath=${OS_BOT_HOOKS}" "${args[@]}"
+if [ -n "${OS_AUTOMATION_HOOKS:-}" ]; then
+  exec "$real" -c "core.hooksPath=${OS_AUTOMATION_HOOKS}" "${args[@]}"
 fi
 exec "$real" "${args[@]}"

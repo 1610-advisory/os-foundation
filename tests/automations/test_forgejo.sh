@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bot flow on the local Forgejo. Repos use a per-run prefix. Never wipe the volume.
+# Automation flow on the local Forgejo. Repos use a per-run prefix. Never wipe the volume.
 # Cleanup deletes only this run's repos.
 set -euo pipefail
 
@@ -22,14 +22,14 @@ fi
 
 real_home=${HOME}
 admin_file="${real_home}/.cache/os-foundation/forgejo/tokens/acme-admin"
-bot_file="${real_home}/.cache/os-foundation/forgejo/tokens/acme-bot"
-if [ ! -f "$admin_file" ] || [ ! -f "$bot_file" ]; then
+auto_file="${real_home}/.cache/os-foundation/forgejo/tokens/acme-automation"
+if [ ! -f "$admin_file" ] || [ ! -f "$auto_file" ]; then
   printf '%s\n' "BLOCKED: Acme seat tokens are missing"
   exit 0
 fi
 
 tmp=$(mktemp -d)
-slug="bots-t-$$"
+slug="automations-t-$$"
 repo_os="${slug}-os"
 repo_area="${slug}-marketing"
 repo_secret="${slug}-secret"
@@ -59,7 +59,7 @@ bots_git_env
 
 company="$tmp/company"
 mkdir -p "$company/notes" "$company/areas/marketing/notes" "$company/skills"
-bots_profile "$company" forgejo "bots" "$slug"
+bots_profile "$company" forgejo "automations" "$slug"
 bots_people "$company"
 bots_copy_skills "$company"
 printf '%s\n' "areas/" > "$company/.gitignore"
@@ -99,36 +99,36 @@ bash "$host" create-repo "$repo_os" --private --source "$company" --push >"$tmp/
 bash "$host" create-repo "$repo_area" --private --source "$company/areas/marketing" --push >"$tmp/create-mkt.out"
 bash "$host" create-repo "$repo_secret" --private >"$tmp/create-secret.out"
 
-token_path="$tmp/secrets/bot-token"
+token_path="$tmp/secrets/automation-token"
 mkdir -p "$tmp/secrets"
-cp "$bot_file" "$token_path"
+cp "$auto_file" "$token_path"
 chmod 600 "$token_path"
-engine="$repo/tests/bots/fixtures/engine.sh"
+engine="$repo/tests/automations/fixtures/engine.sh"
 cat > "$tmp/answers" << EOF
 kind=company
-bot=helper
+automation=helper
 name=Acme helper
 owner=ada
-bot_user=acme-bot
+host_user=acme-automation
 repos=${repo_os},${repo_area}
 scope.${repo_os}=company
 scope.${repo_area}=marketing
-email=acme.bot@acme.test
+email=acme.automation@acme.test
 token_path=$token_path
 box=yes
 engine=$engine
 inbox=none
 EOF
-bash "$company/skills/add-bot/add-bot.sh" --answers "$tmp/answers" --root "$company" >"$tmp/add.out"
+bash "$company/skills/add-automation/add-automation.sh" --answers "$tmp/answers" --root "$company" >"$tmp/add.out"
 grep -q "status: ready" "$tmp/add.out"
 grep -q "jobs: installed" "$tmp/add.out"
 [ -f "$OS_JOBS_DIR/installed" ]
 if bots_secret_in_text "$token_path" "$tmp/add.out"; then
-  bots_fail "add-bot printed the token"
+  bots_fail "add-automation printed the token"
 fi
-bots_pass "add-bot company bot on Forgejo"
+bots_pass "add-automation company automation on Forgejo"
 
-# Bot can see granted repos and cannot see the other repo.
+# Automation can see granted repos and cannot see the other repo.
 FORGEJO_TOKEN=$(tr -d '[:space:]' < "$token_path")
 bash "$host" repo-access "$repo_os" >"$tmp/access-os.out"
 grep -q '"access":"ok"' "$tmp/access-os.out" || bash "$host" repo-access "$repo_os" | grep -q 'ok'
@@ -147,7 +147,7 @@ case "$1" in
 esac
 EOF
 chmod 700 "$ask"
-export OS_GIT_USER=acme-bot
+export OS_GIT_USER=acme-automation
 export OS_GIT_TOKEN
 OS_GIT_TOKEN=$(tr -d '[:space:]' < "$token_path")
 set +e
@@ -155,14 +155,14 @@ GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
   git -c credential.helper= clone "${url}/acme/${repo_secret}.git" "$tmp/denied" >"$tmp/clone.out" 2>"$tmp/clone.err"
 code=$?
 set -e
-[ "$code" -ne 0 ] || bots_fail "bot cloned a repo outside its grant"
+[ "$code" -ne 0 ] || bots_fail "automation cloned a repo outside its grant"
 if bots_secret_in_text "$token_path" "$tmp/clone.err"; then
   bots_fail "clone error printed the token"
 fi
-bots_pass "bot cannot clone outside its grant"
+bots_pass "automation cannot clone outside its grant"
 
-# Run as the bot. Two commits, then merge, then trailers on main.
-cat > "$company/bots/helper/routines/daily.md" << 'EOF'
+# Run as the automation. Two commits, then merge, then trailers on main.
+cat > "$company/automations/helper/routines/daily.md" << 'EOF'
 ---
 inbox: none
 handoff: none
@@ -170,11 +170,11 @@ handoff: none
 
 Write the daily note.
 EOF
-git -C "$company" add bots
-git -C "$company" commit -q -m "bot page"
+git -C "$company" add automations
+git -C "$company" commit -q -m "automation page"
 GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
   git -C "$company" -c credential.helper= push -q origin main
-bash "$company/skills/add-bot/run.sh" helper daily --root "$company" >"$tmp/run.out"
+bash "$company/skills/add-automation/run.sh" helper daily --root "$company" >"$tmp/run.out"
 run_id=$(sed -n 's/^run_id: //p' "$tmp/run.out")
 [ -n "$run_id" ] || bots_fail "no run id"
 GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 git -C "$company" -c credential.helper= fetch -q origin
@@ -185,7 +185,7 @@ company_hits=$(awk -v id="$run_id" '
   END { print c+0 }
 ' "$tmp/company-bodies")
 [ "$company_hits" -ge 2 ] || bots_fail "company trailers $company_hits"
-grep -q "Bot-Owner: ada" "$tmp/company-bodies"
+grep -q "Automation-Owner: ada" "$tmp/company-bodies"
 git -C "$company/areas/marketing" log origin/main --format='%B' > "$tmp/area-bodies"
 area_hits=$(awk -v id="$run_id" '
   /^Run-Id:/ { if ($0 ~ id) c++ }
@@ -197,14 +197,14 @@ bots_pass "trailers present on main after merge"
 # Token refresh across a real token life. No person step.
 trace="$tmp/trace"
 : > "$trace"
-rm -f "$XDG_CONFIG_HOME/${slug}-os/bots/helper/token-cache"
+rm -f "$XDG_CONFIG_HOME/${slug}-os/automations/helper/token-cache"
 printf 'protocol=http\nhost=localhost:3300\n\n' | \
-  OS_BOT=helper OS_ROOT="$company" OS_BOT_TOKEN_TTL=1 OS_BOT_TOKEN_TRACE="$trace" \
-  bash "$company/skills/add-bot/git-credential-os-bot" get >"$tmp/cred1.out"
+  OS_AUTOMATION=helper OS_ROOT="$company" OS_AUTOMATION_TOKEN_TTL=1 OS_AUTOMATION_TOKEN_TRACE="$trace" \
+  bash "$company/skills/add-automation/git-credential-os-automation" get >"$tmp/cred1.out"
 sleep 2
 printf 'protocol=http\nhost=localhost:3300\n\n' | \
-  OS_BOT=helper OS_ROOT="$company" OS_BOT_TOKEN_TTL=1 OS_BOT_TOKEN_TRACE="$trace" \
-  bash "$company/skills/add-bot/git-credential-os-bot" get >"$tmp/cred2.out"
+  OS_AUTOMATION=helper OS_ROOT="$company" OS_AUTOMATION_TOKEN_TTL=1 OS_AUTOMATION_TOKEN_TRACE="$trace" \
+  bash "$company/skills/add-automation/git-credential-os-automation" get >"$tmp/cred2.out"
 [ "$(sed -n '1p' "$trace")" = "refresh" ] || bots_fail "first get did not refresh"
 [ "$(sed -n '2p' "$trace")" = "refresh" ] || bots_fail "second get did not refresh after expiry"
 if bots_secret_in_text "$token_path" "$trace"; then
@@ -213,7 +213,7 @@ fi
 bots_pass "token refresh with no person step"
 
 # Undo the whole run. One revert commit per repo.
-export OS_BOT=helper
+export OS_AUTOMATION=helper
 bash "$company/skills/undo-run/undo-run.sh" "$run_id" --root "$company" >"$tmp/undo.out"
 repo_name=""
 while IFS= read -r line; do

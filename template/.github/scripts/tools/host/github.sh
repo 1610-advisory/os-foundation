@@ -1379,18 +1379,18 @@ cmd_set_secret() {
 
 cmd_get_token() {
   [ -z "$POS1" ] || host_die 1 "too many arguments"
-  if [ -n "$BOT" ]; then
+  if [ -n "$AUTOMATION" ]; then
     local inst
-    inst=$(host_bot_field "$BOT" installation_id)
-    host_bot_field "$BOT" app_id >/dev/null
+    inst=$(host_automation_field "$AUTOMATION" installation_id)
+    host_automation_field "$AUTOMATION" app_id >/dev/null
     if host_dry; then
       host_emit POST "/app/installations/${inst}/access_tokens" "" 
       # auth is never printed. The call record has no token.
       return 0
     fi
     local key jwt token err code
-    key=$(host_bot_field "$BOT" key_path)
-    jwt=$(host_github_app_jwt "$(host_bot_field "$BOT" app_id)" "$key")
+    key=$(host_automation_field "$AUTOMATION" key_path)
+    jwt=$(host_github_app_jwt "$(host_automation_field "$AUTOMATION" app_id)" "$key")
     err=$(host_mktemp)
     local out
     out=$(host_mktemp)

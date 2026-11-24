@@ -49,11 +49,11 @@ export PATH="$tmp/bin:$PATH"
 
 root="$tmp/company"
 mkdir -p "$root/notes"
-bots_profile "$root" forgejo "bots"
+bots_profile "$root" forgejo "automations"
 bots_people "$root"
 bots_copy_skills "$root"
 bots_stub_host "$root"
-token="$tmp/bot-token"
+token="$tmp/automation-token"
 printf '%s\n' "argv-secret-marker" > "$token"
 chmod 600 "$token"
 
@@ -61,23 +61,23 @@ chmod 600 "$token"
 # The file secret is also in the answers path only as a path, not as a value.
 cat > "$tmp/answers" << EOF
 kind=company
-bot=helper
+automation=helper
 name=Acme helper
 owner=ada
-bot_user=acme-bot
+host_user=acme-automation
 repos=acme-os
 scope.acme-os=company
-email=acme.bot@acme.test
+email=acme.automation@acme.test
 token_path=$token
 box=yes
 engine=$here/fixtures/engine.sh
 EOF
-bash "$root/skills/add-bot/add-bot.sh" --answers "$tmp/answers" --root "$root" >"$tmp/add.out" 2>"$tmp/add.err"
+bash "$root/skills/add-automation/add-automation.sh" --answers "$tmp/answers" --root "$root" >"$tmp/add.out" 2>"$tmp/add.err"
 
 git -C "$root" init -q -b main
 git -C "$root" add -A
 git -C "$root" commit -q -m "start"
-cat > "$root/bots/helper/routines/daily.md" << 'EOF'
+cat > "$root/automations/helper/routines/daily.md" << 'EOF'
 ---
 inbox: none
 handoff: none
@@ -95,7 +95,7 @@ git -C "$OS_ROOT" add notes/n.md
 git -C "$OS_ROOT" commit -q -m "note"
 EOF
 chmod 700 "$tmp/engine.sh"
-python3 - "$root/bots/helper/BOT.md" "$tmp/engine.sh" << 'PY'
+python3 - "$root/automations/helper/AUTOMATION.md" "$tmp/engine.sh" << 'PY'
 import pathlib, sys
 path, engine = sys.argv[1], sys.argv[2]
 text = pathlib.Path(path).read_text()
@@ -113,10 +113,10 @@ pathlib.Path(path).write_text("\n".join(lines) + "\n")
 PY
 git -C "$root" add -A
 git -C "$root" commit -q -m "set engine"
-bash "$root/skills/add-bot/run.sh" helper daily --root "$root" >"$tmp/run.out"
+bash "$root/skills/add-automation/run.sh" helper daily --root "$root" >"$tmp/run.out"
 
 printf 'protocol=https\nhost=example.test\n\n' | \
-  OS_BOT=helper OS_ROOT="$root" bash "$root/skills/add-bot/git-credential-os-bot" get \
+  OS_AUTOMATION=helper OS_ROOT="$root" bash "$root/skills/add-automation/git-credential-os-automation" get \
   >"$tmp/cred.out"
 
 if [ -s "$OS_ARGV_HITS" ]; then

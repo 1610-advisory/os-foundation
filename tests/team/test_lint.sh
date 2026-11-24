@@ -13,7 +13,7 @@ trap 'rm -rf "$work"' EXIT
 pass="$work/pass"
 mkdir -p "$pass/skills/lint" "$pass/.agents" "$pass/.claude" \
   "$pass/areas/marketing/.agents" "$pass/areas/marketing/.claude" \
-  "$pass/areas/marketing/skills" "$pass/users/mia/profile" "$pass/bots/helper"
+  "$pass/areas/marketing/skills" "$pass/users/mia/profile" "$pass/automations/helper"
 ln -s ../skills "$pass/.agents/skills"
 ln -s ../skills "$pass/.claude/skills"
 ln -s ../skills "$pass/areas/marketing/.agents/skills"
@@ -36,7 +36,7 @@ host: none
 # Acme Co
 EOF
 printf '%s\n' "# Profile" > "$pass/users/mia/profile/PROFILE.md"
-printf '%s\n' "# Bot" > "$pass/bots/helper/BOT.md"
+printf '%s\n' "# Automation" > "$pass/automations/helper/AUTOMATION.md"
 # B33: the stock v0 logs README, moved by the upgrade. History: lint skips it.
 mkdir -p "$pass/memory/logs-archive" "$pass/areas/marketing/memory/logs-archive"
 printf '# Session logs\n\nOne file per person per day: YYYY-MM-DD-{{PERSON_SLUG}}.md\n' > "$pass/memory/logs-archive/README.md"
@@ -119,16 +119,16 @@ printf '%s\n' "$out" | grep -q 'notice:' && team_fail "prerelease must not be ne
 out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver" || true)
 printf '%s\n' "$out" | grep -q 'notice:' && team_fail "unreleased must not notice"
 
-# Bot offer after 14 days, once. Fresh config so earlier runs do not count.
+# Automation offer after 14 days, once. Fresh config so earlier runs do not count.
 export HOME="$work/home3" XDG_CONFIG_HOME="$work/home3/.config"
 mkdir -p "$HOME"
 export OS_NOW=2026-01-01
 OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver" >/dev/null
 export OS_NOW=2026-01-20
 out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver")
-printf '%s\n' "$out" | grep -q 'offer: You have used this OS for two weeks' || team_fail "missing bot offer"
+printf '%s\n' "$out" | grep -q 'offer: You have used this OS for two weeks' || team_fail "missing automation offer"
 out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver")
-printf '%s\n' "$out" | grep -q 'offer:' && team_fail "bot offer must be once"
+printf '%s\n' "$out" | grep -q 'offer:' && team_fail "automation offer must be once"
 
 # A link whose text is ../skills but whose target is missing is a finding.
 dangle="$work/dangle"

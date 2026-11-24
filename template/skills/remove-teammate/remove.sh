@@ -8,7 +8,7 @@ DIR=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
   cat << 'EOF'
-usage: remove.sh --person <slug> [--new-bot-owner <slug>] [--root <dir>] [--date YYYY-MM-DD]
+usage: remove.sh --person <slug> [--new-automation-owner <slug>] [--root <dir>] [--date YYYY-MM-DD]
 
 Revoke access first. Archive the workspace. Record left: by pull request.
 PHI deletion is app level and is not in v1.
@@ -30,8 +30,8 @@ while [ $# -gt 0 ]; do
       PERSON=$2
       shift 2
       ;;
-    --new-bot-owner)
-      [ $# -ge 2 ] || os_die 1 "missing new bot owner"
+    --new-automation-owner|--new-bot-owner)  # --new-bot-owner: the old name, read for one release
+      [ $# -ge 2 ] || os_die 1 "missing new automation owner"
       NEW_OWNER=$2
       shift 2
       ;;
@@ -82,8 +82,8 @@ fi
 if [ -z "$NEW_OWNER" ]; then
   NEW_OWNER=$(os_admin_slug_from_pages "$ROOT" || true)
 fi
-[ -n "$NEW_OWNER" ] || os_die 2 "no new bot owner and no admin"
-[ "$NEW_OWNER" != "$PERSON" ] || os_die 2 "new bot owner is the person leaving"
+[ -n "$NEW_OWNER" ] || os_die 2 "no new automation owner and no admin"
+[ "$NEW_OWNER" != "$PERSON" ] || os_die 2 "new automation owner is the person leaving"
 
 if ! OS_HOST_BIN=$(os_find_host "$ROOT" "$DIR"); then
   os_die 3 "host.sh is missing"
@@ -360,7 +360,7 @@ offboard_owners() {
 
 # What the offboard pull request changes, and why.
 offboard_body() {
-  local dir=$1 bots=$2 owners=$3
+  local dir=$1 automations=$2 owners=$3
   if [ "$owners" -eq 1 ]; then
     os_owners_body "$dir" "Offboard: ${PERSON} left on ${WHEN}. ${PERSON} (@${GH}) stops being a code owner; a line they owned alone now names the admin." "$ADMIN_GH"
   else
@@ -369,7 +369,7 @@ offboard_body() {
   if [ -d "$dir/people" ] && [ -n "$(os_person_file "$dir" "$PERSON" 2>/dev/null || true)" ]; then
     printf '%s\n' "people: ${PERSON}'s page gets left: ${WHEN}."
   fi
-  [ "$bots" -eq 0 ] || printf '%s\n' "bots: each bot ${PERSON} owned now has owner: ${NEW_OWNER}."
+  [ "$automations" -eq 0 ] || printf '%s\n' "automations: each automation ${PERSON} owned now has owner: ${NEW_OWNER}."
 }
 
 # The offboard branch an earlier run pushed, once main has its change (B67): delete it,
@@ -386,7 +386,7 @@ offboard_drop_stray() {
   fi
 }
 
-# How one offboard pull request merges. One that changes rules files (bots/, CODEOWNERS)
+# How one offboard pull request merges. One that changes rules files (automations/, CODEOWNERS)
 # is the admin's own: on GitHub the admin merges it by hand. Anything else merges by itself.
 offboard_merge_line() {
   local repo=$1 number=$2 what=$3
@@ -420,15 +420,15 @@ case "$LEFT_MAIN" in
 esac
 
 moved=0
-bot=""
+automation=""
 paths=("$PAGE")
-if [ -d "$wt/bots" ]; then
-  for bot in "$wt"/bots/*/BOT.md; do
-    [ -f "$bot" ] || continue
-    owner=$(os_fm_get "$bot" owner 2>/dev/null || true)
+if [ -d "$wt/automations" ]; then
+  for automation in "$wt"/automations/*/AUTOMATION.md; do
+    [ -f "$automation" ] || continue
+    owner=$(os_fm_get "$automation" owner 2>/dev/null || true)
     if [ "$owner" = "$PERSON" ]; then
-      os_fm_set "$bot" owner "$NEW_OWNER"
-      paths+=("$bot")
+      os_fm_set "$automation" owner "$NEW_OWNER"
+      paths+=("$automation")
       moved=1
     fi
   done
@@ -468,14 +468,14 @@ fi
 
 printf 'left: %s\n' "$WHEN"
 if [ "$moved" -eq 1 ]; then
-  printf 'bot-owner: %s\n' "$NEW_OWNER"
+  printf 'automation-owner: %s\n' "$NEW_OWNER"
 else
-  printf 'bot-owner: none\n'
+  printf 'automation-owner: none\n'
 fi
 if [ -n "$number" ]; then
   printf 'pr: %s\n' "$number"
   what=""
-  [ "$moved" -eq 0 ] || what="bots/"
+  [ "$moved" -eq 0 ] || what="automations/"
   [ "$owners" -eq 0 ] || what="${what:+${what} and }CODEOWNERS"
   offboard_merge_line "$COMPANY_REPO" "$number" "$what"
 fi

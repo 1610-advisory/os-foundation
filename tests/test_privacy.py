@@ -25,7 +25,7 @@ T2 = (
 )
 
 TEAM_COMPUTERS = "device helper deletes the company folder"
-BOTS = "until the owner deletes the bot"
+AUTOMATIONS = "until the owner deletes the automation"
 TRACES = "full traces shrink to summaries after 30 days"
 APP_DB = "log of every connector call"
 CONNECTOR = "queue of suggestions not yet reviewed"
@@ -97,7 +97,7 @@ class PrivacyTests(unittest.TestCase):
         cases = (
             ("solo", "solo", [], 7),
             ("team", "team", [], 12),
-            ("team-bots-traces", "team", ["bots", "traces"], 13),
+            ("team-automations-traces", "team", ["automations", "traces"], 13),
         )
         for name, level, switches, count in cases:
             with self.subTest(name=name):
@@ -126,14 +126,14 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn(T2, lines)
         self.assertLess(lines.index(T2), lines.index("## Where copies of your data sit"))
         self.assertEqual(text.count(T2), 1)
-        for name in ("solo", "team", "team-bots-traces"):
+        for name in ("solo", "team", "team-automations-traces"):
             fixture = (FIXTURES / name / "privacy.md").read_text()
             self.assertIn(T2, fixture.splitlines())
 
     def test_fixture_sentences_follow_places(self):
         solo = (FIXTURES / "solo" / "privacy.md").read_text()
         team = (FIXTURES / "team" / "privacy.md").read_text()
-        both = (FIXTURES / "team-bots-traces" / "privacy.md").read_text()
+        both = (FIXTURES / "team-automations-traces" / "privacy.md").read_text()
         for text in (solo, team, both):
             self.assertIn("Your computer holds the company folder", text)
             self.assertIn(LIBRARY, text)
@@ -143,12 +143,12 @@ class PrivacyTests(unittest.TestCase):
             self.assertNotIn(CLOUD, text)
         self.assertNotIn(TEAM_COMPUTERS, solo)
         self.assertNotIn(GIT_HOST, solo)
-        self.assertNotIn(BOTS, solo)
+        self.assertNotIn(AUTOMATIONS, solo)
         self.assertIn(TEAM_COMPUTERS, team)
         self.assertIn(GIT_HOST, team)
-        self.assertNotIn(BOTS, team)
+        self.assertNotIn(AUTOMATIONS, team)
         # places.md lists traces only when level is app and the switch is on.
-        self.assertIn(BOTS, both)
+        self.assertIn(AUTOMATIONS, both)
         self.assertIn(TEAM_COMPUTERS, both)
         self.assertNotIn(TRACES, both)
 
@@ -181,7 +181,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original + b"\nextra\n")
 
     def test_second_write_keeps_the_same_bytes_and_mtime(self):
-        root, script = self.make("team", ["bots"])
+        root, script = self.make("team", ["automations"])
         first = run(script, root, "--root", str(root))
         self.assertEqual(first.returncode, 0, first.stderr.decode())
         path = root / "privacy.md"
@@ -209,10 +209,10 @@ class PrivacyTests(unittest.TestCase):
         both = (
             "# title\n\n"
             "## too-many\n"
-            "when: level: app and switch: traces and switch: bots\n"
+            "when: level: app and switch: traces and switch: automations\n"
             "Nope.\n"
         )
-        root, script = self.make("app", ["traces", "bots"], places=both, dirname="and")
+        root, script = self.make("app", ["traces", "automations"], places=both, dirname="and")
         result = run(script, root, "--root", str(root))
         self.assertEqual(result.returncode, 1)
         self.assertIn(b"unknown condition for too-many", result.stderr)
@@ -276,7 +276,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn(TRACES, text)
         self.assertIn(APP_DB, text)
         self.assertIn(CONNECTOR, text)
-        self.assertNotIn(BOTS, text)
+        self.assertNotIn(AUTOMATIONS, text)
         self.assertNotIn(CLOUD, text)
         self.assertEqual(result.stdout.decode(), "privacy.md: 15 places\n")
 
@@ -351,7 +351,7 @@ class PrivacyTests(unittest.TestCase):
             "---\n"
             'level: "team"\n'
             "switches:\n"
-            "  - bots\n"
+            "  - automations\n"
             "  - traces\n"
             "---\n"
         )
@@ -360,7 +360,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual(
             (root / "privacy.md").read_bytes(),
-            (FIXTURES / "team-bots-traces" / "privacy.md").read_bytes(),
+            (FIXTURES / "team-automations-traces" / "privacy.md").read_bytes(),
         )
 
         bad = "---\nlevel: solo\nswitches: nope\n---\n"
@@ -377,17 +377,17 @@ class PrivacyTests(unittest.TestCase):
             '[[ -n "${OS_PROFILE:-}" ]] || exit 1\n'
             'case "$1" in\n'
             "  level) printf '%s\\n' \"app\" ;;\n"
-            "  switches) printf '%s\\n' \"bots\" ;;\n"
+            "  switches) printf '%s\\n' \"automations\" ;;\n"
             "  *) exit 1 ;;\n"
             "esac\n"
         )
-        # The file says solo with no switches. The stub says app + bots.
+        # The file says solo with no switches. The stub says app + automations.
         root, script = self.make("solo", [], profile_sh=stub)
         result = run(script, root, "--root", str(root), cwd=self.base)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         text = (root / "privacy.md").read_text()
         self.assertIn(APP_DB, text)
-        self.assertIn(BOTS, text)
+        self.assertIn(AUTOMATIONS, text)
         self.assertIn(TEAM_COMPUTERS, text)
         self.assertNotIn(TRACES, text)
         self.assertEqual(result.stdout.decode(), "privacy.md: 15 places\n")
@@ -415,7 +415,7 @@ class PrivacyTests(unittest.TestCase):
             "  switches) exit 2 ;;\n"
             "esac\n"
         )
-        root, script = self.make("team", ["bots"], profile_sh=absent, dirname="absent")
+        root, script = self.make("team", ["automations"], profile_sh=absent, dirname="absent")
         result = run(script, root, "--root", str(root))
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual(
@@ -436,7 +436,7 @@ class PrivacyTests(unittest.TestCase):
             "#!/bin/bash\n"
             'case "$1" in\n'
             "  level) printf '%s\\n' \"team\" ;;\n"
-            "  switches) printf '%s\\n' \"[bots, traces]\" ;;\n"
+            "  switches) printf '%s\\n' \"[automations, traces]\" ;;\n"
             "  *) exit 1 ;;\n"
             "esac\n"
         )
@@ -445,7 +445,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         self.assertEqual(
             (root / "privacy.md").read_bytes(),
-            (FIXTURES / "team-bots-traces" / "privacy.md").read_bytes(),
+            (FIXTURES / "team-automations-traces" / "privacy.md").read_bytes(),
         )
 
     def test_help_usage_and_default_root(self):

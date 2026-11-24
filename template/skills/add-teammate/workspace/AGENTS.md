@@ -29,6 +29,7 @@ So: **no personal-life facts** here. No health, family, home, beliefs or money t
 | How to work with this person, notes to self | `memory/` |
 | What you did in this workspace today | `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md` |
 | The person's own skills | `skills/<name>/SKILL.md` |
+| The person's own bots | `bots/<name>/`. Personal: not company automations, not rules files. A company automation is made with `add-automation`. |
 | Company facts others need | The area, as a plain fact (company rules, section 4). Not here. |
 
 ## Sharing is the person's choice

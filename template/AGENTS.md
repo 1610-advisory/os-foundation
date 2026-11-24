@@ -60,7 +60,7 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 [team]:
 - Nobody writes to `main`, the admin included.
 - Notes and logs go on `sync/<person>/<computer>` and its standing PR. At sign-off, or on "sync now", run `skills/sync/sync.sh push` and tell the person its lines. The nightly push is the safety net. An area PR merges by itself when the checks pass.
-- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `bots/*/BOT.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`: its own PR from `rules/<person>/<topic>`.
+- Rules files (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `skills/**`, `automations/*/AUTOMATION.md`, `company-rules.md`, `area-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, `.github/**`, `.gitea/**`, `.forgejo/**`, `.claude/**`) never go on the standing PR. Propose each change with `skills/sync/sync.sh propose <topic> <file>...`: its own PR from `rules/<person>/<topic>`.
 - A different model reviews every rules PR first (`review-rules.md`). Then the area director (area rules) or the admin (root rules) approves: see `skills/sync/SKILL.md`.
 - A failed review blocks the merge. Only the admin may override it, with the reason in the PR.
 - **Waiting for owner.** A rules PR, or a PR that changes the company root, never merges by itself. Its check says "waiting for owner". Tell your person what it changes and who will read it. Wait for a clear yes. An owner comments `/approve`. Never type `/approve` or `/override` yourself.
@@ -68,7 +68,7 @@ Solo: commit to `main` after each piece of real work, logs included. One line pe
 
 ## 8. Folder units
 
-A repo's entry file is `AGENTS.md`. A unit in a repo is a folder with an entry file in capitals (`skills/<name>/SKILL.md`, `profile/PROFILE.md`, `bots/<bot>/BOT.md`). Read it first. Notes and people pages stay single files.
+A repo's entry file is `AGENTS.md`. A unit in a repo is a folder with an entry file in capitals (`skills/<name>/SKILL.md`, `profile/PROFILE.md`, `automations/<automation>/AUTOMATION.md`). Read it first. Notes and people pages stay single files.
 
 ## 9. Outside parties
 

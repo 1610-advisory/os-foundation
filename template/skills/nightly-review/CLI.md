@@ -109,7 +109,7 @@ Fold call, one line:
 
 ## What it does with findings
 
-`clear-error` on a note, log, or link: apply the fix. A rules file is never edited. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`. A clear error on a rules file becomes a flag to the approver.
+`clear-error` on a note, log, or link: apply the fix. A rules file is never edited. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `automations/*/AUTOMATION.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`. A clear error on a rules file becomes a flag to the approver.
 
 A finding whose `summary` starts with `Possible leak:` goes to the admin digest under the state dir, not the author. It is never written into a repo file, a pull request title, or a pull request body. Its fix is never applied, even when the model sends one. The admin runs `remove-leak`. An edit does not remove a leak from history.
 
@@ -144,16 +144,16 @@ A log `memory/logs/YYYY-MM-DD-<slug>.md` whose date is more than 30 days before 
 
 ## Identity
 
-When `bots` is on, the company bot commits (an area bot if `bots/<bot>/BOT.md` has `area:` set to that area). Trailers:
+When `automations` is on, the company automation commits (an area automation if `automations/<automation>/AUTOMATION.md` has `area:` set to that area). Trailers:
 
 ```text
 Run-Id: review-<date>-<8 hex>
-Bot-Owner: <owner slug>
+Automation-Owner: <owner slug>
 ```
 
-`OS_BOT` picks the bot. `OS_RUN_ID` fixes the run id in tests.
+`OS_AUTOMATION` picks the automation. `OS_RUN_ID` fixes the run id in tests.
 
-When `bots` is off, the admin's agent commits with `Run-Id:` and no `Bot-Owner`.
+When `automations` is off, the admin's agent commits with `Run-Id:` and no `Automation-Owner`.
 
 ## Host verbs
 

@@ -332,7 +332,7 @@ host_parse_args() {
   HEAD=""
   TITLE=""
   BODY_FILE=""
-  BOT=""
+  AUTOMATION=""
   YES=0
   POS1=""
   POS2=""
@@ -386,9 +386,10 @@ ${2}"
         BODY_FILE=$2
         shift 2
         ;;
-      --bot)
-        [ $# -ge 2 ] || host_die 1 "--bot needs a name"
-        BOT=$2
+      # --bot: the old name, read for one release.
+      --automation|--bot)
+        [ $# -ge 2 ] || host_die 1 "--automation needs a name"
+        AUTOMATION=$2
         shift 2
         ;;
       --help|-h)
@@ -423,7 +424,7 @@ ${2}"
     esac
     shift
   done
-  : "$PRIVATE $PUSH $CODE_OWNERS $YES $SOURCE $CHECKS $APPROVALS $HEAD $BASE $TITLE $BODY_FILE $BOT $POS1 $POS2 $POS3"
+  : "$PRIVATE $PUSH $CODE_OWNERS $YES $SOURCE $CHECKS $APPROVALS $HEAD $BASE $TITLE $BODY_FILE $AUTOMATION $POS1 $POS2 $POS3"
 }
 
 host_read_body_file() {
@@ -587,22 +588,22 @@ host_github_app_jwt() {
   printf '%s' "${signing}.${sig}"
 }
 
-host_bot_page() {
-  local bot=$1
-  host_require_name "bot" "$bot"
+host_automation_page() {
+  local automation=$1
+  host_require_name "automation" "$automation"
   if [ -z "${OS_ROOT:-}" ]; then
     host_die 1 "company root is not set"
   fi
-  printf '%s\n' "${OS_ROOT}/bots/${bot}/BOT.md"
+  printf '%s\n' "${OS_ROOT}/automations/${automation}/AUTOMATION.md"
 }
 
-host_bot_field() {
-  local bot=$1 key=$2 page val
-  page=$(host_bot_page "$bot")
-  [ -f "$page" ] || host_die 4 "bot page is missing"
-  val=$(host_profile_raw "$page" "$key") || host_die 4 "bot page has no ${key}"
+host_automation_field() {
+  local automation=$1 key=$2 page val
+  page=$(host_automation_page "$automation")
+  [ -f "$page" ] || host_die 4 "automation page is missing"
+  val=$(host_profile_raw "$page" "$key") || host_die 4 "automation page has no ${key}"
   if [ -z "$val" ]; then
-    host_die 4 "bot page has no ${key}"
+    host_die 4 "automation page has no ${key}"
   fi
   printf '%s\n' "$val"
 }
@@ -769,7 +770,7 @@ Verbs:
   pr-status <name> <number>
   pr-comment <name> <number> --body-file <file>
   set-secret <name>              (value on stdin)
-  get-token [--bot <bot>]
+  get-token [--automation <automation>]
   purge-request <name>
   delete-repo <name> --yes-test-only
 

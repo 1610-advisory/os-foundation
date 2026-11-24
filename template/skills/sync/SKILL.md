@@ -25,7 +25,7 @@ description: Keeps this computer and the company host in step. Pulls every 15 mi
 - **Fails closed.** If any step fails for a repo, the model call included, nothing goes up from that repo. The files stay here. The next night tries again.
 - **Workspace** (`users/<person>/`): no pull request. It pushes to its own `main` after the scan and the check. A company fact in `profile/PROFILE.md` is held.
 - **Nobody pushes to `main`** in the company or an area repo. The admin is included. Sync makes every commit in the folder. A commit made by hand stops that repo: nothing goes up (`a change that sync did not make`).
-- **Bot run.** When `OS_BOT` is set, `push` does not use the steps above. It checks the commits already on `sync/<bot>` the same way as a person's (rules files, secret scan), then sends that branch and opens `sync: <bot>` as the bot. A secret or a rules file pushes nothing. It does not commit that work as the person, and it does not touch `sync/<person>/*`. The bot key is the boundary.
+- **Automation run.** When `OS_AUTOMATION` is set, `push` does not use the steps above. It checks the commits already on `sync/<automation>` the same way as a person's (rules files, secret scan), then sends that branch and opens `sync: <automation>` as the automation. A secret or a rules file pushes nothing. It does not commit that work as the person, and it does not touch `sync/<person>/*`. The automation key is the boundary.
 
 ## Session start (Claude Code, Codex, Cursor, Pi)
 
@@ -122,7 +122,7 @@ A failed review blocks the merge. Read the findings in plain words and offer a f
 
 ## Commands
 
-From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs at sign-off, when the person says "sync now", and as the nightly job. `install-jobs [--admin] [--bot]` and `uninstall-jobs` belong to `add-teammate`, `add-bot` and `remove-teammate`. `helper` and `collect` are jobs.
+From the company root: `skills/sync/sync.sh <command>` (`--help` lists them). You run `pull` (`pull --full` when needed), `status`, `propose`. `push` runs at sign-off, when the person says "sync now", and as the nightly job. `install-jobs [--admin] [--automation]` and `uninstall-jobs` belong to `add-teammate`, `add-automation` and `remove-teammate`. `helper` and `collect` are jobs.
 
 Exit 0: done (files may be held). Exit 1: usage (`unknown flag`), `another sync is running`, solo, identity mismatch, or a repo that failed to pull or push (it fails closed). Exit 2: `propose` failed: `propose refused: secret scan error`, or `propose fail <repo>: <step>` for a `fetch`, `worktree`, `commit`, `push` or `open-pr` step, then one `opened: <repo> <n>` line for each pull request this run already opened. Windows only: `sync.ps1` exits 3 when Git Bash is missing. Otherwise it exits with the code of `sync.sh`.
 
@@ -133,7 +133,7 @@ launchd (Mac), systemd user timers (Linux), Task Scheduler (Windows).
 - `add-teammate` installs them when the first teammate joins. Never at `solo`: `install-jobs` refuses.
 - Every computer: pull every 15 minutes; push at 2 am or the first wake after (Linux: a random delay of up to 30 minutes); device helper at 4 am.
 - Admin's computer (`--admin`): at 3:30 am, the nightly review, then the reports.
-- Bot's box (`--bot`): pull, push and helper, as the bot. `add-bot` installs them.
+- Automation's box (`--automation`): pull, push and helper, as the automation. `add-automation` installs them.
 - The jobs use the engine in `sync_engine:` in `company-profile.md`, for example `claude -p --model haiku`.
 
 ### Windows

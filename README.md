@@ -101,7 +101,7 @@ When someone else should use it, say "add a teammate." One run turns on the team
 
 **The review model.** `add-teammate` asks for one key from a second AI vendor, used only for the review check, on only the pull request under review (its title, body and diff). With no second-vendor key, it asks for a key from your own AI vendor; the check then uses a different model from that vendor and says plainly that the review is weaker. With no key at all, the check fails and says how to add one.
 
-**Off until you turn them on:** bots, traces, hand-off to cloud agents, MDX reports, benchmarks. Large-company switches and the 5,000-staff case are in `scale.md`.
+**Off until you turn them on:** automations, traces, hand-off to cloud agents, MDX reports, benchmarks. Large-company switches and the 5,000-staff case are in `scale.md`.
 
 ## Improve it
 

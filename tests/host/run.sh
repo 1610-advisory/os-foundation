@@ -97,7 +97,7 @@ scrub() {
 }
 
 cleanup() {
-  rm -f "${TOKEN_FILE:-}" "${MIA_TOKEN_FILE:-}" "${DANA_TOKEN_FILE:-}" "${BOT_TOKEN_FILE:-}" "${ERR:-}" "${OUT:-}"
+  rm -f "${TOKEN_FILE:-}" "${MIA_TOKEN_FILE:-}" "${DANA_TOKEN_FILE:-}" "${AUTO_TOKEN_FILE:-}" "${ERR:-}" "${OUT:-}"
   if [ "${KEEP:-}" != "1" ]; then
     docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
   fi
@@ -204,16 +204,16 @@ runner: ubuntu-latest
 
 Acme Co.
 EOF
-mkdir -p "${WORK}/bots/helper"
-BOT_TOKEN_FILE=$(mktemp)
-chmod 600 "$BOT_TOKEN_FILE"
-printf '%s' 'bot-token-for-test' > "$BOT_TOKEN_FILE"
-cat > "${WORK}/bots/helper/BOT.md" << EOF
+mkdir -p "${WORK}/automations/helper"
+AUTO_TOKEN_FILE=$(mktemp)
+chmod 600 "$AUTO_TOKEN_FILE"
+printf '%s' 'automation-token-for-test' > "$AUTO_TOKEN_FILE"
+cat > "${WORK}/automations/helper/AUTOMATION.md" << EOF
 ---
-token_path: ${BOT_TOKEN_FILE}
+token_path: ${AUTO_TOKEN_FILE}
 ---
 
-Helper bot.
+Helper automation.
 EOF
 
 export OS_HOST=forgejo
@@ -611,11 +611,11 @@ if grep -F "$FORGEJO_TOKEN" "$ERR" >/dev/null 2>&1; then
 else
   pass "get-token stderr clean"
 fi
-expect_rc 0 get-token --bot helper
-if [ "$(tr -d '\r\n' < "$OUT")" = "bot-token-for-test" ]; then
-  pass "get-token bot"
+expect_rc 0 get-token --automation helper
+if [ "$(tr -d '\r\n' < "$OUT")" = "automation-token-for-test" ]; then
+  pass "get-token automation"
 else
-  fail "get-token bot mismatch"
+  fail "get-token automation mismatch"
 fi
 
 expect_rc 0 purge-request acme-os

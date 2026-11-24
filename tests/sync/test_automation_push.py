@@ -1,4 +1,4 @@
-"""Bot push keeps the run commit and refuses a secret or a rules file.
+"""Automation push keeps the run commit and refuses a secret or a rules file.
 
 Names are made up. Token values are never printed.
 """
@@ -14,10 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SYNC = ROOT / "template" / "skills" / "sync"
 PROFILE = ROOT / "template" / "skills" / "_host" / "profile.sh"
-HELPER = ROOT / "template" / "skills" / "add-bot" / "git-credential-os-bot"
-HELPER_LIB = ROOT / "template" / "skills" / "add-bot" / "lib.sh"
+HELPER = ROOT / "template" / "skills" / "add-automation" / "git-credential-os-automation"
+HELPER_LIB = ROOT / "template" / "skills" / "add-automation" / "lib.sh"
 SECRET = "gh" + "p_" + ("ab12" * 9)
-BOT_TOKEN = "bot-token-value"
+AUTO_TOKEN = "automation-token-value"
 PERSON_TOKEN = "person-token-value"
 
 
@@ -34,16 +34,16 @@ def run(cmd, env=None, cwd=None, check=False):
 
 def git_env(base):
     env = base.copy()
-    env["GIT_AUTHOR_NAME"] = "Acme Bot"
-    env["GIT_AUTHOR_EMAIL"] = "acme.bot@acme.test"
-    env["GIT_COMMITTER_NAME"] = "Acme Bot"
-    env["GIT_COMMITTER_EMAIL"] = "acme.bot@acme.test"
+    env["GIT_AUTHOR_NAME"] = "Acme Automation"
+    env["GIT_AUTHOR_EMAIL"] = "acme.automation@acme.test"
+    env["GIT_COMMITTER_NAME"] = "Acme Automation"
+    env["GIT_COMMITTER_EMAIL"] = "acme.automation@acme.test"
     return env
 
 
 class BotPushTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="osf-bot-push-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="osf-automation-push-"))
         self.home = self.tmp / "home"
         self.home.mkdir()
         self.company = self.home / "acme"
@@ -57,7 +57,7 @@ class BotPushTests(unittest.TestCase):
                     "updated: 2026-10-24",
                     "company_slug: acme",
                     "level: team",
-                    "switches: [bots]",
+                    "switches: [automations]",
                     "os_version: 0.0.0-test",
                     "host: forgejo",
                     'host_url: "http://localhost:3300"',
@@ -76,21 +76,21 @@ class BotPushTests(unittest.TestCase):
         (people / "Mia.md").write_text(
             "---\ntype: person\nslug: mia\ngithub: acme-member-a\nemail: mia.member@acme.test\n---\n\n# Mia Member\n"
         )
-        bot = self.company / "bots" / "helper"
-        bot.mkdir(parents=True)
-        (bot / "BOT.md").write_text(
-            "---\ntype: bot\nbot: helper\nowner: mia\nemail: acme.bot@acme.test\nbot_user: acme-bot\n---\n\n# Helper\n"
+        automation = self.company / "automations" / "helper"
+        automation.mkdir(parents=True)
+        (automation / "AUTOMATION.md").write_text(
+            "---\ntype: automation\nbot: helper\nowner: mia\nemail: acme.automation@acme.test\nbot_user: acme-automation\n---\n\n# Helper\n"
         )
-        skill = self.company / "skills" / "add-bot"
+        skill = self.company / "skills" / "add-automation"
         skill.mkdir(parents=True)
-        shutil.copy(HELPER, skill / "git-credential-os-bot")
+        shutil.copy(HELPER, skill / "git-credential-os-automation")
         shutil.copy(HELPER_LIB, skill / "lib.sh")
-        (skill / "git-credential-os-bot").chmod(0o700)
+        (skill / "git-credential-os-automation").chmod(0o700)
         cfg = self.home / ".config" / "acme-os"
         cfg.mkdir(parents=True)
         (cfg / "me").write_text("mia\n")
-        self.token_file = self.tmp / "bot-token"
-        self.token_file.write_text(BOT_TOKEN + "\n")
+        self.token_file = self.tmp / "automation-token"
+        self.token_file.write_text(AUTO_TOKEN + "\n")
         self.token_file.chmod(0o600)
         self.host_log = self.tmp / "host.log"
         self.host = self.tmp / "host.sh"
@@ -99,25 +99,25 @@ class BotPushTests(unittest.TestCase):
 set -euo pipefail
 token_file={self.token_file}
 log={self.host_log}
-bot_token=$(tr -d '\r\n' < "$token_file")
+auto_token=$(tr -d '\r\n' < "$token_file")
 cmd=${{1:-}}
 for arg in "$@"; do
-  if [ "$arg" = "$bot_token" ]; then
+  if [ "$arg" = "$auto_token" ]; then
     printf '%s argv\n' "$cmd" >> "$log"
   fi
 done
 mark() {{
   local who=other
-  if [ "${{FORGEJO_TOKEN:-}}" = "$bot_token" ]; then
-    who=bot
+  if [ "${{FORGEJO_TOKEN:-}}" = "$auto_token" ]; then
+    who=automation
   fi
   printf '%s %s\n' "$1" "$who" >> "$log"
 }}
 case "$cmd" in
   get-token)
-    if [ "${{2:-}}" = "--bot" ] && [ "${{3:-}}" = "helper" ]; then
-      printf 'get-token bot\n' >> "$log"
-      printf '%s\n' "$bot_token"
+    if [ "${{2:-}}" = "--automation" ] && [ "${{3:-}}" = "helper" ]; then
+      printf 'get-token automation\n' >> "$log"
+      printf '%s\n' "$auto_token"
       exit 0
     fi
     printf 'get-token other\n' >> "$log"
@@ -125,17 +125,17 @@ case "$cmd" in
     ;;
   open-pr)
     mark open-pr
-    [ "${{FORGEJO_TOKEN:-}}" = "$bot_token" ] || exit 1
+    [ "${{FORGEJO_TOKEN:-}}" = "$auto_token" ] || exit 1
     printf '%s\n' '{{"number":7,"url":"http://example.test/7"}}'
     ;;
   auto-merge)
     mark auto-merge
-    [ "${{FORGEJO_TOKEN:-}}" = "$bot_token" ] || exit 1
+    [ "${{FORGEJO_TOKEN:-}}" = "$auto_token" ] || exit 1
     printf '%s\n' '{{"ok":true}}'
     ;;
   pr-status)
     mark pr-status
-    [ "${{FORGEJO_TOKEN:-}}" = "$bot_token" ] || exit 1
+    [ "${{FORGEJO_TOKEN:-}}" = "$auto_token" ] || exit 1
     printf '%s\n' '{{"merged":true}}'
     ;;
   *) exit 1 ;;
@@ -153,7 +153,7 @@ esac
         self.env["OS_HOST"] = "forgejo"
         self.env["OS_SECRET_SCAN"] = "bundled"
         self.env["OS_TEST_MODE"] = "1"
-        self.env["OS_BOT_MERGE_WAIT"] = "5"
+        self.env["OS_AUTOMATION_MERGE_WAIT"] = "5"
         self.env["FORGEJO_TOKEN"] = PERSON_TOKEN
         self.env.pop("GH_TOKEN", None)
         self.bare = self.seed()
@@ -172,7 +172,7 @@ esac
         run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
         return bare
 
-    def commit_on_bot(self, rel, text, message="Bot note"):
+    def commit_on_automation(self, rel, text, message="Automation note"):
         run(
             ["git", "-C", str(self.company), "checkout", "-q", "-B", "sync/helper", "origin/main"],
             env=self.env,
@@ -192,7 +192,7 @@ esac
                 "-m",
                 message,
                 "-m",
-                "Run-Id: run-1\nBot-Owner: mia",
+                "Run-Id: run-1\nAutomation-Owner: mia",
             ],
             env=self.env,
             check=True,
@@ -205,7 +205,7 @@ esac
 
     def push(self):
         env = self.env.copy()
-        env["OS_BOT"] = "helper"
+        env["OS_AUTOMATION"] = "helper"
         env["OS_ROOT"] = str(self.company)
         return run(["bash", str(SYNC / "sync.sh"), "push"], env=env, cwd=self.company)
 
@@ -218,16 +218,16 @@ esac
 
     def assert_no_token(self, result):
         blob = result.stdout + result.stderr
-        self.assertNotIn(BOT_TOKEN, blob)
+        self.assertNotIn(AUTO_TOKEN, blob)
         self.assertNotIn(PERSON_TOKEN, blob)
         self.assertNotIn(SECRET, blob)
         if self.host_log.exists():
-            self.assertNotIn(BOT_TOKEN, self.host_log.read_text())
+            self.assertNotIn(AUTO_TOKEN, self.host_log.read_text())
             self.assertNotIn(PERSON_TOKEN, self.host_log.read_text())
             self.assertNotIn("argv", self.host_log.read_text())
 
     def test_push_keeps_the_run_commit_and_leaves_the_person_branch(self):
-        sha = self.commit_on_bot("notes/bot.md", "the bot ran")
+        sha = self.commit_on_automation("notes/automation.md", "the automation ran")
         result = self.push()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assert_no_token(result)
@@ -242,27 +242,27 @@ esac
             env=self.env,
             check=True,
         ).stdout
-        self.assertIn("Bot note", body)
+        self.assertIn("Automation note", body)
         self.assertIn("Run-Id: run-1", body)
-        self.assertIn("Bot-Owner: mia", body)
+        self.assertIn("Automation-Owner: mia", body)
         email = run(
             ["git", "--git-dir", str(self.bare), "log", "-1", "--format=%ae", "refs/heads/sync/helper"],
             env=self.env,
             check=True,
         ).stdout.strip()
-        self.assertEqual(email, "acme.bot@acme.test")
+        self.assertEqual(email, "acme.automation@acme.test")
         heads = self.heads()
         self.assertIn("refs/heads/sync/helper", heads)
         self.assertNotIn("refs/heads/sync/mia", heads)
         log = self.host_log.read_text()
-        self.assertIn("get-token bot", log)
-        self.assertIn("open-pr bot", log)
-        self.assertIn("auto-merge bot", log)
-        self.assertIn("pr-status bot", log)
+        self.assertIn("get-token automation", log)
+        self.assertIn("open-pr automation", log)
+        self.assertIn("auto-merge automation", log)
+        self.assertIn("pr-status automation", log)
         self.assertNotIn("other", log)
 
     def test_secret_in_the_range_pushes_nothing(self):
-        self.commit_on_bot("notes/bot.md", f"token = {SECRET}")
+        self.commit_on_automation("notes/automation.md", f"token = {SECRET}")
         result = self.push()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("secret scan", result.stderr)
@@ -273,7 +273,7 @@ esac
         self.assertNotIn("open-pr", self.host_log.read_text())
 
     def test_rules_path_pushes_nothing(self):
-        self.commit_on_bot("docs/AGENTS.md", "a rules change\n")
+        self.commit_on_automation("docs/AGENTS.md", "a rules change\n")
         result = self.push()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rules file: propose it with sync.sh propose", result.stderr)
@@ -307,9 +307,9 @@ esac
                 "commit",
                 "-q",
                 "-m",
-                "Bot note",
+                "Automation note",
                 "-m",
-                "Run-Id: run-1\nBot-Owner: mia",
+                "Run-Id: run-1\nAutomation-Owner: mia",
             ],
             env=self.env,
             check=True,
@@ -323,7 +323,7 @@ esac
         self.assertNotIn("refs/heads/sync/mia", heads)
 
     def test_rules_path_with_a_space_pushes_nothing(self):
-        self.commit_on_bot("skills/a b.md", "a rules file\n")
+        self.commit_on_automation("skills/a b.md", "a rules file\n")
         result = self.push()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rules file: propose it with sync.sh propose", result.stderr)
@@ -333,7 +333,7 @@ esac
         self.assertNotIn("refs/heads/sync/mia", heads)
 
     def test_credential_in_the_remote_url_pushes_nothing(self):
-        self.commit_on_bot("notes/bot.md", "the bot ran")
+        self.commit_on_automation("notes/automation.md", "the automation ran")
         run(
             [
                 "git",
@@ -355,8 +355,8 @@ esac
         heads = self.heads()
         self.assertNotIn("refs/heads/sync/helper", heads)
 
-    def test_missing_bot_token_pushes_nothing(self):
-        self.commit_on_bot("notes/bot.md", "the bot ran")
+    def test_missing_automation_token_pushes_nothing(self):
+        self.commit_on_automation("notes/automation.md", "the automation ran")
         self.host.write_text("#!/bin/bash\nexit 1\n")
         self.host.chmod(0o700)
         result = self.push()

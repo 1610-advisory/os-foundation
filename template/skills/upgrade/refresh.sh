@@ -12,6 +12,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   printf '%s\n' "Source this file from upgrade.sh." >&2
   exit 1
 fi
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/rename.sh"
 
 # The company name for a root file the template ships (B81): the answers file, then the
 # profile's first heading, else "Company".
@@ -145,6 +147,7 @@ refresh_apply() {
 
 refresh_paths_args() {
   cat "$1/add" "$1/replace" "$1/remove"
+  rename_paths "$1"
 }
 
 # Why a fetch failed, in one plain line (B59). Only a network error is "could not reach".
@@ -194,6 +197,16 @@ refresh_one() {
     fi
   fi
   refresh_plan "$dir" "$kind" "$plan"
+  # v1.0.8: bots becomes automations (rename.sh). A repo with both folders stops here.
+  if ! rename_plan "$dir" "$kind" "$plan"; then
+    printf 'refresh: stopped in %s: it has both bots/ and automations/. Move each bots/<name>/ into automations/<name>/ by hand (BOT.md becomes AUTOMATION.md), then run again. Nothing was changed there.\n' "$label"
+    REFRESH_FAILED=1
+    rm -rf "$plan"
+    return 0
+  fi
+  rename_report "$dir" "$label" "$plan"
+  REFRESH_RENAMED=0
+  [ "$(rename_count "$plan")" -eq 0 ] || REFRESH_RENAMED=1
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     printf 'kept: %s %s (changed by the company; compare it with the template by hand)\n' "$label" "$path"
@@ -222,8 +235,9 @@ refresh_one() {
         rm -rf "$plan"
         return 0
       fi
-    done < <(refresh_paths_args "$plan")
+    done < <(refresh_paths_args "$plan"; rename_dirty_paths "$plan")
     refresh_apply "$dir" "$plan"
+    rename_apply "$dir" "$plan"
     # shellcheck disable=SC2046
     os_git_commit "$dir" "Upgrade: refresh stock skills and checks (${REFRESH_RELEASE})" $(refresh_paths_args "$plan") >/dev/null
     printf 'committed: %s\n' "$label"
@@ -234,6 +248,7 @@ refresh_one() {
   branch="rules/${REFRESH_ME}/refresh-${REFRESH_RELEASE}"
   wt=$(os_branch_start "$dir") || { REFRESH_FAILED=1; rm -rf "$plan"; return 0; }
   refresh_apply "$wt" "$plan"
+  rename_apply "$wt" "$plan"
   # shellcheck disable=SC2046
   os_git_commit "$wt" "Upgrade: refresh stock skills and checks (${REFRESH_RELEASE})" $(refresh_paths_args "$plan") >/dev/null
   os_branch_push "$dir" "$wt" "$branch"
@@ -294,6 +309,9 @@ refresh_close_older() {
 # The body says what changed, in one line, for the review.
 refresh_body() {
   printf 'Refresh of the stock skills and checks to template release %s. Only files that were exactly as shipped are replaced; files the company changed are kept.\n' "$REFRESH_RELEASE"
+  if [ "${REFRESH_RENAMED:-0}" -eq 1 ]; then
+    printf '\nRename (v1.0.8): a company bot is now called an automation. bots/<name>/BOT.md moves to automations/<name>/AUTOMATION.md with its files, and its keys type: bot, bot: and bot_user: become type: automation, automation: and host_user:. The switch bots becomes automations. The stock CODEOWNERS line and the stock path name in AGENTS.md, CLAUDE.md and review-rules.md name the new path. The same owners and the same rules apply. No rule changes its meaning. A person'"'"'s own bots in their workspace are not touched.\n'
+  fi
 }
 
 upgrade_refresh() {
@@ -315,6 +333,7 @@ upgrade_refresh() {
     esac
   fi
   REFRESH_FAILED=0
+  REFRESH_RENAMED=0
   REFRESH_LOGS=""
   REFRESH_NAME=$(up_company_name)
   refresh_one "$ROOT" root "the company folder"

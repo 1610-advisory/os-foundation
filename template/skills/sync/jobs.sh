@@ -129,11 +129,11 @@ sync_win_unregister() {
 }
 
 cmd_install_jobs() {
-  local admin=0 bot=0 level platform dir slug label
+  local admin=0 automation=0 level platform dir slug label
   while [ $# -gt 0 ]; do
     case "$1" in
       --admin) admin=1 ;;
-      --bot) bot=1 ;;
+      --automation|--bot) automation=1 ;;  # --bot: the old name, read for one release
       *) sync_die 1 "unknown flag" ;;
     esac
     shift
@@ -170,8 +170,8 @@ cmd_install_jobs() {
       ;;
     *) sync_die 1 "platform is not supported" ;;
   esac
-  if [ "$bot" -eq 1 ]; then
-    sync_log "jobs install bot"
+  if [ "$automation" -eq 1 ]; then
+    sync_log "jobs install automation"
   fi
   if sync_is_windows && [ "$platform" = "windows" ]; then
     if [ "${OS_JOBS_LOAD:-1}" != "0" ]; then

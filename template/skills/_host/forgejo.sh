@@ -1060,14 +1060,18 @@ cmd_set_secret() {
 cmd_get_token() {
   local path token
   [ -z "$POS1" ] || host_die 1 "too many arguments"
-  if [ -n "$BOT" ]; then
-    path=$(host_bot_field "$BOT" token_path 2>/dev/null || true)
+  if [ -n "$AUTOMATION" ]; then
+    path=$(host_automation_field "$AUTOMATION" token_path 2>/dev/null || true)
     if [ -z "$path" ]; then
-      path="$(host_config_dir)/bots/${BOT}/token"
+      path="$(host_config_dir)/automations/${AUTOMATION}/token"
+      # Before v1.0.8 the default file was under bots/. Read it there when it was not moved.
+      if [ ! -f "$path" ] && [ -f "$(host_config_dir)/bots/${AUTOMATION}/token" ]; then
+        path="$(host_config_dir)/bots/${AUTOMATION}/token"
+      fi
     fi
-    [ -f "$path" ] || host_die 4 "bot token file is missing"
+    [ -f "$path" ] || host_die 4 "automation token file is missing"
     token=$(tr -d '\r\n' < "$path")
-    [ -n "$token" ] || host_die 4 "bot token is empty"
+    [ -n "$token" ] || host_die 4 "automation token is empty"
     printf '%s\n' "$token"
     return 0
   fi

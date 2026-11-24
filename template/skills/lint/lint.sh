@@ -12,7 +12,7 @@ usage: lint.sh [--ci] [--root <dir>]
 
 Check links, copies, level, switches, rules size, placeholders, and profiles.
 Exit 0 when clean. Exit 1 when there is a finding.
-Without --ci, a newer-version notice and a one-time bot offer may print.
+Without --ci, a newer-version notice and a one-time automation offer may print.
 They do not change the exit code.
 EOF
 }
@@ -170,7 +170,8 @@ else
   esac
 
   SWITCHES=$(os_fm_get "$PROFILE" switches 2>/dev/null || true)
-  allowed=" bots traces cloud-handoff mdx-reports benchmarks "
+  # bots is the old name of automations: allowed for one release, with a notice below.
+  allowed=" automations bots traces cloud-handoff mdx-reports benchmarks "
   if [ -f "$ROOT/scale.md" ]; then
     while IFS= read -r name; do
       [ -n "$name" ] || continue
@@ -207,11 +208,16 @@ size_file "$ROOT/AGENTS.md"
 size_file "$ROOT/CLAUDE.md"
 size_file "$ROOT/company-rules.md"
 size_file "$ROOT/review-rules.md"
-if [ -d "$ROOT/bots" ]; then
-  for bot in "$ROOT"/bots/*/BOT.md; do
-    size_file "$bot"
+if [ -d "$ROOT/automations" ]; then
+  for automation in "$ROOT"/automations/*/AUTOMATION.md; do
+    size_file "$automation"
   done
 fi
+# The old name of automations/ at the company root. Never users/<person>/bots/.
+for automation in "$ROOT"/bots/*/BOT.md; do
+  [ -f "$automation" ] || continue
+  size_file "$automation"
+done
 if [ -d "$ROOT/areas" ]; then
   for area in "$ROOT"/areas/*; do
     [ -d "$area" ] || continue
@@ -293,24 +299,35 @@ if [ "$CI" -eq 0 ] && [ -f "$PROFILE" ]; then
   LEVEL=$(os_fm_get "$PROFILE" level 2>/dev/null || true)
   SWITCHES=$(os_fm_get "$PROFILE" switches 2>/dev/null || true)
   SWITCHES=$(printf '%s' "$SWITCHES" | tr -d '[]' | tr ',' ' ')
-  bots_on=0
+  automations_on=0
   for sw in $SWITCHES; do
-    if [ "$(os_trim "$sw")" = "bots" ]; then
-      bots_on=1
-    fi
+    case "$(os_trim "$sw")" in
+      automations) automations_on=1 ;;
+      bots)
+        # The old name of the switch. It still works for one release.
+        automations_on=1
+        printf '%s\n' "notice: switches: bots is the old name. Change it to automations in company-profile.md. The upgrade (--refresh) does this for you."
+        ;;
+    esac
   done
-  if [ "$bots_on" -eq 0 ] && [ -n "$SLUG" ]; then
+  for automation in "$ROOT"/bots/*/BOT.md; do
+    [ -f "$automation" ] || continue
+    printf '%s\n' "notice: bots/ at the company root is the old name of automations/. The upgrade (--refresh) renames it."
+    break
+  done
+  if [ "$automations_on" -eq 0 ] && [ -n "$SLUG" ]; then
     state="$(os_config_dir "$SLUG")/state"
     mkdir -p "$state"
     today=$(os_today)
     if [ ! -f "$state/lint-first-use" ]; then
       printf '%s\n' "$today" > "$state/lint-first-use"
     fi
-    if [ ! -f "$state/lint-bot-offer" ]; then
+    # lint-bot-offer is the old name of this state file. The offer never shows twice.
+    if [ ! -f "$state/lint-automation-offer" ] && [ ! -f "$state/lint-bot-offer" ]; then
       first=$(tr -d '\r\n' < "$state/lint-first-use")
       if os_days_at_least "$first" "$today" 14; then
-        printf '%s\n' "offer: You have used this OS for two weeks. A bot can run jobs for you. Ask to add one."
-        printf '%s\n' "$today" > "$state/lint-bot-offer"
+        printf '%s\n' "offer: You have used this OS for two weeks. An automation can run jobs for you. Ask to add one."
+        printf '%s\n' "$today" > "$state/lint-automation-offer"
       fi
     fi
   fi

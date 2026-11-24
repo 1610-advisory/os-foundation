@@ -265,7 +265,7 @@ osf_solo_problems() {
       return 0
     fi
   done
-  if [ -d "$dest/users" ] || [ -d "$dest/bots" ] || [ -f "$dest/.github/CODEOWNERS" ]; then
+  if [ -d "$dest/users" ] || [ -d "$dest/automations" ] || [ -f "$dest/.github/CODEOWNERS" ]; then
     printf '%s\n' "team parts are present"
     return 0
   fi

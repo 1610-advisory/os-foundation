@@ -92,7 +92,7 @@ class ProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "company-profile.md").write_text(
-                "---\ncompany_slug: acme\nhost: forgejo\nswitches:\n  - bots\n  - traces\n---\n\n"
+                "---\ncompany_slug: acme\nhost: forgejo\nswitches:\n  - automations\n  - traces\n---\n\n"
             )
             nested = root / "areas" / "finance"
             nested.mkdir(parents=True)
@@ -117,7 +117,7 @@ class ProfileTests(unittest.TestCase):
                 check=False,
                 env=env,
             )
-            self.assertEqual(listed.stdout.splitlines(), ["bots", "traces"])
+            self.assertEqual(listed.stdout.splitlines(), ["automations", "traces"])
 
     def test_env_override_and_missing_key(self):
         env = os.environ.copy()
@@ -146,10 +146,10 @@ class ProfileTests(unittest.TestCase):
             path.write_text(
                 "---\n"
                 "switches: [] # none yet\n"
-                "areas: [bots, traces] # on\n"
+                "areas: [automations, traces] # on\n"
                 "notes: # list\n"
                 "items:\n"
-                "  - bots # keep\n"
+                "  - automations # keep\n"
                 "\n"
                 "  # skipped\n"
                 "  - traces\n"
@@ -172,9 +172,9 @@ class ProfileTests(unittest.TestCase):
                 return proc.stdout.splitlines()
 
             self.assertEqual(read("switches"), [])
-            self.assertEqual(read("areas"), ["bots", "traces"])
+            self.assertEqual(read("areas"), ["automations", "traces"])
             self.assertEqual(read("notes"), [])
-            self.assertEqual(read("items"), ["bots", "traces"])
+            self.assertEqual(read("items"), ["automations", "traces"])
 
     def test_strips_quotes_and_comments(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,7 +252,7 @@ class GithubDryRunTests(unittest.TestCase):
             ("pr-comment.jsonl", ["pr-comment", "acme-os", "12", "--body-file", str(BODY)], None),
             ("set-secret.jsonl", ["set-secret", "OS_REVIEW_KEY"], secret),
             ("get-token.jsonl", ["get-token"], None),
-            ("get-token-bot.jsonl", ["get-token", "--bot", "helper"], None),
+            ("get-token-automation.jsonl", ["get-token", "--automation", "helper"], None),
             ("delete-repo.jsonl", ["delete-repo", "acme-os", "--yes-test-only"], None),
         ]
         for name, args, stdin in cases:
@@ -887,9 +887,9 @@ class TokenAndUsageTests(unittest.TestCase):
             (root / "company-profile.md").write_text(
                 "---\ncompany_slug: acme\nhost: github\norg: acme\n---\n"
             )
-            bot = root / "bots" / "helper"
-            bot.mkdir(parents=True)
-            (bot / "BOT.md").write_text(
+            automation = root / "automations" / "helper"
+            automation.mkdir(parents=True)
+            (automation / "AUTOMATION.md").write_text(
                 f"---\napp_id: 100\ninstallation_id: 200\nkey_path: {key}\n---\n"
             )
             log = root / "gh.log"
@@ -902,7 +902,7 @@ class TokenAndUsageTests(unittest.TestCase):
             env["PATH"] = str(root) + os.pathsep + env.get("PATH", os.environ.get("PATH", ""))
             env["FAKE_GH_LOG"] = str(log)
             env["FAKE_GH_ENV"] = str(envlog)
-            proc = run(["get-token", "--bot", "helper"], env)
+            proc = run(["get-token", "--automation", "helper"], env)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(proc.stdout.strip(), "test-install-token")
             self.assertNotIn("PRIVATE KEY", proc.stderr)

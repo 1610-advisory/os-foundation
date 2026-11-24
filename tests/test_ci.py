@@ -789,7 +789,7 @@ class BundledScanTests(unittest.TestCase):
             refs = Path(tmp) / "refs.sh"
             refs.write_text(
                 'token=$(host_forgejo_token)\n'
-                '  token=$(sync_bot_take_token "$bot")\n'
+                '  token=$(sync_automation_take_token "$automation")\n'
                 'api_key="${OS_REVIEW_KEY_FILE_PATH}"\n'
                 "secret=`read_the_secret_from_keychain`\n",
                 encoding="utf-8",
@@ -1226,8 +1226,8 @@ class PathMatchTests(unittest.TestCase):
     def test_codeowners_patterns(self):
         self.assertTrue(self.match("glob", ".github/**", ".github/workflows/checks.yml"))
         self.assertFalse(self.match("glob", ".github/**", "note.txt"))
-        self.assertTrue(self.match("glob", "bots/*/BOT.md", "bots/example/BOT.md"))
-        self.assertFalse(self.match("glob", "bots/*/BOT.md", "bots/example/extra/BOT.md"))
+        self.assertTrue(self.match("glob", "automations/*/AUTOMATION.md", "automations/example/AUTOMATION.md"))
+        self.assertFalse(self.match("glob", "automations/*/AUTOMATION.md", "automations/example/extra/AUTOMATION.md"))
         self.assertTrue(self.match("glob", "AGENTS.md", "AGENTS.md"))
         self.assertTrue(self.match("glob", "areas/x/AGENTS.md", "areas/x/AGENTS.md"))
         self.assertFalse(self.match("glob", "areas/x/AGENTS.md", "AGENTS.md"))
@@ -1500,7 +1500,7 @@ class OverrideHonourTests(unittest.TestCase):
         posted = (self.root / "posted.md").read_text(encoding="utf-8")
         self.assertTrue(posted.startswith("secret scan: pass, lint: skipped\n\nSUMMARY: a price"), posted)
 
-    def test_bot_line_and_owner_comment_pass_without_a_review(self):
+    def test_automation_line_and_owner_comment_pass_without_a_review(self):
         result = self.run_checks([
             {"login": "acme-admin", "body": "/override too large", "association": "MEMBER"},
             {"login": "github-actions[bot]", "body": self.line(), "association": "NONE"},

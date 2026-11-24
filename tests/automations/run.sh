@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the bots suite. Prints PASS or FAIL per check.
+# Run the automations suite. Prints PASS or FAIL per check.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -16,4 +16,4 @@ done
 if [ "$fail" -ne 0 ]; then
   exit 1
 fi
-printf '%s\n' "PASS bots suite"
+printf '%s\n' "PASS automations suite"

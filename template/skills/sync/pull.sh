@@ -963,10 +963,10 @@ sync_pull_me_token() {
   printf '%s\n' "$me"
 }
 
-sync_pull_bot_token() {
+sync_pull_automation_token() {
   local me
   me=$(sync_me)
-  if [ -n "$me" ] && [ -f "$SYNC_ROOT/bots/$me/BOT.md" ]; then
+  if [ -n "$me" ] && [ -f "$SYNC_ROOT/automations/$me/AUTOMATION.md" ]; then
     printf '%s\n' "1"
     return 0
   fi
@@ -1130,7 +1130,7 @@ sync_pull_load_state() {
   [ -s "$path" ] || return 1
   SYNC_PULL_FULL=""
   SYNC_PULL_STATE_ME=""
-  SYNC_PULL_STATE_BOT=""
+  SYNC_PULL_STATE_AUTOMATION=""
   SYNC_PULL_SEEN="|"
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -1164,10 +1164,12 @@ sync_pull_load_state() {
         ;;
       4)
         case "$line" in
-          "bot 0"|"bot 1") ;;
+          "automation 0"|"automation 1") ;;
+          # bot is the old name of this line, from before the rename. Read it for one release.
+          "bot 0"|"bot 1") line="automation ${line#bot }" ;;
           *) return 1 ;;
         esac
-        SYNC_PULL_STATE_BOT=${line#bot }
+        SYNC_PULL_STATE_AUTOMATION=${line#automation }
         ;;
       *)
         case "$line" in
@@ -1192,7 +1194,7 @@ sync_pull_load_state() {
   [ "$n" -ge 4 ] || return 1
   [ -n "$SYNC_PULL_FULL" ] || return 1
   [ -n "$SYNC_PULL_STATE_ME" ] || return 1
-  [ -n "$SYNC_PULL_STATE_BOT" ] || return 1
+  [ -n "$SYNC_PULL_STATE_AUTOMATION" ] || return 1
   return 0
 }
 
@@ -1405,7 +1407,7 @@ sync_pull_emit() {
 
 sync_pull_write_state() {
   local kind=$1
-  local dir path tmp full me bot
+  local dir path tmp full me automation
   dir=$(sync_pull_state_dir) || return 0
   mkdir -p "$dir" 2>/dev/null || return 0
   if ! sync_pull_clock; then
@@ -1414,17 +1416,17 @@ sync_pull_write_state() {
   if [ "$kind" = "full" ]; then
     full=$SYNC_CLOCK_NOW
     me=$(sync_pull_me_token)
-    bot=$(sync_pull_bot_token)
+    automation=$(sync_pull_automation_token)
   else
     full=${SYNC_PULL_FULL:-}
     me=${SYNC_PULL_STATE_ME:-}
-    bot=${SYNC_PULL_STATE_BOT:-}
+    automation=${SYNC_PULL_STATE_AUTOMATION:-}
   fi
   case "$full" in
     ""|*[!0-9]*) return 0 ;;
   esac
   sync_pull_me_ok "$me" || return 0
-  case "$bot" in
+  case "$automation" in
     0|1) ;;
     *) return 0 ;;
   esac
@@ -1440,7 +1442,7 @@ sync_pull_write_state() {
     printf '%s\n' "os-sync-state 1"
     printf '%s\n' "full $full"
     printf '%s\n' "me $me"
-    printf '%s\n' "bot $bot"
+    printf '%s\n' "automation $automation"
     printf '%s' "$SYNC_PULL_BODY"
   } > "$tmp"; then
     rm -f "$tmp"
@@ -1545,6 +1547,7 @@ cmd_pull() {
   else
     sync_pull_run_quick || rc=$?
   fi
+  sync_fix_automation_wrapper || true
   sync_unreached_flush
   [ "$rc" -ne 0 ] || sync_clear_error
   return "$rc"

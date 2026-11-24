@@ -47,7 +47,7 @@ is_rules() {
     AGENTS.md|CLAUDE.md|review-rules.md|CODEOWNERS|company-rules.md|area-rules.md) return 0 ;;
   esac
   case "$path" in
-    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|bots/*/BOT.md) return 0 ;;
+    skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|automations/*/AUTOMATION.md) return 0 ;;
   esac
   return 1
 }
