@@ -2,6 +2,15 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## Unreleased
+
+The nightly review writes nothing new at the company root. A company gets this after the next release and `upgrade --refresh`.
+
+- **Report pages go to the owners' area.** The company "to decide" page and the weekly company page are now `areas/<report_area>/reports/YYYY-MM-DD-to-decide-company.md` and `YYYY-Www-company.md` (`report_area:` in `company-profile.md`, default `admin`). Before, they went to `reports/` at the company root, and the root review (check 7) failed the nightly pull request. `--daily` publishes them too. If that area is not checked out, the job prints a clear line and exits 2. It writes nothing at the root.
+- **No log fold at the company root.** The fold summary is a log. At the root it was a new file that check 7 fails. Areas still fold their old logs.
+- **A `write` fix never adds a file.** It only replaces a duplicated note that is already there.
+- Old "Review <date>" pull requests at the company root that hold `reports/` files are not closed by this change. Close them by hand.
+
 ## v1.0.6 — 2026-11-22
 
 Safer pushes, sync at sign-off, tighter org settings, and phone access to a live session.

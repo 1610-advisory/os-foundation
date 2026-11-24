@@ -55,6 +55,7 @@
 5ca8a70109b3e3d8b30feac8fe583459900680b7 skills/suggest/tell.sh
 5e9202d94d46bff263b54499050be51286a34389 skills/_host/README.md
 5f0553580f7987f9e6f5bfcc831d43edccf92c41 skills/sync/jobs/macos-calendar.plist
+5fa4a20da3f8cd61e7770b782a98801bdb3275c9 skills/nightly-review/CLI.md
 60626c54d1e72cbe8f2495f59a9db0961f1ed604 .github/scripts/set-status.sh
 61d73258ea1243e27a62e0e2ebce9297ba1b7b3a skills/remove-teammate/SKILL.md
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
@@ -74,14 +75,11 @@
 80e00eb45db3ee53a132fc2ba97fd59a7339e563 skills/skill-creator/agents/comparator.md
 82da3784b0da035217a68cafb7cadccdd4270d86 skills/upgrade/rules-merge.awk
 850f5ffd03b537b18091d128f8875efba574ae56 skills/sync/pull.sh
-85d1c6959ebbae07f0543451c8b53f4430de6299 skills/nightly-review/run.sh
 869d34d2102e72baa49ff533bfc5dc0efcf6ca99 skills/add-bot/SKILL.md
 86ac5cf7d2e5a1145140867b8fb70cad5036cc28 .github/scripts/run-checks.sh
 86e952582ec4688465c13862a67072f455d07d0e skills/add-area/templates/marketing/goals.md
 87070577f6ec70763c8e0eff04586254d5d77e39 skills/upgrade/v0/areas/_area/AGENTS.md
-873002a420473efe76f3c1bacb961fb8c4bd71ab skills/nightly-review/SKILL.md
 879efdc459c33da3fc70d0441c864ba320cd5763 skills/upgrade/rules.sh
-8a983cc3bedbd8c9342a675810ee99909803cbf9 skills/nightly-review/CLI.md
 8aa59ab35cf71bc53f35789bbc1942869033740d skills/upgrade/v0/CLAUDE.md
 8bb309beda22c8afab98e0ca2d44f048342b86c2 skills/sync/push-check.md
 8d11b8cceed05ab113121d88690713deb0dbe056 skills/remote-setup/SKILL.md
@@ -93,6 +91,8 @@
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
+a0a87e9786c85f1bd21cc37b2459159ac6db0c65 skills/nightly-review/SKILL.md
+a4a41c886b142658c0e068849e34db4153e0ef17 skills/nightly-review/run.sh
 a5cfe83e1355961dbd21b5981ce890eb43b4692c skills/skill-creator/UPSTREAM.json
 a77888633d83b4e687a015431902bde6a6eb7383 .github/scripts/tools-release
 aa8f90e47503cdb763983dabd415e3e28b3b9f8f .github/scripts/tools/secret-scan.sh

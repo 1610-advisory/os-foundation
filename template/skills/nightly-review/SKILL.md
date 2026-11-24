@@ -36,7 +36,7 @@ It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `C
 
 **A possible leak** (a secret, a personal-life fact, or a private-source quote on `main`) is a flag that starts with `Possible leak:`. It goes to the admin's digest only, on the admin's computer. It is never written into a repo file, a report, or a pull request title or body. It is never fixed: an edit does not remove it from history. The admin runs `remove-leak`.
 
-**Log fold.** A daily log more than 30 days old folds into one `memory/logs/YYYY-MM-summary.md` per repo per month. The model writes the summary in plain sentences: no scores, no ranking, no private quotes. The fold removes the old daily files from `main`. History keeps them.
+**Log fold.** A daily log more than 30 days old folds into one `memory/logs/YYYY-MM-summary.md` per repo per month. The model writes the summary in plain sentences: no scores, no ranking, no private quotes. The fold removes the old daily files from `main`. History keeps them. There is no fold at the company root: a summary there would be a new log on the shared root.
 
 ## Privacy
 
