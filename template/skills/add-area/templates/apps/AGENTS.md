@@ -59,6 +59,7 @@ Area skills live in `skills/` here. Company skills live in `../../skills/`: read
 - `memory/`: how to work in this area.
 - `memory/logs/YYYY-MM-DD-<person>.md`: session logs, one file per person per day. `<person>` is the `slug:` on their page in `../../people/`. Write what was done and what is open. Never summarize private content.
 - `skills/`: this area's skills.
+- `projects/<slug>/`: a piece of work with an end that takes many sessions (planning, `LOG.md`, `decisions/`). Start it from `../../templates/project/` and list it in `projects/README.md`. Tool code goes to its own tool repo (`../../skills/app-setup/`).
 
 ## Approval tiers [team]
 
