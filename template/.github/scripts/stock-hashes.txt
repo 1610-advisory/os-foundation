@@ -46,6 +46,7 @@
 074b19109817f663639d4a2ccd5cfcc1ad904092 skills/undo-run/undo-run.sh
 075e29d4bbdbebafbfcfe9abdbaf632d4c96afa1 skills/lint/SKILL.md
 0794613b681b815d2c3ee2fdba96c8bfe016a8b3 skills/nightly-review/lib.sh
+07a83887af44629afd5d9d3974be16f818617af6 skills/orchestrator/templates/ORCHESTRATOR.md
 07cbb586a99c00a3621c2e2f5d2080a25744dd33 skills/nightly-review/CLI.md
 07da5c65f0bd71228fba841b47c9f05f2446773e skills/add-area/templates/apps/AGENTS.md
 083b7ea5e950482bed2783f0c03a61e18d2bd4ac skills/lint/SKILL.md
@@ -710,6 +711,7 @@
 9c71b2a22bcfc9d628da27171fc9d5e642a32f34 skills/upgrade/CLI.md
 9c94d146a9d7faef865038a8e49e10703677ba47 skills/undo-run/undo-run.sh
 9cd3a5b6407cb8e25357826914f54a1747ff6af6 skills/upgrade/upgrade.sh
+9d2a8650d28a36a47820368464a81044d8e1c64c skills/orchestrator/SKILL.md
 9d39fe1fc7f03a7de8912e06673fce74cbbdf54d skills/add-teammate/SKILL.md
 9db98dfacf140056de636d4d54195142659781ea skills/add-teammate/SKILL.md
 9decd89aa2a90fdd1b7a7fa429dfd35e6f87f771 skills/add-area/templates/finance/AGENTS.md
