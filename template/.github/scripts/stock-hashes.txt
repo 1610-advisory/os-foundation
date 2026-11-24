@@ -837,6 +837,7 @@ be7c5a45f0c46268cd25bbd69eddcab048f7f74c skills/upgrade/CLI.md
 bed4d7776b04a9017fbac52980b4c6c9e2964ebe .github/scripts/tools-release
 bf87db2bfce064bf7d3d23b115bf46c97e95aee8 skills/remove-teammate/CLI.md
 c027394f3469e83444d9997d72e286db0ac2372f skills/add-area/templates/apps/AGENTS.md
+c02940f7c5be014aa16439aa6db434a817c02ae7 skills/upgrade/upgrade.sh
 c0c1336cd777e0417760e158bce8f393950b8c4e skills/reports/run.sh
 c0f467e82e87d353d03255e79a956364575ecf77 skills/add-teammate/lib.sh
 c100a455be99e8403f1529a2f6b27180a0fbbe9e skills/add-teammate/CLI.md
@@ -961,6 +962,7 @@ dc443b5695fbab0d811ba0f478ce705b68f4f082 skills/upgrade/SKILL.md
 dc48f508c54e55efb0af0252bf314d691e2aec92 skills/add-teammate/add-person.sh
 dc4a2d46f36850fd3b1a199cc2e9404c8b885783 skills/add-teammate/join.sh
 dc7d7dfaa2601d607a2774f84fb470ef3b658154 .github/scripts/model-review.sh
+dcba2e9ac1447c9f2a64c403602f2ff7c9ab7e85 skills/upgrade/upgrade.sh
 dd10a544446781ab5b19d9244ce652454205cb3b skills/sync/SKILL.md
 dd14da71981108680b19461d82631b3f256b1f52 skills/nightly-review/SKILL.md
 dd392ad736415eaf0ef659675c2420fe0dfe9fe0 skills/add-teammate/workspace/AGENTS.md

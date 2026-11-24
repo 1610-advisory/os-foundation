@@ -4,7 +4,6 @@
 00d14f381d0750fdfa41c0b360e20838f08f6ec3 skills/add-teammate/lib.sh
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
-0454bdfcc1220b2140db71b7ca4ce7ad9459beea skills/upgrade/upgrade.sh
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
@@ -116,6 +115,7 @@ ba3c993b9d2e7bad4ee66000c4020907ec19a0be skills/sync/jobs/macos-interval.plist
 ba72de631c66316e8e60ca307fb28040e672d661 skills/add-teammate/workspace/AGENTS.md
 bac5b7c3cd6613148c3534c8a375828e1b9a9ff2 skills/remote-setup/defaults.txt
 c027394f3469e83444d9997d72e286db0ac2372f skills/add-area/templates/apps/AGENTS.md
+c02940f7c5be014aa16439aa6db434a817c02ae7 skills/upgrade/upgrade.sh
 c3c18dfdfcc5e6517cf9ddab24264fddc683af98 skills/remote-setup/check.ps1
 c3c950058944d6a45f266e78f299f6190520e02a skills/nightly-review/lib.sh
 c455395c6b356972d8543f90202d6fe7e2d4b990 skills/sync/helper.sh
