@@ -192,6 +192,13 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(path.stat().st_mtime_ns, stamp)
 
+    def test_old_switch_name_bots_still_turns_automations_on(self):
+        """v1.0.8: bots is the old name of the automations switch, read for one release."""
+        root, script = self.make("team", ["bots"])
+        result = run(script, root, "--stdout", "--root", str(root))
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(AUTOMATIONS, result.stdout.decode())
+
     def test_unknown_condition_fails_and_does_not_skip(self):
         places = (
             "# title\n\n"

@@ -41,7 +41,7 @@ def git_env(base):
     return env
 
 
-class BotPushTests(unittest.TestCase):
+class AutomationPushTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="osf-automation-push-"))
         self.home = self.tmp / "home"

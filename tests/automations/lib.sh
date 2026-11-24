@@ -6,29 +6,29 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   exit 1
 fi
 
-bots_repo() {
+automations_repo() {
   local here
   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   cd "$here/../.." && pwd
 }
 
-bots_fail() {
+automations_fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
 }
 
-bots_pass() {
+automations_pass() {
   printf 'PASS %s\n' "$*"
 }
 
-bots_need() {
+automations_need() {
   local cmd
   for cmd in "$@"; do
-    command -v "$cmd" >/dev/null 2>&1 || bots_fail "missing command: $cmd"
+    command -v "$cmd" >/dev/null 2>&1 || automations_fail "missing command: $cmd"
   done
 }
 
-bots_git_env() {
+automations_git_env() {
   export GIT_AUTHOR_NAME="Acme Automation"
   export GIT_AUTHOR_EMAIL="acme.automation@acme.test"
   export GIT_COMMITTER_NAME="Acme Automation"
@@ -39,9 +39,9 @@ bots_git_env() {
   git config --global init.defaultBranch main
 }
 
-bots_copy_skills() {
+automations_copy_skills() {
   local root=$1 repo
-  repo=$(bots_repo)
+  repo=$(automations_repo)
   mkdir -p "$root/skills/add-automation" "$root/skills/undo-run" "$root/skills/sync"
   cp "$repo/template/skills/add-automation/add-automation.sh" "$root/skills/add-automation/"
   cp "$repo/template/skills/add-automation/lib.sh" "$root/skills/add-automation/"
@@ -56,7 +56,7 @@ bots_copy_skills() {
   chmod 700 "$root/skills/undo-run/undo-run.sh"
 }
 
-bots_people() {
+automations_people() {
   local root=$1
   mkdir -p "$root/people"
   cat > "$root/people/Ada.md" << 'EOF'
@@ -85,7 +85,7 @@ areas: [marketing]
 EOF
 }
 
-bots_profile() {
+automations_profile() {
   local root=$1 host=$2 switches=$3 slug=${4:-acme}
   cat > "$root/company-profile.md" << EOF
 ---
@@ -107,7 +107,7 @@ runner: ubuntu-latest
 EOF
 }
 
-bots_stub_host() {
+automations_stub_host() {
   local root=$1
   mkdir -p "$root/skills/_host"
   cat > "$root/skills/_host/host.sh" << 'EOF'
@@ -145,7 +145,7 @@ EOF
   chmod 700 "$root/skills/_host/host.sh"
 }
 
-bots_secret_in_text() {
+automations_secret_in_text() {
   local secret_file=$1 text_file=$2
   OS_SCRUB=$(tr -d '[:space:]' < "$secret_file")
   export OS_SCRUB

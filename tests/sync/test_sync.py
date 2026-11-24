@@ -3872,6 +3872,45 @@ class QuickPullTests(unittest.TestCase):
         self.assertFalse(copied.exists())
         self.assertEqual(self.state_lines()[1], "full 100000")
 
+    def test_old_bot_state_line_still_reads(self):
+        """v1.0.8: a state file from before the rename says "bot 0". It is still a good state."""
+        self.make_repo(self.company, self.tmp / "root.git")
+        first = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        path = self.state_path()
+        path.write_text(path.read_text().replace("\nautomation 0\n", "\nbot 0\n"))
+        stamp = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_pull_points_an_old_automation_wrapper_at_the_new_helper(self):
+        """v1.0.8: add-bot wrote a credential wrapper that runs skills/add-bot/. Pull moves it."""
+        self.make_repo(self.company, self.tmp / "root.git")
+        helper = self.company / "skills" / "add-automation" / "git-credential-os-automation"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("#!/bin/bash\n")
+        helper.chmod(0o755)
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True, exist_ok=True)
+        wrap = cfg / "git-credential"
+        old = (f"#!/bin/bash\nset -euo pipefail\nexport OS_ROOT={self.company}\nexport OS_BOT=helper\n"
+               f"exec {self.company}/skills/add-bot/git-credential-os-bot \"$@\"\n")
+        wrap.write_text(old)
+        wrap.chmod(0o700)
+        result = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        text = wrap.read_text()
+        self.assertIn("export OS_AUTOMATION=helper\n", text)
+        self.assertIn(f"exec {self.company}/skills/add-automation/git-credential-os-automation", text)
+        self.assertNotIn("add-bot", text)
+        self.assertEqual(wrap.stat().st_mode & 0o777, 0o700)
+        # A wrapper that is already new is left as it is.
+        again = self.sync("pull", "--full", env=self.clock(100100, 18000))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(wrap.read_text(), text)
+
     def test_full_flag_still_fetches_and_copies(self):
         self.make_repo(self.company, self.tmp / "root.git")
         (self.company / "skills" / "lint").mkdir(parents=True)

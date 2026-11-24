@@ -431,7 +431,12 @@ class RefreshTests(unittest.TestCase):
         routine.write_text("Each weekday at 6 am, file the shared inbox.\n")
         if switches is not None:
             profile = root / "company-profile.md"
-            profile.write_text(re.sub(r"(?m)^switches: \[\]", f"switches: {switches}", profile.read_text()))
+            text = profile.read_text()
+            if switches.startswith("\n"):
+                text = re.sub(r"(?m)^switches: \[\][^\n]*", "switches:" + switches, text)
+            else:
+                text = re.sub(r"(?m)^switches: \[\]", f"switches: {switches}", text)
+            profile.write_text(text)
         for rel, line in ((".github/CODEOWNERS", "/bots/*/BOT.md @acme-admin"),
                           (".gitea/CODEOWNERS", "^bots/[^/]+/BOT\\.md$ @acme-admin")):
             path = root / rel
@@ -471,6 +476,7 @@ class RefreshTests(unittest.TestCase):
                          "Each weekday at 6 am, file the shared inbox.\n")
         self.assertEqual(self.host_blob(ref, "bots/helper/BOT.md"), "")
         self.assertRegex(self.show(ref, "company-profile.md"), r"(?m)^switches: \[automations, traces\]")
+        self.assertIn("Allowed: automations, traces", self.show(ref, "company-profile.md"))
         self.assertIn("\n/automations/*/AUTOMATION.md @acme-admin\n", self.show(ref, ".github/CODEOWNERS"))
         self.assertIn("\n^automations/[^/]+/AUTOMATION\\.md$ @acme-admin\n", self.show(ref, ".gitea/CODEOWNERS"))
         self.assertIn("**/AGENTS.md @acme-admin", self.show(ref, ".github/CODEOWNERS"))
@@ -520,6 +526,52 @@ class RefreshTests(unittest.TestCase):
         again = self.refresh()
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertNotIn("rename:", again.stdout)
+
+
+class RenameFilterTests(unittest.TestCase):
+    """skills/upgrade/rename.sh filters, one text at a time (v1.0.8)."""
+
+    def filt(self, name, text):
+        lib = TEMPLATE / "skills" / "upgrade" / "rename.sh"
+        proc = subprocess.run(["bash", "-c", '. "$1"; "$2"', "f", str(lib), name], input=text,
+                              text=True, capture_output=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
+    def test_switch_inline_block_and_bare(self):
+        inline = "---\nswitches: [bots, traces]   # off by default. Allowed: bots, traces\n---\n\nbots stay here\n"
+        self.assertEqual(self.filt("rename_switch_filter", inline),
+                         "---\nswitches: [automations, traces]   # off by default. Allowed: automations, traces\n---\n\nbots stay here\n")
+        block = "---\nswitches:\n  - traces\n  - bots\nhost: none\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", block),
+                         "---\nswitches:\n  - traces\n  - automations\nhost: none\n---\n")
+        bare = "---\nswitches: bots\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", bare), "---\nswitches: automations\n---\n")
+        # A switch that only starts with bots is another switch.
+        other = "---\nswitches: [bots-extra, traces]\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", other), other)
+
+    def test_keys_only_in_the_frontmatter(self):
+        page = "---\ntype: bot\nbot: helper\nbot_user: acme-helper\nowner: ada\n---\n\nbot: in the body stays\n"
+        self.assertEqual(self.filt("rename_keys_filter", page),
+                         "---\ntype: automation\nautomation: helper\nhost_user: acme-helper\nowner: ada\n---\n\nbot: in the body stays\n")
+
+    def test_owners_keep_the_owners_and_other_lines(self):
+        github = "# Rules\n**/AGENTS.md @acme-admin\n/bots/*/BOT.md @acme-director @acme-admin\n"
+        self.assertEqual(self.filt("rename_owners_filter", github),
+                         "# Rules\n**/AGENTS.md @acme-admin\n/automations/*/AUTOMATION.md @acme-director @acme-admin\n")
+        forgejo = "^bots/[^/]+/BOT\\.md$ @acme-admin\n^(.*/)?skills/.* @acme-admin\n"
+        self.assertEqual(self.filt("rename_owners_filter", forgejo),
+                         "^automations/[^/]+/AUTOMATION\\.md$ @acme-admin\n^(.*/)?skills/.* @acme-admin\n")
+
+    def test_text_changes_only_the_stock_names(self):
+        text = ("- Rules files (`skills/**`, `bots/*/BOT.md`, `CODEOWNERS`).\n"
+                "- Units: `bots/<bot>/BOT.md`.\n  - [bots]: `add-bot`, `undo-run`.\n"
+                "Our own line about bots stays.\n")
+        self.assertEqual(self.filt("rename_text_filter", text),
+                         "- Rules files (`skills/**`, `automations/*/AUTOMATION.md`, `CODEOWNERS`).\n"
+                         "- Units: `automations/<automation>/AUTOMATION.md`.\n  - [automations]: `add-automation`, `undo-run`.\n"
+                         "Our own line about bots stays.\n")
 
 
 if __name__ == "__main__":

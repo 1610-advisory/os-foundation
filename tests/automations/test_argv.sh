@@ -5,7 +5,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
 . "$here/lib.sh"
-bots_need bash git jq
+automations_need bash git jq
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -17,7 +17,7 @@ export OS_SYNC_LOG="$tmp/sync.log"
 export OS_HOST_LOG="$tmp/host.log"
 export OS_TOKEN_COUNT="$tmp/token-count"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$OS_JOBS_DIR" "$tmp/bin"
-bots_git_env
+automations_git_env
 
 secret="$tmp/secret-value"
 printf '%s\n' "argv-secret-marker" > "$secret"
@@ -30,7 +30,7 @@ export OS_ARGV_SECRETS="$secret"
 
 # The spy must notice a secret in argv. This is the control.
 bash "$here/fixtures/argv-spy.sh" "argv-secret-marker" >/dev/null
-[ -s "$OS_ARGV_HITS" ] || bots_fail "argv spy did not flag a secret"
+[ -s "$OS_ARGV_HITS" ] || automations_fail "argv spy did not flag a secret"
 : > "$OS_ARGV_LOG"
 : > "$OS_ARGV_HITS"
 
@@ -49,10 +49,10 @@ export PATH="$tmp/bin:$PATH"
 
 root="$tmp/company"
 mkdir -p "$root/notes"
-bots_profile "$root" forgejo "automations"
-bots_people "$root"
-bots_copy_skills "$root"
-bots_stub_host "$root"
+automations_profile "$root" forgejo "automations"
+automations_people "$root"
+automations_copy_skills "$root"
+automations_stub_host "$root"
 token="$tmp/automation-token"
 printf '%s\n' "argv-secret-marker" > "$token"
 chmod 600 "$token"
@@ -120,12 +120,12 @@ printf 'protocol=https\nhost=example.test\n\n' | \
   >"$tmp/cred.out"
 
 if [ -s "$OS_ARGV_HITS" ]; then
-  bots_fail "secret appeared in a child argv"
+  automations_fail "secret appeared in a child argv"
 fi
 if [ -s "$OS_ARGV_LOG" ] && grep -q "argv-secret-marker" "$OS_ARGV_LOG"; then
-  bots_fail "secret marker appeared in argv log"
+  automations_fail "secret marker appeared in argv log"
 fi
 if grep -q "unit-token-" "$OS_ARGV_LOG"; then
-  bots_fail "token appeared in argv log"
+  automations_fail "token appeared in argv log"
 fi
-bots_pass "no secret in child argv"
+automations_pass "no secret in child argv"

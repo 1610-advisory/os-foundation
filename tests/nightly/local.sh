@@ -301,7 +301,7 @@ solo_case() {
   rm -rf "$box"
 }
 
-bots_case() {
+automations_case() {
   local box company area
   box=$(mktemp -d)
   company="$box/acme"
@@ -854,7 +854,7 @@ missing_prompt_case
 leak_publish_case
 cap_case
 solo_case
-bots_case
+automations_case
 mdx_case
 no_decide_case
 company_pages_case

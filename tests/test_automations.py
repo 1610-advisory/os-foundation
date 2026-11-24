@@ -18,7 +18,7 @@ def _secret_files():
     return [path for path in paths if path.is_file()]
 
 
-class BotsTests(unittest.TestCase):
+class AutomationsTests(unittest.TestCase):
     def test_shell_suite(self):
         env = os.environ.copy()
         proc = subprocess.run(

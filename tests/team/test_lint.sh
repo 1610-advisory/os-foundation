@@ -130,6 +130,32 @@ printf '%s\n' "$out" | grep -q 'offer: You have used this OS for two weeks' || t
 out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver")
 printf '%s\n' "$out" | grep -q 'offer:' && team_fail "automation offer must be once"
 
+# v1.0.8: an offer shown under the old state name (lint-bot-offer) is not shown again.
+export HOME="$work/home4" XDG_CONFIG_HOME="$work/home4/.config"
+mkdir -p "$XDG_CONFIG_HOME/acme-os/state"
+printf '%s\n' 2026-01-01 > "$XDG_CONFIG_HOME/acme-os/state/lint-first-use"
+printf '%s\n' 2026-01-15 > "$XDG_CONFIG_HOME/acme-os/state/lint-bot-offer"
+out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$ver")
+printf '%s\n' "$out" | grep -q 'offer:' && team_fail "the old offer state must count"
+
+# v1.0.8: bots is the old name of the automations switch. It passes, with a notice. The
+# old root folder bots/ gets a notice too. A workspace's own bots/ is not a finding.
+old="$work/old-names"
+cp -R "$pass" "$old"
+sed 's/^switches: \[\]/switches: [bots]/' "$pass/company-profile.md" > "$old/company-profile.md"
+mkdir -p "$old/bots/helper" "$old/users/mia/bots/mine"
+printf '%s\n' "# Old" > "$old/bots/helper/BOT.md"
+printf '%s\n' "# Mine" > "$old/users/mia/bots/mine/BOT.md"
+if ! out=$("$lint" --ci --root "$old"); then
+  printf '%s\n' "$out" >&2
+  team_fail "the old switch name bots should pass"
+fi
+[ -z "$out" ] || team_fail "--ci printed a line for the old switch name"
+out=$(OS_VERSION_URL="file://$work/unrel" "$lint" --root "$old")
+printf '%s\n' "$out" | grep -q 'notice: switches: bots is the old name' || team_fail "missing old switch notice"
+printf '%s\n' "$out" | grep -q 'notice: bots/ at the company root is the old name' || team_fail "missing old folder notice"
+printf '%s\n' "$out" | grep -q 'offer:' && team_fail "the old switch name must count as on"
+
 # A link whose text is ../skills but whose target is missing is a finding.
 dangle="$work/dangle"
 mkdir -p "$dangle/.agents" "$dangle/.claude" "$dangle/skills"
