@@ -21,7 +21,7 @@ Personal. Only <Name> and their agents read this file. Method: `skills/orchestra
 
 ## Waiting on <Name>
 
-<!-- One line each: what, which worker, since when. Remove when answered. -->
+<!-- One line each: what, which worker, since when. Remove when answered. Questions that a bot carries to <Name> go in questions.md next to this file. -->
 
 ## Decisions
 
