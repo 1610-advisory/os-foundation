@@ -1,6 +1,7 @@
 # git blob id and path of each stock file this release ships under skills/
 # and .github/. Written by tests/static/stock-hashes.sh --write.
 01df5a50afb5da04cc282ff7421e4ec00720c8c4 skills/sync/links.sh
+05ae0dc7716450e4b5b0893b6f8eee7ccfd21ca5 skills/add-teammate/SKILL.md
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 07a83887af44629afd5d9d3974be16f818617af6 skills/orchestrator/templates/ORCHESTRATOR.md
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
@@ -173,7 +174,6 @@ f8b197c9b6cf53be765b9a1b44d21caa71c3a389 skills/skill-creator/assets/eval_review
 f8d9be7afd04264b697daa05a4d9ef4450eec46c skills/add-area/templates/_area/AGENTS.md
 fa6cb6017d41d736958d1cfbdfc5b0cd2712733e .github/scripts/review-rules.default.md
 fc1d44a9896c18eb8072f0083fcfb77a6c2ca7e2 skills/skill-creator/FOUNDATION.md
-fc569cd4bd26c7ee3d95ae6dfdf19409b6128bd6 skills/add-teammate/SKILL.md
 fc9ee1fcc715cf61f62a06292ab1fbf03dc43f12 skills/upgrade/SKILL.md
 fdc3ac8fd6c0f73c30a2c60cbeaf9b02b50633de .github/scripts/host-read.sh
 ffef92c48b351a3ed036556ed32dda934e8cf41a skills/skill-creator/UPSTREAM_NOTICES.md

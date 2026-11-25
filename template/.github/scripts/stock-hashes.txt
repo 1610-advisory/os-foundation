@@ -36,6 +36,7 @@
 04d06a5f7d71cb0492feef0da7144b0b23e15e68 skills/add-teammate/CLI.md
 050d03386779e34fcb6bde56ac81f53dbad48159 skills/add-teammate/CLI.md
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
+05ae0dc7716450e4b5b0893b6f8eee7ccfd21ca5 skills/add-teammate/SKILL.md
 060b565c2ba914b6b632244781cf3d1403eee186 skills/undo-run/SKILL.md
 066e595afb9062f532768c6d976a092cb46eb216 skills/add-teammate/team-on.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
