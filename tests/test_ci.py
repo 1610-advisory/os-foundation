@@ -1791,6 +1791,83 @@ class ApproveCommandTests(unittest.TestCase):
         self.assertFalse(joined.stdout.startswith("valid "), joined.stdout)
 
 
+class PeoplePageOwnerTests(unittest.TestCase):
+    """#63: override.sh reads left:, role: and github: the same way. A trailing
+    " # comment" goes, quotes go, then it trims. So the empty left: "" of every
+    people page (and the template's line with its comment) counts as not left."""
+
+    TEMPLATE_PERSON = ROOT / "template" / "templates" / "person.md"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "people").mkdir()
+        (self.repo / "AGENTS.md").write_text("# Acme\n", encoding="utf-8")
+
+    def page(self, left_line, role_line="role: admin", github_line="github: acme-admin"):
+        (self.repo / "people" / "Ada.md").write_text(
+            f"---\nname: Ada Admin\n{github_line}\n{role_line}\n{left_line}\n---\nAda Admin\n",
+            encoding="utf-8",
+        )
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "people page")
+        self.base = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
+
+    def decide(self, command, body):
+        comment = Path(self.tmp.name) / "comment"
+        comment.write_text(body, encoding="utf-8")
+        return run(["bash", str(SCRIPTS / "override.sh"), "--command", command, "--user", "acme-admin",
+                    "--comment-file", str(comment), "--base", self.base], cwd=self.repo)
+
+    def assert_owner(self, yes):
+        for command, body in (("override", "/override too large"), ("approve", "/approve")):
+            result = self.decide(command, body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            if yes:
+                self.assertTrue(result.stdout.startswith("valid "), (command, result.stdout))
+            else:
+                self.assertEqual(result.stdout.strip(), "ignored not-owner", command)
+
+    def test_template_left_line_has_the_comment(self):
+        # The test below copies this line. If the template changes it, look again.
+        line = next(l for l in self.TEMPLATE_PERSON.read_text(encoding="utf-8").splitlines()
+                    if l.startswith("left:"))
+        self.assertRegex(line, r'^left: ""\s+# ')
+
+    def test_empty_left_is_an_owner(self):
+        self.page('left: ""')
+        self.assert_owner(True)
+
+    def test_template_left_line_with_its_comment_is_an_owner(self):
+        line = next(l for l in self.TEMPLATE_PERSON.read_text(encoding="utf-8").splitlines()
+                    if l.startswith("left:"))
+        self.page(line)
+        self.assert_owner(True)
+
+    def test_other_empty_forms_are_owners(self):
+        for line in ("left:", "left: ''", "left:   # not yet"):
+            with self.subTest(line=line):
+                self.page(line)
+                self.assert_owner(True)
+
+    def test_quoted_role_and_login_with_comments_are_read(self):
+        self.page('left: ""', role_line='role: "admin"   # admin or member', github_line="github: 'acme-admin' # login")
+        self.assert_owner(True)
+
+    def test_a_date_in_left_is_not_an_owner(self):
+        for line in ("left: 2026-11-01", 'left: "2026-11-01"', "left: 2026-11-01   # set by remove-teammate"):
+            with self.subTest(line=line):
+                self.page(line)
+                self.assert_owner(False)
+
+    def test_a_member_is_not_an_owner(self):
+        self.page('left: ""', role_line="role: member   # admin or member")
+        self.assert_owner(False)
+
+
 class OwnerWaitTests(unittest.TestCase):
     """v1.0.4: in the company repo a new root file waits for an owner's /approve."""
 
