@@ -156,6 +156,13 @@ One line each:
 - **Where to start.** "For {{AREA_SLUG}} work, open your agent in `~/{{COMPANY_SLUG}}-os/areas/{{AREA_SLUG}}/`. General work: `~/{{COMPANY_SLUG}}-os/`."
 - **Grok users only.** The Grok CLI reads none of a folder's rules until the person trusts that folder. Ask them to start `grok` once in the company folder and once in each area folder, and say yes to trust. Check: `grok inspect --json` in that folder shows `"projectTrusted": true`. Skip this when they do not use Grok.
 
+### B6. Phone access and an orchestrator (optional)
+
+Ask once: "Do you want to use Claude from your phone, with a session that stays alive on this computer?"
+- Yes: run `skills/remote-setup/SKILL.md` on this computer. It installs Herdr, starts the company session with Remote Control on, keeps the computer awake, starts again after a restart, and ends with its own pass or fail check. Do not set up Remote Control here by hand.
+- After remote-setup passes, offer the orchestrator once: "Do you want one always-on session that starts and checks your other sessions for you?" Yes: run `skills/orchestrator/SKILL.md`, section 1. It uses the session that remote-setup made.
+- No: skip both. They can ask for either later ("set up remote", "set up my orchestrator").
+
 ## Rules for this skill
 
 - Nobody writes to `main`, the admin included. Never write or say otherwise.
