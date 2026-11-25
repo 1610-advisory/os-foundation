@@ -271,6 +271,33 @@ review_rules_on_main() {
   printf '%s\n' " and review-rules.md"
 }
 
+# Does main ($2, a commit in repo $1) have the check tools? checks_build asks this.
+checks_main_has_tools() {
+  local dir=$1 ref=$2 f
+  for f in .github/workflows/checks.yml .github/scripts/checkout.sh \
+    .github/scripts/tools/secret-scan.sh .github/review.conf; do
+    git -C "$dir" cat-file -e "${ref}:${f}" 2>/dev/null || return 1
+  done
+}
+
+# The tools release on main ($2 in repo $1), as tools_release reads it.
+checks_main_release() {
+  local rel
+  rel=$(git -C "$1" show "${2}:.github/scripts/tools-release" 2>/dev/null | tr -cd '0-9' || true)
+  printf '%s\n' "${rel:-0}"
+}
+
+# Will checks-on-main put this release's check tools on main ($2 in repo $1)? Yes when
+# main has none, or an older release. Then checks_build replaces the whole of
+# .github/scripts and .github/workflows/checks.yml, the company's changes too: these are
+# the checks, and a team's checks run main's copy. --refresh says so before it starts.
+checks_replace_tools() {
+  local dir=$1 ref=$2 new_rel
+  checks_main_has_tools "$dir" "$ref" || return 0
+  new_rel=$(tools_release "$TEMPLATE/.github/scripts/tools-release")
+  [ "$(checks_main_release "$dir" "$ref")" -lt "$new_rel" ]
+}
+
 # Build the checks-on-main commit in $CHECKS_TMP/main, on origin/main as last fetched.
 # Run again when main moved (#69). Sets CHECKS_LINE, CHECKS_BASE (the main it built on)
 # and CHECKS_PUSH (0: main already has it all, nothing to push).
@@ -281,13 +308,10 @@ checks_build() {
   CHECKS_BASE=$(git -C "$dir" rev-parse origin/main)
   CHECKS_PUSH=1
   git -C "$dir" worktree add -q --detach "$tmp/main" "$CHECKS_BASE"
-  if [ -f "$tmp/main/.github/workflows/checks.yml" ] \
-    && [ -f "$tmp/main/.github/scripts/checkout.sh" ] \
-    && [ -f "$tmp/main/.github/scripts/tools/secret-scan.sh" ] \
-    && [ -f "$tmp/main/.github/review.conf" ]; then
+  if checks_main_has_tools "$dir" "$CHECKS_BASE"; then
     # main has check tools. The checks run them from main, so a fix in a newer release
     # reaches the company only here. Never put older tools over newer ones.
-    main_rel=$(tools_release "$tmp/main/.github/scripts/tools-release")
+    main_rel=$(checks_main_release "$dir" "$CHECKS_BASE")
     new_rel=$(tools_release "$TEMPLATE/.github/scripts/tools-release")
     cp "$tmp/main/.github/scripts/stock-hashes.txt" "$tmp/stock-main" 2>/dev/null || : > "$tmp/stock-main"
     if [ "$main_rel" -lt "$new_rel" ]; then

@@ -167,6 +167,16 @@ load_codeowners "${base}:.gitea/CODEOWNERS" regex
 load_codeowners "${base}:.forgejo/CODEOWNERS" regex
 load_codeowners "${base}:docs/CODEOWNERS" regex
 
+# One people-page field, read the same way for each: the first "name:" line,
+# a trailing " # comment" (or a value that is only a comment) dropped, quotes dropped, then trimmed.
+# So `left: ""   # date they left` is empty, and `left: 2026-11-01` is not.
+page_field() {
+  local value
+  value=$(printf '%s\n' "$text" | sed -n "s/^$1:[[:space:]]*//p" | head -n 1)
+  value=$(printf '%s' "$value" | sed -E 's/(^|[[:space:]])#.*$//' | tr -d "\"'")
+  ci_trim "$value"
+}
+
 if git cat-file -e "${base}:people" 2>/dev/null || git ls-tree -d --name-only "$base" people >/dev/null 2>&1; then
   git ls-tree -r --name-only "$base" -- people 2>/dev/null | while IFS= read -r page; do
     [ -n "$page" ] || continue
@@ -175,14 +185,9 @@ if git cat-file -e "${base}:people" 2>/dev/null || git ls-tree -d --name-only "$
       *) continue ;;
     esac
     text=$(git show "${base}:${page}" 2>/dev/null || true)
-    role=$(printf '%s\n' "$text" | sed -n 's/^role:[[:space:]]*//p' | head -n 1)
-    role=$(ci_trim "$role")
-    role=$(printf '%s' "$role" | tr -d '"' | tr -d "'")
-    login=$(printf '%s\n' "$text" | sed -n 's/^github:[[:space:]]*//p' | head -n 1)
-    login=$(ci_trim "$login")
-    login=$(printf '%s' "$login" | tr -d '"' | tr -d "'")
-    left=$(printf '%s\n' "$text" | sed -n 's/^left:[[:space:]]*//p' | head -n 1)
-    left=$(ci_trim "$left")
+    role=$(page_field role)
+    login=$(page_field github)
+    left=$(page_field left)
     if [ "$(ci_lower "$role")" = "admin" ] && [ -n "$login" ] && [ -z "$left" ]; then
       add_owner "$login"
     fi

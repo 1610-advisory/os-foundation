@@ -155,6 +155,49 @@ class RefreshTests(unittest.TestCase):
         heads = run(["git", "ls-remote", "--heads", str(self.bare)], env=self.env).stdout
         self.assertNotIn("rules/", heads)
 
+    def change_check_tool(self, release=None):
+        """The company changed override.sh and added a script of its own in .github/scripts."""
+        scripts = self.company / ".github" / "scripts"
+        override = scripts / "override.sh"
+        override.write_text(override.read_text() + "\n# Acme: a local change.\n")
+        (scripts / "acme-extra.sh").write_text("#!/bin/bash\necho acme\n")
+        if release is not None:
+            # main has the check tools (review.conf too), from this release.
+            (scripts / "tools-release").write_text(f"{release}\n")
+            (self.company / ".github" / "review.conf").write_text("vendor=fake\nmodel=fake\nkind=fake\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "Acme check change"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+
+    def test_a_changed_check_tool_is_named_as_replaced_not_kept(self):
+        # checks-on-main puts this release's .github/scripts on main whole, so the run says
+        # so: never "kept" for a check tool it replaces.
+        self.change_check_tool()
+        dry = self.refresh("--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertIn("replace (check tool): the company folder .github/scripts/override.sh (changed by the company",
+                      dry.stdout)
+        self.assertIn("remove (check tool): the company folder .github/scripts/acme-extra.sh", dry.stdout)
+        self.assertNotIn("kept: the company folder .github/", dry.stdout)
+        self.assertIn("kept: the company folder skills/ingest/SKILL.md", dry.stdout)
+        self.assertLess(dry.stdout.index("replace (check tool):"), dry.stdout.index("change: checks-on-main"))
+        real = self.refresh()
+        self.assertEqual(real.returncode, 0, real.stdout + real.stderr)
+        self.assertIn("replace (check tool): the company folder .github/scripts/override.sh", real.stdout)
+        self.assertNotIn("kept: the company folder .github/", real.stdout)
+        # What the run said is what main has.
+        want = run(["git", "hash-object", str(TEMPLATE / ".github/scripts/override.sh")], env=self.env).stdout.strip()
+        self.assertEqual(self.host_blob("main", ".github/scripts/override.sh"), want)
+        self.assertEqual(self.host_blob("main", ".github/scripts/acme-extra.sh"), "")
+
+    def test_a_changed_check_tool_is_kept_when_main_has_newer_tools(self):
+        # Tools on main from a newer release stay, so the company's change stays: kept is true.
+        self.change_check_tool(release="9999999999")
+        dry = self.refresh("--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertNotIn("(check tool):", dry.stdout)
+        self.assertIn("kept: the company folder .github/scripts/override.sh (changed by the company", dry.stdout)
+
     def test_dry_run_never_keeps_the_generated_lists_and_names_drop_logs(self):
         # Round 6: the stock lists are generated, never "changed by the company", and an old
         # v0 logs branch still on the host gets the admin's drop-logs line.

@@ -2,6 +2,16 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## Unreleased
+
+Check tools release `2026112501`. At team level a company gets this with `upgrade --refresh`.
+
+**Checks (issue #63)**
+- **An admin can `/override` and `/approve` again.** `override.sh` read `left:` on a people page as it stood, so `left: ""` (every people page has it) was not empty, and no person with `role: admin` counted as an owner. The template line's trailing `# comment` was kept too. Now `left:`, `role:` and `github:` are read the same way: a trailing ` # comment` goes, quotes go, then the value is trimmed. A page with a real date in `left:` still does not count. A company on the old tools needs a ruleset bypass once to take this fix, because the check runs `override.sh` from `main`.
+
+**Upgrade**
+- **`--refresh` no longer says `kept:` for a check tool it replaces.** At team level, when this release's check tools go on `main`, all of `.github/scripts/` and `.github/workflows/checks.yml` become this release's, the company's changes too. The dry run said `kept: .github/scripts/<file> (changed by the company)` all the same. Now the run prints `replace (check tool): <folder> <path>` for a check tool the company changed and `remove (check tool): <folder> <path>` for one it added, before `checks-on-main:`. When `main` has tools from the same or a newer release, they stay, and a changed file is still `kept:`.
+
 ## v1.0.7 — 2026-11-24
 
 Nightly reports leave the company root, no merge on failing checks during an upgrade, projects inside areas, and a steadier phone session. A company gets this with `upgrade --refresh`.
