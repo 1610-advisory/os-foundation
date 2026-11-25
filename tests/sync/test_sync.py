@@ -3199,6 +3199,8 @@ class WorkspaceRulesTests(unittest.TestCase):
     sub_repo = ExtraHoldsTests.sub_repo
 
     RULES = {
+        "automations/x/AUTOMATION.md": "# Automation x\n",
+        "automations/x/skills/y.md": "an automation skill\n",
         "bots/x/BOT.md": "# Bot x\n",
         "bots/x/skills/y.md": "a bot skill\n",
         "AGENTS.md": "# my rules\n",
@@ -3255,7 +3257,7 @@ class WorkspaceRulesTests(unittest.TestCase):
     def test_area_commit_with_a_rules_file_still_stops(self):
         # The range check, on its own: a commit sync did not make stops first, so call it.
         area = self.ready("areas/sales")
-        self.commit_files(area, {"bots/x/BOT.md": "# Bot x\n"})
+        self.commit_files(area, {"automations/x/AUTOMATION.md": "# Automation x\n"})
         script = ('source "$1/lib.sh"; source "$1/push.sh"; '
                   'sync_check_range "$2" area:sales origin/main..HEAD "$3"')
         for kind in ("area", "root", ""):
