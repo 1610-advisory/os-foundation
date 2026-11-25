@@ -60,6 +60,37 @@ refresh_known() {
   grep -Fxq -- "$1 $2" "$REFRESH_HASHES"
 }
 
+# A file checks-on-main replaces in this run (REFRESH_TOOLS_ON_MAIN=1): one in
+# .github/scripts, or the checks workflow. Those are the checks, not company content.
+refresh_check_tool() {
+  [ "${REFRESH_TOOLS_ON_MAIN:-0}" -eq 1 ] || return 1
+  case "$1" in
+    .github/scripts/*|.github/workflows/checks.yml) return 0 ;;
+  esac
+  return 1
+}
+
+# Before checks-on-main: name each check tool on main the company changed or added. The
+# run replaces or removes it, so the run says so and never calls it kept.
+refresh_check_tool_lines() {
+  local dir=$1 label=$2 path old new
+  while IFS= read -r -d '' path; do
+    refresh_check_tool "$path" || continue
+    old=$(git -C "$dir" rev-parse -q --verify "${REFRESH_BASE}:${path}" 2>/dev/null || true)
+    refresh_known "$old" "$path" && continue
+    case "$path" in
+      .github/scripts/stock-current.txt|.github/scripts/stock-hashes.txt) continue ;;
+    esac
+    if [ -f "$TEMPLATE/$path" ]; then
+      new=$(git hash-object -- "$TEMPLATE/$path")
+      [ "$old" != "$new" ] || continue
+      printf 'replace (check tool): %s %s (changed by the company; checks-on-main puts this release'"'"'s copy on main, because the checks run from main)\n' "$label" "$path"
+    else
+      printf 'remove (check tool): %s %s (not in this release; checks-on-main replaces all of .github/scripts on main)\n' "$label" "$path"
+    fi
+  done < <(git -C "$dir" ls-tree -r -z --name-only "$REFRESH_BASE" -- .github/scripts .github/workflows/checks.yml)
+}
+
 # Sort one repo's stock files into add, replace, remove and kept (changed by the company).
 # Writes four lists in $3.
 refresh_plan() {
@@ -71,6 +102,8 @@ refresh_plan() {
   refresh_stock_paths "$kind" > "$out/stock"
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+    # The check tools go on main by checks-on-main, not by this pull request.
+    refresh_check_tool "$path" && continue
     new=$(git hash-object -- "$TEMPLATE/$path")
     old=$(git -C "$dir" rev-parse -q --verify "${REFRESH_BASE}:${path}" 2>/dev/null || true)
     if [ "$old" = "$new" ]; then
@@ -113,6 +146,7 @@ refresh_plan() {
   refresh_repo_paths "$dir" "$kind" | while IFS= read -r path; do
     [ -n "$path" ] || continue
     grep -Fxq -- "$path" "$out/stock" && continue
+    refresh_check_tool "$path" && continue
     old=$(git -C "$dir" rev-parse -q --verify "${REFRESH_BASE}:${path}" 2>/dev/null || true)
     if [ -n "$old" ] && refresh_known "$old" "$path"; then
       printf '%s\n' "$path" >> "$out/remove"
@@ -188,7 +222,12 @@ refresh_one() {
   # Team: the checks job runs main's tools, so this release's tools and stock list go on
   # main first, by the upgrade's own path (protection lifted for that one push, then back
   # on). The pull request is then judged by them, and only skills/ is left in it.
+  REFRESH_TOOLS_ON_MAIN=0
   if [ "$REFRESH_TEAM" -eq 1 ]; then
+    if checks_replace_tools "$dir" "$REFRESH_BASE"; then
+      REFRESH_TOOLS_ON_MAIN=1
+      refresh_check_tool_lines "$dir" "$label"
+    fi
     if [ "$DRY" -eq 1 ]; then
       printf 'change: checks-on-main %s\n' "$label"
       automerge_would_pause "$(basename "$(git -C "$dir" remote get-url origin)" .git)"

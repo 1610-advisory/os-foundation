@@ -13,6 +13,16 @@ Plain-word release notes for os-foundation. Newest first. Versions follow semver
 **Automations (#76)**
 - **Bots are now automations.** A company agent that runs on a schedule with no person is now called an automation. The skill `add-bot` is now `add-automation`. Its folder `bots/<name>/BOT.md` is now `automations/<name>/AUTOMATION.md`. The switch `bots` is now `automations`. The word "bot" is now free for a person's own bots: `bots/<name>/` in their workspace is personal. It is not a rules file, and sync never holds it. `upgrade --refresh` does the rename in the company repo and in each area repo, in its rules pull request (solo: its commit): it moves `bots/` to `automations/` with every file, changes the keys in each `AUTOMATION.md`, changes the switch in `company-profile.md`, and changes the `CODEOWNERS` line and the stock names in `AGENTS.md`, `CLAUDE.md` and `review-rules.md`. It never touches a workspace. A repo that has both `bots/` and `automations/` stops with one line: move the files by hand, then run it again. You do nothing else. Until the rename merges, the old names still work: the switch `bots` (lint prints a notice), `--bot`, `bot_user:`, the old token file place, and an automation box's credential wrapper (its next `sync.sh pull` points it at the new helper). New commits carry `Automation-Owner:`. Old commits keep `Bot-Owner:`.
 
+## v1.0.7.1 — 2026-11-25
+
+A fix on top of v1.0.7: admins can use `/override` and `/approve` again. Check tools release `2026112501`. At team level a company gets this with `upgrade --refresh`.
+
+**Checks (issue #63)**
+- **An admin can `/override` and `/approve` again.** `override.sh` read `left:` on a people page as it stood, so `left: ""` (every people page has it) was not empty, and no person with `role: admin` counted as an owner. The template line's trailing `# comment` was kept too. Now `left:`, `role:` and `github:` are read the same way: a trailing ` # comment` goes, quotes go, then the value is trimmed. A page with a real date in `left:` still does not count. A company on the old tools needs a ruleset bypass once to take this fix, because the check runs `override.sh` from `main`.
+
+**Upgrade**
+- **`--refresh` no longer says `kept:` for a check tool it replaces.** At team level, when this release's check tools go on `main`, all of `.github/scripts/` and `.github/workflows/checks.yml` become this release's, the company's changes too. The dry run said `kept: .github/scripts/<file> (changed by the company)` all the same. Now the run prints `replace (check tool): <folder> <path>` for a check tool the company changed and `remove (check tool): <folder> <path>` for one it added, before `checks-on-main:`. When `main` has tools from the same or a newer release, they stay, and a changed file is still `kept:`.
+
 ## v1.0.7 — 2026-11-24
 
 Nightly reports leave the company root, no merge on failing checks during an upgrade, projects inside areas, and a steadier phone session. A company gets this with `upgrade --refresh`.
