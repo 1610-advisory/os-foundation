@@ -7,7 +7,7 @@ description: The nightly review of the day's merged changes in each repo. A smal
 
 Notes go in at once (the auto tier). The nightly review reads them after. It is the check after the change, not a gate before it.
 
-This skill is for `team` and `app`. At `team` it runs on the admin's computer. [app]: the kernel runs it. At `solo` it prints `skipped: solo` and does nothing.
+This skill is for `team` and `app`. At `team` it runs on the admin's computer. [app]: a tool timer or standing agent runs it (planned). At `solo` it prints `skipped: solo` and does nothing.
 
 ## When and how it runs
 

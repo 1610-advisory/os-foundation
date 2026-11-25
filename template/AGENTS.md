@@ -4,7 +4,7 @@ The company OS of **{{COMPANY_NAME}}**. People capture, decide and ask. You (the
 
 ## 1. Level first
 
-Read `level:` and `switches:` in `company-profile.md` first. Skip rules for a higher level or a switch that is off. `solo`: one person, local git. `team`: teammates and a git host. `app`: the 1610 OS app. **[team]** marks a rule for `team` and `app`; **[app]**: `app` only; a switch name in brackets: only when it is on.
+Read `level:` and `switches:` in `company-profile.md` first. Skip rules for a higher level or a switch that is off. `solo`: one person, local git. `team`: teammates and a git host. `app`: the company kernel (1610 OS). **[team]** marks a rule for `team` and `app`; **[app]**: `app` only; a switch name in brackets: only when it is on.
 
 ## 2. Pull before work [team]
 

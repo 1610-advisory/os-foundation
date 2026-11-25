@@ -74,7 +74,7 @@ Only when you act for an admin (see "Who you act for"), at the company root. A c
 
 Records (customers, jobs, accounting lines) never become notes and never go in this folder. They live in a tool's SQLite file or a dataset, with its own lock, listed in the area's `datasets.md`. People read them through that tool or the system's own connector, which checks access. An export or a list of records in the inbox is not filed: leave it in the inbox and say which tool or dataset owns it.
 
-When a note is about a record, add it to the note's `records:` list as `<tool>:<kind>:<key>` (for example `"crm:job:J-1042"`). The kinds and keys come from the owning tool's `tool.json`; do not invent a kind. A short form (`job:J-1042`) works only when exactly one tool has that kind. A key the index does not know stays plain text and breaks nothing. Write the key only, never the record's details.
+When a note is about a record, add it to the note's `records:` list as `<tool>:<kind>:<key>` (for example `"crm:job:J-1042"`). The kind is a table name in the owning tool's `tool.json` data list (for example `job`), and the key comes from that table's key columns; do not invent a kind. A short form (`job:J-1042`) works only when exactly one tool has that kind. A key the index does not know stays plain text and breaks nothing. Write the key only, never the record's details.
 
 ## Safety
 

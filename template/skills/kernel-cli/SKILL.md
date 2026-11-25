@@ -28,7 +28,7 @@ Use it for records. Notes, SOPs and decisions stay in this folder (markdown). Ne
 Kinds of request:
 - **read:** run it.
 - **write:** say in one line what will change, then run it. Use `--dry-run` first when the change is large or you are not sure.
-- **risky** (archive, merge, bulk change, sends something outside): ask the person first. The kernel may answer "waiting for approval" (exit 2). Give the person the link. Do not run it again to get around it.
+- **risky** (archive, merge, bulk change, sends something outside): ask the person first. The kernel may answer "waiting for approval" (exit 2). Give the person the link. Do not run it again to get around it. A `risky` request of a built tool is refused until kernel approvals ship.
 
 ## 3. Exit codes
 

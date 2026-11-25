@@ -82,7 +82,7 @@ Claude installs toolkits as plugins. Other agents keep them in one folder, `~/to
 
 Say "build an app", "automate this", or "where should this run?" The [app-setup skill](template/skills/app-setup/SKILL.md) checks your existing software first. Custom code is an option, not the default. A tool you build is declared: a data list, named requests, and optional screens and schedules, in TypeScript. Each tool has its own repo; your folder keeps one record of it in the Apps area, never its code or data.
 
-When your company has an OS server (the kernel), a tool has no sign-in of its own: the kernel handles sign-in, permissions and the audit log, and runs the tool once it can. With no kernel that can host it, a strict stopgap rule applies: business records only, sign-in with your office account, a security review, backups and a copy in storage you own, and a written plan to move. You approve publishing, recurring costs and data handling first. Setup does not require a hosting subscription, and installing these instructions does not create a server or grant deployment access.
+When your company has an OS server (the kernel), a tool has no sign-in of its own: the kernel handles sign-in, permissions and the audit log, and forwards each request to the tool, which runs as its own process behind the kernel at `<company>.1610.tools/t/<tool>/`. With no kernel that can host it, a strict stopgap rule applies: business records only, sign-in with your office account, a security review, backups and a copy in storage you own, and a written plan to move. You approve publishing, recurring costs and data handling first. Setup does not require a hosting subscription, and installing these instructions does not create a server or grant deployment access.
 
 ## Teams
 
