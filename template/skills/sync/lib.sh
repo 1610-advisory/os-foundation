@@ -434,8 +434,6 @@ sync_is_rules() {
   esac
   case "$path" in
     skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS|automations/*/AUTOMATION.md) return 0 ;;
-    # Before v1.0.8 an automation was a bot. Hold the old name until the upgrade moves it.
-    bots/*/BOT.md) return 0 ;;
   esac
   return 1
 }

@@ -3201,8 +3201,6 @@ class WorkspaceRulesTests(unittest.TestCase):
     RULES = {
         "automations/x/AUTOMATION.md": "# Automation x\n",
         "automations/x/skills/y.md": "an automation skill\n",
-        "bots/x/BOT.md": "# Bot x\n",
-        "bots/x/skills/y.md": "a bot skill\n",
         "AGENTS.md": "# my rules\n",
         "skills/z/SKILL.md": "a skill\n",
     }
@@ -3230,11 +3228,13 @@ class WorkspaceRulesTests(unittest.TestCase):
 
     def test_workspace_commit_with_rules_files_pushes(self):
         ws = self.ready("users/mia")
-        self.commit_files(ws, self.RULES)
+        # A person's own bots/ is never a rules file.
+        files = {**self.RULES, "bots/x/BOT.md": "# Bot x\n", "bots/x/skills/y.md": "a bot skill\n"}
+        self.commit_files(ws, files)
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
         names = self.remote_files("users/mia")
-        for rel in self.RULES:
+        for rel in files:
             self.assertIn(rel, names)
         self.assertNotIn("rules file: propose it", self.sync("status").stdout)
 
