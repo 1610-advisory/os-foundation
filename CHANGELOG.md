@@ -2,6 +2,11 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
+## v1.0.8 — unreleased
+
+**Orchestrator (#74)**
+- **Orchestrator skill.** `skills/orchestrator/`: one always-on Claude Code session per person (their chief of staff) that starts workers in Herdr, in the company folder, an area, a project or the person's workspace, checks on them, and brings the person only what needs an answer. It drafts and never sends. It answers Claude's folder-trust question only for a folder whose real path is inside the company folder. Setup uses `remote-setup`. Personal file: `users/<me>/orchestrator/ORCHESTRATOR.md`. It asks a session for a handoff list before it closes it, can be restarted with its conversation kept (`--resume`), and lets the person's own bots talk to it, with a four-digit check code before any send.
+
 ## v1.0.7 — 2026-11-24
 
 Nightly reports leave the company root, no merge on failing checks during an upgrade, projects inside areas, and a steadier phone session. A company gets this with `upgrade --refresh`.
@@ -25,7 +30,6 @@ Nightly reports leave the company root, no merge on failing checks during an upg
 
 **Areas (#73)**
 - **Projects inside areas.** A piece of work that takes many sessions gets a folder `areas/<area>/projects/<slug>/`, started from `templates/project/`: `AGENTS.md` (what it is and how to work in it), a running `LOG.md`, `status.json`, `decisions/` (short ADRs) and `compare/` (comparison matrices). Tool code still goes to its own tool repo. New areas list the folder; for an existing area, copy the one line from `skills/add-area/templates/_area/AGENTS.md` if you want it.
-- **Orchestrator skill.** `skills/orchestrator/`: one always-on Claude Code session per person (their chief of staff) that starts workers in Herdr, in the company folder, an area, a project or the person's workspace, checks on them, and brings the person only what needs an answer. It drafts and never sends. It answers Claude's folder-trust question only for a folder whose real path is inside the company folder. Setup uses `remote-setup`. Personal file: `users/<me>/orchestrator/ORCHESTRATOR.md`. It asks a session for a handoff list before it closes it, can be restarted with its conversation kept (`--resume`), and lets the person's own bots talk to it, with a four-digit check code before any send.
 
 **Remote setup (#72, #77)**
 - **Herdr starts with no window on Windows.** The remote-setup Startup shortcut now runs `herdr server` through `conhost.exe --headless`, the same way the sync jobs run. No minimized window stays in the taskbar, so the person cannot stop the session by closing it. `check.ps1` reports an older shortcut and says how to fix it.
