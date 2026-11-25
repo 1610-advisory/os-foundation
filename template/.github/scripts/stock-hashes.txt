@@ -471,6 +471,7 @@
 61d73258ea1243e27a62e0e2ebce9297ba1b7b3a skills/remove-teammate/SKILL.md
 6213eecbab591ea67b0b625f08362c1e0153dee7 skills/sync/sync.sh
 628f065f3c34a7c2dc6cd89cf13c4bd25c810d32 skills/add-teammate/CLI.md
+6299c6ac8c545cdc2f73bed025c4088afb97f53e skills/add-teammate/workspace/AGENTS.md
 6303cc0f91734c603b706f884f8deb56e40e74eb .github/scripts/tools/host/forgejo.sh
 6303cc0f91734c603b706f884f8deb56e40e74eb skills/_host/forgejo.sh
 6351c68e2b55b065da7b3195463d5212b7c49bd1 skills/sync/lib.sh
