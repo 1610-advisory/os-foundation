@@ -187,6 +187,10 @@ nr_profile() {
 nr_switch_on() {
   local name=$1 hit
   hit=$(nr_profile switches | grep -x "$name" || true)
+  # bots is the old name of the automations switch. Read it for one release.
+  if [ -z "$hit" ] && [ "$name" = "automations" ]; then
+    hit=$(nr_profile switches | grep -x "bots" || true)
+  fi
   [ -n "$hit" ]
 }
 
@@ -389,7 +393,7 @@ nr_is_rules_path() {
   esac
   case "$p" in
     skills/*|*/skills/*|.github/*|*/.github/*|.gitea/*|*/.gitea/*|.forgejo/*|*/.forgejo/*|.claude/*|*/.claude/*|docs/CODEOWNERS|*/docs/CODEOWNERS) return 0 ;;
-    bots/*/BOT.md|*/bots/*/BOT.md) return 0 ;;
+    automations/*/AUTOMATION.md|*/automations/*/AUTOMATION.md) return 0 ;;
   esac
   return 1
 }
@@ -575,47 +579,47 @@ nr_file_author() {
   printf '%s\n' "$slug"
 }
 
-nr_pick_bot() {
-  local area=$1 f bot got
-  if [ -n "${OS_BOT:-}" ]; then
-    printf '%s\n' "$OS_BOT"
+nr_pick_automation() {
+  local area=$1 f automation got
+  if [ -n "${OS_AUTOMATION:-}" ]; then
+    printf '%s\n' "$OS_AUTOMATION"
     return 0
   fi
-  bot=""
-  for f in "$NR_ROOT"/bots/*/BOT.md; do
+  automation=""
+  for f in "$NR_ROOT"/automations/*/AUTOMATION.md; do
     [ -f "$f" ] || continue
     got=$(nr_fm_get "$f" area | head -n 1 || true)
     if [ -n "$area" ] && [ "$area" != "company" ] && [ "$got" = "$area" ]; then
       basename "$(dirname "$f")"
       return 0
     fi
-    if [ -z "$got" ] && [ -z "$bot" ]; then
-      bot=$(basename "$(dirname "$f")")
+    if [ -z "$got" ] && [ -z "$automation" ]; then
+      automation=$(basename "$(dirname "$f")")
     fi
   done
-  printf '%s\n' "$bot"
+  printf '%s\n' "$automation"
 }
 
 nr_load_identity() {
-  local admin bot page owner name
+  local admin automation page owner name
   admin=$(nr_admin_slug)
-  NR_BOT=""
+  NR_AUTOMATION=""
   NR_OWNER=$admin
-  if nr_switch_on bots; then
-    bot=$(nr_pick_bot "${1:-}")
-    if [ -n "$bot" ] && [ -f "$NR_ROOT/bots/$bot/BOT.md" ]; then
-      NR_BOT=$bot
-      page="$NR_ROOT/bots/$bot/BOT.md"
+  if nr_switch_on automations; then
+    automation=$(nr_pick_automation "${1:-}")
+    if [ -n "$automation" ] && [ -f "$NR_ROOT/automations/$automation/AUTOMATION.md" ]; then
+      NR_AUTOMATION=$automation
+      page="$NR_ROOT/automations/$automation/AUTOMATION.md"
       owner=$(nr_fm_get "$page" owner | head -n 1 || true)
       if [ -n "$owner" ]; then
         NR_OWNER=$owner
       fi
       name=$(nr_fm_get "$page" name | head -n 1 || true)
       if [ -z "$name" ]; then
-        name=$bot
+        name=$automation
       fi
       NR_GIT_NAME=$name
-      NR_GIT_EMAIL=$(printf '%s@%s.example' "$bot" "$NR_SLUG")
+      NR_GIT_EMAIL=$(printf '%s@%s.example' "$automation" "$NR_SLUG")
       return 0
     fi
   fi
@@ -626,8 +630,8 @@ nr_load_identity() {
 nr_commit_trailers() {
   local body
   body=$(printf 'Run-Id: %s' "$NR_RUN_ID")
-  if [ -n "${NR_BOT}" ]; then
-    body=$(printf '%s\nBot-Owner: %s' "$body" "$NR_OWNER")
+  if [ -n "${NR_AUTOMATION}" ]; then
+    body=$(printf '%s\nAutomation-Owner: %s' "$body" "$NR_OWNER")
   fi
   printf '%s\n' "$body"
 }
@@ -650,8 +654,8 @@ nr_git_https() {
     return 1
   fi
   set +e
-  if [ -n "${NR_BOT}" ]; then
-    token=$(bash "$host" get-token --bot "$NR_BOT" 2>/dev/null)
+  if [ -n "${NR_AUTOMATION}" ]; then
+    token=$(bash "$host" get-token --automation "$NR_AUTOMATION" 2>/dev/null)
   else
     token=$(bash "$host" get-token 2>/dev/null)
   fi

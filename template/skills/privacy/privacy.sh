@@ -216,6 +216,10 @@ switch_on() {
     if [[ "$item" == "$name" ]]; then
       return 0
     fi
+    # bots is the old name of the automations switch. Read it for one release.
+    if [[ "$name" == "automations" && "$item" == "bots" ]]; then
+      return 0
+    fi
   done
   return 1
 }

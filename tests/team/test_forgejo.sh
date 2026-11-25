@@ -98,12 +98,12 @@ text = text.replace("{{OS_VERSION}}", "v1.0.0")
 p.write_text(text)
 PY
 
-mkdir -p "$company/areas/marketing" "$company/areas/finance" "$company/bots/helper"
+mkdir -p "$company/areas/marketing" "$company/areas/finance" "$company/automations/helper"
 printf '%s\n' "# Marketing" > "$company/areas/marketing/AGENTS.md"
 printf '%s\n' "# Finance" > "$company/areas/finance/AGENTS.md"
-cat > "$company/bots/helper/BOT.md" << 'EOF'
+cat > "$company/automations/helper/AUTOMATION.md" << 'EOF'
 ---
-type: bot
+type: automation
 owner: sam
 ---
 
@@ -359,13 +359,13 @@ lines=$(grep -c "@$clone/users/mia/profile/PROFILE.md" "$join_home/.claude/CLAUD
 [ "$lines" -eq 1 ] || die "profile pointer was duplicated"
 
 printf '%s\n' "step: add-person" >&2
-# Add one person. Use the bot seat as the new account.
+# Add one person. Use the automation seat as the new account.
 export HOME="$work/admin-home" XDG_CONFIG_HOME="$work/admin-home/.config"
 FORGEJO_TOKEN=$(load_token "$admin_token")
 cat > "$work/add-answers" << EOF
 root=$company
 person.lee.name=Lee Member
-person.lee.github=acme-bot
+person.lee.github=acme-automation
 person.lee.email=lee${at}acme.test
 person.lee.role=writer
 person.lee.areas=marketing
@@ -376,7 +376,7 @@ if ! "$root/template/skills/add-teammate/add-person.sh" --answers "$work/add-ans
 fi
 grep -q 'add-person: ok' "$work/add.out" || die "add-person did not report ok"
 grep -q 'workspace: team-user-lee' "$work/add.out" || die "add-person workspace missing"
-access "$token_dir/acme-bot" team-user-lee || die "new person cannot read their workspace"
+access "$token_dir/acme-automation" team-user-lee || die "new person cannot read their workspace"
 access "$token_dir/acme-member-a" team-user-lee && die "member-a can read the new workspace"
 
 printf '%s\n' "step: remove" >&2
@@ -390,7 +390,7 @@ fi
 grep -q 'remove: ok' "$work/remove.out" || die "remove did not report ok"
 grep -q 'left: 2026-10-24' "$work/remove.out" || die "left date missing"
 grep -q 'archived: team-user-sam' "$work/remove.out" || die "workspace not archived"
-grep -q 'bot-owner: ada' "$work/remove.out" || die "bot owner not moved"
+grep -q 'automation-owner: ada' "$work/remove.out" || die "automation owner not moved"
 grep -q 'phi: app-level-not-in-v1' "$work/remove.out" || die "phi note missing"
 grep -q 'seat: Chat vendor seat' "$work/remove.out" || die "vendor checklist missing"
 if access "$token_dir/acme-member-d" team-os; then
@@ -402,7 +402,7 @@ fi
 FORGEJO_TOKEN=$(load_token "$admin_token") \
   os_with_git_token git -C "$company" fetch origin "rules/ada/offboard-sam" >>"$log" 2>&1 || die "offboard branch missing"
 git -C "$company" show "origin/rules/ada/offboard-sam:people/Sam Member.md" | grep -q '^left: 2026-10-24$' || die "left not on the branch"
-git -C "$company" show "origin/rules/ada/offboard-sam:bots/helper/BOT.md" | grep -q '^owner: ada$' || die "bot owner not on the branch"
+git -C "$company" show "origin/rules/ada/offboard-sam:automations/helper/AUTOMATION.md" | grep -q '^owner: ada$' || die "automation owner not on the branch"
 
 # Last admin cannot be removed.
 set +e

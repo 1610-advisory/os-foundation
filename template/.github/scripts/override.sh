@@ -117,7 +117,7 @@ skills/example/SKILL.md
 CODEOWNERS
 docs/CODEOWNERS
 .claude/settings.json
-bots/example/BOT.md"
+automations/example/AUTOMATION.md"
 
 pattern_hits_rules() {
   local kind=$1 pattern=$2 path

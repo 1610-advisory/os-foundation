@@ -240,7 +240,7 @@ class PiiTests(unittest.TestCase):
             "owner@example.com",
             "owner@example.org",
             "owner@example.net",
-            "bot@users.noreply.github.com",
+            "automation@users.noreply.github.com",
             "ada@acme.test",
             "ada@mail.acme.test",
             "ada@foo.example",

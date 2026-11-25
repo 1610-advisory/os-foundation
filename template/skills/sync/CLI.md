@@ -13,13 +13,13 @@ skills/sync/sync.sh <command> [flags]
 | Command | Does |
 |---|---|
 | `pull [--full]` | Fast-forward the company repo, each `areas/*` repo, and `users/<me>`. Plain `pull` asks the host first and pulls only the repos that changed. `--full` pulls every repo. Any other flag prints `unknown flag` and exits 1. On failure, leave that repo's working copy unchanged and write one line to the log. See "Pull". |
-| `push` | Nightly push. Identity check first. Then, in each repo: take the host's changes, secret scan, engine check, commit in the folder, push. Company and area repos go to `sync/<me>/<seat>` and that computer's standing pull request. The workspace repo goes to its own `main`. When `OS_BOT` is set, this is a bot run: see "Bot run push". |
+| `push` | Nightly push. Identity check first. Then, in each repo: take the host's changes, secret scan, engine check, commit in the folder, push. Company and area repos go to `sync/<me>/<seat>` and that computer's standing pull request. The workspace repo goes to its own `main`. When `OS_AUTOMATION` is set, this is an automation run: see "Automation run push". |
 | `propose <topic> <file>...` | Put rules files (or a file a person shares to the company root) on `rules/<me>/<topic>` and open a pull request with a body that lists each file. Auto-merge stays off: stderr gets `waiting for owner: <repo> <n>: ...` (v1.0.4). A path under `areas/<area>/` goes to that area repo. A `users/` path is refused. The nightly push never does this. Refusal and failure lines are listed in `SKILL.md` under "Propose a rules change". |
 | `status` | Print the last error, held files, one line per repo with commits the host does not have yet (`<repo>: <n> changes here are not on the host yet`, or `1 change here is`), and `last full pull: <time>`. The next session reads this. |
 | `re-apply [list \| done <repo> <path> \| ask <repo> <path> <question>]` | Files changed here and on the host before either merged. See "Changed under you" and `re-apply.md`. |
 | `set-aside <repo> <path> <mine-file\|-> <base-file\|->` | Used by `join.sh` (B69): sets one file from an old v0 folder aside as a re-apply hold (reason `re-apply: brought from the old folder by join`). `-` for mine is deleted; `-` for base is none. Prints `set-aside`, `already` (that version's hold is open) or `done` (it was re-applied: `state/join-brought` notes each version). |
 | `seat` | Print this computer's seat id. Makes it on first use. `join` uses it. |
-| `install-jobs [--admin] [--bot]` | Write OS job files. Refuses when `level: solo`. |
+| `install-jobs [--admin] [--automation]` | Write OS job files. Refuses when `level: solo`. |
 | `uninstall-jobs` | Remove the job files this script wrote. |
 | `helper` | Device helper. Counts days with no access. Warns from day 7. Deletes the company folder on day 14. |
 | `collect` | Traces collector. Runs only when `level: app` and `traces` is in `switches`. |
@@ -34,7 +34,7 @@ Per computer, never in a repo: `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/`
 
 | File | Contents |
 |---|---|
-| `me` | The person's slug, one line. On a bot box, the bot slug. |
+| `me` | The person's slug, one line. On an automation box, the automation slug. |
 | `seat` | This computer's seat id, one line: the host name as a slug and 4 random hex characters (`laptop-3f9a`). Made at join, or at the first push on this code. Two computers of one person have two seats. |
 | `engine` | Optional one-line override of `sync_engine`. |
 | `forgejo-token` | Forgejo token, mode 0600. The host layer reads it. |
@@ -68,7 +68,7 @@ For each repo:
 2. Secret scan. A hit holds that file. The reason names the rule, never the value. A scan error pushes nothing for that repo.
    If that pull could not leave the repo safe (an open merge it could not undo, a squash it could not heal), nothing in that repo is committed or sent: `push stop <repo> the pull did not finish`.
 3. A file with a merge's conflict lines (a line that starts with `<<<<<<< ` or `>>>>>>> `) is held: `conflict lines (<<<<<<< or >>>>>>>): keep the text you want, delete those lines, then push again`. It would replace both sides' text on `main`.
-4. Rules files in the company repo or an area are held. They are not sent to the engine. The reason is exactly: `rules file: propose it with sync.sh propose`. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, or anything under `.github/`, `.gitea/`, `.forgejo/`, or `.claude/`. In the workspace these files are the person's own. They are not held for this reason. Once its own pull request merges, `main` has the same text, and the next pull drops the local copy and its hold.
+4. Rules files in the company repo or an area are held. They are not sent to the engine. The reason is exactly: `rules file: propose it with sync.sh propose`. A rules file is any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, `docs/CODEOWNERS`, anything under `skills/`, `automations/*/AUTOMATION.md`, or anything under `.github/`, `.gitea/`, `.forgejo/`, or `.claude/`. In the workspace these files are the person's own. They are not held for this reason. Once its own pull request merges, `main` has the same text, and the next pull drops the local copy and its hold.
 5. Each other changed file goes to the engine, one call per file. The engine gets `push-check.md`, then `REPO:`, `FILE:`, and `DIFF:`. It must print one JSON line: `{"decision":"commit"|"hold","reason":"...","message":"..."}`. A non-zero exit, a timeout, or bad JSON holds every changed file in that repo and pushes nothing.
    - Extra holds for this computer: an optional file at `$OS_PUSH_HOLDS`, else `~/.config/os-brain/push-holds.md`, goes into the prompt under "Extra holds for this computer". A matching file is held: `extra hold: <heading>`. Missing or empty: no change.
    - The file stays outside every repo. If its real path (links resolved) is in the company folder or in any repo push sends, push stops and sends nothing. Its text never goes to a log, a commit or a reason line; only the item's heading can. When the check's reason or commit message repeats a line of the file, the file is held with `extra hold: <heading>`, even when the check said commit; a heading the file lacks becomes `extra hold`.
@@ -76,7 +76,7 @@ For each repo:
    - Rule 5 ("belongs in the workspace") is a path rule. It never holds a log under `memory/logs/` or `memory/logs-archive/` (company repo or area; B68: the archive holds old logs that pull brought in) or a file under an area's `drafts/` folder. If the engine holds one of those for that reason, the script commits it and logs `push path-rule <repo> <path> area work`. A hold for any other reason (a private source, a personal-life fact) stands.
    - An area's `drafts/` folder is shared copy in progress. Its files go to the area on the standing pull request, and everyone who reads the area sees them. A private draft goes in the person's workspace `drafts/`.
 6. The files that passed are committed on `main` in the folder: `git reset`, then `git add -A` of those paths only, so a file someone staged by hand is checked like any other. Held files stay as they are. The message is the engine's line for one file. For more, it is `Update <n> files`, then one line per file, `- <path>: <engine line>`. Then the `Sync-Seat:` trailer. The author is the person (git `user.name` and `user.email`, else the slug and the people page email).
-7. The commits `main` lacks are checked as a range, the same way a bot's are ("Bot run push": rules paths and a secret scan of every blob), then pushed with `git push origin main:refs/heads/sync/<me>/<seat>`. Never forced: the branch only grows, and a merged pull request leaves it an ancestor of `main`.
+7. The commits `main` lacks are checked as a range, the same way an automation's are ("Automation run push": rules paths and a secret scan of every blob), then pushed with `git push origin main:refs/heads/sync/<me>/<seat>`. Never forced: the branch only grows, and a merged pull request leaves it an ancestor of `main`.
 8. The standing pull request `sync: <me> (<seat>)`, one per computer, with a body (`These are <me>'s notes from sync.`, then one line per file, then any `- re-apply question: ...` lines) between `<!-- sync:files -->` and `<!-- /sync:files -->`. On an open pull request it reads the body (`host.sh open-prs`) and replaces only that block: every other line a person wrote stays. An old body with no markers stays, with the block after it. If the open pull requests cannot be read, it gives `open-pr` no body, so the host keeps the one it has. Then `host.sh auto-merge` (a merge commit), then `pull`. A pull request may take a few minutes to merge after its checks go green: the host's own auto-merge runs on its own clock.
 9. The workspace repo pushes its commits to its own `main`, fast-forward only. No pull request. A company fact in `profile/PROFILE.md` is held by the engine check.
 
@@ -109,19 +109,19 @@ Sync needs merge commits: auto-merge uses them. Someone may still squash a sync 
 
 Path lists come from git with `-z` and `core.quotepath=false`, so a name with an accent, an em dash or an emoji is never quoted and is matched like any other.
 
-## Bot run push
+## Automation run push
 
-When `OS_BOT` is set, `push` is a bot run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>/*`. The bot key is the boundary. This path does not check that `me` is the bot.
+When `OS_AUTOMATION` is set, `push` is an automation run, not the nightly push. `run.sh` sets that name. The script does not check the person's sign-in. It does not commit. It does not read or write `sync/<me>/*`. The automation key is the boundary. This path does not check that `me` is the automation.
 
-A bot run commits on `sync/<bot>`. It starts from `origin/sync/<bot>` while that branch has commits `main` lacks, else from `origin/main`. For each company or area repo with commits on `sync/<bot>` that are not on `origin/main`:
+An automation run commits on `sync/<automation>`. It starts from `origin/sync/<automation>` while that branch has commits `main` lacks, else from `origin/main`. For each company or area repo with commits on `sync/<automation>` that are not on `origin/main`:
 
 1. Refuse a credential in the origin URL before any fetch. The message does not include the URL.
-2. Take the bot token from `host.sh get-token --bot`. If that fails, stop before the push. The token is an environment value for the pull request calls only (`GH_TOKEN` on GitHub, `FORGEJO_TOKEN` on Forgejo). It is not an argument, a URL, or a log line.
-3. Check the range `origin/main..sync/<bot>` as a person's push does: a rules file in it stops (`rules file: propose it with sync.sh propose`), and every blob goes through `secret-scan.sh`. If `origin/main` is missing, every blob on the branch. A hit or a scan error pushes nothing.
-4. Push that branch as it is, never forced. The commits stay the same, including `Run-Id` and `Bot-Owner`. Git uses `skills/add-bot/git-credential-os-bot`.
-5. Open or update the standing pull request `sync: <bot>` and turn on auto-merge, as the bot. Wait until it merges.
+2. Take the automation token from `host.sh get-token --automation`. If that fails, stop before the push. The token is an environment value for the pull request calls only (`GH_TOKEN` on GitHub, `FORGEJO_TOKEN` on Forgejo). It is not an argument, a URL, or a log line.
+3. Check the range `origin/main..sync/<automation>` as a person's push does: a rules file in it stops (`rules file: propose it with sync.sh propose`), and every blob goes through `secret-scan.sh`. If `origin/main` is missing, every blob on the branch. A hit or a scan error pushes nothing.
+4. Push that branch as it is, never forced. The commits stay the same, including `Run-Id` and `Automation-Owner`. Git uses `skills/add-automation/git-credential-os-automation`.
+5. Open or update the standing pull request `sync: <automation>` and turn on auto-merge, as the automation. Wait until it merges.
 
-`OS_BOT_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of a bot run push.
+`OS_AUTOMATION_MERGE_WAIT` is the wait in seconds. The default is 180. A person's push does not use this path. The workspace repo is not part of an automation run push.
 
 ## Pull
 
@@ -164,11 +164,13 @@ A failed pull also prints one plain line, `pull failed for <repo>: <reason and w
 os-sync-state 1
 full <unix seconds of the last full pull>
 me <slug, or ->
-bot <1 or 0>
+automation <1 or 0>
 repo <ok|retry> <sha|none> <rel>
 ```
 
 One `repo` line per repo, in pull order. `<rel>` is `.` for the company repo, `areas/<name>`, or `users/<me>`. `<sha>` is the local `origin/main` after the run, or `none`. A line is `ok` only when that repo's pull returned 0 and `HEAD` contains `origin/main`. A repo with no `origin` whose pull returned 0 is `ok none`. A repo with an `origin` but no `origin/main` is `retry none`. Any other result is `retry`, and the next `pull` pulls that repo again.
+
+`automation 1` means this computer is an automation's box. Before v1.0.8 the line was `bot <1 or 0>`: `pull` and `sync.ps1` still read it, for one release. Each pull also points an old automation credential wrapper (one that runs `skills/add-bot/git-credential-os-bot`) at `skills/add-automation/git-credential-os-automation`.
 
 The file is written to a temp file, then moved into place. If it cannot be written, the pull does not fail. A quick pull keeps the lines of repos it did not pull and keeps `full`. A full pull writes `full <now>`.
 
@@ -201,7 +203,7 @@ Default folder: macOS `~/Library/LaunchAgents`, Linux `${XDG_CONFIG_HOME:-$HOME/
 | helper | Daily at 04:00. |
 | admin (`--admin`) | 03:30. Runs `admin-run`: nightly review, then reports. |
 
-`--bot` installs the pull, push, and helper jobs for a bot box. The `me` file is the bot slug. Push asks the host layer for that bot's token.
+`--automation` installs the pull, push, and helper jobs for an automation box. The `me` file is the automation slug. Push asks the host layer for that automation's token.
 
 `OS_JOBS_PLATFORM=macos|linux|windows` picks the templates. The default is the current system.
 
@@ -231,7 +233,7 @@ It never uses `%SystemRoot%\System32\bash.exe`. That is WSL. It runs `bash.exe <
 For `sync.ps1 pull` with no other argument, PowerShell checks first, so a pull with nothing new starts no Git Bash. The check is read-only. It never writes the state file or the log, and never takes the lock. It skips bash only when it is sure. Any doubt runs `sync.sh pull` as usual, and bash checks again.
 
 1. Find the company root: `OS_COMPANY_ROOT`, else walk up to `company-profile.md`.
-2. Read the state file strictly. Run bash if it is missing or odd, if a full pull is due (same 04:00 rule), if `bot 1`, or if any line is `retry`.
+2. Read the state file strictly. Run bash if it is missing or odd, if a full pull is due (same 04:00 rule), if `automation 1`, or if any line is `retry`.
 3. The repos on disk (the root, each `areas/*` with `.git`, `users/<me>` with `.git`) must be the same set as the `repo` lines. A `users/*` repo for anyone other than the `me` in the state file also runs bash.
 4. An `ok none` repo must still have no `origin`. Else bash. For each repo with a sha: `HEAD` must contain that sha, then `git.exe -C <repo> -c credential.helper= ls-remote origin refs/heads/main`, no prompt, 20 seconds at most. The git trace variables are removed from that process. A local path or `file://` origin needs no sign-in. An `https://github.com/` origin uses the token from `gh auth token`, given to that one git process through its own environment. It is never in `$env:` or on a command line, so bash never sees it. Any other origin runs bash.
 5. Every remote sha equals its line: print `sync: no change` and exit 0. Else bash.

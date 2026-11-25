@@ -394,7 +394,7 @@ bundled_awk() {
       expect_clean("-----BE" "GIN OPENSSH")
       expect_clean("PRIVATE" " KEY")
       expect_clean("token=$(host_forgejo_token)")
-      expect_clean("  token=\"$(sync_bot_take_token \"$bot\")\"")
+      expect_clean("  token=\"$(sync_automation_take_token \"$automation\")\"")
       expect_clean("token=${OS_REVIEW_TOKEN_FILE}")
       if (self_ok) print "self-test ok"
     }

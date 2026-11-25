@@ -57,7 +57,7 @@ Output is JSON on stdout. `get-token` is the one exception: it prints a token fo
 | `pr-status <name> <number>` | `{"state","merged","checks":[{"name","state"}],"approved"}`. GitHub reads the checks through the GraphQL `statusCheckRollup`, which a fine-grained token can read (Commit statuses and Actions read). REST check-runs is the fallback. States are lower case. |
 | `pr-comment <name> <number> --body-file <file>` | Comment on the pull request |
 | `set-secret <name>` | Set an org Actions secret. The value is on stdin. |
-| `get-token [--bot <bot>]` | Print a token for git over HTTPS |
+| `get-token [--automation <automation>]` | Print a token for git over HTTPS |
 | `purge-request <name>` | GitHub: print the support-request text. Forgejo: drop unreachable objects where the API allows it. |
 | `delete-repo <name> --yes-test-only` | Tests only. Refuses unless `OS_TEST_MODE=1`. |
 
@@ -77,11 +77,11 @@ Forgejo turns push off, requires the status check, and sets `block_on_official_r
 
 Never print a token except from `get-token`. Never put a token in a URL. Debug output scrubs `Authorization` headers.
 
-GitHub bot: `bots/<bot>/BOT.md` has `app_id`, `installation_id` and `key_path`. The key file stays outside the repo. The script signs a short JWT with `openssl` and exchanges it for an installation token.
+GitHub automation: `automations/<automation>/AUTOMATION.md` has `app_id`, `installation_id` and `key_path`. The key file stays outside the repo. The script signs a short JWT with `openssl` and exchanges it for an installation token.
 
 Forgejo person: `FORGEJO_TOKEN`, or `${XDG_CONFIG_HOME:-$HOME/.config}/<slug>-os/forgejo-token`.
 
-Forgejo bot: `token_path` in `BOT.md`, or `<config>/<slug>-os/bots/<bot>/token`.
+Forgejo automation: `token_path` in `AUTOMATION.md`, or `<config>/<slug>-os/automations/<automation>/token`.
 
 ## Dry run
 

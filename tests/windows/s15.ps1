@@ -490,16 +490,16 @@ esac
   } else {
     Fail 'quick-retry' 'no ok line'
   }
-  if ($savedState -match 'bot 0') {
-    $botState = $savedState -replace 'bot 0', 'bot 1'
-    [System.IO.File]::WriteAllText($statePath, $botState, $utf8)
+  if ($savedState -match 'automation 0') {
+    $automationState = $savedState -replace 'automation 0', 'automation 1'
+    [System.IO.File]::WriteAllText($statePath, $automationState, $utf8)
     $env:OS_SYNC_PS_NO_BASH = '1'
-    $botCode = Invoke-Sync @('pull')
+    $automationCode = Invoke-Sync @('pull')
     Remove-Item Env:OS_SYNC_PS_NO_BASH -ErrorAction SilentlyContinue
     [System.IO.File]::WriteAllText($statePath, $savedState, $utf8)
-    if ($botCode -eq 9) { Pass 'quick-bot' } else { Fail 'quick-bot' "exit $botCode" }
+    if ($automationCode -eq 9) { Pass 'quick-automation' } else { Fail 'quick-automation' "exit $automationCode" }
   } else {
-    Fail 'quick-bot' 'no bot line'
+    Fail 'quick-automation' 'no automation line'
   }
 
   $otherUser = Join-Path $member 'users\ada'

@@ -129,10 +129,10 @@ class ScrubTests(unittest.TestCase):
 
 class ResultParserTests(unittest.TestCase):
     def test_trailers_come_from_the_last_block(self):
-        message = "fix the note\n\nRun-Id: run-9\nBot-Owner: acme-bot\n"
+        message = "fix the note\n\nRun-Id: run-9\nAutomation-Owner: acme-automation\n"
         self.assertEqual(
             results.parse_trailers(message),
-            {"Run-Id": "run-9", "Bot-Owner": "acme-bot"},
+            {"Run-Id": "run-9", "Automation-Owner": "acme-automation"},
         )
 
     def test_protection_summary(self):

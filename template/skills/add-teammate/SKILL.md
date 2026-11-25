@@ -25,7 +25,7 @@ For each part: ask one question at a time, with a suggested answer. Write the an
    No organization yet: help make one at github.com/organizations/new on the Team plan. Do not go on with a Free organization.
 3. **Organization name.** The repos belong to the company, not to one person.
 4. **Sign-in.** GitHub: the admin runs `gh auth login` in the browser, then `gh auth refresh -s admin:org,workflow`. `admin:org` lets setup make teams and check the org review key. `workflow` lets it push the checks workflow. Forgejo: the admin puts their token in `~/.config/{{COMPANY_SLUG}}-os/forgejo-token` (mode 600). Never you.
-5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their bots go to the manager if they leave).
+5. **The people.** The admin first (`role` `admin`), then each teammate: full name; slug (suggest first name, lowercase); git host username; work email; role (`director` approves rules changes in their areas, else `writer`); areas (suggest the fewest that let them do their job); manager, optional (their automations go to the manager if they leave).
 6. **Area directors.** Who approves each area's rules changes? Suggest the admin.
 7. **Nightly check engine.** Which AI does the admin use most? Suggest its headless command with a small model, for example `claude -p --model haiku`.
 8. **Own org.** GitHub only. Does the org hold any repos that are not this company's? Yes: put `org_own=no` in the answers. Then setup never changes the org settings.

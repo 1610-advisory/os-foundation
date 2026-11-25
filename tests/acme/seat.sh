@@ -11,7 +11,7 @@ usage() {
 usage: seat.sh <seat> <prompt-file> [--cwd <dir>]
        seat.sh --check <seat>
 
-Seats: admin, director, member-a, member-b, member-c, member-d, bot.
+Seats: admin, director, member-a, member-b, member-c, member-d, automation.
 A missing engine or sign-in prints BLOCKED and exits 3.
 --check only tests the engine and the sign-in. It does not run a prompt.
 The vendor login stays the one on this computer. The seat's git name,

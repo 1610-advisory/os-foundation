@@ -176,7 +176,7 @@ run_env() {
   export OS_SKIP_PUSH=1
   export OS_NOW=2026-10-24
   unset OS_REVIEW_CAP || true
-  unset OS_BOT || true
+  unset OS_AUTOMATION || true
   unset OS_RUN_ID || true
 }
 
@@ -213,8 +213,8 @@ main_case() {
   [ -n "$(git -C "$area" log --all --oneline -- memory/logs/2026-09-23-mia.md)" ]
   grep -F 'Confirm the price.' "$XDG_CONFIG_HOME/acme-os/state/digests/2026-10-24.json" >/dev/null
   git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Run-Id: review-' >/dev/null
-  if git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Bot-Owner:' >/dev/null; then
-    fail "Bot-Owner set when bots is off"
+  if git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Automation-Owner:' >/dev/null; then
+    fail "Automation-Owner set when automations is off"
   fi
   bash "$company/skills/reports/run.sh" --root "$company" --date 2026-10-24 --week 2026-W43
   show "$area" "review/2026-10-24" "reports/2026-10-24-to-decide.md" | grep -F 'Confirm the price.' >/dev/null
@@ -301,28 +301,28 @@ solo_case() {
   rm -rf "$box"
 }
 
-bots_case() {
+automations_case() {
   local box company area
   box=$(mktemp -d)
   company="$box/acme"
   run_env "$box"
-  make_company "$company" team "[bots]"
-  mkdir -p "$company/bots/acme-bot"
-  cat > "$company/bots/acme-bot/BOT.md" << 'EOF'
+  make_company "$company" team "[automations]"
+  mkdir -p "$company/automations/acme-automation"
+  cat > "$company/automations/acme-automation/AUTOMATION.md" << 'EOF'
 ---
 owner: ada
-name: Acme Bot
+name: Acme Automation
 area: ""
 ---
 
-# Acme Bot
+# Acme Automation
 EOF
   area="$company/areas/finance"
   seed_area "$area"
   bash "$company/skills/nightly-review/run.sh" --root "$company" --date 2026-10-24
-  git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Bot-Owner: ada' >/dev/null
+  git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Automation-Owner: ada' >/dev/null
   git -C "$area" log -1 --format=%B "review/2026-10-24" | grep -F 'Run-Id: review-' >/dev/null
-  pass "bot trailers"
+  pass "automation trailers"
   rm -rf "$box"
 }
 
@@ -854,7 +854,7 @@ missing_prompt_case
 leak_publish_case
 cap_case
 solo_case
-bots_case
+automations_case
 mdx_case
 no_decide_case
 company_pages_case

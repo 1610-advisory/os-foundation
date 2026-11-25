@@ -3199,8 +3199,8 @@ class WorkspaceRulesTests(unittest.TestCase):
     sub_repo = ExtraHoldsTests.sub_repo
 
     RULES = {
-        "bots/x/BOT.md": "# Bot x\n",
-        "bots/x/skills/y.md": "a bot skill\n",
+        "automations/x/AUTOMATION.md": "# Automation x\n",
+        "automations/x/skills/y.md": "an automation skill\n",
         "AGENTS.md": "# my rules\n",
         "skills/z/SKILL.md": "a skill\n",
     }
@@ -3228,11 +3228,13 @@ class WorkspaceRulesTests(unittest.TestCase):
 
     def test_workspace_commit_with_rules_files_pushes(self):
         ws = self.ready("users/mia")
-        self.commit_files(ws, self.RULES)
+        # A person's own bots/ is never a rules file.
+        files = {**self.RULES, "bots/x/BOT.md": "# Bot x\n", "bots/x/skills/y.md": "a bot skill\n"}
+        self.commit_files(ws, files)
         result = self.sync("push")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr + self.sync_log())
         names = self.remote_files("users/mia")
-        for rel in self.RULES:
+        for rel in files:
             self.assertIn(rel, names)
         self.assertNotIn("rules file: propose it", self.sync("status").stdout)
 
@@ -3255,7 +3257,7 @@ class WorkspaceRulesTests(unittest.TestCase):
     def test_area_commit_with_a_rules_file_still_stops(self):
         # The range check, on its own: a commit sync did not make stops first, so call it.
         area = self.ready("areas/sales")
-        self.commit_files(area, {"bots/x/BOT.md": "# Bot x\n"})
+        self.commit_files(area, {"automations/x/AUTOMATION.md": "# Automation x\n"})
         script = ('source "$1/lib.sh"; source "$1/push.sh"; '
                   'sync_check_range "$2" area:sales origin/main..HEAD "$3"')
         for kind in ("area", "root", ""):
@@ -3836,7 +3838,7 @@ class QuickPullTests(unittest.TestCase):
         self.assertEqual(lines[0], "os-sync-state 1")
         self.assertEqual(lines[1], "full 1700000000")
         self.assertEqual(lines[2], "me mia")
-        self.assertEqual(lines[3], "bot 0")
+        self.assertEqual(lines[3], "automation 0")
         self.assertTrue(self.line_for(".").startswith("repo ok "))
         self.assertTrue(self.line_for("areas/lab").startswith("repo ok "))
         self.assertTrue(self.line_for("users/mia").startswith("repo ok "))
@@ -3871,6 +3873,45 @@ class QuickPullTests(unittest.TestCase):
         self.assertEqual(self.log_text(), before)
         self.assertFalse(copied.exists())
         self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_old_bot_state_line_still_reads(self):
+        """v1.0.8: a state file from before the rename says "bot 0". It is still a good state."""
+        self.make_repo(self.company, self.tmp / "root.git")
+        first = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        path = self.state_path()
+        path.write_text(path.read_text().replace("\nautomation 0\n", "\nbot 0\n"))
+        stamp = self.stamp(self.company)
+        quiet = self.sync("pull", env=self.clock(100100, 18000))
+        self.assertEqual(quiet.returncode, 0, quiet.stderr + quiet.stdout)
+        self.assertEqual(self.stamp(self.company), stamp)
+        self.assertEqual(self.state_lines()[1], "full 100000")
+
+    def test_pull_points_an_old_automation_wrapper_at_the_new_helper(self):
+        """v1.0.8: add-bot wrote a credential wrapper that runs skills/add-bot/. Pull moves it."""
+        self.make_repo(self.company, self.tmp / "root.git")
+        helper = self.company / "skills" / "add-automation" / "git-credential-os-automation"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("#!/bin/bash\n")
+        helper.chmod(0o755)
+        cfg = self.home / ".config" / "acme-os"
+        cfg.mkdir(parents=True, exist_ok=True)
+        wrap = cfg / "git-credential"
+        old = (f"#!/bin/bash\nset -euo pipefail\nexport OS_ROOT={self.company}\nexport OS_BOT=helper\n"
+               f"exec {self.company}/skills/add-bot/git-credential-os-bot \"$@\"\n")
+        wrap.write_text(old)
+        wrap.chmod(0o700)
+        result = self.sync("pull", env=self.clock(100000, 18000))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        text = wrap.read_text()
+        self.assertIn("export OS_AUTOMATION=helper\n", text)
+        self.assertIn(f"exec {self.company}/skills/add-automation/git-credential-os-automation", text)
+        self.assertNotIn("add-bot", text)
+        self.assertEqual(wrap.stat().st_mode & 0o777, 0o700)
+        # A wrapper that is already new is left as it is.
+        again = self.sync("pull", "--full", env=self.clock(100100, 18000))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(wrap.read_text(), text)
 
     def test_full_flag_still_fetches_and_copies(self):
         self.make_repo(self.company, self.tmp / "root.git")

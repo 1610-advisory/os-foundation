@@ -15,7 +15,7 @@ This skill is for `team` and `app`. At `team` it runs on the admin's computer. [
 - The job runs `skills/nightly-review/run.sh` from the company root. By hand, for one day: `skills/nightly-review/run.sh --date YYYY-MM-DD`.
 - For the company repo and each area repo, it reads the commits merged into `main` that day, since its last run. It skips its own fixes.
 - It sends the day's diff, each commit's author and the list of files on `main` to the company's headless engine with `review-prompt.md`, once per repo. The author is matched to a page in `people/`; it is never guessed from a file name.
-- It writes as an area-scoped identity: the company bot (or that area's bot) when `bots` is on, else the admin's agent. Every commit carries `Run-Id: review-<date>-...`, and `Bot-Owner:` when a bot writes.
+- It writes as an area-scoped identity: the company automation (or that area's automation) when `automations` is on, else the admin's agent. Every commit carries `Run-Id: review-<date>-...`, and `Automation-Owner:` when an automation writes.
 
 ## What it does
 
@@ -25,7 +25,7 @@ This skill is for `team` and `app`. At `team` it runs on the admin's computer. [
 - A duplicated note: it keeps one and links the other to it.
 - A typo in a name of a person, customer or product.
 
-It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `bots/*/BOT.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`). An error there becomes a flag to the approver.
+It never edits a rules file (any `AGENTS.md`, `CLAUDE.md`, `review-rules.md`, `CODEOWNERS`, anything under `skills/`, `automations/*/AUTOMATION.md`, `.github/`, `.gitea/`, `.forgejo/`, `.claude/`, or `docs/CODEOWNERS`). An error there becomes a flag to the approver.
 
 **Judgment calls: it flags them.** Examples: two notes that disagree, a fact that looks out of date, a note in the wrong place, a rules file that looks wrong.
 - A flag goes first to the last author.

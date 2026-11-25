@@ -197,11 +197,19 @@ class RefreshTests(unittest.TestCase):
         self.assertIn("kept: the company folder skills/ingest/SKILL.md", result.stdout)
         # A stock file a later release dropped goes.
         self.assertEqual(self.host_blob(ref, "skills/logs-folder/SKILL.md"), "")
-        # Only skills/ and .github/ change.
+        # Only skills/ and .github/ change, and the stock bots names in the rules files and
+        # the profile (v1.0.8 rename).
         changed = run(["git", "--git-dir", str(self.bare), "diff", "--name-only", "main", ref],
                       env=self.env).stdout.split()
         self.assertTrue(changed)
-        self.assertTrue(all(p.startswith(("skills/", ".github/")) for p in changed), changed)
+        renamed = ("AGENTS.md", "review-rules.md", "company-profile.md")
+        self.assertTrue(all(p.startswith(("skills/", ".github/")) or p in renamed for p in changed), changed)
+        for rel in renamed:
+            if rel in changed:
+                diff = run(["git", "--git-dir", str(self.bare), "diff", "-U0", "main", ref, "--", rel],
+                           env=self.env).stdout
+                gone = [l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]
+                self.assertTrue(all("bots" in l for l in gone), diff)
         # main is untouched, and a second run is current.
         self.assertEqual(run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout, "")
         run(["git", "--git-dir", str(self.bare), "update-ref", "refs/heads/main", ref], env=self.env, check=True)
@@ -395,6 +403,175 @@ class RefreshTests(unittest.TestCase):
         have = run(["git", "-C", str(self.company), "rev-parse", "HEAD:skills/sync/push.sh"], env=self.env).stdout.strip()
         self.assertEqual(have, want)
         self.assertIn("Acme: file invoices", (self.company / "skills/ingest/SKILL.md").read_text())
+
+    # v1.0.8: bots becomes automations (skills/upgrade/rename.sh).
+    BOT_PAGE = textwrap.dedent("""\
+        ---
+        type: bot
+        summary: "Files the inbox"
+        name: "Helper"
+        bot: helper
+        kind: company
+        owner: ada
+        bot_user: helper
+        email: "helper@acme.test"
+        repos:
+          - acme-os
+        ---
+
+        # Helper
+        """)
+
+    def add_bots(self, root, switches="[bots, traces]"):
+        page = root / "bots" / "helper" / "BOT.md"
+        page.parent.mkdir(parents=True)
+        page.write_text(self.BOT_PAGE)
+        routine = root / "bots" / "helper" / "routines" / "daily.md"
+        routine.parent.mkdir()
+        routine.write_text("Each weekday at 6 am, file the shared inbox.\n")
+        if switches is not None:
+            profile = root / "company-profile.md"
+            text = profile.read_text()
+            if switches.startswith("\n"):
+                text = re.sub(r"(?m)^switches: \[\][^\n]*", "switches:" + switches, text)
+            else:
+                text = re.sub(r"(?m)^switches: \[\]", f"switches: {switches}", text)
+            profile.write_text(text)
+        for rel, line in ((".github/CODEOWNERS", "/bots/*/BOT.md @acme-admin"),
+                          (".gitea/CODEOWNERS", "^bots/[^/]+/BOT\\.md$ @acme-admin")):
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# Rules files only. Notes have no code owner.\n**/AGENTS.md @acme-admin\n" + line + "\n")
+        run(["git", "-C", str(root), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(root), "commit", "-q", "-m", "a bot"], env=self.env, check=True)
+
+    def show(self, ref, rel, git_dir=None):
+        return run(["git", "--git-dir", str(git_dir or self.bare), "show", f"{ref}:{rel}"], env=self.env).stdout
+
+    def test_refresh_renames_bots_to_automations(self):
+        self.add_bots(self.company)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        # A person's own bots in their workspace: never touched.
+        mine = self.company / "users" / "ada" / "bots" / "mine" / "BOT.md"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("my own bot\n")
+        dry = self.refresh("--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
+        self.assertIn("rename: the company folder bots/ to automations/ (1 folders; each BOT.md becomes AUTOMATION.md)",
+                      dry.stdout)
+        self.assertIn("rename: the company folder company-profile.md: bots becomes automations", dry.stdout)
+        self.assertIn("rename: the company folder .github/CODEOWNERS:", dry.stdout)
+        self.assertIn("rename: the company folder .gitea/CODEOWNERS:", dry.stdout)
+        self.assertEqual(run(["git", "ls-remote", "--heads", str(self.bare), "rules/*"], env=self.env).stdout, "")
+        release = (TEMPLATE / ".github" / "scripts" / "tools-release").read_text().strip()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ref = f"refs/heads/rules/ada/refresh-{release}"
+        page = self.show(ref, "automations/helper/AUTOMATION.md")
+        self.assertIn("type: automation\n", page)
+        self.assertIn("automation: helper\n", page)
+        self.assertIn("host_user: helper\n", page)
+        self.assertIn("# Helper\n", page)
+        self.assertEqual(self.show(ref, "automations/helper/routines/daily.md"),
+                         "Each weekday at 6 am, file the shared inbox.\n")
+        self.assertEqual(self.host_blob(ref, "bots/helper/BOT.md"), "")
+        self.assertRegex(self.show(ref, "company-profile.md"), r"(?m)^switches: \[automations, traces\]")
+        self.assertIn("Allowed: automations, traces", self.show(ref, "company-profile.md"))
+        self.assertIn("\n/automations/*/AUTOMATION.md @acme-admin\n", self.show(ref, ".github/CODEOWNERS"))
+        self.assertIn("\n^automations/[^/]+/AUTOMATION\\.md$ @acme-admin\n", self.show(ref, ".gitea/CODEOWNERS"))
+        self.assertIn("**/AGENTS.md @acme-admin", self.show(ref, ".github/CODEOWNERS"))
+        self.assertNotIn("bots/*/BOT.md", self.show(ref, "AGENTS.md"))
+        # git sees a rename, with the history.
+        moved = run(["git", "--git-dir", str(self.bare), "diff", "-M", "--name-status", "main", ref, "--",
+                     "bots", "automations"], env=self.env).stdout
+        self.assertIn("automations/helper/routines/daily.md", moved)
+        self.assertRegex(moved, r"(?m)^R\d+\tbots/helper/routines/daily.md\tautomations/helper/routines/daily.md$")
+        # The body says what the rename does, for the review.
+        body_call = [l for l in self.log.read_text().splitlines() if l.startswith("open-pr ")]
+        self.assertTrue(body_call)
+        self.assertEqual(mine.read_text(), "my own bot\n")
+        # Once it merges, a second run has no rename left.
+        run(["git", "--git-dir", str(self.bare), "update-ref", "refs/heads/main", ref], env=self.env, check=True)
+        again = self.refresh()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("rename:", again.stdout)
+        self.assertIn("refresh: the company folder is current", again.stdout)
+
+    def test_refresh_stops_a_repo_with_both_folders(self):
+        self.add_bots(self.company)
+        both = self.company / "automations" / "other" / "AUTOMATION.md"
+        both.parent.mkdir(parents=True)
+        both.write_text("---\ntype: automation\n---\n")
+        run(["git", "-C", str(self.company), "add", "-A"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "commit", "-q", "-m", "both"], env=self.env, check=True)
+        run(["git", "-C", str(self.company), "push", "-q", "origin", "main"], env=self.env, check=True)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+        self.assertIn("refresh: stopped in the company folder: it has both bots/ and automations/.", result.stdout)
+        self.assertNotIn("opened:", result.stdout)
+        self.assertEqual(run(["git", "ls-remote", "--heads", str(self.bare), "rules/*"], env=self.env).stdout, "")
+
+    def test_solo_refresh_renames_bots_on_main(self):
+        (self.company / "company-profile.md").write_text(self.solo_text)
+        run(["git", "-C", str(self.company), "commit", "-q", "-am", "solo"], env=self.env, check=True)
+        self.add_bots(self.company, switches="\n  - bots")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("committed: the company folder", result.stdout)
+        self.assertTrue((self.company / "automations" / "helper" / "AUTOMATION.md").is_file())
+        self.assertFalse((self.company / "bots").exists())
+        profile = (self.company / "company-profile.md").read_text()
+        self.assertRegex(profile, r"(?m)^switches:\s*\n  - automations$")
+        self.assertEqual(run(["git", "-C", str(self.company), "status", "--porcelain"], env=self.env).stdout, "")
+        again = self.refresh()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("rename:", again.stdout)
+
+
+class RenameFilterTests(unittest.TestCase):
+    """skills/upgrade/rename.sh filters, one text at a time (v1.0.8)."""
+
+    def filt(self, name, text):
+        lib = TEMPLATE / "skills" / "upgrade" / "rename.sh"
+        proc = subprocess.run(["bash", "-c", '. "$1"; "$2"', "f", str(lib), name], input=text,
+                              text=True, capture_output=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
+    def test_switch_inline_block_and_bare(self):
+        inline = "---\nswitches: [bots, traces]   # off by default. Allowed: bots, traces\n---\n\nbots stay here\n"
+        self.assertEqual(self.filt("rename_switch_filter", inline),
+                         "---\nswitches: [automations, traces]   # off by default. Allowed: automations, traces\n---\n\nbots stay here\n")
+        block = "---\nswitches:\n  - traces\n  - bots\nhost: none\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", block),
+                         "---\nswitches:\n  - traces\n  - automations\nhost: none\n---\n")
+        bare = "---\nswitches: bots\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", bare), "---\nswitches: automations\n---\n")
+        # A switch that only starts with bots is another switch.
+        other = "---\nswitches: [bots-extra, traces]\n---\n"
+        self.assertEqual(self.filt("rename_switch_filter", other), other)
+
+    def test_keys_only_in_the_frontmatter(self):
+        page = "---\ntype: bot\nbot: helper\nbot_user: acme-helper\nowner: ada\n---\n\nbot: in the body stays\n"
+        self.assertEqual(self.filt("rename_keys_filter", page),
+                         "---\ntype: automation\nautomation: helper\nhost_user: acme-helper\nowner: ada\n---\n\nbot: in the body stays\n")
+
+    def test_owners_keep_the_owners_and_other_lines(self):
+        github = "# Rules\n**/AGENTS.md @acme-admin\n/bots/*/BOT.md @acme-director @acme-admin\n"
+        self.assertEqual(self.filt("rename_owners_filter", github),
+                         "# Rules\n**/AGENTS.md @acme-admin\n/automations/*/AUTOMATION.md @acme-director @acme-admin\n")
+        forgejo = "^bots/[^/]+/BOT\\.md$ @acme-admin\n^(.*/)?skills/.* @acme-admin\n"
+        self.assertEqual(self.filt("rename_owners_filter", forgejo),
+                         "^automations/[^/]+/AUTOMATION\\.md$ @acme-admin\n^(.*/)?skills/.* @acme-admin\n")
+
+    def test_text_changes_only_the_stock_names(self):
+        text = ("- Rules files (`skills/**`, `bots/*/BOT.md`, `CODEOWNERS`).\n"
+                "- Units: `bots/<bot>/BOT.md`.\n  - [bots]: `add-bot`, `undo-run`.\n"
+                "Our own line about bots stays.\n")
+        self.assertEqual(self.filt("rename_text_filter", text),
+                         "- Rules files (`skills/**`, `automations/*/AUTOMATION.md`, `CODEOWNERS`).\n"
+                         "- Units: `automations/<automation>/AUTOMATION.md`.\n  - [automations]: `add-automation`, `undo-run`.\n"
+                         "Our own line about bots stays.\n")
 
 
 if __name__ == "__main__":

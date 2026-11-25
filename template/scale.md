@@ -18,7 +18,7 @@ All are off by default. v1 ships them as a written plan: turning one on is host 
 | `two-person-rule` | The admin loses the review bypass. A second person approves company-root rules changes. | A second approver. |
 | `sso-scim` | The company's identity provider adds and removes people. Leaving runs `remove-teammate` by itself. | GitHub Enterprise Cloud with SAML and SCIM. |
 | `enterprise-cloud` | The host is GitHub Enterprise Cloud: SSO, managed users, org-wide rulesets, audit log streaming. | The Enterprise Cloud plan. A company that must keep data on its own servers uses GitHub Enterprise Server instead. |
-| `company-app` | One GitHub App for the whole company. The app gives each bot a one-hour token cut to that bot's repos. The key never sits on a bot's computer. | The app level and the `bots` switch. |
+| `company-app` | One GitHub App for the whole company. The app gives each automation a one-hour token cut to that automation's repos. The key never sits on an automation's computer. | The app level and the `automations` switch. |
 
 Phone access to your own computer (an always-on session on a computer that already holds the copy) adds no copy. It is allowed at every size and needs no switch.
 
@@ -64,7 +64,7 @@ The same design works for a company of 5,000. The argument:
 - **Same layout, more areas.** One company repo, one repo per area, one workspace per person. Read access is per repo, so a large company adds areas, not new kinds of storage.
 - **Most staff are connector readers.** They use the connector in their chat app: no GitHub seat, no clone. Only people who write or approve need a seat. The connector is the app level (the 1610 OS app); it is not in this public release.
 - **GitHub Enterprise Cloud switches.** SSO, SCIM for joiners and leavers, org-wide rulesets, audit log streaming (see the table above). Forgejo is the lower-cost choice. A company that picks it gives up built-in audit, SSO and a multi-node design, and must add proxy logs, an approver allowlist and a multi-node plan.
-- **One company App.** Bots get one-hour tokens cut to their repos. No long-lived bot keys on computers.
+- **One company App.** Automations get one-hour tokens cut to their repos. No long-lived automation keys on computers.
 - **A nightly push at 02:00.** Each computer pushes at 02:00, or when it first wakes after 02:00. On Linux the push waits a random 0 to 30 minutes more. Computers that sleep push when they wake, which spreads the load further. The admin's nightly review runs at 03:30, after the push. The device helper runs at 04:00. Each person has their own branch, so pushes do not conflict.
 - **One digest per approver.** The nightly review fixes clear errors itself and sends each approver team one daily digest of flags, grouped and capped. People gate only rules files, which change rarely.
 - **Log volume.** One short log file per person per day per area: about 1.25 million small files a year across all area repos. The nightly review folds logs older than 30 days into one monthly summary per area. Raw files stay in history.

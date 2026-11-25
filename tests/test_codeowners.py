@@ -69,11 +69,13 @@ class CodeownersTests(unittest.TestCase):
         rules = [
             "AGENTS.md", "CLAUDE.md", "review-rules.md", "company-rules.md", "area-rules.md",
             "projects/launch/AGENTS.md", "docs/guides/CLAUDE.md", "projects/launch/review-rules.md",
-            "skills/ingest/SKILL.md", "projects/launch/skills/x/SKILL.md", "bots/digest/BOT.md",
+            "skills/ingest/SKILL.md", "projects/launch/skills/x/SKILL.md", "automations/digest/AUTOMATION.md",
             "CODEOWNERS", "docs/CODEOWNERS", ".github/workflows/checks.yml", "projects/launch/.github/x.yml",
             ".gitea/CODEOWNERS", ".forgejo/x.yml", ".claude/settings.json", "projects/launch/.claude/settings.json",
         ]
-        notes = ["notes/plan.md", "meetings/2026-10-29 Kickoff.md", "projects/launch/notes.md", "AGENTS.md.bak"]
+        notes = ["notes/plan.md", "meetings/2026-10-29 Kickoff.md", "projects/launch/notes.md", "AGENTS.md.bak",
+                 # A person's own bots (users/<person>/bots/ is the workspace repo's bots/): never rules.
+                 "bots/mine/BOT.md"]
 
         def held(path):
             proc = subprocess.run(

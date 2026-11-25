@@ -38,7 +38,7 @@ The runner sets `OS_REVIEW_FAKE` to `/opt/os-review-fake/verdicts.txt` and mount
 | member-b | `codex exec` | acme-member-b | Max Member |
 | member-c | `cursor-agent -p` | acme-member-c | Noa Member |
 | member-d | `pi -p` | acme-member-d | Sam Member |
-| bot | `pi -p` | acme-bot | Acme Bot |
+| automation | `pi -p` | acme-automation | Acme Automation |
 
 ```bash
 tests/acme/seat.sh member-d prompt.txt --cwd <clone>

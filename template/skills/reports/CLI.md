@@ -113,4 +113,4 @@ The file is the source. This script does not post it. If `architecture.md` alrea
 
 ## Branch and identity
 
-Same branch as nightly review: `review/<date>`. Same trailers (`Run-Id: review-...`, and `Bot-Owner:` when `bots` is on). Notes tier: `host.sh open-pr` and `host.sh auto-merge`. No secret in a child process's arguments. No host list call from this skill. Rules branches are read with `git for-each-ref`, which returns the full list.
+Same branch as nightly review: `review/<date>`. Same trailers (`Run-Id: review-...`, and `Automation-Owner:` when `automations` is on). Notes tier: `host.sh open-pr` and `host.sh auto-merge`. No secret in a child process's arguments. No host list call from this skill. Rules branches are read with `git for-each-ref`, which returns the full list.

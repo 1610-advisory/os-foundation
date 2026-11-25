@@ -48,9 +48,9 @@ The review check sends only the pull request under review (its title, body and d
 when: level: team
 Outside parties you grant access to (an advisory firm, a bookkeeper, an agency) hold copies of the repos their accounts can read; they read them under the same rules as staff, and when the work ends they delete those copies and keep only anonymized notes on methods, unless your agreement says otherwise.
 
-## bot-computers
-when: switch: bots
-Each bot's computer holds a copy of the repos that bot's own account can read; the bot's owner and anyone who can open that computer can read it, and it stays until the owner deletes the bot or its access.
+## automation-computers
+when: switch: automations
+Each automation's computer holds a copy of the repos that automation's own account can read; the automation's owner and anyone who can open that computer can read it, and it stays until the owner deletes the automation or its access.
 
 ## cloud-agents
 when: switch: cloud-handoff

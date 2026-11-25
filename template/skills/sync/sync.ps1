@@ -156,8 +156,9 @@ function Read-PullState([string]$Path) {
   $full = [int64]$Matches[1]
   if (-not ($lines[2] -match '^me ([A-Za-z0-9-]+|-)$')) { return $null }
   $me = $Matches[1]
-  if ($lines[3] -ne 'bot 0' -and $lines[3] -ne 'bot 1') { return $null }
-  $bot = $lines[3].Substring(4)
+  # bot is the old name of this line, from before the rename. Read it for one release.
+  if (-not ($lines[3] -match '^(automation|bot) ([01])$')) { return $null }
+  $automation = $Matches[2]
   $repos = New-Object System.Collections.Hashtable
   $order = New-Object System.Collections.Generic.List[string]
   for ($i = 4; $i -lt $lines.Length; $i++) {
@@ -174,7 +175,7 @@ function Read-PullState([string]$Path) {
   $parsed = New-Object System.Collections.Hashtable
   $parsed['Full'] = $full
   $parsed['Me'] = $me
-  $parsed['Bot'] = $bot
+  $parsed['Automation'] = $automation
   $parsed['Repos'] = $repos
   $parsed['Order'] = $order
   return ,$parsed
@@ -343,7 +344,7 @@ function Get-QuickDecision {
   $statePath = Join-Path (Join-Path $git 'os-foundation') 'pull-state'
   $state = Read-PullState $statePath
   if ($null -eq $state) { return 'bash' }
-  if ($state['Bot'] -eq '1') { return 'bash' }
+  if ($state['Automation'] -eq '1') { return 'bash' }
   if (Test-FullDue ([int64]$state['Full'])) { return 'bash' }
   if (Test-ForeignUserRepo $root ([string]$state['Me'])) { return 'bash' }
   foreach ($rel in $state['Order']) {

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Revert every commit of one bot run. One revert commit per repo.
+# Revert every commit of one automation run. One revert commit per repo.
 set -euo pipefail
 
 DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck disable=SC1091
-. "$DIR/../add-bot/lib.sh"
-trap bot_cleanup EXIT
+. "$DIR/../add-automation/lib.sh"
+trap auto_cleanup EXIT
 
 usage() {
   cat << 'EOF'
@@ -13,11 +13,11 @@ Usage: undo-run.sh <run-id> [--root <dir>]
 
 Find every commit on main with that Run-Id trailer. Make one revert
 commit per repo, open a pull request, and ask for auto-merge.
-The bots switch must be on.
+The automations switch must be on.
 EOF
 }
 
-BOT_ROOT_ARG=""
+AUTO_ROOT_ARG=""
 run_id=""
 
 while [ $# -gt 0 ]; do
@@ -27,9 +27,9 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     --root)
-      [ $# -ge 2 ] || bot_die 1 "--root needs a directory"
-      BOT_ROOT_ARG=$2
-      export BOT_ROOT_ARG
+      [ $# -ge 2 ] || auto_die 1 "--root needs a directory"
+      AUTO_ROOT_ARG=$2
+      export AUTO_ROOT_ARG
       shift 2
       ;;
     --)
@@ -37,11 +37,11 @@ while [ $# -gt 0 ]; do
       break
       ;;
     --*)
-      bot_die 1 "unknown argument: $1"
+      auto_die 1 "unknown argument: $1"
       ;;
     *)
       if [ -n "$run_id" ]; then
-        bot_die 1 "too many arguments"
+        auto_die 1 "too many arguments"
       fi
       run_id=$1
       shift
@@ -49,30 +49,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$run_id" ] || bot_die 1 "run-id is required"
-bot_slug_ok "run-id" "$run_id"
+[ -n "$run_id" ] || auto_die 1 "run-id is required"
+auto_slug_ok "run-id" "$run_id"
 
-BOT_ROOT=$(bot_find_root)
-export BOT_ROOT
+AUTO_ROOT=$(auto_find_root)
+export AUTO_ROOT
 export OS_PROFILE
-OS_PROFILE=$(bot_profile)
-bot_require_switch bots
-bot_need jq
-bot_need git
+OS_PROFILE=$(auto_profile)
+auto_require_switch automations
+auto_need jq
+auto_need git
 
-host_sh=$(bot_host_sh)
-err=$(bot_mktemp)
+host_sh=$(auto_host_sh)
+err=$(auto_mktemp)
 set +e
-if [ -n "${OS_BOT:-}" ]; then
-  token=$(bash "$host_sh" get-token --bot "$OS_BOT" 2>"$err")
+if [ -n "${OS_AUTOMATION:-}" ]; then
+  token=$(bash "$host_sh" get-token --automation "$OS_AUTOMATION" 2>"$err")
 else
   token=$(bash "$host_sh" get-token 2>"$err")
 fi
 rc=$?
 set -e
 if [ "$rc" -ne 0 ] || [ -z "$token" ]; then
-  scrub=$(bot_mktemp)
-  OS_SCRUB=$token bot_scrub_file "$err" "$scrub"
+  scrub=$(auto_mktemp)
+  OS_SCRUB=$token auto_scrub_file "$err" "$scrub"
   if [ -s "$scrub" ]; then
     cat "$scrub" >&2
   else
@@ -84,10 +84,10 @@ export OS_GIT_TOKEN=$token
 token=""
 
 login=$(bash "$host_sh" whoami | jq -r '.login // empty')
-[ -n "$login" ] || bot_die 4 "whoami returned no login"
+[ -n "$login" ] || auto_die 4 "whoami returned no login"
 export OS_GIT_USER=$login
 
-ask=$(bot_mktemp)
+ask=$(auto_mktemp)
 cat > "$ask" << 'EOF'
 #!/bin/sh
 case "$1" in
@@ -97,26 +97,26 @@ esac
 EOF
 chmod 700 "$ask"
 
-repo_list=$(bot_mktemp)
-if bot_is_git "$BOT_ROOT"; then
-  printf '%s\n' "$BOT_ROOT" >> "$repo_list"
+repo_list=$(auto_mktemp)
+if auto_is_git "$AUTO_ROOT"; then
+  printf '%s\n' "$AUTO_ROOT" >> "$repo_list"
 fi
-if [ -d "${BOT_ROOT}/areas" ]; then
-  for dir in "${BOT_ROOT}/areas"/*; do
-    if bot_is_git "$dir"; then
+if [ -d "${AUTO_ROOT}/areas" ]; then
+  for dir in "${AUTO_ROOT}/areas"/*; do
+    if auto_is_git "$dir"; then
       printf '%s\n' "$dir" >> "$repo_list"
     fi
   done
 fi
 
-emails=$(bot_mktemp)
-for page in "${BOT_ROOT}"/bots/*/BOT.md; do
+emails=$(auto_mktemp)
+for page in "${AUTO_ROOT}"/automations/*/AUTOMATION.md; do
   [ -f "$page" ] || continue
-  one=$(bot_field "$page" email || true)
-  one=$(bot_trim "$one")
+  one=$(auto_field "$page" email || true)
+  one=$(auto_trim "$one")
   [ -n "$one" ] && printf '%s\n' "$one" >> "$emails"
 done
-[ -s "$emails" ] || bot_die 2 "no bot email on a bot page"
+[ -s "$emails" ] || auto_die 2 "no automation email on an automation page"
 
 undo_drop_worktree() {
   local repo=$1 wt=$2 branch=$3
@@ -179,11 +179,11 @@ found_any=0
 any_conflict=0
 any_exists=0
 visible=0
-partials=$(bot_mktemp)
+partials=$(auto_mktemp)
 while IFS= read -r path; do
   [ -n "$path" ] || continue
-  name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
-  fetch_err=$(bot_mktemp)
+  name=$(auto_origin_name "$path") || auto_die 3 "repo has no origin"
+  fetch_err=$(auto_mktemp)
   set +e
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
     git -C "$path" -c credential.helper= fetch origin >"$fetch_err" 2>&1
@@ -211,7 +211,7 @@ while IFS= read -r path; do
     exit 3
   fi
   visible=1
-  hits=$(bot_mktemp)
+  hits=$(auto_mktemp)
   while IFS= read -r sha; do
     [ -n "$sha" ] || continue
     body=$(git -C "$path" log -1 --format='%B' "$sha")
@@ -237,7 +237,7 @@ EOF
     continue
   fi
   found_any=1
-  name=$(bot_origin_name "$path") || bot_die 3 "repo has no origin"
+  name=$(auto_origin_name "$path") || auto_die 3 "repo has no origin"
   branch="undo/${run_id}"
   if git -C "$path" show-ref --verify --quiet "refs/heads/${branch}" \
     || git -C "$path" show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
@@ -277,7 +277,7 @@ EOF
     printf '%s\n' "revert: empty"
     continue
   fi
-  msg=$(bot_mktemp)
+  msg=$(auto_mktemp)
   {
     printf 'Revert run %s\n\n' "$run_id"
     printf 'Reverts: %s\n' "$run_id"
@@ -287,7 +287,7 @@ EOF
   GIT_ASKPASS=$ask GIT_TERMINAL_PROMPT=0 \
     git -C "$wt" -c credential.helper= push -u origin "$branch"
   git -C "$path" worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"
-  body=$(bot_mktemp)
+  body=$(auto_mktemp)
   {
     printf 'Revert run %s\n\n' "$run_id"
     printf '%s\n' "Commits:"
@@ -320,10 +320,10 @@ if [ -s "$partials" ]; then
   exit 4
 fi
 if [ "$visible" -ne 1 ]; then
-  bot_die 2 "no repo visible to this token"
+  auto_die 2 "no repo visible to this token"
 fi
 if [ "$found_any" -ne 1 ]; then
-  bot_die 2 "no commits for that run"
+  auto_die 2 "no commits for that run"
 fi
 if [ "$any_conflict" -eq 1 ]; then
   exit 3

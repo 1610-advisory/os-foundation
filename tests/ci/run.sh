@@ -370,7 +370,7 @@ owner_yes() {
   if wait_ok "$sha"; then
     return 0
   fi
-  # Show why: the bot's last comments on the pull request.
+  # Show why: the automation's last comments on the pull request.
   comments_text "$number" | tail -n 8 | sed "s/^/info $label: /"
   return 2
 }

@@ -41,7 +41,7 @@ Weeks are ISO weeks that start on Monday, such as `2026-W43`. The job runs each 
 - By hand, every run writes the to-decide files for the date (today, or `--date YYYY-MM-DD`). It also writes the weekly pages for that date's week, or for `--week YYYY-Www`. Only `--daily` without `--week` skips the weekly pages. There is no week-only run.
 - The script gathers the facts. A small model (`report-prompt.md`) only picks which action and result sentences to keep, word for word. The counts are the script's, not the model's.
 - If the model fails, the page still has the facts and the line `The summary did not run.`
-- It writes as an area-scoped identity: the company bot when `bots` is on, else the admin's agent. Every commit carries a `Run-Id:` line.
+- It writes as an area-scoped identity: the company automation when `automations` is on, else the admin's agent. Every commit carries a `Run-Id:` line.
 - It writes on the branch `review/<date>` with auto-merge on. Reports are notes: no person approves them first.
 
 ## What a report may show
