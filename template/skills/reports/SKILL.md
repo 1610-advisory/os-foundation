@@ -7,7 +7,7 @@ description: Director and admin reports. A daily "to decide" page per area (only
 
 A report saves the director the reading. It shows nothing the director could not already read in the area.
 
-This skill is for `team` and `app`. At `team` an OS job runs it on the admin's computer each night, right after the nightly review. [app]: the kernel runs it.
+This skill is for `team` and `app`. At `team` an OS job runs it on the admin's computer each night, right after the nightly review. [app]: a tool timer or standing agent runs it (planned).
 
 ## The three reports
 

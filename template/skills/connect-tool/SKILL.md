@@ -9,6 +9,8 @@ Shared files tell the agent what to know. Tools let it act. Most tools connect t
 
 One tool per run. Ask one question at a time.
 
+This skill connects outside apps to the agent. A tool built for the company (app-setup) signs in to an outside app through the kernel's OAuth connections (ops-app `docs/tool-door.md`), not through this skill.
+
 ## Rules
 
 - **Never** ask for, type, paste, or save a password, API key, or token in chat or in any file. Use the tool's own sign-in (a browser window where they log in). If a tool only offers API keys, tell the person to put the key where the tool's docs say (an environment variable or their system keychain) themselves, and never show it to you.

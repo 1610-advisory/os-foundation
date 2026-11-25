@@ -4,12 +4,12 @@
 05ae0dc7716450e4b5b0893b6f8eee7ccfd21ca5 skills/add-teammate/SKILL.md
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
 07a83887af44629afd5d9d3974be16f818617af6 skills/orchestrator/templates/ORCHESTRATOR.md
+088091a87dbc92788aebef475a0fab3672f0b767 skills/ingest/SKILL.md
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
 0b25922bb81894236916ea32c5e143aad47959c0 skills/add-teammate/joining-terms.template.md
 0cb1e67260291e1dd7c7e8d62d7fd951c1b90c69 skills/add-area/templates/_area/memory/MEMORY.md
 0fdc603a97f596da3c797ac5ec38675d1ed32bf3 skills/upgrade/v0/AGENTS.md
 10c319524f2068e2b81768172319458380eb386b .github/scripts/review-diff.sh
-1143505386d04837363a415d51b74bbdb4a33209 skills/connect-tool/SKILL.md
 11b8847d01f240c2a8fc53463664aef0a1384867 skills/add-area/templates/_area/CLAUDE.md
 142475e4d020622e7a27ea67102c285705c8a8ac skills/skill-creator/eval-viewer/viewer.html
 14e41d6068635f4dd3fb878fd1626312395dda63 skills/skill-creator/agents/analyzer.md
@@ -22,6 +22,7 @@
 1b4e5a2577c579787ea646b0e7cba1bdb7e025f0 skills/add-area/SKILL.md
 1bb246dbab2b2c861e06ff4727426ae6b466994f skills/add-area/templates/admin/AGENTS.md
 1c100f3f78a38a51d2cdbfab397ba93471bda1ed skills/add-area/templates/_area/.gitattributes
+20e4d7322541e3d93b87589e1a697a93392f3886 skills/app-setup/SKILL.md
 20fd10d94f3fcec04a96ead8d85a7fe1f0e70a4c skills/remove-leak/remove-leak.sh
 215e0a6369659b47d22d218325922ac276701f07 skills/add-teammate/workspace/memory/logs/README.md
 2216f6bc324c1f0e20f4da2eac141d413f934c80 skills/add-automation/git-guard.sh
@@ -31,7 +32,6 @@
 259c637ee657b8308e2606b94b6a8af79b634de8 .github/scripts/tools/host/lib.sh
 259c637ee657b8308e2606b94b6a8af79b634de8 skills/_host/lib.sh
 2b69b621ea3fb40bed1c1d4c115a686534a79eef skills/add-automation/lib.sh
-2bc4ce80ec2255f07abb34d5f12916fff22a8b1f skills/app-setup/SKILL.md
 2ccdf86ffcc19d9a4185b874e8eff666a40b9b5d skills/add-automation/run.sh
 2ec8e8f0873ab6c29ce2fcf949a5cdae08d237c9 skills/remove-teammate/SKILL.md
 30a263d674ef19de11c756d6f7537f91a421909e skills/skill-creator/scripts/run_loop.py
@@ -39,10 +39,10 @@
 33eb8f262fbcbef8d8d13dfa6324809d91c9f1f9 .github/scripts/tools/host/forgejo.sh
 33eb8f262fbcbef8d8d13dfa6324809d91c9f1f9 skills/_host/forgejo.sh
 34f8858c91a3a650ca29ce0b4a266bed9849fa24 skills/sync/CLI.md
+38238b82e8291b95ddc1df074feea8d6be5976b2 skills/kernel-cli/SKILL.md
 38ce0f252d6b0c4b4eae027927190651129195de skills/add-automation/SKILL.md
 3b0b61505e889307d496a576ae80079b0a3f62a0 skills/sync/SKILL.md
 3b59a75c6f9d29153f6579687bafb1eefdaf8d8d .github/scripts/lib.sh
-3bb9ce306e69bb91f4ec1d9324a90f38be91abc3 skills/kernel-cli/SKILL.md
 3d3a7ec60fe556fe1555c4fa1dad6a5e7d2689e5 skills/upgrade/v0/areas/finance/AGENTS.md
 3e66e8c105be9bab9f0e9c61f0d1482619401580 skills/skill-creator/scripts/aggregate_benchmark.py
 43c994c2d3617f947bcb5adf1933e21dabe46bb5 skills/upgrade/v0/areas/_area/CLAUDE.md
@@ -70,6 +70,7 @@
 63d25127a287fab14dc74f4342a26cf838d20732 skills/sync/jobs/windows-task.xml
 64a71a8617a210d291725b31178be2dcf1991449 skills/nightly-review/CLI.md
 67b4106a8e3de916724dee9c8d6ddc07497a9a6f skills/add-area/templates/finance/AGENTS.md
+6c52942be3f47e671246e47b29380c4eed19e883 skills/nightly-review/SKILL.md
 715ef465dbc8a6d14e7708b60bede57fee53907e .github/scripts/tools/lint/lint.sh
 715ef465dbc8a6d14e7708b60bede57fee53907e skills/lint/lint.sh
 729d7cb3de64397304317c21946b3b4f0d6bbb63 skills/lint/CLI.md
@@ -93,13 +94,13 @@
 90189b5e12f29e3371b4023af860b9115d03f213 skills/add-teammate/CLI.md
 907594b83ad405abfaaeba58006c02074e5a1ca0 skills/privacy/places.md
 91eee2cc3187da9930aaf6e513a1398da23b692e skills/add-automation/templates/AUTOMATION.md
+9333732fed268b1dec176d00ca029921eb63d211 skills/upgrade/v0/README.md
 93eb85cc23663adf23ee6594d3a0ef6b35e2edbc skills/upgrade/rename.sh
 94a25af4729f2b4956f921e7f4cda355b599b912 skills/reports/run.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 .github/scripts/tools/host/profile.sh
 94c064a67faee5aaef9f77ff5f35227ccbcbc915 skills/_host/profile.sh
 97ad2ae46c25b094bc9fc89274f1f197c29c5afd skills/sync/jobs/linux-interval.timer
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
-9b08784608c5570f05c7d6beef25fefe1f550d19 skills/reports/SKILL.md
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9d2a8650d28a36a47820368464a81044d8e1c64c skills/orchestrator/SKILL.md
 9dc47430bc0620bbbbc5da082af988ba0e1b175b skills/undo-run/CLI.md
@@ -122,7 +123,6 @@ b73813f57dbca23c891be75d11a09e59a0674309 skills/sync/v0logs.sh
 b8ee77f582dbcbf65e165c06d8751a3c045a1dba skills/add-area/templates/apps/.gitignore
 ba3c993b9d2e7bad4ee66000c4020907ec19a0be skills/sync/jobs/macos-interval.plist
 bac5b7c3cd6613148c3534c8a375828e1b9a9ff2 skills/remote-setup/defaults.txt
-bc6bfd83587a667cb25536f5e4bd36b03fd2c05c skills/nightly-review/SKILL.md
 c027394f3469e83444d9997d72e286db0ac2372f skills/add-area/templates/apps/AGENTS.md
 c02940f7c5be014aa16439aa6db434a817c02ae7 skills/upgrade/upgrade.sh
 c3c18dfdfcc5e6517cf9ddab24264fddc683af98 skills/remote-setup/check.ps1
@@ -141,11 +141,12 @@ d186693498a8f79859737ba592cf70adee3720ee skills/sync/push-check.md
 d484c357e4657d55403715cae7b018e29d697eb2 skills/privacy/privacy.sh
 d609ee6ccf793e6b9cb2fe5a325589e6a93aa13c skills/upgrade/rules-merge.sh
 d788c08c1adb3ce89a3791d5cb17fbfec704018d .github/scripts/tools/lint.sh
+d90c581e2af5c11f38f000f442585d2ebef859d4 skills/reports/SKILL.md
 d92c119887c7cabed3ccb40c1302ca5d75c5f33a .github/scripts/tools/host/github.sh
 d92c119887c7cabed3ccb40c1302ca5d75c5f33a skills/_host/github.sh
 d94f97f52ee36eecb35937f982104a57ec21098b skills/add-area/templates/_area/datasets.md
+db3406136abc11cbc47cdc857f72326ba9fabcbc skills/connect-tool/SKILL.md
 dbf0207afdaeab5cf39ae56e8ecd02e27501e084 skills/skill-creator/eval-viewer/generate_review.py
-e35986600c0803937991233fa382bf45517329fc skills/ingest/SKILL.md
 e569eb49d95ec7a79aab8b6640e4b12294b69943 skills/upgrade/root-router.sh
 e58c70bea39d5b252a1e819f242bbdcdf20e8b87 skills/skill-creator/scripts/run_eval.py
 e68801d84c1b94ee47bb961ca44673c93dc93dd6 .github/scripts/checkout.sh
