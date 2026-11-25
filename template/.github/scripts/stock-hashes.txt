@@ -360,6 +360,7 @@
 508efbf8c018689fe678e43be12664d30fc2bc83 skills/remove-teammate/CLI.md
 50d5f541abf333d4fa16b9c0198705ecc305167b skills/suggest/SKILL.md
 50e81be4f4be987aaa62bb36ffbb31874f9b9de7 skills/_host/README.md
+514bf03b082e8ee7e7b6690db01555cc13231c09 skills/upgrade/upgrade.sh
 5158de74edbe30e1b08ce27deaf2a3c969d8ad74 skills/remove-leak/SKILL.md
 516d8b5b479a2b74c97e7b6b29887152671f996b skills/remove-leak/SKILL.md
 51744617839e2dbb4f72b111efce06b6ddf0b528 skills/remove-teammate/CLI.md

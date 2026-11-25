@@ -2,9 +2,9 @@
 
 Plain-word release notes for os-foundation. Newest first. Versions follow semver. Your folder records its version in `os_version:` in `company-profile.md`.
 
-## Unreleased
+## v1.0.7.1 — 2026-11-25
 
-Check tools release `2026112501`. At team level a company gets this with `upgrade --refresh`.
+A fix on top of v1.0.7: admins can use `/override` and `/approve` again. Check tools release `2026112501`. At team level a company gets this with `upgrade --refresh`.
 
 **Checks (issue #63)**
 - **An admin can `/override` and `/approve` again.** `override.sh` read `left:` on a people page as it stood, so `left: ""` (every people page has it) was not empty, and no person with `role: admin` counted as an owner. The template line's trailing `# comment` was kept too. Now `left:`, `role:` and `github:` are read the same way: a trailing ` # comment` goes, quotes go, then the value is trimmed. A page with a real date in `left:` still does not count. A company on the old tools needs a ruleset bypass once to take this fix, because the check runs `override.sh` from `main`.

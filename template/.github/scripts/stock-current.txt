@@ -47,6 +47,7 @@
 4f3b31bf41ae59a696da8a5c87c0c2ad0ae24073 skills/remove-leak/SKILL.md
 4f674302a9901b195fe58ef9135f4f0618ce8e71 skills/add-teammate/sweep.sh
 4f881c52d1f72f4cfb720e339e2d35c3058d01a9 skills/skill-creator/LICENSE.txt
+514bf03b082e8ee7e7b6690db01555cc13231c09 skills/upgrade/upgrade.sh
 51b6a07dd57174197a937034b7eecebd5768ff8a skills/skill-creator/scripts/utils.py
 53dc991b44933048031a2d7070f3127be4993c8b skills/sync/collect.sh
 5444082f2d271717c401208d204995834d80a97b skills/upgrade/v0/areas/apps/AGENTS.md
@@ -66,7 +67,6 @@
 66cc87c3260dbd18366725f502085789825b96c9 skills/upgrade/SKILL.md
 67b4106a8e3de916724dee9c8d6ddc07497a9a6f skills/add-area/templates/finance/AGENTS.md
 6f1da741c8263a479f349ca7923ce02e9aa6ba92 skills/reports/CLI.md
-71b8c50fc9d92ddbeaa277a6bd99539c3767bdbe skills/upgrade/upgrade.sh
 74cc0b150e2f483e90f4d8c587004c9736e7bcc1 skills/sync/push.sh
 753c4327724a15b18eec9341eb5198f572020672 skills/sync/jobs/linux-calendar.timer
 75b7ecd19f39bb6376ec2a76eb62662bc2a70ab2 skills/add-teammate/workspace/drafts/README.md
