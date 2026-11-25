@@ -24,6 +24,7 @@ So: **no personal-life facts** here. No health, family, home, beliefs or money t
 |---|---|
 | Voice, writing samples, preferences, how the person works | `profile/` (start at `profile/PROFILE.md`) |
 | Drafts and work in progress | `drafts/` |
+| The person's orchestrator (always-on session, its workers, what waits on the person) | `orchestrator/ORCHESTRATOR.md` (skill: `orchestrator`) |
 | Sensitive work and private sources (DMs, a personal mailbox, 1:1s, HR, pay) | Here. Tag the note `source: private`. |
 | How to work with this person, notes to self | `memory/` |
 | What you did in this workspace today | `memory/logs/YYYY-MM-DD-{{PERSON_SLUG}}.md` |

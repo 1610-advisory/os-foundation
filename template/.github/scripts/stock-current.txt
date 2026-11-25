@@ -6,6 +6,7 @@
 031ce713e9526d4357ff2b5363689d18d2163342 skills/undo-run/CLI.md
 053b362c04f3806efe3bee374982d2ddd4f814c7 skills/sync/jobs.sh
 06bcec76122446986e3610c20a39c466de36f495 skills/skill-creator/scripts/improve_description.py
+07a83887af44629afd5d9d3974be16f818617af6 skills/orchestrator/templates/ORCHESTRATOR.md
 0aaff68c800c2e03570bd28e89e7aaee0c8b5d1b skills/sync/jobs/macos-admin.plist
 0b25922bb81894236916ea32c5e143aad47959c0 skills/add-teammate/joining-terms.template.md
 0cb1e67260291e1dd7c7e8d62d7fd951c1b90c69 skills/add-area/templates/_area/memory/MEMORY.md
@@ -22,6 +23,7 @@
 1bb246dbab2b2c861e06ff4727426ae6b466994f skills/add-area/templates/admin/AGENTS.md
 1c100f3f78a38a51d2cdbfab397ba93471bda1ed skills/add-area/templates/_area/.gitattributes
 1cc58d39cbce7a6b8c6316783b00e6e1060a64aa .github/scripts/tools-release
+1d3e372c2b8ce6aaa5122deb2e3ac3a5fe1beeb8 skills/add-teammate/workspace/AGENTS.md
 20fd10d94f3fcec04a96ead8d85a7fe1f0e70a4c skills/remove-leak/remove-leak.sh
 215e0a6369659b47d22d218325922ac276701f07 skills/add-teammate/workspace/memory/logs/README.md
 23dbbbb0548b514bad67859e72598ee6660cc4f1 skills/sync/jobs/linux.service
@@ -92,6 +94,7 @@
 9aeb5c921ef2788f2e9390f713342234797fe07a skills/skill-creator/scripts/generate_report.py
 9b1b146a809e29cce7de342a00cdff60fafd5905 skills/sync/reapply.sh
 9c71b2a22bcfc9d628da27171fc9d5e642a32f34 skills/upgrade/CLI.md
+9d2a8650d28a36a47820368464a81044d8e1c64c skills/orchestrator/SKILL.md
 9ec1abfba7ebefcbec529d62640c9709fb1fa1a1 skills/skill-creator/SKILL.md
 a0a87e9786c85f1bd21cc37b2459159ac6db0c65 skills/nightly-review/SKILL.md
 a4a41c886b142658c0e068849e34db4153e0ef17 skills/nightly-review/run.sh
@@ -112,7 +115,6 @@ b8ee77f582dbcbf65e165c06d8751a3c045a1dba skills/add-area/templates/apps/.gitigno
 b90465f17dc008baaa5d5cf7c40a815baccc42f4 skills/remove-teammate/CLI.md
 b985d0570332a5f0114df67b34f7af1ae575ced6 skills/reports/SKILL.md
 ba3c993b9d2e7bad4ee66000c4020907ec19a0be skills/sync/jobs/macos-interval.plist
-ba72de631c66316e8e60ca307fb28040e672d661 skills/add-teammate/workspace/AGENTS.md
 bac5b7c3cd6613148c3534c8a375828e1b9a9ff2 skills/remote-setup/defaults.txt
 c027394f3469e83444d9997d72e286db0ac2372f skills/add-area/templates/apps/AGENTS.md
 c02940f7c5be014aa16439aa6db434a817c02ae7 skills/upgrade/upgrade.sh
