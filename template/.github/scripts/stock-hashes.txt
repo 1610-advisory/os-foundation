@@ -420,6 +420,7 @@
 577b93b9372884f117c1b61dcb246ad04bc1b4a5 skills/remove-teammate/remove.sh
 577ca41b15fe0951fd344806ac8e3f079434e2de skills/add-teammate/add-person.sh
 57808ed82b3a2a20a9503ef9d671429988d8a6ee skills/privacy/SKILL.md
+58542ccf061af290bb29d12700562854df1a6367 skills/sync/lib.sh
 585d66e4a017d7635099b524b135491920df0d44 skills/add-teammate/CLI.md
 585dbae8125c3499506f4f69b674af86556ebf8f skills/add-teammate/SKILL.md
 5896d0e4dbfc23edfba9a628f03f01044c549a64 skills/lint/CLI.md
